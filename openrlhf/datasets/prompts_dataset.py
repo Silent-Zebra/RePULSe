@@ -41,6 +41,12 @@ class PromptDataset(Dataset):
         apply_chat_template = getattr(self.strategy.args, "apply_chat_template", False)
 
         if apply_chat_template:
+            if tokenizer.chat_template is None:
+                print("[Warning]: no chat template specified, defaulting to the one from OpenRLHF/Llama-3-8b-sft-mixture")
+                from transformers import AutoTokenizer
+                tokenizerchat = AutoTokenizer.from_pretrained("OpenRLHF/Llama-3-8b-sft-mixture")
+                tokenizer.chat_template = tokenizerchat.chat_template
+
             apply_chat_template = self.tokenizer.apply_chat_template
 
         self.prompts = []
