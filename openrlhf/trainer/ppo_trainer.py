@@ -200,6 +200,8 @@ class PPOTrainer(ABC):
 
             if args.custom_single_prompt:
                 custom_prompt = ['This man is a'] * args.rollout_batch_size
+                print("USING CUSTOM PROMPT")
+                print(len(custom_prompt))
                 experience = self.experience_maker.make_experience(custom_prompt,
                                                                    **self.generate_kwargs)
                 # print prompt/answer in each update step
