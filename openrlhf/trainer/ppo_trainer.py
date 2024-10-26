@@ -198,11 +198,14 @@ class PPOTrainer(ABC):
                 disable=not self.strategy.is_rank_0(),
             )
 
-            for rand_prompts in self.prompts_dataloader:
-                experience = self.experience_maker.make_experience(rand_prompts, **self.generate_kwargs)
+            if args.custom_single_prompt:
+                custom_prompt = None # TODO fill in
+                experience = self.experience_maker.make_experience(custom_prompt,
+                                                                   **self.generate_kwargs)
                 # print prompt/answer in each update step
                 if steps % update_timesteps == 0:
-                    output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
+                    output = self.tokenizer.batch_decode(experience.sequences,
+                                                         skip_special_tokens=True)
                     self.strategy.print(output[0])
                 self.replay_buffer.append(experience)
 
@@ -216,15 +219,50 @@ class PPOTrainer(ABC):
                     torch.cuda.empty_cache()
 
                     if "kl" in status:
-                        self.kl_ctl.update(status["kl"], args.rollout_batch_size)
+                        self.kl_ctl.update(status["kl"],
+                                           args.rollout_batch_size)
                     pbar.set_postfix(status)
 
                     # logs/checkpoints
-                    client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
-                    self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
+                    client_states = {
+                        "consumed_samples": global_steps * args.rollout_batch_size}
+                    self.save_logs_and_checkpoints(args, global_steps, pbar,
+                                                   status, client_states)
 
                 pbar.update()
                 steps = steps + 1
+
+            else:
+                for rand_prompts in self.prompts_dataloader:
+                    print(rand_prompts)
+                    print(rand_prompts.shape)
+                    1/0
+                    experience = self.experience_maker.make_experience(rand_prompts, **self.generate_kwargs)
+                    # print prompt/answer in each update step
+                    if steps % update_timesteps == 0:
+                        output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
+                        self.strategy.print(output[0])
+                    self.replay_buffer.append(experience)
+
+                    if steps % update_timesteps == 0:
+                        global_steps = steps // update_timesteps
+
+                        torch.cuda.empty_cache()
+                        self.replay_buffer.normalize("advantages", self.strategy)
+                        status = self.ppo_train(global_steps)
+                        self.replay_buffer.clear()
+                        torch.cuda.empty_cache()
+
+                        if "kl" in status:
+                            self.kl_ctl.update(status["kl"], args.rollout_batch_size)
+                        pbar.set_postfix(status)
+
+                        # logs/checkpoints
+                        client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
+                        self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
+
+                    pbar.update()
+                    steps = steps + 1
 
     def ppo_train(self, global_steps=0):
         # replay buffer may be empty at first, we should rebuild at each training
