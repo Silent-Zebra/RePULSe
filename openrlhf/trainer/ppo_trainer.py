@@ -199,7 +199,7 @@ class PPOTrainer(ABC):
             )
 
             if args.custom_single_prompt:
-                custom_prompt = None # TODO fill in
+                custom_prompt = ['This man is a'] * args.rollout_batch_size
                 experience = self.experience_maker.make_experience(custom_prompt,
                                                                    **self.generate_kwargs)
                 # print prompt/answer in each update step
@@ -234,9 +234,6 @@ class PPOTrainer(ABC):
 
             else:
                 for rand_prompts in self.prompts_dataloader:
-                    print(rand_prompts)
-                    print(rand_prompts.shape)
-                    1/0
                     experience = self.experience_maker.make_experience(rand_prompts, **self.generate_kwargs)
                     # print prompt/answer in each update step
                     if steps % update_timesteps == 0:
