@@ -125,6 +125,11 @@ class NaiveExperienceMaker(ABC):
         sequences, attention_mask, action_mask = self.actor.generate(**inputs, **generate_kwargs)
         num_actions = action_mask.size(1)
 
+        print("--Sequences--")
+        print(sequences)
+        print(self.tokenizer.batch_decode(sequences))
+        print("--End Sequences--")
+
         # log probs
         action_log_probs = self.actor(sequences, num_actions, attention_mask)
 
@@ -143,6 +148,10 @@ class NaiveExperienceMaker(ABC):
             # local RM
             r = self.reward_model(sequences, attention_mask)
 
+        print("--Rewards--")
+        print(r)
+        print("--End Rewards--")
+
         reward, kl = compute_reward(
             r,
             self.kl_ctl.value,
@@ -150,6 +159,9 @@ class NaiveExperienceMaker(ABC):
             base_action_log_probs,
             action_mask=action_mask,
         )
+        print("--Rewards--")
+        print(reward)
+        print("--End Rewards--")
         advantage, returns = self.get_advantages_and_returns(
             value,
             reward,
