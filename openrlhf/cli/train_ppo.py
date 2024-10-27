@@ -166,7 +166,7 @@ def train(args):
     # configure scheduler
     num_update_steps_per_episodes = len(prompts_dataset) // args.train_batch_size * args.max_epochs
     if args.custom_single_prompt:
-        num_update_steps_per_episodes = 1
+        num_update_steps_per_episodes = args.max_epochs
 
     max_steps = math.ceil(args.num_episodes * num_update_steps_per_episodes)
 
