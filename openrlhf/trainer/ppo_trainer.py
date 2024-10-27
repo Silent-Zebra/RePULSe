@@ -168,10 +168,16 @@ class PPOTrainer(ABC):
         consumed_samples=0,
         num_update_steps_per_episodes=1,
     ) -> None:
-        num_rollouts_per_episodes = (
-            num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
-        )
-        update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
+
+        if args.custom_single_prompt:
+            update_timesteps = 1
+            num_rollouts_per_episodes = 1
+
+        else:
+            num_rollouts_per_episodes = (
+                num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
+            )
+            update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
 
         # get eval and save steps
         if args.eval_steps == -1:
@@ -199,7 +205,6 @@ class PPOTrainer(ABC):
             )
 
             if args.custom_single_prompt:
-                update_timesteps = 1
 
                 custom_prompt = ['This man is a'] * args.train_batch_size
                 print("USING CUSTOM PROMPT")
