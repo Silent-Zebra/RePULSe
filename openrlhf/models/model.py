@@ -263,7 +263,7 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config):
             # print(tokens['input_ids'].device)
             # print(tokens['attention_mask'].device)
             rew = self.rm(input_ids=tokens['input_ids'].to(input_ids.device),
-                  attention_mask=tokens['attention_mask'].to(input_ids.device)).logits
+                  attention_mask=tokens['attention_mask'].to(input_ids.device)).logits.squeeze()
             print(rew)
             print("--END FORWARD CALL--")
 
