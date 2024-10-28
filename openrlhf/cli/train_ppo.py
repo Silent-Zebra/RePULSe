@@ -9,7 +9,7 @@ import torch
 from transformers.trainer import get_scheduler
 
 from openrlhf.datasets import PromptDataset, SFTDataset
-from openrlhf.models import Actor, get_llm_for_sequence_regression
+from openrlhf.models import Actor, get_llm_for_sequence_regression, _get_reward_model_custom
 from openrlhf.trainer import PPOTrainer
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
 
@@ -53,17 +53,38 @@ def train(args):
     )
 
     if not args.remote_rm_url:
-        reward_model = get_llm_for_sequence_regression(
-            args.reward_pretrain,
-            "reward",
-            normalize_reward=args.normalize_reward,
-            use_flash_attention_2=args.flash_attn,
-            bf16=args.bf16,
-            load_in_4bit=args.load_in_4bit,
-            ds_config=strategy.get_ds_train_config(is_actor=False),
-            value_head_prefix=args.value_head_prefix,
-        )
-        get_tokenizer(args.reward_pretrain, reward_model, "left", strategy, use_fast=not args.disable_fast_tokenizer)
+        if args.reward_pretrain == "nicholasKluge/ToxicityModel":
+            print("USING CUSTOM REWARD MODEL")
+            from transformers import AutoTokenizer, AutoConfig, AutoModel
+
+            def get_tokenizer_custom(model_config):
+                tokenizer = AutoTokenizer.from_pretrained(model_config)
+                tokenizer.pad_token = tokenizer.eos_token
+                return tokenizer
+
+            tokenizer = get_tokenizer_custom(args.pretrain)
+
+            rm_name = args.reward_pretrain
+            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
+            config.normalize_reward = False
+            base_class = AutoModel._model_mapping[type(config)]
+            base_pretrained_class = base_class.__base__
+            reward_model = _get_reward_model_custom(base_pretrained_class, rm_name,
+                                             tokenizer=tokenizer, config=config)
+
+        else:
+
+            reward_model = get_llm_for_sequence_regression(
+                args.reward_pretrain,
+                "reward",
+                normalize_reward=args.normalize_reward,
+                use_flash_attention_2=args.flash_attn,
+                bf16=args.bf16,
+                load_in_4bit=args.load_in_4bit,
+                ds_config=strategy.get_ds_train_config(is_actor=False),
+                value_head_prefix=args.value_head_prefix,
+            )
+            get_tokenizer(args.reward_pretrain, reward_model, "left", strategy, use_fast=not args.disable_fast_tokenizer)
     else:
         reward_model = None
 

@@ -232,6 +232,39 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
     return RewardModel
 
 
+def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config):
+    class RewardModel(base_pretrained_class):
+        supports_gradient_checkpointing = True
+
+        def __init__(self):
+            super().__init__(config)
+
+            from transformers import AutoModelForSequenceClassification, \
+                AutoTokenizer
+
+            self.rm = AutoModelForSequenceClassification.from_pretrained(
+                rm_name)
+            self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
+            self.tokenizer = tokenizer  # TODO ensure this works
+
+        def forward(
+            self,
+            input_ids: torch.LongTensor = None,
+            attention_mask=None,
+            return_output=False,
+        ) -> torch.Tensor:
+            assert return_output == False
+            text = self.tokenizer.batch_decode(input_ids)
+            print(text)
+            tokens = self.tokenizer_RM(text, return_tensors="pt", padding=True)
+            print(tokens)
+            rew = self.rm(**tokens)
+            print(rew)
+            return rew
+
+    return RewardModel()
+
+
 def _get_critic_model(base_pretrained_model, base_llm_model, value_head_prefix="value_head", packing_samples=False):
     class CriticModel(base_pretrained_model):
         supports_gradient_checkpointing = True
