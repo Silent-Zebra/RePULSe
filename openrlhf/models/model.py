@@ -255,15 +255,15 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config):
         ) -> torch.Tensor:
             assert return_output == False
             print("--FORWARD CALL--")
-            print(input_ids.device)
+            # print(input_ids.device)
             text = self.tokenizer.batch_decode(input_ids)
             print(text)
             tokens = self.tokenizer_RM(text, return_tensors="pt", padding=True)
-            print(tokens)
-            print(tokens['input_ids'].device)
-            print(tokens['attention_mask'].device)
-            rew = self.rm(input_ids=tokens['input_ids'],
-                  attention_mask=tokens['attention_mask'])
+            # print(tokens)
+            # print(tokens['input_ids'].device)
+            # print(tokens['attention_mask'].device)
+            rew = self.rm(input_ids=tokens['input_ids'].to(input_ids.device),
+                  attention_mask=tokens['attention_mask'].to(input_ids.device))
             print(rew)
             print("--END FORWARD CALL--")
 
