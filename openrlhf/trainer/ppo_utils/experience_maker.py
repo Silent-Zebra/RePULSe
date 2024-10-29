@@ -150,6 +150,7 @@ class NaiveExperienceMaker(ABC):
 
         print("--Rewards--")
         print(r)
+        print(r.mean())
         print("--End Rewards--")
 
         reward, kl = compute_reward(
@@ -161,6 +162,7 @@ class NaiveExperienceMaker(ABC):
         )
         print("--Rewards--")
         print(reward)
+        print(reward.mean())
         print("--End Rewards--")
         advantage, returns = self.get_advantages_and_returns(
             value,
