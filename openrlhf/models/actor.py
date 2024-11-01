@@ -152,8 +152,8 @@ class Actor(nn.Module):
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
         seq_length = attention_mask.size(1)
 
-        print("--Sequences before modification--")
-        print(sequences)
+        # print("--Sequences before modification--")
+        # print(sequences)
 
         # The following code is equivalent to:
         #
@@ -164,11 +164,25 @@ class Actor(nn.Module):
         #             sequences[i][min(t + 1, seq_length - 1)] = eos_token_id
         #             break
         #
-        eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
-        sequences.scatter_(dim=1, index=eos_indices, value=eos_token_id)
 
-        print("--Sequences after modification--")
-        print(sequences)
+        # eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
+        # sequences.scatter_(dim=1, index=eos_indices, value=eos_token_id)
+
+        # TODO The above may be the problem
+        # Summary of what I think is the problem: essentially if you reach the max sequence length in generation
+        # All the rest of the code does calculations based on this token which was manually inserted
+        # The problem here is that the eos token may be very different in probability from what the model would actually generate
+        # And this causes problems specifically with the KL divergence from the base policy, because the KL is now calculated on the EOS token
+        # Which may have a very different value on the current policy vs ref/base policy
+        # And of course, since the EOS token is not actually being sampled
+        # This can also cause the KL div to go negative, and wildly so
+        # TODO So I think we can simply just not have the EOS token at the end (possibly just remove the above 2 lines), and things should work ok. Not sure what problems this might cause though, by removing the final EOS processing
+        # Also not sure what other problems may arise
+        # TODO open an issue on the OpenRLHF repo
+        # TODO After resolving this issue, keep stepping through code and checking elsewhere what is going on
+
+        # print("--Sequences after modification--")
+        # print(sequences)
 
         # For Llama3 and Qwen2 models, there are some eos_tokens in the middle of the prompt.
         first_token_indices = attention_mask.long().argmax(dim=1, keepdim=True)
