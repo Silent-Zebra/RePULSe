@@ -125,6 +125,10 @@ class NaiveExperienceMaker(ABC):
         sequences, attention_mask, action_mask = self.actor.generate(**inputs, **generate_kwargs)
         num_actions = action_mask.size(1)
 
+        print("--NUM ACTIONS--")
+        print(num_actions)
+        print(action_mask.size())
+
         print("--Sequences--")
         print(sequences)
         print(self.tokenizer.batch_decode(sequences))
@@ -132,9 +136,15 @@ class NaiveExperienceMaker(ABC):
 
         # log probs
         action_log_probs = self.actor(sequences, num_actions, attention_mask)
+        print("--ACTION LOG PROBS--")
+        print(action_log_probs.mean())
+        print(action_log_probs)
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
+        print("--BASE ACTION LOG PROBS--")
+        print(base_action_log_probs.mean())
+        print(base_action_log_probs)
 
         # values
         value = self.critic(sequences, action_mask, attention_mask)
