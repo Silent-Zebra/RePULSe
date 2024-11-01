@@ -127,7 +127,10 @@ class NaiveExperienceMaker(ABC):
 
         print("--NUM ACTIONS--")
         print(num_actions)
+
+        print("--ACTION MASK--")
         print(action_mask.size())
+        print(action_mask)
 
         print("--Sequences--")
         print(sequences)
