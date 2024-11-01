@@ -23,6 +23,9 @@ def compute_approx_kl(
     """
 
     log_ratio = log_probs - log_probs_base
+    print("--KL LOG RATIO--")
+    print(log_ratio.mean())
+    print(log_ratio)
     return log_ratio * action_mask
 
 
@@ -38,6 +41,9 @@ def compute_reward(
 
     kl = compute_approx_kl(log_probs, log_probs_base, action_mask=action_mask)
     kl_reward = -kl_coef * kl
+    print("--KL REWARD--")
+    print(kl_reward.mean())
+    print(kl_reward)
 
     r = r.clamp(min=-10, max=10)
 
@@ -52,6 +58,10 @@ def compute_reward(
     #
     eos_indices = action_mask.size(1) - 1 - action_mask.long().fliplr().argmax(dim=1, keepdim=True)
     last_reward = torch.zeros_like(kl).scatter_(dim=1, index=eos_indices, src=r.unsqueeze(1).to(kl.dtype))
+
+    print("--LAST REWARD--")
+    print(last_reward.mean())
+    print(last_reward)
 
     reward = last_reward + kl_reward
     return reward, kl

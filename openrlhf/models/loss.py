@@ -74,6 +74,11 @@ class ValueLoss(nn.Module):
             loss = (values - returns) ** 2
 
         print("--VALUE LOSS--")
+        print("--values--")
+        print(values)
+        print("--returns--")
+        print(returns)
+        print("--loss--")
         print(loss)
         loss = masked_mean(loss, action_mask, dim=-1).mean()
         return 0.5 * loss
