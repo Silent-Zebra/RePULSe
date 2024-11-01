@@ -26,6 +26,12 @@ def compute_approx_kl(
     print("--KL LOG RATIO--")
     print(log_ratio.mean())
     print(log_ratio)
+    print("--LOG PROBS--")
+    print(log_probs.mean())
+    print(log_probs)
+    print("--LOG PROBS BASE--")
+    print(log_probs_base.mean())
+    print(log_probs_base)
     return log_ratio * action_mask
 
 
