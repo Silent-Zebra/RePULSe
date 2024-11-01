@@ -152,6 +152,9 @@ class Actor(nn.Module):
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
         seq_length = attention_mask.size(1)
 
+        print("--Sequences before modification--")
+        print(sequences)
+
         # The following code is equivalent to:
         #
         # for i in range(attention_mask.size(0)):
@@ -164,6 +167,9 @@ class Actor(nn.Module):
         eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
         sequences.scatter_(dim=1, index=eos_indices, value=eos_token_id)
 
+        print("--Sequences after modification--")
+        print(sequences)
+
         # For Llama3 and Qwen2 models, there are some eos_tokens in the middle of the prompt.
         first_token_indices = attention_mask.long().argmax(dim=1, keepdim=True)
         mask = torch.arange(seq_length).unsqueeze(0).expand(sequences.size(0), -1).to(device=sequences.device)
@@ -173,17 +179,6 @@ class Actor(nn.Module):
         state_seq = sequences[:, input_len - 1 : -1]
         action_mask = state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id)
         action_mask[:, 0] = 1
-
-        print("--STATE SEQ AND ACTION MASK--")
-        print(eos_token_id)
-        print(pad_token_id)
-        print(state_seq)
-        print("--STATE SEQ NE EOS--")
-        print(state_seq.ne(eos_token_id))
-        print("--STATE SEQ NE PAD--")
-        print(state_seq.ne(pad_token_id))
-        print("--STATE SEQ NE BOTH--")
-        print(state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id))
 
         return sequences, attention_mask, action_mask
 
