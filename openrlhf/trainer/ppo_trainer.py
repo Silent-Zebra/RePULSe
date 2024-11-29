@@ -209,6 +209,16 @@ class PPOTrainer(ABC):
                 custom_prompt = ['This man is a'] * args.train_batch_size
                 print("USING CUSTOM PROMPT")
                 print(len(custom_prompt))
+
+                action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(custom_prompt, **self.generate_kwargs)
+                log_q = action_log_probs
+                # TODO load the posterior samples, pass through the actor to get the g_q estimate,
+                print(log_q)
+                print(log_q.shape)
+                print(action_mask.shape)
+                1/0
+
+
                 experience = self.experience_maker.make_experience(custom_prompt,
                                                                    **self.generate_kwargs)
                 # print prompt/answer in each update step

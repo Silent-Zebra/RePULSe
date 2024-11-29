@@ -112,36 +112,12 @@ class NaiveExperienceMaker(ABC):
         )
         return {k: v.to(device) for k, v in batch.items()}
 
+
+
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], **generate_kwargs) -> Experience:
-        self.actor.eval()
-        self.critic.eval()
-        self.initial_model.eval()
-        if self.reward_model is not None:
-            self.reward_model.eval()
-
-        # generate seq
-        inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
-        sequences, attention_mask, action_mask = self.actor.generate(**inputs, **generate_kwargs)
-        num_actions = action_mask.size(1)
-
-        print("--NUM ACTIONS--")
-        print(num_actions)
-
-        print("--ACTION MASK--")
-        print(action_mask.size())
-        print(action_mask)
-
-        print("--Sequences--")
-        print(sequences)
-        print(self.tokenizer.batch_decode(sequences))
-        print("--End Sequences--")
-
-        # log probs
-        action_log_probs = self.actor(sequences, num_actions, attention_mask)
-        print("--ACTION LOG PROBS--")
-        print(action_log_probs.mean())
-        print(action_log_probs)
+        action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
+            prompts, generate_kwargs)
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
@@ -206,6 +182,33 @@ class NaiveExperienceMaker(ABC):
             action_mask,
             info,
         )
+
+    def generate_seqs_and_get_logprobs(self, prompts, generate_kwargs):
+        self.actor.eval()
+        self.critic.eval()
+        self.initial_model.eval()
+        if self.reward_model is not None:
+            self.reward_model.eval()
+        # generate seq
+        inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
+        sequences, attention_mask, action_mask = self.actor.generate(**inputs,
+                                                                     **generate_kwargs)
+        num_actions = action_mask.size(1)
+        print("--NUM ACTIONS--")
+        print(num_actions)
+        print("--ACTION MASK--")
+        print(action_mask.size()) # TODO check this matches the output_len
+        print(action_mask)
+        print("--Sequences--")
+        print(sequences)
+        print(self.tokenizer.batch_decode(sequences))
+        print("--End Sequences--")
+        # log probs
+        action_log_probs = self.actor(sequences, num_actions, attention_mask)
+        print("--ACTION LOG PROBS--")
+        print(action_log_probs.mean())
+        print(action_log_probs)
+        return action_log_probs, action_mask, attention_mask, num_actions, sequences
 
     @torch.no_grad()
     def get_advantages_and_returns(
@@ -430,6 +433,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             output_ids = list(output.outputs[0].token_ids) + [pad_token_id] * (max_output_len - output_len)
 
             if output_ids[output_len - 1] != eos_token_id:
+                raise Exception # This is likely doing the wrong thing, e.g. see https://github.com/OpenRLHF/OpenRLHF/issues/238
                 output_ids[min(output_len, len(output_ids) - 1)] = eos_token_id
 
             # concat input and output
