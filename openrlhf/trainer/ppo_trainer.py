@@ -216,6 +216,11 @@ class PPOTrainer(ABC):
                 print(log_q)
                 print(log_q.shape)
                 print(action_mask.shape)
+                rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences, attention_mask,
+                                     action_log_probs)
+                print(rewards_no_kl)
+                log_phi = torch.log(rewards_no_kl)
+                print(log_phi)
                 1/0
 
 
