@@ -117,7 +117,7 @@ class NaiveExperienceMaker(ABC):
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], **generate_kwargs) -> Experience:
         action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
-            prompts, generate_kwargs)
+            prompts, **generate_kwargs)
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
@@ -183,7 +183,7 @@ class NaiveExperienceMaker(ABC):
             info,
         )
 
-    def generate_seqs_and_get_logprobs(self, prompts, generate_kwargs):
+    def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
         self.actor.eval()
         self.critic.eval()
         self.initial_model.eval()
