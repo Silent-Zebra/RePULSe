@@ -222,6 +222,16 @@ class PPOTrainer(ABC):
                 log_phi = args.target_dist_beta * rewards_no_kl
                 print(args.target_dist_beta)
                 print(log_phi)
+                log_p = self.experience_maker.initial_model(sequences, num_actions, attention_mask)
+                print(log_p)
+                print(log_q - log_p)
+                log_tilde_sigma = log_p + log_phi
+                f_qs = log_tilde_sigma - log_q
+                print("Avg F_q Estimate (Learned Model)")
+                print(f_qs.mean())
+                print("IWAE Lower Bound Estimate (Learned Model)")
+                iwae_lower_bound_estimate = torch.logsumexp(f_qs,dim=0) - torch.log(f_qs.shape[0])
+                print(iwae_lower_bound_estimate)
                 1/0
 
 
