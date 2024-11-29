@@ -403,6 +403,9 @@ if __name__ == "__main__":
         default="ppo_%s" % datetime.now().strftime("%m%dT%H:%M"),
     )
 
+    parser.add_argument("--target_dist_beta", type=float, default=1, help="Beta in our SMC formulation of the target distribution of p_0 e^{beta r}")
+
+
     args = parser.parse_args()
 
     if args.critic_pretrain is None:

@@ -219,7 +219,7 @@ class PPOTrainer(ABC):
                 rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences, attention_mask,
                                      action_log_probs)
                 print(rewards_no_kl)
-                log_phi = torch.log(rewards_no_kl)
+                log_phi = args.target_dist_beta * rewards_no_kl
                 print(log_phi)
                 1/0
 
