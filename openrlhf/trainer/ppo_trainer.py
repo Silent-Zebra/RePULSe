@@ -220,6 +220,7 @@ class PPOTrainer(ABC):
                                      action_log_probs)
                 print(rewards_no_kl)
                 log_phi = args.target_dist_beta * rewards_no_kl
+                print(args.target_dist_beta)
                 print(log_phi)
                 1/0
 
