@@ -225,9 +225,14 @@ class PPOTrainer(ABC):
                     iwae_lbs_list.append(iwae_lower_bound_estimate)
                     # TODO load the posterior samples, pass through to get g_q estimate
                     if true_posterior_samples is not None:
+                        print("device check")
+                        print(true_posterior_samples.device)
+                        print(q_seqs.device)
                         true_posterior_samples.to(q_seqs.device)
+                        print(true_posterior_samples.device)
                     if i == 0:
                         if true_posterior_samples is not None:
+                            print(true_posterior_samples.device)
                             # TODO DIAGNOSTIC ONLY REMOVE LATER
                             g_qs = self.g_q_estimate(args, true_posterior_samples,
                                                      num_actions, attention_mask)
@@ -350,6 +355,9 @@ class PPOTrainer(ABC):
         self.experience_maker.set_all_eval()
         sequences = true_sigma_samples
         with torch.no_grad():
+            print("device check 2")
+            print(sequences.device)
+            print(attention_mask.device)
             action_log_probs = self.experience_maker.actor(sequences, num_actions,
                                           attention_mask)
             log_q = action_log_probs.sum(dim=-1)
