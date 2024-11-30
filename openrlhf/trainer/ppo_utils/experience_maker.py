@@ -189,12 +189,15 @@ class NaiveExperienceMaker(ABC):
             r = self.reward_model(sequences, attention_mask)
         return r
 
-    def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
+    def set_all_eval(self):
         self.actor.eval()
         self.critic.eval()
         self.initial_model.eval()
         if self.reward_model is not None:
             self.reward_model.eval()
+
+    def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
+        self.set_all_eval()
         # generate seq
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
