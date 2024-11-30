@@ -168,7 +168,7 @@ class PPOTrainer(ABC):
         consumed_samples=0,
         num_update_steps_per_episodes=1,
         true_posterior_samples=None,
-    ) -> (List, List):
+    ) -> (List, List, List, List):
 
         if args.custom_single_prompt:
             update_timesteps = 1
@@ -196,6 +196,10 @@ class PPOTrainer(ABC):
 
         iwae_lbs_list = []
         iwae_ubs_list = []
+        f_q_estimates_list = []
+        g_q_estimates_list = []
+        total_f_qs = None
+        total_g_qs = None
         n_seeds_f_q = 3
         # rewards_list = []
         # kl_to_prior_list = []
@@ -233,12 +237,12 @@ class PPOTrainer(ABC):
                     if true_posterior_samples is not None:
                         true_posterior_samples = true_posterior_samples.to(q_seqs.device)
                     if i == 0:
-                        if true_posterior_samples is not None:
-                            # TODO DIAGNOSTIC ONLY REMOVE LATER
-                            g_qs = self.g_q_estimate(args, true_posterior_samples[:q_seqs.shape[0]],
-                                                     num_actions, attention_mask)
-                            print("Avg G_q Estimate (Learned Model)")
-                            print(g_qs.mean())
+                        assert true_posterior_samples is not None
+                        # TODO later account for the above possiblity
+                        g_qs = self.g_q_estimate(args, true_posterior_samples[:q_seqs.shape[0]],
+                                                 num_actions, attention_mask)
+                        print("Avg G_q Estimate (Learned Model)")
+                        print(g_qs.mean())
 
                     if true_posterior_samples is not None:
                         iwae_mixture_with_one_post = q_seqs.detach().clone()
@@ -251,6 +255,28 @@ class PPOTrainer(ABC):
 
                         iwae_ubs[i] = iwae_upper_bound_estimate.item()
 
+                    if total_f_qs is None:
+                        total_f_qs = f_qs
+                        # total_rewards = rewards
+                        # total_kl_vals = kl_vals
+                    else:
+                        total_f_qs = torch.cat((total_f_qs, f_qs), axis=0)
+                        print("F_Q Shape")
+                        print(total_f_qs.shape)
+                        # total_rewards = torch.cat((total_rewards, rewards),
+                        #                           axis=0)
+                        # print(total_rewards.shape)
+                        # total_kl_vals = torch.cat((total_kl_vals, kl_vals),
+                        #                           axis=0)
+                        # print(total_kl_vals.shape)
+                    if total_g_qs is None:
+                        total_g_qs = g_qs
+                    else:
+                        total_g_qs = torch.cat((total_g_qs, g_qs),
+                                               axis=0)
+                        print("Total G_qs shape")
+                        print(total_g_qs.shape)
+
                 iwae_lbs_list.append(iwae_lbs)
                 iwae_ubs_list.append(iwae_ubs)
 
@@ -262,6 +288,17 @@ class PPOTrainer(ABC):
                 print(iwae_lbs_list)
                 print(iwae_ubs_list)
 
+                print("Shapes")
+                print(total_g_qs.shape)
+                print(total_f_qs.shape)
+                # print(total_rewards.shape)
+                # print(total_kl_vals.shape)
+
+                if total_g_qs is not None:
+                    g_q_estimates_list.append(
+                        total_g_qs.cpu().numpy())  # Only one G_q estimate (over all the posterior samples)
+
+                f_q_estimates_list.append(total_f_qs.cpu().numpy())
 
                 experience = self.experience_maker.make_experience(custom_prompt,
                                                                    **self.generate_kwargs)
@@ -324,7 +361,7 @@ class PPOTrainer(ABC):
                     pbar.update()
                     steps = steps + 1
 
-        return iwae_lbs_list, iwae_ubs_list
+        return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
 
     def f_q_estimate(self, args, batch_prompt):
         self.experience_maker.set_all_eval()

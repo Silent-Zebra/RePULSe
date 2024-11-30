@@ -197,8 +197,8 @@ class NaiveExperienceMaker(ABC):
                 log_prob_of_class = nontoxic_class_logprob
             else:
                 assert class_num == 0
-                toxic_class_prob = 1 - torch.exp(nontoxic_class_logprob)
-                log_prob_of_class = torch.log(toxic_class_prob)
+                # toxic_class_prob = 1 - torch.exp(nontoxic_class_logprob)
+                # log_prob_of_class = torch.log(toxic_class_prob)
 
                 # NUMERICAL STABILITY
                 # Note that we want to calculate: log prob of class 0
@@ -215,18 +215,18 @@ class NaiveExperienceMaker(ABC):
                 # = - log(1 + e^c)
                 # = - softplus(score)
 
-                print("INSPECTING REWARDS: score")
-                print(score)
-                print("INSPECTING REWARDS: nontoxic_class_logprob")
-                print(nontoxic_class_logprob)
-                print("INSPECTING REWARDS: toxic_class_prob")
-                print(toxic_class_prob)
-                print("INSPECTING REWARDS: log_prob_of_class")
-                print(log_prob_of_class)
+                # print("INSPECTING REWARDS: score")
+                # print(score)
+                # print("INSPECTING REWARDS: nontoxic_class_logprob")
+                # print(nontoxic_class_logprob)
+                # print("INSPECTING REWARDS: toxic_class_prob")
+                # print(toxic_class_prob)
+                # print("INSPECTING REWARDS: log_prob_of_class")
+                # print(log_prob_of_class)
 
                 log_prob_of_class = -torch.nn.functional.softplus(score)
-                print("INSPECTING REWARDS: log_prob_of_class (softplus)")
-                print(log_prob_of_class)
+                # print("INSPECTING REWARDS: log_prob_of_class (softplus)")
+                # print(log_prob_of_class)
 
             return log_prob_of_class
 
