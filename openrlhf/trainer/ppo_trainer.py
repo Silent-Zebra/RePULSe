@@ -224,6 +224,8 @@ class PPOTrainer(ABC):
                     print(iwae_lower_bound_estimate)
                     iwae_lbs_list.append(iwae_lower_bound_estimate)
                     # TODO load the posterior samples, pass through to get g_q estimate
+                    if true_posterior_samples is not None:
+                        true_posterior_samples.to(q_seqs.device)
                     if i == 0:
                         if true_posterior_samples is not None:
                             # TODO DIAGNOSTIC ONLY REMOVE LATER
