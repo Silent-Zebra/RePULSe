@@ -210,8 +210,13 @@ class PPOTrainer(ABC):
                 print("USING CUSTOM PROMPT")
                 print(len(custom_prompt))
 
+                self.actor.eval()
+                self.critic.eval()
+                self.initial_model.eval()
+                if self.reward_model is not None:
+                    self.reward_model.eval()
                 action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(custom_prompt, **self.generate_kwargs)
-                log_q = action_log_probs
+                log_q = action_log_probs.sum(dim=-1)
                 # TODO load the posterior samples, pass through the actor to get the g_q estimate,
                 print(log_q)
                 print(log_q.shape)
@@ -222,7 +227,8 @@ class PPOTrainer(ABC):
                 log_phi = args.target_dist_beta * rewards_no_kl
                 print(args.target_dist_beta)
                 print(log_phi)
-                log_p = self.experience_maker.initial_model(sequences, num_actions, attention_mask)
+                base_action_log_probs = self.experience_maker.initial_model(sequences, num_actions, attention_mask)
+                log_p = base_action_log_probs.sum(dim=-1)
                 print(log_p)
                 print(log_q - log_p)
                 log_tilde_sigma = log_p + log_phi
