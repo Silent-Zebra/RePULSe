@@ -225,9 +225,7 @@ class PPOTrainer(ABC):
                     iwae_lbs_list.append(iwae_lower_bound_estimate)
                     # TODO load the posterior samples, pass through to get g_q estimate
                     if true_posterior_samples is not None:
-
                         true_posterior_samples = true_posterior_samples.to(q_seqs.device)
-                        print(true_posterior_samples.device)
                     if i == 0:
                         if true_posterior_samples is not None:
                             # TODO DIAGNOSTIC ONLY REMOVE LATER
@@ -355,7 +353,7 @@ class PPOTrainer(ABC):
             action_log_probs = self.experience_maker.actor(sequences, num_actions,
                                           attention_mask)
             log_q = action_log_probs.sum(dim=-1)
-            log_tilde_sigma = self.eval_log_p_plus_log_phi(self, args, action_log_probs,
+            log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
                                     attention_mask,
                                     num_actions, sequences)
 
