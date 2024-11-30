@@ -200,12 +200,14 @@ class NaiveExperienceMaker(ABC):
                 toxic_class_prob = 1 - torch.exp(nontoxic_class_logprob)
                 log_prob_of_class = torch.log(toxic_class_prob)
 
-            print("INSPECTING REWARDS: score")
-            print(score)
-            print("INSPECTING REWARDS: nontoxic_class_logprob")
-            print(nontoxic_class_logprob)
-            print("INSPECTING REWARDS: log_prob_of_class")
-            print(log_prob_of_class)
+                print("INSPECTING REWARDS: score")
+                print(score)
+                print("INSPECTING REWARDS: nontoxic_class_logprob")
+                print(nontoxic_class_logprob)
+                print("INSPECTING REWARDS: toxic_class_prob")
+                print(toxic_class_prob)
+                print("INSPECTING REWARDS: log_prob_of_class")
+                print(log_prob_of_class)
 
             return log_prob_of_class
 
