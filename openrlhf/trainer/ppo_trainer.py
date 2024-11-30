@@ -225,20 +225,22 @@ class PPOTrainer(ABC):
                     iwae_lbs_list.append(iwae_lower_bound_estimate)
                     # TODO load the posterior samples, pass through to get g_q estimate
                     if i == 0:
-                        # TODO DIAGNOSTIC ONLY REMOVE LATER
-                        g_qs = self.g_q_estimate(args, true_posterior_samples,
-                                                 num_actions, attention_mask)
-                        print("Avg G_q Estimate (Learned Model)")
-                        print(g_qs.mean())
+                        if true_posterior_samples is not None:
+                            # TODO DIAGNOSTIC ONLY REMOVE LATER
+                            g_qs = self.g_q_estimate(args, true_posterior_samples,
+                                                     num_actions, attention_mask)
+                            print("Avg G_q Estimate (Learned Model)")
+                            print(g_qs.mean())
 
-                    iwae_mixture_with_one_post = q_seqs.detach().clone()
-                    iwae_mixture_with_one_post[i] = true_posterior_samples[i]  # To keep the conditioning tokens constant
-                    iwae_ub_weights = self.g_q_estimate(args, iwae_mixture_with_one_post, num_actions, attention_mask)
-                    print("IWAE Upper Bound Estimate (Learned Model)")
-                    iwae_upper_bound_estimate = torch.logsumexp(
-                        iwae_ub_weights, dim=0) - torch.log(torch.tensor(iwae_ub_weights.shape[0]))
-                    print(iwae_upper_bound_estimate)
-                    iwae_ubs_list.append(iwae_upper_bound_estimate)
+                    if true_posterior_samples is not None:
+                        iwae_mixture_with_one_post = q_seqs.detach().clone()
+                        iwae_mixture_with_one_post[i] = true_posterior_samples[i]  # To keep the conditioning tokens constant
+                        iwae_ub_weights = self.g_q_estimate(args, iwae_mixture_with_one_post, num_actions, attention_mask)
+                        print("IWAE Upper Bound Estimate (Learned Model)")
+                        iwae_upper_bound_estimate = torch.logsumexp(
+                            iwae_ub_weights, dim=0) - torch.log(torch.tensor(iwae_ub_weights.shape[0]))
+                        print(iwae_upper_bound_estimate)
+                        iwae_ubs_list.append(iwae_upper_bound_estimate)
 
                     # 1/0
                 print("IWAE LB AND UB LISTS")
