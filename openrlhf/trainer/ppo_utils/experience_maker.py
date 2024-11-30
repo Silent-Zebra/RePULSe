@@ -191,14 +191,21 @@ class NaiveExperienceMaker(ABC):
         if classifier_reward:
             print("WARNING: only set up for toxicity so far") # TODO later make more flexible, for different reward models. Also, be careful that this is the only place the reward model is used
             score = r
-            nontoxic_class_prob = torch.nn.functional.sigmoid(score)
+            nontoxic_class_logprob = torch.nn.functional.logsigmoid(score)
 
             if class_num == 1:
-                log_prob_of_class = torch.log(nontoxic_class_prob)
+                log_prob_of_class = nontoxic_class_logprob
             else:
                 assert class_num == 0
-                toxic_class_prob = 1 - nontoxic_class_prob
+                toxic_class_prob = 1 - torch.exp(nontoxic_class_logprob)
                 log_prob_of_class = torch.log(toxic_class_prob)
+
+            print("INSPECTING REWARDS: score")
+            print(score)
+            print("INSPECTING REWARDS: nontoxic_class_logprob")
+            print(nontoxic_class_logprob)
+            print("INSPECTING REWARDS: log_prob_of_class")
+            print(log_prob_of_class)
 
             return log_prob_of_class
 

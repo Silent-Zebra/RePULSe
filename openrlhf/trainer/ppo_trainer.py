@@ -252,7 +252,7 @@ class PPOTrainer(ABC):
                         iwae_ubs[i] = iwae_upper_bound_estimate.item()
 
                 iwae_lbs_list.append(iwae_lbs)
-                iwae_lbs_list.append(iwae_ubs)
+                iwae_ubs_list.append(iwae_ubs)
 
                     # 1/0
                 print("IWAE LB AND UB")
