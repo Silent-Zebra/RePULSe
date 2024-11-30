@@ -232,16 +232,11 @@ class PPOTrainer(ABC):
                     disable=not self.strategy.is_rank_0(),
                 )
 
-                experience = self.experience_maker.make_experience(custom_prompt,
-                                                                   **self.generate_kwargs)
-                # print prompt/answer in each update step
-                if steps % update_timesteps == 0:
-                    output = self.tokenizer.batch_decode(experience.sequences,
-                                                         skip_special_tokens=True)
-                    self.strategy.print(output[0])
-                self.replay_buffer.append(experience)
+
+
 
                 if steps % update_timesteps == 0:
+
                     global_steps = steps // update_timesteps
 
                     num_twist_updates_to_do = args.update_steps_per_episode
@@ -251,7 +246,19 @@ class PPOTrainer(ABC):
                         else:
                             num_twist_updates_to_do = 2 ** episode
 
-                    for _ in range(num_twist_updates_to_do):
+                    for update in range(num_twist_updates_to_do):
+                        experience = self.experience_maker.make_experience(
+                            custom_prompt,
+                            **self.generate_kwargs)
+
+                        if update == 0:
+                            # print prompt/answer ONCE per number of updates
+                            output = self.tokenizer.batch_decode(
+                                experience.sequences,
+                                skip_special_tokens=True)
+                            self.strategy.print(output[0])
+
+                        self.replay_buffer.append(experience)
 
                         torch.cuda.empty_cache()
                         self.replay_buffer.normalize("advantages", self.strategy)
