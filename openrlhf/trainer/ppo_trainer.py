@@ -296,9 +296,9 @@ class PPOTrainer(ABC):
 
                 if total_g_qs is not None:
                     g_q_estimates_list.append(
-                        total_g_qs.cpu().numpy())  # Only one G_q estimate (over all the posterior samples)
+                        total_g_qs.cpu())  # Only one G_q estimate (over all the posterior samples)
 
-                f_q_estimates_list.append(total_f_qs.cpu().numpy())
+                f_q_estimates_list.append(total_f_qs.cpu())
 
                 experience = self.experience_maker.make_experience(custom_prompt,
                                                                    **self.generate_kwargs)

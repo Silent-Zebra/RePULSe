@@ -289,9 +289,14 @@ def train(args):
 
     iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
 
-    print("FINAL RESULTS IWAE LB AND UB LISTS")
+    print("FINAL RESULTS IWAE LB LIST")
     print(iwae_lbs_list)
+    print("FINAL RESULTS IWAE UB LIST")
     print(iwae_ubs_list)
+    print("FINAL RESULTS F_Q")
+    print(f_q_estimates_list)
+    print("FINAL RESULTS G_Q")
+    print(g_q_estimates_list)
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
