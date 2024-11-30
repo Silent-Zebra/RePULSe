@@ -207,7 +207,7 @@ class PPOTrainer(ABC):
 
             if args.custom_single_prompt:
 
-                custom_prompt = ['This man is a'] * args.train_batch_size
+                custom_prompt = ['Once upon a time, there was a'] * args.train_batch_size
                 print("USING CUSTOM PROMPT")
                 print(len(custom_prompt))
 
