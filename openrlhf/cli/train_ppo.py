@@ -298,6 +298,12 @@ def train(args):
     print("FINAL RESULTS G_Q")
     print(g_q_estimates_list)
 
+    target_to_save = (
+        f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
+    )
+
+    torch.save(target_to_save, args.save_info_path)
+
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
         ema_model if args.enable_ema else actor,
@@ -430,6 +436,7 @@ if __name__ == "__main__":
     parser.add_argument("--target_dist_beta", type=float, default=1., help="Beta in our SMC formulation of the target distribution of p_0 e^{beta r}")
     parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
     parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
+    parser.add_argument("--save_info_path", type=str, default="./info")
 
 
 
