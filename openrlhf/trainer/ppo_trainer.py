@@ -200,109 +200,35 @@ class PPOTrainer(ABC):
         g_q_estimates_list = []
 
         n_seeds_f_q = 1
-        if true_posterior_samples is not None:
-            n_seeds_f_q = true_posterior_samples.shape[0] // args.train_batch_size
-            print(f"n_seeds_f_q: {n_seeds_f_q}")
+        # if true_posterior_samples is not None:
+        #     n_seeds_f_q = true_posterior_samples.shape[0] // args.train_batch_size
+        #     print(f"n_seeds_f_q: {n_seeds_f_q}")
         # rewards_list = []
         # kl_to_prior_list = []
 
-        for episode in range(start_episode, args.num_episodes):
-            if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
-                self.prompts_dataloader.sampler.set_epoch(
-                    episode, consumed_samples=0 if episode > start_episode else consumed_samples
+
+        if args.custom_single_prompt:
+            prompt_text = 'Once upon a time, there was a'
+            custom_prompt = [prompt_text] * args.train_batch_size
+            print("USING CUSTOM PROMPT")
+            print(len(custom_prompt))
+            start_episode = 0 # TODO later make sure this hasn't messed things up
+
+            self.f_q_g_q_evaluation(args, f_q_estimates_list,
+                                    g_q_estimates_list, iwae_lbs_list,
+                                    iwae_ubs_list, n_seeds_f_q, prompt_text,
+                                    true_posterior_samples)
+
+            for episode in range(start_episode, args.num_episodes):
+                if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
+                    self.prompts_dataloader.sampler.set_epoch(
+                        episode, consumed_samples=0 if episode > start_episode else consumed_samples
+                    )
+                pbar = tqdm(
+                    range(self.prompts_dataloader.__len__()),
+                    desc=f"Episode [{episode + 1}/{args.num_episodes}]",
+                    disable=not self.strategy.is_rank_0(),
                 )
-            pbar = tqdm(
-                range(self.prompts_dataloader.__len__()),
-                desc=f"Episode [{episode + 1}/{args.num_episodes}]",
-                disable=not self.strategy.is_rank_0(),
-            )
-
-            if args.custom_single_prompt:
-
-                custom_prompt = ['Once upon a time, there was a'] * args.train_batch_size
-                print("USING CUSTOM PROMPT")
-                print(len(custom_prompt))
-
-                iwae_lbs = torch.zeros((n_seeds_f_q,))
-                iwae_ubs = torch.zeros((n_seeds_f_q,))
-                total_f_qs = None
-                total_g_qs = None
-
-                for i in range(n_seeds_f_q):
-
-                    f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(args, custom_prompt)
-                    print("Avg F_q Estimate (Learned Model)")
-                    print(f_qs.mean())
-                    print("IWAE Lower Bound Estimate (Learned Model)")
-                    iwae_lower_bound_estimate = torch.logsumexp(f_qs, dim=0) - torch.log(torch.tensor(f_qs.shape[0]))
-                    print(iwae_lower_bound_estimate)
-                    iwae_lbs[i] = iwae_lower_bound_estimate.item()
-                    # TODO load the posterior samples, pass through to get g_q estimate
-                    if true_posterior_samples is not None:
-                        true_posterior_samples = true_posterior_samples.to(q_seqs.device)
-                    if i == 0:
-                        assert true_posterior_samples is not None
-                        # TODO later account for the above possiblity
-                        g_qs = self.g_q_estimate(args, true_posterior_samples[:q_seqs.shape[0]],
-                                                 num_actions, attention_mask)
-                        print("Avg G_q Estimate (Learned Model)")
-                        print(g_qs.mean())
-
-                    if true_posterior_samples is not None:
-                        iwae_mixture_with_one_post = q_seqs.detach().clone()
-                        iwae_mixture_with_one_post[i] = true_posterior_samples[i]  # To keep the conditioning tokens constant
-                        iwae_ub_weights = self.g_q_estimate(args, iwae_mixture_with_one_post, num_actions, attention_mask)
-                        print("IWAE Upper Bound Estimate (Learned Model)")
-                        iwae_upper_bound_estimate = torch.logsumexp(
-                            iwae_ub_weights, dim=0) - torch.log(torch.tensor(iwae_ub_weights.shape[0]))
-                        print(iwae_upper_bound_estimate)
-
-                        iwae_ubs[i] = iwae_upper_bound_estimate.item()
-
-                    if total_f_qs is None:
-                        total_f_qs = f_qs
-                        # total_rewards = rewards
-                        # total_kl_vals = kl_vals
-                    else:
-                        total_f_qs = torch.cat((total_f_qs, f_qs), axis=0)
-                        print("F_Q Shape")
-                        print(total_f_qs.shape)
-                        # total_rewards = torch.cat((total_rewards, rewards),
-                        #                           axis=0)
-                        # print(total_rewards.shape)
-                        # total_kl_vals = torch.cat((total_kl_vals, kl_vals),
-                        #                           axis=0)
-                        # print(total_kl_vals.shape)
-                    if total_g_qs is None:
-                        total_g_qs = g_qs
-                    else:
-                        total_g_qs = torch.cat((total_g_qs, g_qs),
-                                               axis=0)
-                        print("Total G_qs shape")
-                        print(total_g_qs.shape)
-
-                iwae_lbs_list.append(iwae_lbs)
-                iwae_ubs_list.append(iwae_ubs)
-
-                    # 1/0
-                print("IWAE LB AND UB")
-                print(iwae_lbs)
-                print(iwae_ubs)
-                print("IWAE LB AND UB LISTS")
-                print(iwae_lbs_list)
-                print(iwae_ubs_list)
-
-                print("Shapes")
-                print(total_g_qs.shape)
-                print(total_f_qs.shape)
-                # print(total_rewards.shape)
-                # print(total_kl_vals.shape)
-
-                if total_g_qs is not None:
-                    g_q_estimates_list.append(
-                        total_g_qs.cpu())  # Only one G_q estimate (over all the posterior samples)
-
-                f_q_estimates_list.append(total_f_qs.cpu())
 
                 experience = self.experience_maker.make_experience(custom_prompt,
                                                                    **self.generate_kwargs)
@@ -316,27 +242,46 @@ class PPOTrainer(ABC):
                 if steps % update_timesteps == 0:
                     global_steps = steps // update_timesteps
 
-                    torch.cuda.empty_cache()
-                    self.replay_buffer.normalize("advantages", self.strategy)
-                    status = self.ppo_train(global_steps)
-                    self.replay_buffer.clear()
-                    torch.cuda.empty_cache()
+                    for _ in range(args.update_steps_per_episode):
 
-                    if "kl" in status:
-                        self.kl_ctl.update(status["kl"],
-                                           args.rollout_batch_size)
-                    pbar.set_postfix(status)
+                        torch.cuda.empty_cache()
+                        self.replay_buffer.normalize("advantages", self.strategy)
+                        status = self.ppo_train(global_steps)
+                        self.replay_buffer.clear()
+                        torch.cuda.empty_cache()
+
+                        if "kl" in status:
+                            self.kl_ctl.update(status["kl"],
+                                               args.rollout_batch_size)
+                        pbar.set_postfix(status)
 
                     # logs/checkpoints
-                    client_states = {
-                        "consumed_samples": global_steps * args.rollout_batch_size}
-                    self.save_logs_and_checkpoints(args, global_steps, pbar,
-                                                   status, client_states)
+                    # client_states = {
+                    #     "consumed_samples": global_steps * args.rollout_batch_size}
+                    # self.save_logs_and_checkpoints(args, global_steps, pbar,
+                    #                                status, client_states)
+
+                self.f_q_g_q_evaluation(args, f_q_estimates_list,
+                                        g_q_estimates_list, iwae_lbs_list,
+                                        iwae_ubs_list, n_seeds_f_q, prompt_text,
+                                        true_posterior_samples)
 
                 pbar.update()
                 steps = steps + 1
 
-            else:
+        else:
+
+            for episode in range(start_episode, args.num_episodes):
+                if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
+                    self.prompts_dataloader.sampler.set_epoch(
+                        episode, consumed_samples=0 if episode > start_episode else consumed_samples
+                    )
+                pbar = tqdm(
+                    range(self.prompts_dataloader.__len__()),
+                    desc=f"Episode [{episode + 1}/{args.num_episodes}]",
+                    disable=not self.strategy.is_rank_0(),
+                )
+
                 for rand_prompts in self.prompts_dataloader:
                     experience = self.experience_maker.make_experience(rand_prompts, **self.generate_kwargs)
                     # print prompt/answer in each update step
@@ -366,6 +311,98 @@ class PPOTrainer(ABC):
                     steps = steps + 1
 
         return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
+
+    def f_q_g_q_evaluation(self, args, f_q_estimates_list, g_q_estimates_list,
+                           iwae_lbs_list, iwae_ubs_list, n_seeds_f_q,
+                           prompt_text, true_posterior_samples):
+        # This function appends to f_q_estimates_list and g_q_estimates_list
+        iwae_lbs = torch.zeros((n_seeds_f_q,))
+        iwae_ubs = torch.zeros((n_seeds_f_q,))
+        total_f_qs = None
+        total_g_qs = None
+        for i in range(n_seeds_f_q):
+            custom_prompt_for_f_q = [prompt_text] * args.n_samples_for_f_q
+
+            f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
+                args, custom_prompt_for_f_q)
+            print("Avg F_q Estimate (Learned Model)")
+            print(f_qs.mean())
+            print("IWAE Lower Bound Estimate (Learned Model)")
+            iwae_lower_bound_estimate = torch.logsumexp(f_qs,
+                                                        dim=0) - torch.log(
+                torch.tensor(f_qs.shape[0]))
+            print(iwae_lower_bound_estimate)
+            iwae_lbs[i] = iwae_lower_bound_estimate.item()
+            # TODO load the posterior samples, pass through to get g_q estimate
+            if true_posterior_samples is not None:
+                true_posterior_samples = true_posterior_samples.to(
+                    q_seqs.device)
+            if i == 0:
+                assert true_posterior_samples is not None
+                # TODO later account for the above possiblity
+                g_qs = self.g_q_estimate(args, true_posterior_samples[
+                                               :q_seqs.shape[0]],
+                                         num_actions, attention_mask)
+                print("Avg G_q Estimate (Learned Model)")
+                print(g_qs.mean())
+
+            if true_posterior_samples is not None:
+                iwae_mixture_with_one_post = q_seqs.detach().clone()
+                iwae_mixture_with_one_post[i] = true_posterior_samples[
+                    i]  # To keep the conditioning tokens constant
+                iwae_ub_weights = self.g_q_estimate(args,
+                                                    iwae_mixture_with_one_post,
+                                                    num_actions,
+                                                    attention_mask)
+                print("IWAE Upper Bound Estimate (Learned Model)")
+                iwae_upper_bound_estimate = torch.logsumexp(
+                    iwae_ub_weights, dim=0) - torch.log(
+                    torch.tensor(iwae_ub_weights.shape[0]))
+                print(iwae_upper_bound_estimate)
+
+                iwae_ubs[i] = iwae_upper_bound_estimate.item()
+
+            if total_f_qs is None:
+                total_f_qs = f_qs
+                # total_rewards = rewards
+                # total_kl_vals = kl_vals
+            else:
+                total_f_qs = torch.cat((total_f_qs, f_qs), axis=0)
+                print("F_Q Shape")
+                print(total_f_qs.shape)
+                # total_rewards = torch.cat((total_rewards, rewards),
+                #                           axis=0)
+                # print(total_rewards.shape)
+                # total_kl_vals = torch.cat((total_kl_vals, kl_vals),
+                #                           axis=0)
+                # print(total_kl_vals.shape)
+            if total_g_qs is None:
+                total_g_qs = g_qs
+            else:
+                total_g_qs = torch.cat((total_g_qs, g_qs),
+                                       axis=0)
+                print("Total G_qs shape")
+                print(total_g_qs.shape)
+        iwae_lbs_list.append(iwae_lbs)
+        iwae_ubs_list.append(iwae_ubs)
+        # 1/0
+        print("IWAE LB AND UB")
+        print(iwae_lbs)
+        print(iwae_ubs)
+        print("IWAE LB AND UB LISTS")
+        print(iwae_lbs_list)
+        print(iwae_ubs_list)
+        print("Shapes")
+        print(total_g_qs.shape)
+        print(total_f_qs.shape)
+        # print(total_rewards.shape)
+        # print(total_kl_vals.shape)
+        if total_g_qs is not None:
+            g_q_estimates_list.append(
+                total_g_qs.cpu())  # Only one G_q estimate (over all the posterior samples)
+        f_q_estimates_list.append(total_f_qs.cpu())
+
+        # return f_q_estimates_list, g_q_estimates_list
 
     def f_q_estimate(self, args, batch_prompt):
         self.experience_maker.set_all_eval()
