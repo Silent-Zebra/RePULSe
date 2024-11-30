@@ -228,7 +228,7 @@ class PPOTrainer(ABC):
                         print("device check")
                         print(true_posterior_samples.device)
                         print(q_seqs.device)
-                        true_posterior_samples.to(q_seqs.device)
+                        true_posterior_samples = true_posterior_samples.to(q_seqs.device)
                         print(true_posterior_samples.device)
                     if i == 0:
                         if true_posterior_samples is not None:
