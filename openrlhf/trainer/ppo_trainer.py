@@ -210,34 +210,13 @@ class PPOTrainer(ABC):
                 print("USING CUSTOM PROMPT")
                 print(len(custom_prompt))
 
-                self.actor.eval()
-                self.critic.eval()
-                self.initial_model.eval()
-                if self.reward_model is not None:
-                    self.reward_model.eval()
-                action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(custom_prompt, **self.generate_kwargs)
-                log_q = action_log_probs.sum(dim=-1)
-                # TODO load the posterior samples, pass through the actor to get the g_q estimate,
-                print(log_q)
-                print(log_q.shape)
-                print(action_mask.shape)
-                rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences, attention_mask,
-                                     action_log_probs)
-                print(rewards_no_kl)
-                log_phi = args.target_dist_beta * rewards_no_kl
-                print(args.target_dist_beta)
-                print(log_phi)
-                base_action_log_probs = self.experience_maker.initial_model(sequences, num_actions, attention_mask)
-                log_p = base_action_log_probs.sum(dim=-1)
-                print(log_p)
-                print(log_q - log_p)
-                log_tilde_sigma = log_p + log_phi
-                f_qs = log_tilde_sigma - log_q
+                f_qs = self.f_q_estimate(args, custom_prompt)
                 print("Avg F_q Estimate (Learned Model)")
                 print(f_qs.mean())
                 print("IWAE Lower Bound Estimate (Learned Model)")
-                iwae_lower_bound_estimate = torch.logsumexp(f_qs,dim=0) - torch.log(f_qs.shape[0])
+                iwae_lower_bound_estimate = torch.logsumexp(f_qs, dim=0) - torch.log(torch.tensor(f_qs.shape[0]))
                 print(iwae_lower_bound_estimate)
+                # TODO load the posterior samples, pass through the actor to get the g_q estimate,
                 1/0
 
 
@@ -301,6 +280,35 @@ class PPOTrainer(ABC):
 
                     pbar.update()
                     steps = steps + 1
+
+    def f_q_estimate(self, args, batch_prompt):
+        self.actor.eval()
+        self.critic.eval()
+        self.initial_model.eval()
+        if self.reward_model is not None:
+            self.reward_model.eval()
+        action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(
+            batch_prompt, **self.generate_kwargs)
+        log_q = action_log_probs.sum(dim=-1)
+        print(log_q)
+        print(log_q.shape)
+        print(action_mask.shape)
+        rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
+                                                                   attention_mask,
+                                                                   action_log_probs)
+        print(rewards_no_kl)
+        log_phi = args.target_dist_beta * rewards_no_kl
+        print(args.target_dist_beta)
+        print(log_phi)
+        base_action_log_probs = self.experience_maker.initial_model(sequences,
+                                                                    num_actions,
+                                                                    attention_mask)
+        log_p = base_action_log_probs.sum(dim=-1)
+        print(log_p)
+        print(log_q - log_p)
+        log_tilde_sigma = log_p + log_phi
+        f_qs = log_tilde_sigma - log_q
+        return f_qs
 
     def ppo_train(self, global_steps=0):
         # replay buffer may be empty at first, we should rebuild at each training
