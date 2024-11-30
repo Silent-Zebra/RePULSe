@@ -365,7 +365,7 @@ if __name__ == "__main__":
     parser.add_argument("--actor_learning_rate", type=float, default=1e-6)
     parser.add_argument("--critic_learning_rate", type=float, default=9e-6)
     parser.add_argument("--kl_target", type=float, default=None)
-    parser.add_argument("--init_kl_coef", type=float, default=0.01, help="KL penalty in PPO")
+    parser.add_argument("--init_kl_coef", type=float, default=1., help="KL penalty in PPO")
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
 
     # DeepSpeed
@@ -445,6 +445,13 @@ if __name__ == "__main__":
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
 
     args = parser.parse_args()
+
+    assert args.target_dist_beta == args.init_kl_coef # Because otherwise you don't have the equivalence between
+
+    if args.target_dist_beta != 1 or args.init_kl_coef != 1:
+        raise Exception("Be very careful; this has not been tested; be careful that the PPO = inference formulation is correctly implemented")
+
+    assert args.kl_target is None # Just use fixed KL for now
 
     if args.critic_pretrain is None:
         if not args.remote_rm_url:

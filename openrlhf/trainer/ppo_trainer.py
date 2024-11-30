@@ -445,6 +445,10 @@ class PPOTrainer(ABC):
                                                                    attention_mask,
                                                                    action_log_probs)
         print(rewards_no_kl)
+        # Recall that we have p(s_1:T)p(toxic class | s_1:T)^beta which is also
+        # = p(s_1:T)e^{beta log p(toxic class | s_1:T))
+        # Now consider r = log p(toxic class | s_1:T)), then we have the RL setting, but we must have KL penalties
+        # Also, with phi = e^{beta log p(toxic class | s_1:T)), log_phi is simply just beta log p(toxic class | s_1:T)
         log_phi = args.target_dist_beta * rewards_no_kl
         print(args.target_dist_beta)
         print(log_phi)
