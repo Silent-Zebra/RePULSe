@@ -305,7 +305,7 @@ def train(args):
         f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
     )
 
-    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds")
+    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_seed{args.seed}")
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
