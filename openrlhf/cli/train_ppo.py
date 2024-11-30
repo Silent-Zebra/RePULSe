@@ -289,22 +289,23 @@ def train(args):
 
     iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
 
-    print("FINAL RESULTS IWAE LB LIST 2", flush=True)
+
+    print("FINAL RESULTS IWAE LB LIST", flush=True)
     print(iwae_lbs_list)
-    print("FINAL RESULTS IWAE UB LIST 2", flush=True)
+    print("FINAL RESULTS IWAE UB LIST", flush=True)
     print(iwae_ubs_list)
-    print("FINAL RESULTS F_Q 2", flush=True)
+    print("FINAL RESULTS F_Q", flush=True)
     print(f_q_estimates_list)
-    print("FINAL RESULTS G_Q 2", flush=True)
+    print("FINAL RESULTS G_Q", flush=True)
     print(g_q_estimates_list)
 
-    print("SAVING RESULTS 2", flush=True)
+    print("SAVING RESULTS", flush=True)
 
     target_to_save = (
         f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
     )
 
-    torch.save(target_to_save, args.save_info_path)
+    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds")
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
