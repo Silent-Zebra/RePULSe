@@ -287,7 +287,11 @@ def train(args):
             true_posterior_samples,
             dtype=torch.int64)
 
-    trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
+    iwae_lbs_list, iwae_ubs_list = trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
+
+    print("FINAL RESULTS IWAE LB AND UB LISTS")
+    print(iwae_lbs_list)
+    print(iwae_ubs_list)
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
@@ -302,6 +306,8 @@ def train(args):
             tokenizer,
             args.save_path + "_critic",
         )
+
+
 
 
 if __name__ == "__main__":
