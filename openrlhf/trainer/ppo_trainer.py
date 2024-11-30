@@ -219,6 +219,8 @@ class PPOTrainer(ABC):
                                     iwae_ubs_list, n_seeds_f_q, prompt_text,
                                     true_posterior_samples)
 
+
+
             for episode in range(start_episode, args.num_episodes):
                 if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                     self.prompts_dataloader.sampler.set_epoch(
@@ -242,7 +244,14 @@ class PPOTrainer(ABC):
                 if steps % update_timesteps == 0:
                     global_steps = steps // update_timesteps
 
-                    for _ in range(args.update_steps_per_episode):
+                    num_twist_updates_to_do = args.update_steps_per_episode
+                    if args.exp_num_twist_updates:
+                        if episode == 0:
+                            num_twist_updates_to_do = 2
+                        else:
+                            num_twist_updates_to_do = 2 ** episode
+
+                    for _ in range(num_twist_updates_to_do):
 
                         torch.cuda.empty_cache()
                         self.replay_buffer.normalize("advantages", self.strategy)

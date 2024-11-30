@@ -442,7 +442,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_info_path", type=str, default="./info")
     parser.add_argument("--n_samples_for_f_q", type=int, default=2000, help="Number of samples to use for f_q. Should match the number of g_q (true sigma) samples")
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss) per episode")
-
+    parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
 
     args = parser.parse_args()
 
