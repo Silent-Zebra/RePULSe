@@ -222,6 +222,9 @@ class PPOTrainer(ABC):
 
 
             for episode in range(start_episode, args.num_episodes):
+
+                print(f"Episode: {episode}", flush=True)
+
                 if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                     self.prompts_dataloader.sampler.set_epoch(
                         episode, consumed_samples=0 if episode > start_episode else consumed_samples
