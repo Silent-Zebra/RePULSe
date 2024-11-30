@@ -305,7 +305,7 @@ def train(args):
         f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
     )
 
-    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_seed{args.seed}")
+    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}_seed{args.seed}")
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
@@ -449,7 +449,7 @@ if __name__ == "__main__":
     assert args.target_dist_beta == args.init_kl_coef # Because otherwise you don't have the equivalence between
 
     if args.target_dist_beta != 1 or args.init_kl_coef != 1:
-        raise Exception("Be very careful; this has not been tested; be careful that the PPO = inference formulation is correctly implemented")
+        raise Exception("Be very careful; this has not been tested; be careful that the PPO = inference formulation is correctly implemented. Be careful about x or 1/x also.")
 
     assert args.kl_target is None # Just use fixed KL for now
 
