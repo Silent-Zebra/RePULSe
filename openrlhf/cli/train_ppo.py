@@ -274,6 +274,7 @@ def train(args):
         remote_rm_url=args.remote_rm_url,
     )
 
+    true_posterior_samples = None
     if args.load_posterior_samples:
 
         print("Loading true posterior samples")
