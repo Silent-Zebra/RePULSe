@@ -167,6 +167,7 @@ class PPOTrainer(ABC):
         pretrain_dataloader,
         consumed_samples=0,
         num_update_steps_per_episodes=1,
+        true_posterior_samples=None,
     ) -> None:
 
         if args.custom_single_prompt:
@@ -210,15 +211,39 @@ class PPOTrainer(ABC):
                 print("USING CUSTOM PROMPT")
                 print(len(custom_prompt))
 
-                f_qs, attention_mask, num_actions = self.f_q_estimate(args, custom_prompt)
-                print("Avg F_q Estimate (Learned Model)")
-                print(f_qs.mean())
-                print("IWAE Lower Bound Estimate (Learned Model)")
-                iwae_lower_bound_estimate = torch.logsumexp(f_qs, dim=0) - torch.log(torch.tensor(f_qs.shape[0]))
-                print(iwae_lower_bound_estimate)
-                # TODO load the posterior samples, pass through to get g_q estimate
-                # g_qs = self.g_q_estimate(args, true_sigma_samples, num_actions, attention_mask)
-                # 1/0
+                iwae_lbs_list = []
+                iwae_ubs_list = []
+                n_seeds_f_q = 3
+
+                for i in range(n_seeds_f_q):
+                    f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(args, custom_prompt)
+                    print("Avg F_q Estimate (Learned Model)")
+                    print(f_qs.mean())
+                    print("IWAE Lower Bound Estimate (Learned Model)")
+                    iwae_lower_bound_estimate = torch.logsumexp(f_qs, dim=0) - torch.log(torch.tensor(f_qs.shape[0]))
+                    print(iwae_lower_bound_estimate)
+                    iwae_lbs_list.append(iwae_lower_bound_estimate)
+                    # TODO load the posterior samples, pass through to get g_q estimate
+                    if i == 0:
+                        # TODO DIAGNOSTIC ONLY REMOVE LATER
+                        g_qs = self.g_q_estimate(args, true_posterior_samples,
+                                                 num_actions, attention_mask)
+                        print("Avg G_q Estimate (Learned Model)")
+                        print(g_qs.mean())
+
+                    iwae_mixture_with_one_post = q_seqs.detach().clone()
+                    iwae_mixture_with_one_post[i] = true_posterior_samples[i]  # To keep the conditioning tokens constant
+                    iwae_ub_weights = self.g_q_estimate(args, iwae_mixture_with_one_post, num_actions, attention_mask)
+                    print("IWAE Upper Bound Estimate (Learned Model)")
+                    iwae_upper_bound_estimate = torch.logsumexp(
+                        iwae_ub_weights, dim=0) - torch.log(torch.tensor(iwae_ub_weights.shape[0]))
+                    print(iwae_upper_bound_estimate)
+                    iwae_ubs_list.append(iwae_upper_bound_estimate)
+
+                    # 1/0
+                print("IWAE LB AND UB LISTS")
+                print(iwae_lbs_list)
+                print(iwae_ubs_list)
 
 
                 experience = self.experience_maker.make_experience(custom_prompt,
@@ -296,7 +321,7 @@ class PPOTrainer(ABC):
                                                            num_actions,
                                                            sequences)
             f_qs = log_tilde_sigma - log_q
-        return f_qs, attention_mask, num_actions
+        return f_qs, attention_mask, num_actions, sequences
 
     def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask,
                                 num_actions, sequences):

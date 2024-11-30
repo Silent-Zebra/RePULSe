@@ -274,7 +274,19 @@ def train(args):
         remote_rm_url=args.remote_rm_url,
     )
 
-    trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes)
+    if args.load_posterior_samples:
+
+        print("Loading true posterior samples")
+
+        true_posterior_samples_by_prompt_and_by_token = torch.load(f"{args.load_posterior_samples_name}")
+        true_posterior_samples = \
+            true_posterior_samples_by_prompt_and_by_token[
+                0]
+        true_posterior_samples = torch.tensor(
+            true_posterior_samples,
+            dtype=torch.int64)
+
+    trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
@@ -404,6 +416,9 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--target_dist_beta", type=float, default=1., help="Beta in our SMC formulation of the target distribution of p_0 e^{beta r}")
+    parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
+    parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
+
 
 
     args = parser.parse_args()

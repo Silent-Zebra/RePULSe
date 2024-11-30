@@ -176,7 +176,7 @@ class NaiveExperienceMaker(ABC):
             info,
         )
 
-    def compute_reward_no_kl(self, sequences, attention_mask, action_log_probs):
+    def compute_reward_no_kl(self, sequences, attention_mask, action_log_probs, classifier_reward=True, class_num=0):
         # rewards
         if self.remote_rm_url is not None:
             # remote RM
@@ -187,6 +187,21 @@ class NaiveExperienceMaker(ABC):
         else:
             # local RM
             r = self.reward_model(sequences, attention_mask)
+
+        if classifier_reward:
+            print("WARNING: only set up for toxicity so far") # TODO later make more flexible, for different reward models. Also, be careful that this is the only place the reward model is used
+            score = r
+            nontoxic_class_prob = torch.nn.functional.sigmoid(score)
+
+            if class_num == 1:
+                log_prob_of_class = torch.log(nontoxic_class_prob)
+            else:
+                assert class_num == 0
+                toxic_class_prob = 1 - nontoxic_class_prob
+                log_prob_of_class = torch.log(toxic_class_prob)
+
+            return log_prob_of_class
+
         return r
 
     def set_all_eval(self):

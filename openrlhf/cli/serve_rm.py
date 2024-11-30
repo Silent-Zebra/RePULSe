@@ -67,6 +67,7 @@ class RewardModelProxy:
                     queries[i : min(len(queries), i + batch_size)], device=self.reward_model.device
                 )
                 r = self.reward_model(inputs["input_ids"], inputs["attention_mask"])
+                raise NotImplementedError("NOTE TO SELF: REWARD MODEL NOT MODIFIED HERE YET")
                 r = r.tolist()
                 scores.extend(r)
         return scores
