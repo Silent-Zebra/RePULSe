@@ -200,6 +200,21 @@ class NaiveExperienceMaker(ABC):
                 toxic_class_prob = 1 - torch.exp(nontoxic_class_logprob)
                 log_prob_of_class = torch.log(toxic_class_prob)
 
+                # NUMERICAL STABILITY
+                # Note that we want to calculate: log prob of class 0
+                # but we have a logit for class 1, call it c
+                # So naively, we would take log(1 - sigmoid(c))
+                # This is equivalent to log(1 - 1/(1+e^-c))
+                # = log(e^-c/(1+e^-c))
+                # = -c - log(1+e^-c)
+                # Softplus function is log(1 + e^x)
+                # So -score - softplus(-score) is one way of doing this
+                # Alternatively, you can write out:
+                # log(1 - sigmoid(c)) = log(1 - e^c/(1+e^c))
+                # = log(1/(1+e^c))
+                # = - log(1 + e^c)
+                # = - softplus(score)
+
                 print("INSPECTING REWARDS: score")
                 print(score)
                 print("INSPECTING REWARDS: nontoxic_class_logprob")
@@ -207,6 +222,10 @@ class NaiveExperienceMaker(ABC):
                 print("INSPECTING REWARDS: toxic_class_prob")
                 print(toxic_class_prob)
                 print("INSPECTING REWARDS: log_prob_of_class")
+                print(log_prob_of_class)
+
+                log_prob_of_class = -torch.nn.functional.softplus(score)
+                print("INSPECTING REWARDS: log_prob_of_class (softplus)")
                 print(log_prob_of_class)
 
             return log_prob_of_class
