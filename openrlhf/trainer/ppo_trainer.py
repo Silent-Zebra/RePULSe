@@ -168,7 +168,7 @@ class PPOTrainer(ABC):
         consumed_samples=0,
         num_update_steps_per_episodes=1,
         true_posterior_samples=None,
-    ) -> None:
+    ) -> (List, List):
 
         if args.custom_single_prompt:
             update_timesteps = 1
@@ -194,6 +194,12 @@ class PPOTrainer(ABC):
         start_episode = consumed_samples // args.rollout_batch_size // num_rollouts_per_episodes
         consumed_samples = consumed_samples % (num_rollouts_per_episodes * args.rollout_batch_size)
 
+        iwae_lbs_list = []
+        iwae_ubs_list = []
+        n_seeds_f_q = 3
+        # rewards_list = []
+        # kl_to_prior_list = []
+
         for episode in range(start_episode, args.num_episodes):
             if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                 self.prompts_dataloader.sampler.set_epoch(
@@ -211,18 +217,18 @@ class PPOTrainer(ABC):
                 print("USING CUSTOM PROMPT")
                 print(len(custom_prompt))
 
-                iwae_lbs_list = []
-                iwae_ubs_list = []
-                n_seeds_f_q = 3
+                iwae_lbs = torch.zeros((n_seeds_f_q,))
+                iwae_ubs = torch.zeros((n_seeds_f_q,))
 
                 for i in range(n_seeds_f_q):
+
                     f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(args, custom_prompt)
                     print("Avg F_q Estimate (Learned Model)")
                     print(f_qs.mean())
                     print("IWAE Lower Bound Estimate (Learned Model)")
                     iwae_lower_bound_estimate = torch.logsumexp(f_qs, dim=0) - torch.log(torch.tensor(f_qs.shape[0]))
                     print(iwae_lower_bound_estimate)
-                    iwae_lbs_list.append(iwae_lower_bound_estimate)
+                    iwae_lbs[i] = iwae_lower_bound_estimate.item()
                     # TODO load the posterior samples, pass through to get g_q estimate
                     if true_posterior_samples is not None:
                         true_posterior_samples = true_posterior_samples.to(q_seqs.device)
@@ -242,9 +248,16 @@ class PPOTrainer(ABC):
                         iwae_upper_bound_estimate = torch.logsumexp(
                             iwae_ub_weights, dim=0) - torch.log(torch.tensor(iwae_ub_weights.shape[0]))
                         print(iwae_upper_bound_estimate)
-                        iwae_ubs_list.append(iwae_upper_bound_estimate)
+
+                        iwae_ubs[i] = iwae_upper_bound_estimate.item()
+
+                iwae_lbs_list.append(iwae_lbs)
+                iwae_lbs_list.append(iwae_ubs)
 
                     # 1/0
+                print("IWAE LB AND UB")
+                print(iwae_lbs)
+                print(iwae_ubs)
                 print("IWAE LB AND UB LISTS")
                 print(iwae_lbs_list)
                 print(iwae_ubs_list)
@@ -310,6 +323,8 @@ class PPOTrainer(ABC):
 
                     pbar.update()
                     steps = steps + 1
+
+        return iwae_lbs_list, iwae_ubs_list
 
     def f_q_estimate(self, args, batch_prompt):
         self.experience_maker.set_all_eval()
