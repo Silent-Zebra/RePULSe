@@ -361,22 +361,6 @@ class PPOTrainer(ABC):
                     pbar.update()
                     steps = steps + 1
 
-        print("FINAL RESULTS IWAE LB LIST", flush=True)
-        print(iwae_lbs_list)
-        print("FINAL RESULTS IWAE UB LIST", flush=True)
-        print(iwae_ubs_list)
-        print("FINAL RESULTS F_Q", flush=True)
-        print(f_q_estimates_list)
-        print("FINAL RESULTS G_Q", flush=True)
-        print(g_q_estimates_list)
-
-        print("SAVING RESULTS", flush=True)
-
-        target_to_save = (
-            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
-        )
-        torch.save(target_to_save, args.save_info_path)
-
         return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
 
     def f_q_estimate(self, args, batch_prompt):
