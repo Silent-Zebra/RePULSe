@@ -67,6 +67,7 @@ def train(args):
             rm_name = args.reward_pretrain
             config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
             config.normalize_reward = False
+            assert not args.normalize_reward # Not yet implemented
             base_class = AutoModel._model_mapping[type(config)]
             base_pretrained_class = base_class.__base__
             reward_model = _get_reward_model_custom(base_pretrained_class, rm_name,
@@ -305,7 +306,7 @@ def train(args):
         f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
     )
 
-    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}_seed{args.seed}")
+    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_lrschedule{args.lr_scheduler}_actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}_seed{args.seed}")
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
