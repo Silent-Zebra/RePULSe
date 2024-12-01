@@ -192,7 +192,7 @@ def train(args):
     max_steps = math.ceil(args.num_episodes * num_update_steps_per_episodes)
 
     actor_scheduler = get_scheduler(
-        "cosine_with_min_lr",
+        args.lr_scheduler,
         actor_optim,
         num_warmup_steps=math.ceil(max_steps * 0.03),
         num_training_steps=max_steps,
@@ -200,7 +200,7 @@ def train(args):
     )
 
     critic_scheduler = get_scheduler(
-        "cosine_with_min_lr",
+        args.lr_scheduler,
         critic_optim,
         num_warmup_steps=math.ceil(max_steps * 0.03),
         num_training_steps=max_steps,
@@ -443,6 +443,13 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples_for_f_q", type=int, default=2000, help="Number of samples to use for f_q. Should match the number of g_q (true sigma) samples")
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
+
+    parser.add_argument(
+        "--lr_scheduler", type=str, default="cosine_with_min_lr",
+        choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant",
+                 "constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau",
+                 "cosine_with_min_lr", "warmup_stable_decay"]
+    )
 
     args = parser.parse_args()
 
