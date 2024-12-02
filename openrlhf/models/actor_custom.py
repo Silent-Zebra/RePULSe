@@ -125,7 +125,7 @@ class ActorCustom(nn.Module):
     #     Tuple[torch.LongTensor, torch.LongTensor],
     #     Tuple[torch.LongTensor, torch.LongTensor, torch.BoolTensor],
     # ]:
-    def generate(self, input_ids, num_actions, *args, attention_mask=None,
+    def generate(self, input_ids, *args, attention_mask=None,
                  condition_twist_on_tokens=None, **kwargs):
         r"""
         CUSTOM. Only sample available right now.
@@ -145,25 +145,22 @@ class ActorCustom(nn.Module):
             "min_new_tokens": kwargs.get("min_new_tokens", 1),
         }
 
-        if kwargs.get("max_new_tokens", None):
-            generate_args["max_new_tokens"] = kwargs.get("max_new_tokens")
-        if kwargs.get("max_length", None):
-            generate_args["max_length"] = kwargs.get("max_length")
+        # if kwargs.get("max_new_tokens", None):
+        #     generate_args["max_new_tokens"] = kwargs.get("max_new_tokens")
+        # if kwargs.get("max_length", None):
+        #     generate_args["max_length"] = kwargs.get("max_length")
 
-
+        max_new_tokens = kwargs.get("max_new_tokens")
+        max_len = max_new_tokens + input_ids.shape[-1]
         print(input_ids.shape)
-        print(kwargs)
-        print(kwargs.get("max_length"))
-        print(kwargs.get("max_new_tokens"))
-        max_length = kwargs.get("max_length")
-        1/0
 
         sequences = input_ids.clone()
 
-        while sequences.shape[-1] < max_length:
+        while sequences.shape[-1] < max_len:
 
             lm_logits, _, _ = self.forward(
-                sequences, num_actions=num_actions,
+                sequences,
+                num_actions=max_new_tokens, # TODO: note this might cause some issues; keeping it simple for now
                 attention_mask=attention_mask,
                 # condition_twist_on_tokens=condition_twist_on_tokens
             )
