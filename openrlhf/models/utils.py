@@ -81,6 +81,12 @@ def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
     log_probs_labels = log_probs.gather(dim=-1, index=labels.unsqueeze(-1))
     return log_probs_labels.squeeze(-1)
 
+def log_probs_from_logits_with_modulation(logits: torch.Tensor, modulation: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    log_probs = F.log_softmax(logits, dim=-1)
+    log_probs_plus_modulation = log_probs + modulation
+    new_log_probs = F.log_softmax(log_probs_plus_modulation, dim=-1)
+    log_probs_labels = new_log_probs.gather(dim=-1, index=labels.unsqueeze(-1))
+    return log_probs_labels.squeeze(-1)
 
 def masked_mean(tensor: torch.Tensor, mask: torch.Tensor, dim: int = None) -> torch.Tensor:
     if dim is not None:

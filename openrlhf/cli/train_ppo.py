@@ -10,6 +10,7 @@ from transformers.trainer import get_scheduler
 
 from openrlhf.datasets import PromptDataset, SFTDataset
 from openrlhf.models import Actor, get_llm_for_sequence_regression
+from openrlhf.models.actor_custom import ActorCustom
 from openrlhf.trainer import PPOTrainer
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
 from openrlhf.models.model import _get_reward_model_custom
@@ -19,19 +20,43 @@ def train(args):
     strategy = get_strategy(args)
     strategy.setup_distributed()
 
-    # configure model
-    # load huggingface model
-    actor = Actor(
+    # load weights for reference actor
+    initial_model = Actor(
         args.pretrain,
         use_flash_attention_2=args.flash_attn,
         bf16=args.bf16,
         load_in_4bit=args.load_in_4bit,
-        lora_rank=args.lora_rank,
-        lora_alpha=args.lora_alpha,
-        target_modules=args.target_modules,
-        lora_dropout=args.lora_dropout,
-        ds_config=strategy.get_ds_train_config(is_actor=True),
+        ds_config=strategy.get_ds_eval_config(offload=False),
     )
+    get_tokenizer(args.pretrain, initial_model.model, "left", strategy)
+
+    if args.actor_modulates_base:
+        actor = ActorCustom(
+            args.pretrain,
+            initial_model=initial_model,
+            use_flash_attention_2=args.flash_attn,
+            bf16=args.bf16,
+            load_in_4bit=args.load_in_4bit,
+            lora_rank=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            target_modules=args.target_modules,
+            lora_dropout=args.lora_dropout,
+            ds_config=strategy.get_ds_train_config(is_actor=True),
+        )
+    else:
+        # configure model
+        # load huggingface model
+        actor = Actor(
+            args.pretrain,
+            use_flash_attention_2=args.flash_attn,
+            bf16=args.bf16,
+            load_in_4bit=args.load_in_4bit,
+            lora_rank=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            target_modules=args.target_modules,
+            lora_dropout=args.lora_dropout,
+            ds_config=strategy.get_ds_train_config(is_actor=True),
+        )
 
     if args.actor_init_on_gpu:
         actor = actor.to(torch.cuda.current_device())
@@ -99,15 +124,7 @@ def train(args):
     strategy.print(actor)
     strategy.print(critic)
 
-    # load weights for reference actor
-    initial_model = Actor(
-        args.pretrain,
-        use_flash_attention_2=args.flash_attn,
-        bf16=args.bf16,
-        load_in_4bit=args.load_in_4bit,
-        ds_config=strategy.get_ds_eval_config(offload=False),
-    )
-    get_tokenizer(args.pretrain, initial_model.model, "left", strategy)
+
 
     if args.enable_ema:
         ema_model = Actor(
@@ -306,7 +323,10 @@ def train(args):
         f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
     )
 
-    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_lrschedule{args.lr_scheduler}_actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}_seed{args.seed}")
+    extra_str = "_"
+    if args.actor_modulates_base:
+        extra_str = "_actormodbase_"
+    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_lrschedule{args.lr_scheduler}_actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}{extra_str}seed{args.seed}")
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
@@ -444,6 +464,9 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples_for_f_q", type=int, default=2000, help="Number of samples to use for f_q. Should match the number of g_q (true sigma) samples")
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
+
+    parser.add_argument("--actor_modulates_base", action="store_true", help="Use parameterization where actor outputs an addition (modulation) to base log prob")
+
 
     parser.add_argument(
         "--lr_scheduler", type=str, default="cosine_with_min_lr",
