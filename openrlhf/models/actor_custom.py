@@ -155,6 +155,8 @@ class ActorCustom(nn.Module):
         print(input_ids.shape)
 
         sequences = input_ids.clone()
+        eos_token_id = generate_args["eos_token_id"]
+        pad_token_id = generate_args["pad_token_id"]
 
         while sequences.shape[-1] < max_len:
 
@@ -173,8 +175,7 @@ class ActorCustom(nn.Module):
 
             # update generated ids, model inputs, and length for next step
             sequences = torch.cat([sequences, next_tokens[:, None]], dim=-1)
-        eos_token_id = generate_args["eos_token_id"]
-        pad_token_id = generate_args["pad_token_id"]
+            sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
         return self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
