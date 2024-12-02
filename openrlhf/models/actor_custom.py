@@ -118,7 +118,16 @@ class ActorCustom(nn.Module):
             self.model = pretrain_or_model
 
         # Custom new linear (or later NN) head in order to output modifier to logits
-        self.model.lm_head = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features)
+        new_layer = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features, )
+
+        nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
+
+        if new_layer.bias is not None:
+            nn.init.zeros_(new_layer.bias)
+
+        self.model.lm_head = new_layer
+
+
 
     @torch.no_grad()
     # def generate(self, input_ids: torch.Tensor, **kwargs) -> Union[
