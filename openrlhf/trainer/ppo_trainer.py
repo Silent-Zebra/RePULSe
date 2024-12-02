@@ -428,10 +428,12 @@ class PPOTrainer(ABC):
         with torch.no_grad():
             action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(
                 batch_prompt, **self.generate_kwargs)
+            action_log_probs = action_log_probs.float() # more precision
             log_q = action_log_probs.sum(dim=-1)
+            print("f_q estimate details")
             print(log_q)
-            print(log_q.shape)
-            print(action_mask.shape)
+            # print(log_q.shape)
+            # print(action_mask.shape)
             log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
                                                            attention_mask,
                                                            num_actions,
@@ -444,17 +446,21 @@ class PPOTrainer(ABC):
         rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
                                                                    attention_mask,
                                                                    action_log_probs)
+        print("log p phi eval")
         print(rewards_no_kl)
         # Recall that we have p(s_1:T)p(toxic class | s_1:T)^beta which is also
         # = p(s_1:T)e^{beta log p(toxic class | s_1:T))
         # Now consider r = log p(toxic class | s_1:T)), then we have the RL setting, but we must have KL penalties
         # Also, with phi = e^{beta log p(toxic class | s_1:T)), log_phi is simply just beta log p(toxic class | s_1:T)
+        rewards_no_kl = rewards_no_kl.float() # more precision
         log_phi = args.target_dist_beta * rewards_no_kl
         print(args.target_dist_beta)
         print(log_phi)
         base_action_log_probs = self.experience_maker.initial_model(sequences,
                                                                     num_actions,
                                                                     attention_mask)
+        base_action_log_probs = base_action_log_probs.float() # more precision
+
         log_p = base_action_log_probs.sum(dim=-1)
         print(log_p)
         log_tilde_sigma = log_p + log_phi
@@ -468,10 +474,12 @@ class PPOTrainer(ABC):
         with torch.no_grad():
             action_log_probs = self.experience_maker.actor(sequences, num_actions,
                                           attention_mask)
+            action_log_probs = action_log_probs.float() # more precision
             log_q = action_log_probs.sum(dim=-1)
             log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
                                     attention_mask,
                                     num_actions, sequences)
+            log_tilde_sigma = log_tilde_sigma.float() # more precision
 
         return log_tilde_sigma - log_q
 
