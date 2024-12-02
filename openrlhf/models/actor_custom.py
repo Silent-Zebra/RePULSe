@@ -165,6 +165,7 @@ class ActorCustom(nn.Module):
                 num_actions=max_new_tokens, # TODO: note this might cause some issues; keeping it simple for now
                 attention_mask=attention_mask,
                 # condition_twist_on_tokens=condition_twist_on_tokens
+                use_for_generation=True
             )
 
             next_token_logits = lm_logits[:, -1, :]
@@ -177,7 +178,14 @@ class ActorCustom(nn.Module):
             sequences = torch.cat([sequences, next_tokens[:, None]], dim=-1)
             sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
-        return self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
+        sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
+
+        # print("LM LOGITS SHAPE")
+        # print(lm_logits.shape)
+        # print("SEQ SHAPE")
+        # print(sequences.shape)
+
+        return sequences, attention_mask, action_mask
 
     def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
@@ -235,6 +243,7 @@ class ActorCustom(nn.Module):
         num_actions: int = None,
         attention_mask: Optional[torch.Tensor] = None,
         return_output=False,
+        use_for_generation=False
     ) -> torch.Tensor:
         """Returns action log probs"""
         if not self.packing_samples:
@@ -250,8 +259,12 @@ class ActorCustom(nn.Module):
 
         # log_psi
         modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+        if use_for_generation: # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
+            return_all_vocab = True
+        else:
+            return_all_vocab = False
 
-        log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=True)
+        log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=return_all_vocab)
 
         # output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
 
