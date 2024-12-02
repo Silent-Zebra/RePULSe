@@ -158,7 +158,7 @@ class ActorCustom(nn.Module):
 
         while sequences.shape[-1] < max_len:
 
-            lm_logits, _, _ = self.forward(
+            lm_logits = self.forward(
                 sequences,
                 num_actions=max_new_tokens, # TODO: note this might cause some issues; keeping it simple for now
                 attention_mask=attention_mask,
