@@ -161,7 +161,7 @@ class ActorCustom(nn.Module):
             lm_logits = self.forward(
                 sequences,
                 num_actions=max_new_tokens, # TODO: note this might cause some issues; keeping it simple for now
-                attention_mask=None,
+                attention_mask=attention_mask,
                 # condition_twist_on_tokens=condition_twist_on_tokens
             )
 
