@@ -551,9 +551,13 @@ class PPOTrainer(ABC):
 
         num_actions = experience.action_mask.size(1)
         # actor loss
-        action_log_probs, output = self.actor(
-            experience.sequences, num_actions, attention_mask=experience.attention_mask, return_output=True
-        )
+        # action_log_probs, output = self.actor(
+        #     experience.sequences, num_actions, attention_mask=experience.attention_mask, return_output=True
+        # )
+        action_log_probs = self.actor(
+            experience.sequences, num_actions,
+            attention_mask=experience.attention_mask, return_output=False
+        ) # TODO later revert this and fix the above (return_output=True)
 
         # loss function
         actor_loss = self.actor_loss_fn(
@@ -564,7 +568,8 @@ class PPOTrainer(ABC):
         )
         # mixtral
         if self.aux_loss:
-            aux_loss = output.aux_loss
+            raise NotImplementedError
+            # aux_loss = output.aux_loss
         else:
             aux_loss = 0
         loss = actor_loss + aux_loss * self.args.aux_loss_coef
