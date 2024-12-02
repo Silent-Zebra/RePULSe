@@ -118,9 +118,7 @@ class ActorCustom(nn.Module):
             self.model = pretrain_or_model
 
         # Custom new linear (or later NN) head in order to output modifier to logits
-        input_dim = self.model.config.n_embd
-        output_dim = self.model.config.vocab_size
-        self.model.lm_head = nn.Linear(input_dim, output_dim)
+        self.model.lm_head = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features)
 
     @torch.no_grad()
     # def generate(self, input_ids: torch.Tensor, **kwargs) -> Union[
