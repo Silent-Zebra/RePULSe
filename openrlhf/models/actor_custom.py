@@ -226,6 +226,8 @@ class ActorCustom(nn.Module):
 
         return sequences, attention_mask, action_mask
 
+
+
     def forward(
         self,
         sequences: torch.LongTensor,
@@ -248,7 +250,7 @@ class ActorCustom(nn.Module):
         # log_psi
         modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
 
-        log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:])
+        log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=True)
 
         # output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
 
