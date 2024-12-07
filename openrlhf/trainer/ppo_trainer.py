@@ -444,7 +444,6 @@ class PPOTrainer(ABC):
         print(total_g_qs.shape)
         print(total_f_qs.shape)
 
-        1/0
 
         # print(total_rewards.shape)
         # print(total_kl_vals.shape)
