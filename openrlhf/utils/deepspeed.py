@@ -27,6 +27,8 @@ from .deepspeed_utils import (
     get_train_ds_config,
 )
 
+import socket
+
 ModelOptimPair = Tuple[nn.Module, Optimizer]
 ModelOrModelOptimPair = Union[nn.Module, ModelOptimPair]
 
@@ -79,7 +81,21 @@ class DeepspeedStrategy(ABC):
         if self.args.local_rank != -1:
             torch.cuda.set_device(self.args.local_rank)
         # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-        deepspeed.init_distributed(timeout=timeout)
+        with socket.socket() as sock:
+            sock.bind(("", 0)) # get a socket that's available
+            port = sock.getsockname()[1]
+            print(f"Got port: {port}")
+
+        max_attempts = 20
+        attempts = 0
+        while attempts < max_attempts:
+            try:
+                print(f"Previous attempts: {attempts}. Trying deepspeed init_distributed with port {port}")
+                deepspeed.init_distributed(timeout=timeout, distributed_port=port)
+                attempts = max_attempts # Finish, if we got it set up
+            except:
+                attempts += 1
+
         self.world_size = dist.get_world_size()
         self.accumulated_gradient = self.train_batch_size // self.micro_train_batch_size // self.world_size
 
