@@ -101,8 +101,8 @@ class DeepspeedStrategy(ABC):
                 attempts += 1
                 # s.close()
                 if attempts < max_attempts:
-                    time.sleep(random.uniform(0.5, 1))
-                    # time.sleep(random.uniform(0.5 * (2 ** attempts), 1 * (2 ** attempts)))
+                    # time.sleep(random.uniform(0.5, 1))
+                    time.sleep(random.uniform(0.5 * (2 ** attempts), 1 * (2 ** attempts)))
 
         self.world_size = dist.get_world_size()
         self.accumulated_gradient = self.train_batch_size // self.micro_train_batch_size // self.world_size
