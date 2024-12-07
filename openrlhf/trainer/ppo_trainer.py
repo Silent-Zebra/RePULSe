@@ -199,7 +199,7 @@ class PPOTrainer(ABC):
         f_q_estimates_list = []
         g_q_estimates_list = []
 
-        n_seeds_f_q = 1
+        n_seeds_f_q = 4
         # if true_posterior_samples is not None:
         #     n_seeds_f_q = true_posterior_samples.shape[0] // args.train_batch_size
         #     print(f"n_seeds_f_q: {n_seeds_f_q}")
@@ -443,6 +443,9 @@ class PPOTrainer(ABC):
         print("Shapes")
         print(total_g_qs.shape)
         print(total_f_qs.shape)
+
+        1/0
+
         # print(total_rewards.shape)
         # print(total_kl_vals.shape)
         if total_g_qs is not None:
