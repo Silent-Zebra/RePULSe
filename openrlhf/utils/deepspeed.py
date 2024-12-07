@@ -28,6 +28,7 @@ from .deepspeed_utils import (
 )
 
 import socket
+import time
 
 ModelOptimPair = Tuple[nn.Module, Optimizer]
 ModelOrModelOptimPair = Union[nn.Module, ModelOptimPair]
@@ -93,8 +94,10 @@ class DeepspeedStrategy(ABC):
                 print(f"Previous attempts: {attempts}. Trying deepspeed init_distributed with port {port}")
                 deepspeed.init_distributed(timeout=timeout, distributed_port=port)
                 attempts = max_attempts # Finish, if we got it set up
-            except:
+            except Exception as e:
+                print(f"An error occurred: {e}")
                 attempts += 1
+                time.sleep(1)
 
         self.world_size = dist.get_world_size()
         self.accumulated_gradient = self.train_batch_size // self.micro_train_batch_size // self.world_size
