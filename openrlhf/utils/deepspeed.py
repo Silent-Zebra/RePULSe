@@ -83,7 +83,7 @@ class DeepspeedStrategy(ABC):
             torch.cuda.set_device(self.args.local_rank)
         # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
 
-        max_attempts = 20
+        max_attempts = 10
         attempts = 0
         while attempts < max_attempts:
             try:
@@ -99,7 +99,7 @@ class DeepspeedStrategy(ABC):
                 print(f"An error occurred: {e}")
                 attempts += 1
                 s.close()
-                time.sleep(random.uniform(0.1, 0.5))
+                time.sleep(random.uniform(0.5 * (2 ** attempts), 1 * (2 ** attempts)))
 
         self.world_size = dist.get_world_size()
         self.accumulated_gradient = self.train_batch_size // self.micro_train_batch_size // self.world_size
