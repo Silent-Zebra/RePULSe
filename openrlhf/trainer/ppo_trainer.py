@@ -356,14 +356,41 @@ class PPOTrainer(ABC):
             if true_posterior_samples is not None:
                 true_posterior_samples = true_posterior_samples.to(
                     q_seqs.device)
+                # TODO later account for the above possiblity
+
             if i == 0:
                 assert true_posterior_samples is not None
-                # TODO later account for the above possiblity
-                g_qs = self.g_q_estimate(args, true_posterior_samples[
-                                               :q_seqs.shape[0]],
-                                         num_actions, attention_mask)
-                print("Avg G_q Estimate (Learned Model)")
-                print(g_qs.mean())
+                range_val = (math.ceil(
+                    true_posterior_samples.shape[0] / args.n_samples_for_f_q))
+                print(range_val)
+                for j in range(range_val):
+                    samples = true_posterior_samples[
+                              j * args.n_samples_for_f_q: (j + 1) * args.n_samples_for_f_q]
+                    if samples.shape[0] != 0:
+                        print("G_q Estimates Learned Model")
+                        # print(samples.shape)
+                        # print(condition_twist_on_tokens.shape)
+                        # print(condition_twist_on_tokens[i * n_samples_f_q: (i+1) * n_samples_f_q].shape)
+                        g_qs = self.g_q_estimate(args, samples,
+                                                 num_actions, attention_mask)
+
+                        print(g_qs)
+                        print("Avg G_q Estimate (Learned Model)")
+                        print(g_qs.mean())
+
+                        if total_g_qs is None:
+                            total_g_qs = g_qs
+                        else:
+                            total_g_qs = torch.cat((total_g_qs, g_qs),
+                                                   axis=0)
+                            print("Total G_qs shape")
+                            print(total_g_qs.shape)
+
+                # g_qs = self.g_q_estimate(args, true_posterior_samples[
+                #                                :q_seqs.shape[0]],
+                #                          num_actions, attention_mask)
+                # print("Avg G_q Estimate (Learned Model)")
+                # print(g_qs.mean())
 
             if true_posterior_samples is not None:
                 iwae_mixture_with_one_post = q_seqs.detach().clone()
@@ -395,13 +422,15 @@ class PPOTrainer(ABC):
                 # total_kl_vals = torch.cat((total_kl_vals, kl_vals),
                 #                           axis=0)
                 # print(total_kl_vals.shape)
-            if total_g_qs is None:
-                total_g_qs = g_qs
-            else:
-                total_g_qs = torch.cat((total_g_qs, g_qs),
-                                       axis=0)
-                print("Total G_qs shape")
-                print(total_g_qs.shape)
+
+            # if total_g_qs is None:
+            #     total_g_qs = g_qs
+            # else:
+            #     total_g_qs = torch.cat((total_g_qs, g_qs),
+            #                            axis=0)
+            #     print("Total G_qs shape")
+            #     print(total_g_qs.shape)
+
         iwae_lbs_list.append(iwae_lbs)
         iwae_ubs_list.append(iwae_ubs)
         # 1/0
