@@ -87,17 +87,19 @@ class DeepspeedStrategy(ABC):
         attempts = 0
         while attempts < max_attempts:
             try:
-                with socket.socket() as sock:
-                    sock.bind(("", 0))  # get a socket that's available
-                    port = sock.getsockname()[1]
-                    print(f"Got port: {port}")
+                s = socket.socket()
+                s.bind(("", 0))  # get a socket that's available
+                port = s.getsockname()[1]
+                print(f"Got port: {port}")
                 print(f"Previous attempts: {attempts}. Trying deepspeed init_distributed with port {port}")
                 deepspeed.init_distributed(timeout=timeout, distributed_port=port)
                 attempts = max_attempts # Finish, if we got it set up
+                s.close()
             except Exception as e:
                 print(f"An error occurred: {e}")
                 attempts += 1
-                time.sleep(1)
+                s.close()
+                time.sleep(random.uniform(0.1, 0.5))
 
         self.world_size = dist.get_world_size()
         self.accumulated_gradient = self.train_batch_size // self.micro_train_batch_size // self.world_size
