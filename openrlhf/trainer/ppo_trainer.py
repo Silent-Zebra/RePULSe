@@ -239,6 +239,8 @@ class PPOTrainer(ABC):
 
                 if steps % update_timesteps == 0:
 
+                    print(f"Step: {steps}")
+
                     global_steps = steps // update_timesteps
 
                     num_twist_updates_to_do = args.update_steps_per_episode
