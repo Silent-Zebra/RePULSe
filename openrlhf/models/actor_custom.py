@@ -130,10 +130,10 @@ class ActorCustom(nn.Module):
         # TODO: if still doing nonsense, later try actual 0s and ensure it works, at least in the first iteration
         # ALSO TODO: ensure that the sampling matches the prob under the model.
 
-        new_layer.weight.data *= 0 # TODO DEBUG ONLY REMOVE LATER
-
-        print("NEW LAYER WEIGHT 3")
-        print(new_layer.weight)
+        # new_layer.weight.data *= 0 # TODO DEBUG ONLY REMOVE LATER
+        #
+        # print("NEW LAYER WEIGHT 3")
+        # print(new_layer.weight)
 
         if new_layer.bias is not None:
             nn.init.zeros_(new_layer.bias)
