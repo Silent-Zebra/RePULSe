@@ -120,7 +120,20 @@ class ActorCustom(nn.Module):
         # Custom new linear (or later NN) head in order to output modifier to logits
         new_layer = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features, )
 
+        print("NEW LAYER WEIGHT 1")
+        print(new_layer.weight)
+
         nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
+
+        print("NEW LAYER WEIGHT 2")
+        print(new_layer.weight)
+        # TODO: if still doing nonsense, later try actual 0s and ensure it works, at least in the first iteration
+        # ALSO TODO: ensure that the sampling matches the prob under the model.
+
+        1/0
+
+        print("NEW LAYER WEIGHT 3")
+        print(new_layer.weight)
 
         if new_layer.bias is not None:
             nn.init.zeros_(new_layer.bias)
