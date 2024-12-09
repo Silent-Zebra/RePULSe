@@ -213,6 +213,7 @@ class PPOTrainer(ABC):
             print("USING CUSTOM PROMPT")
             print(len(custom_prompt))
             start_episode = 0 # TODO later make sure this hasn't messed things up
+            steps = 0 # TODO later make sure this hasn't messed things up
 
             self.f_q_g_q_evaluation(args, f_q_estimates_list,
                                     g_q_estimates_list, iwae_lbs_list,
@@ -234,8 +235,6 @@ class PPOTrainer(ABC):
                     desc=f"Episode [{episode + 1}/{args.num_episodes}]",
                     disable=not self.strategy.is_rank_0(),
                 )
-
-
 
 
                 if steps % update_timesteps == 0:
@@ -264,7 +263,8 @@ class PPOTrainer(ABC):
                         self.replay_buffer.append(experience)
 
                         torch.cuda.empty_cache()
-                        self.replay_buffer.normalize("advantages", self.strategy)
+                        if args.normalize_advantages:
+                            self.replay_buffer.normalize("advantages", self.strategy)
                         status = self.ppo_train(global_steps)
                         self.replay_buffer.clear()
                         torch.cuda.empty_cache()
@@ -273,6 +273,8 @@ class PPOTrainer(ABC):
                             self.kl_ctl.update(status["kl"],
                                                args.rollout_batch_size)
                         pbar.set_postfix(status)
+
+                        steps = steps + 1
 
                     # logs/checkpoints
                     # client_states = {
@@ -286,7 +288,6 @@ class PPOTrainer(ABC):
                                         true_posterior_samples)
 
                 pbar.update()
-                steps = steps + 1
 
         else:
 
@@ -313,7 +314,8 @@ class PPOTrainer(ABC):
                         global_steps = steps // update_timesteps
 
                         torch.cuda.empty_cache()
-                        self.replay_buffer.normalize("advantages", self.strategy)
+                        if args.normalize_advantages:
+                            self.replay_buffer.normalize("advantages", self.strategy)
                         status = self.ppo_train(global_steps)
                         self.replay_buffer.clear()
                         torch.cuda.empty_cache()
@@ -616,6 +618,7 @@ class PPOTrainer(ABC):
 
         # ptx loss
         if self.pretrain_dataloader is not None:
+            raise NotImplementedError # not yet checked/fixed
             data = next(self.pretrain_dataloader)
             inputs = data[1].squeeze(1).to(torch.cuda.current_device())
             attention_mask = data[2].squeeze(1).to(torch.cuda.current_device())
