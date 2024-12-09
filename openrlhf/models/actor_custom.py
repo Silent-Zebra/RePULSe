@@ -193,7 +193,7 @@ class ActorCustom(nn.Module):
             next_token_logits = lm_logits[:, -1, :]
 
             # sample
-            probs = nn.functional.softmax(next_token_logits, dim=-1)
+            probs = F.softmax(next_token_logits, dim=-1)
             next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
 
             # update generated ids, model inputs, and length for next step
@@ -283,19 +283,25 @@ class ActorCustom(nn.Module):
         modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
         if use_for_generation: # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
             return_all_vocab = True
+            log_probs = log_probs_from_logits_with_modulation(
+                base_output["logits"], modulation["logits"], sequences, # UNUSED HERE, TODO refactor to make this cleaner
+                return_all_vocab=return_all_vocab
+            )
+            return log_probs # actually only need the very last one of this... [:, -1]
+
         else:
             return_all_vocab = False
 
-        log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=return_all_vocab)
+            log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=return_all_vocab)
 
-        # output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+            # output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
 
-        assert not return_output
-        # if return_output:
-        #     return output if num_actions is None else (log_probs[:, -num_actions:], output)
-        # else:
+            assert not return_output
+            # if return_output:
+            #     return output if num_actions is None else (log_probs[:, -num_actions:], output)
+            # else:
 
-        return log_probs[:, -num_actions:]
+            return log_probs[:, -num_actions:]
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
         self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
