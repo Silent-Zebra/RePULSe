@@ -130,7 +130,7 @@ class ActorCustom(nn.Module):
         # TODO: if still doing nonsense, later try actual 0s and ensure it works, at least in the first iteration
         # ALSO TODO: ensure that the sampling matches the prob under the model.
 
-        1/0
+        new_layer.weight.data *= 0 # TODO DEBUG ONLY REMOVE LATER
 
         print("NEW LAYER WEIGHT 3")
         print(new_layer.weight)
