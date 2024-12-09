@@ -263,8 +263,7 @@ class PPOTrainer(ABC):
                         self.replay_buffer.append(experience)
 
                         torch.cuda.empty_cache()
-                        if args.normalize_advantages:
-                            self.replay_buffer.normalize("advantages", self.strategy)
+                        self.replay_buffer.normalize("advantages", self.strategy)
                         status = self.ppo_train(global_steps)
                         self.replay_buffer.clear()
                         torch.cuda.empty_cache()
@@ -314,8 +313,7 @@ class PPOTrainer(ABC):
                         global_steps = steps // update_timesteps
 
                         torch.cuda.empty_cache()
-                        if args.normalize_advantages:
-                            self.replay_buffer.normalize("advantages", self.strategy)
+                        self.replay_buffer.normalize("advantages", self.strategy)
                         status = self.ppo_train(global_steps)
                         self.replay_buffer.clear()
                         torch.cuda.empty_cache()
