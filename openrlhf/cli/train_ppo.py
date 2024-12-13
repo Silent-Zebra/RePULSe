@@ -235,6 +235,7 @@ def train(args):
         scheduler_specific_kwargs={"min_lr": args.actor_learning_rate * 0.1},
     )
 
+    critic_scheduler = None
     if critic_optim is not None:
         critic_scheduler = get_scheduler(
             args.lr_scheduler,
