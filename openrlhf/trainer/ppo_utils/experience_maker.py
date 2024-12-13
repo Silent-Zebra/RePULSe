@@ -267,6 +267,12 @@ class NaiveExperienceMaker(ABC):
         # print("--End Sequences--")
         # log probs
         if self.shared_actorcritic:
+
+            print("attention_mask")
+            print(attention_mask.shape)
+            print(sequences.shape)
+            # ALSO TODO Figure out why this works on the f_q but not on the g_q and also why only for sharedactorcritic...
+
             action_log_probs, values = self.actor(sequences, num_actions, attention_mask)
             return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
         else:
