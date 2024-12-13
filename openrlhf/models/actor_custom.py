@@ -536,6 +536,10 @@ class ActorCritic(nn.Module):
 
         output = self.model(sequences, attention_mask=attention_mask,
                             position_ids=position_ids)
+
+        print(output)
+        1/0
+
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :],
                                           sequences[:, 1:])
 
