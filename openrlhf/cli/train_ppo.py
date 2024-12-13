@@ -367,12 +367,13 @@ def train(args):
 
     torch.save(target_to_save, save_str)
 
-    # save model checkpoint after fitting on only rank0
-    strategy.save_model(
-        ema_model if args.enable_ema else actor,
-        tokenizer,
-        args.save_path,
-    )
+    if args.save_actor:
+        # save model checkpoint after fitting on only rank0
+        strategy.save_model(
+            ema_model if args.enable_ema else actor,
+            tokenizer,
+            args.save_path,
+        )
 
     if args.save_value_network:
         strategy.save_model(
@@ -387,6 +388,8 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # Checkpoint
+    parser.add_argument("--save_actor", action="store_true", default=False)
+
     parser.add_argument("--save_path", type=str, default="./ckpt")
     parser.add_argument("--save_steps", type=int, default=-1)
     parser.add_argument("--logging_steps", type=int, default=1)
