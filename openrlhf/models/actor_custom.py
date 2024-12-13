@@ -543,9 +543,9 @@ class ActorCritic(nn.Module):
 
         last_hidden_state = output.hidden_states[-1]
 
-        if last_hidden_state.device != self.critic_head.summary.weight.device:
+        if last_hidden_state.device != self.critic_head.weight.device:
             last_hidden_state = last_hidden_state.to(
-                self.critic_head.summary.weight.device)
+                self.critic_head.weight.device)
 
         value = self.critic_head(last_hidden_state).squeeze(-1)
 
