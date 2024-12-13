@@ -168,19 +168,31 @@ class ActorCustom(nn.Module):
         # if kwargs.get("max_length", None):
         #     generate_args["max_length"] = kwargs.get("max_length")
 
+        action_mask, attention_mask, sequences = self.custom_generate(
+            attention_mask, generate_args, input_ids, **kwargs)
+
+        # sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
+
+        # print("LM LOGITS SHAPE")
+        # print(lm_logits.shape)
+        # print("SEQ SHAPE")
+        # print(sequences.shape)
+
+        return sequences, attention_mask, action_mask
+
+    def custom_generate(self, attention_mask, generate_args, input_ids, **kwargs):
         max_new_tokens = kwargs.get("max_new_tokens")
         max_len = max_new_tokens + input_ids.shape[-1]
         print(input_ids.shape)
-
         sequences = input_ids.clone()
         eos_token_id = generate_args["eos_token_id"]
         pad_token_id = generate_args["pad_token_id"]
-
         while sequences.shape[-1] < max_len:
 
             lm_logits = self.forward(
                 sequences,
-                num_actions=max_new_tokens, # TODO: note this might cause some issues; keeping it simple for now
+                num_actions=max_new_tokens,
+                # TODO: note this might cause some issues; keeping it simple for now
                 attention_mask=attention_mask,
                 # condition_twist_on_tokens=condition_twist_on_tokens
                 use_for_generation=True
@@ -194,16 +206,9 @@ class ActorCustom(nn.Module):
 
             # update generated ids, model inputs, and length for next step
             sequences = torch.cat([sequences, next_tokens[:, None]], dim=-1)
-            sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
-
-        sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
-
-        # print("LM LOGITS SHAPE")
-        # print(lm_logits.shape)
-        # print("SEQ SHAPE")
-        # print(sequences.shape)
-
-        return sequences, attention_mask, action_mask
+            sequences, attention_mask, action_mask = self.process_sequences(
+                sequences, input_ids.size(1), eos_token_id, pad_token_id)
+        return action_mask, attention_mask, sequences
 
     def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
@@ -444,14 +449,14 @@ class ActorCritic(nn.Module):
             "min_new_tokens": kwargs.get("min_new_tokens", 1),
         }
 
-        # if kwargs.get("max_new_tokens", None):
-        #     generate_args["max_new_tokens"] = kwargs.get("max_new_tokens")
-        # if kwargs.get("max_length", None):
-        #     generate_args["max_length"] = kwargs.get("max_length")
+        if kwargs.get("max_new_tokens", None):
+            generate_args["max_new_tokens"] = kwargs.get("max_new_tokens")
+        if kwargs.get("max_length", None):
+            generate_args["max_length"] = kwargs.get("max_length")
 
-        max_new_tokens = kwargs.get("max_new_tokens")
-        max_len = max_new_tokens + input_ids.shape[-1]
-        print(input_ids.shape)
+        # max_new_tokens = kwargs.get("max_new_tokens")
+        # max_len = max_new_tokens + input_ids.shape[-1]
+        # print(input_ids.shape)
 
         eos_token_id = generate_args["eos_token_id"]
         pad_token_id = generate_args["pad_token_id"]
