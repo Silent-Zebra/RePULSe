@@ -129,14 +129,17 @@ def train(args):
         reward_model = None
 
     strategy.print("reward normalization status: {}".format(args.normalize_reward))
-    strategy.print("mean: {}, std {}".format(critic.mean, critic.std))
+    if critic is not None:
+        strategy.print("mean: {}, std {}".format(critic.mean, critic.std))
 
     # configure tokenizer
     tokenizer = get_tokenizer(args.pretrain, actor.model, "left", strategy, use_fast=not args.disable_fast_tokenizer)
-    get_tokenizer(args.critic_pretrain, critic, "left", strategy, use_fast=not args.disable_fast_tokenizer)
+    if critic is not None:
+        get_tokenizer(args.critic_pretrain, critic, "left", strategy, use_fast=not args.disable_fast_tokenizer)
 
     strategy.print(actor)
-    strategy.print(critic)
+    if critic is not None:
+        strategy.print(critic)
 
     if args.enable_ema:
         ema_model = Actor(
@@ -274,7 +277,8 @@ def train(args):
     consumed_samples = 0
     if args.load_checkpoint and os.path.exists(os.path.join(args.ckpt_path, "_actor")):
         _, states = strategy.load_ckpt(actor.model, os.path.join(args.ckpt_path, "_actor"))
-        strategy.load_ckpt(critic, os.path.join(args.ckpt_path, "_critic"))
+        if critic is not None:
+            strategy.load_ckpt(critic, os.path.join(args.ckpt_path, "_critic"))
         consumed_samples = states["consumed_samples"]
         strategy.print(f"Loaded the checkpoint: {args.ckpt_path}, consumed_samples: {consumed_samples}")
 
@@ -355,7 +359,11 @@ def train(args):
     extra_str = "_"
     if args.actor_modulates_base:
         extra_str = "_actormodbase_"
-    torch.save(target_to_save, f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_lrschedule{args.lr_scheduler}_actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}{extra_str}seed{args.seed}")
+    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_lrschedule{args.lr_scheduler}_actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}{extra_str}seed{args.seed}"
+    if args.shared_actorcritic:
+        save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_lrschedule{args.lr_scheduler}_sharedactorcritic_lr{args.actor_learning_rate}{extra_str}seed{args.seed}"
+
+    torch.save(target_to_save, save_str)
 
     # save model checkpoint after fitting on only rank0
     strategy.save_model(
