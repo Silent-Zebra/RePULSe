@@ -123,9 +123,6 @@ class DeepspeedStrategy(ABC):
             print(p.requires_grad)
             print(p)
 
-        print("--model--")
-        print(model)
-        print(isinstance(model, Actor))
         1/0
 
         optim = AdamOptimizer(optim_params, **kwargs)
