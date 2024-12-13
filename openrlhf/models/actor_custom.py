@@ -535,7 +535,7 @@ class ActorCritic(nn.Module):
         position_ids.masked_fill_(attention_mask == 0, 1)
 
         print("INSPECTION OF FORWARD CALL")
-        print(position_ids)
+        print(sequences.shape)
         print(position_ids.shape)
         print(attention_mask.shape) # FIgure out where this attention mask is coming from and why it doesn't work with position_ids...
 
