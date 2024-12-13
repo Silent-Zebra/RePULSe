@@ -576,7 +576,8 @@ class PPOTrainer(ABC):
                 if "critic_loss" in status:
                     short_status["cri"] = status["critic_loss"]
                     short_status["vals"] = status["values"]
-                    short_status["cri_lr"] = status["critic_lr"]
+                    if "critic_lr" in status:
+                        short_status["cri_lr"] = status["critic_lr"]
 
                 if "ptx_loss" in status:
                     short_status["ptx"] = status["ptx_loss"]
@@ -642,7 +643,7 @@ class PPOTrainer(ABC):
         status_val = {
             "critic_loss": critic_loss.item(),
             "values": masked_mean(values, experience.action_mask).item(),
-            "critic_lr": self.critic_scheduler.get_last_lr()[0],
+            # "critic_lr": self.critic_scheduler.get_last_lr()[0],
         }
         status.update(status_val)
 
