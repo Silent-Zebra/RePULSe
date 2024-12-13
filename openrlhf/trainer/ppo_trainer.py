@@ -463,8 +463,12 @@ class PPOTrainer(ABC):
     def f_q_estimate(self, args, batch_prompt):
         self.experience_maker.set_all_eval()
         with torch.no_grad():
-            action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(
-                batch_prompt, **self.generate_kwargs)
+            if self.shared_actorcritic:
+                action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_logprobs(
+                    batch_prompt, **self.generate_kwargs)
+            else:
+                action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(
+                    batch_prompt, **self.generate_kwargs)
             action_log_probs = action_log_probs.float() # more precision
             log_q = action_log_probs.sum(dim=-1)
             print("f_q estimate details")
