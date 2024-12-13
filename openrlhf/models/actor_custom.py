@@ -535,10 +535,8 @@ class ActorCritic(nn.Module):
         position_ids.masked_fill_(attention_mask == 0, 1)
 
         output = self.model(sequences, attention_mask=attention_mask,
-                            position_ids=position_ids)
+                            position_ids=position_ids, output_hidden_states=True)
 
-        print(output)
-        1/0
 
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :],
                                           sequences[:, 1:])
