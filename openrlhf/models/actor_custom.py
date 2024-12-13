@@ -415,7 +415,7 @@ class ActorCritic(nn.Module):
         if new_layer.bias is not None:
             nn.init.zeros_(new_layer.bias)
 
-        self.model.critic_head = new_layer
+        self.critic_head = new_layer
 
 
 
