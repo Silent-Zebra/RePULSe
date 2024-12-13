@@ -31,24 +31,51 @@ def train(args):
     )
     get_tokenizer(args.pretrain, initial_model.model, "left", strategy)
 
-    if args.actor_modulates_base:
-        actor = ActorCustom(
+    if args.shared_actorcritic:
+        actor = ActorCritic(
             args.pretrain,
-            initial_model=initial_model,
             use_flash_attention_2=args.flash_attn,
             bf16=args.bf16,
             load_in_4bit=args.load_in_4bit,
-            lora_rank=args.lora_rank,
-            lora_alpha=args.lora_alpha,
-            target_modules=args.target_modules,
-            lora_dropout=args.lora_dropout,
-            ds_config=strategy.get_ds_train_config(is_actor=True),
+            ds_config=strategy.get_ds_eval_config(offload=False),
         )
+        critic = None
+
     else:
-        # configure model
-        # load huggingface model
-        actor = Actor(
-            args.pretrain,
+        if args.actor_modulates_base:
+            actor = ActorCustom(
+                args.pretrain,
+                initial_model=initial_model,
+                use_flash_attention_2=args.flash_attn,
+                bf16=args.bf16,
+                load_in_4bit=args.load_in_4bit,
+                lora_rank=args.lora_rank,
+                lora_alpha=args.lora_alpha,
+                target_modules=args.target_modules,
+                lora_dropout=args.lora_dropout,
+                ds_config=strategy.get_ds_train_config(is_actor=True),
+            )
+        else:
+            # configure model
+            # load huggingface model
+            actor = Actor(
+                args.pretrain,
+                use_flash_attention_2=args.flash_attn,
+                bf16=args.bf16,
+                load_in_4bit=args.load_in_4bit,
+                lora_rank=args.lora_rank,
+                lora_alpha=args.lora_alpha,
+                target_modules=args.target_modules,
+                lora_dropout=args.lora_dropout,
+                ds_config=strategy.get_ds_train_config(is_actor=True),
+            )
+
+
+
+        critic = get_llm_for_sequence_regression(
+            args.critic_pretrain,
+            "critic",
+            normalize_reward=args.normalize_reward,
             use_flash_attention_2=args.flash_attn,
             bf16=args.bf16,
             load_in_4bit=args.load_in_4bit,
@@ -56,27 +83,13 @@ def train(args):
             lora_alpha=args.lora_alpha,
             target_modules=args.target_modules,
             lora_dropout=args.lora_dropout,
-            ds_config=strategy.get_ds_train_config(is_actor=True),
+            ds_config=strategy.get_ds_train_config(is_actor=False),
+            value_head_prefix=args.value_head_prefix,
+            init_value_head=strategy.args.pretrain == strategy.args.critic_pretrain,
         )
 
     if args.actor_init_on_gpu:
         actor = actor.to(torch.cuda.current_device())
-
-    critic = get_llm_for_sequence_regression(
-        args.critic_pretrain,
-        "critic",
-        normalize_reward=args.normalize_reward,
-        use_flash_attention_2=args.flash_attn,
-        bf16=args.bf16,
-        load_in_4bit=args.load_in_4bit,
-        lora_rank=args.lora_rank,
-        lora_alpha=args.lora_alpha,
-        target_modules=args.target_modules,
-        lora_dropout=args.lora_dropout,
-        ds_config=strategy.get_ds_train_config(is_actor=False),
-        value_head_prefix=args.value_head_prefix,
-        init_value_head=strategy.args.pretrain == strategy.args.critic_pretrain,
-    )
 
     if not args.remote_rm_url:
         if args.reward_pretrain == "nicholasKluge/ToxicityModel":
@@ -125,8 +138,6 @@ def train(args):
     strategy.print(actor)
     strategy.print(critic)
 
-
-
     if args.enable_ema:
         ema_model = Actor(
             args.pretrain,
@@ -143,17 +154,19 @@ def train(args):
         actor.gradient_checkpointing_enable(
             gradient_checkpointing_kwargs={"use_reentrant": args.gradient_checkpointing_use_reentrant}
         )
-        critic.gradient_checkpointing_enable(
-            gradient_checkpointing_kwargs={"use_reentrant": args.gradient_checkpointing_use_reentrant}
-        )
+        if critic is not None:
+            critic.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": args.gradient_checkpointing_use_reentrant}
+            )
 
     # configure optimizer
     actor_optim = strategy.create_optimizer(
         actor, lr=args.actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
     )
-    critic_optim = strategy.create_optimizer(
-        critic, lr=args.critic_learning_rate, betas=args.adam_betas, weight_decay=args.l2
-    )
+    if critic is not None:
+        critic_optim = strategy.create_optimizer(
+            critic, lr=args.critic_learning_rate, betas=args.adam_betas, weight_decay=args.l2
+        )
 
     # prepare datasets
     prompts_data = blending_datasets(
@@ -218,27 +231,40 @@ def train(args):
         scheduler_specific_kwargs={"min_lr": args.actor_learning_rate * 0.1},
     )
 
-    critic_scheduler = get_scheduler(
-        args.lr_scheduler,
-        critic_optim,
-        num_warmup_steps=math.ceil(max_steps * 0.03),
-        num_training_steps=max_steps,
-        scheduler_specific_kwargs={"min_lr": args.critic_learning_rate * 0.1},
-    )
+    if critic_optim is not None:
+        critic_scheduler = get_scheduler(
+            args.lr_scheduler,
+            critic_optim,
+            num_warmup_steps=math.ceil(max_steps * 0.03),
+            num_training_steps=max_steps,
+            scheduler_specific_kwargs={"min_lr": args.critic_learning_rate * 0.1},
+        )
 
-    # prepare models/optimizers...
-    (
-        (actor, actor_optim, actor_scheduler),
-        (critic, critic_optim, critic_scheduler),
-        reward_model,
-        initial_model,
-    ) = strategy.prepare(
-        (actor, actor_optim, actor_scheduler),
-        (critic, critic_optim, critic_scheduler),
-        reward_model,
-        initial_model,
-        is_rlhf=True,
-    )
+    if critic is not None:
+        # prepare models/optimizers...
+        (
+            (actor, actor_optim, actor_scheduler),
+            (critic, critic_optim, critic_scheduler),
+            reward_model,
+            initial_model,
+        ) = strategy.prepare(
+            (actor, actor_optim, actor_scheduler),
+            (critic, critic_optim, critic_scheduler),
+            reward_model,
+            initial_model,
+            is_rlhf=True,
+        )
+    else:
+        (
+            (actor, actor_optim, actor_scheduler),
+            reward_model,
+            initial_model,
+        ) = strategy.prepare(
+            (actor, actor_optim, actor_scheduler),
+            reward_model,
+            initial_model,
+            is_rlhf=True,
+        )
 
     if ema_model:
         ema_model._offload = True
@@ -253,31 +279,6 @@ def train(args):
         strategy.print(f"Loaded the checkpoint: {args.ckpt_path}, consumed_samples: {consumed_samples}")
 
     os.makedirs(args.save_path, exist_ok=True)
-
-    if args.shared_actorcritic:
-        actor = ActorCritic(
-            args.pretrain,
-            use_flash_attention_2=args.flash_attn,
-            bf16=args.bf16,
-            load_in_4bit=args.load_in_4bit,
-            ds_config=strategy.get_ds_eval_config(offload=False),
-        )
-        critic = None
-        # also only build a single optim and scheduler and use those
-        actor_optim = strategy.create_optimizer(
-            actor, lr=args.actor_learning_rate, betas=args.adam_betas,
-            weight_decay=args.l2
-        )
-        critic_optim = None
-        actor_scheduler = get_scheduler(
-            args.lr_scheduler,
-            actor_optim,
-            num_warmup_steps=math.ceil(max_steps * 0.03),
-            num_training_steps=max_steps,
-            scheduler_specific_kwargs={
-                "min_lr": args.actor_learning_rate * 0.1},
-        )
-        critic_scheduler = None
 
     # configure Trainer
     trainer = PPOTrainer(
