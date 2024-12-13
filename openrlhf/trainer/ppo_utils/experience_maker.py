@@ -124,14 +124,16 @@ class NaiveExperienceMaker(ABC):
         else:
             action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
                 prompts, **generate_kwargs)
-            # init log probs
-            base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
-            print("--BASE ACTION LOG PROBS--")
-            print(base_action_log_probs.mean())
-            print(base_action_log_probs)
 
             # values
             value = self.critic(sequences, action_mask, attention_mask)
+
+        # init log probs
+        base_action_log_probs = self.initial_model(sequences, num_actions,
+                                                   attention_mask)
+        print("--BASE ACTION LOG PROBS--")
+        print(base_action_log_probs.mean())
+        print(base_action_log_probs)
 
         r = self.compute_reward_no_kl(sequences, attention_mask, action_log_probs)
 
