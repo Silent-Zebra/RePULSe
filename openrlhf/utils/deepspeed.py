@@ -119,9 +119,13 @@ class DeepspeedStrategy(ABC):
         print("--OPTIM PARAMS--")
         print(optim_params)
         for n, p in model.named_parameters():
-            if p.requires_grad:
-                print(f"param name: {n}")
-                print(p)
+            print(f"param name: {n}")
+            print(p.requires_grad)
+            print(p)
+
+        print("--model--")
+        print(model)
+        print(isinstance(model, Actor))
         1/0
 
         optim = AdamOptimizer(optim_params, **kwargs)
