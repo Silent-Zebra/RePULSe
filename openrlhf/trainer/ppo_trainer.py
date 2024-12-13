@@ -77,6 +77,7 @@ class PPOTrainer(ABC):
         dataloader_pin_memory: bool = True,
         remote_rm_url: str = None,
         reward_fn: Callable[[List[torch.Tensor]], torch.Tensor] = None,
+        shared_actorcritic: bool = False,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -125,6 +126,8 @@ class PPOTrainer(ABC):
         else:
             self.kl_ctl = FixedKLController(init_kl_coef)
 
+        self.shared_actorcritic = shared_actorcritic
+
         self.experience_maker = NaiveExperienceMaker(
             actor,
             critic,
@@ -136,6 +139,7 @@ class PPOTrainer(ABC):
             strategy,
             remote_rm_url,
             reward_fn,
+            shared_actorcritic
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 
@@ -505,8 +509,13 @@ class PPOTrainer(ABC):
         self.experience_maker.set_all_eval()
         sequences = true_sigma_samples
         with torch.no_grad():
-            action_log_probs = self.experience_maker.actor(sequences, num_actions,
-                                          attention_mask)
+            if self.shared_actorcritic:
+                action_log_probs, _ = self.experience_maker.actor(sequences,
+                                                               num_actions,
+                                                               attention_mask)
+            else:
+                action_log_probs = self.experience_maker.actor(sequences, num_actions,
+                                              attention_mask)
             action_log_probs = action_log_probs.float() # more precision
             log_q = action_log_probs.sum(dim=-1)
             log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
@@ -580,11 +589,70 @@ class PPOTrainer(ABC):
                 status_mean[k] /= len(status_list)
         return status_mean
 
+    def training_step_shared_actorcritic(self, experience: Experience) -> Dict[str, float]:
+        self.actor.train()
+
+        num_actions = experience.action_mask.size(1)
+
+        action_log_probs, values = self.actor(
+            experience.sequences, num_actions,
+            attention_mask=experience.attention_mask, return_output=False
+        )  # TODO later revert this and fix the above (return_output=True)
+
+        actor_loss = self.actor_loss_fn(
+            action_log_probs,
+            experience.action_log_probs,
+            experience.advantages,
+            action_mask=experience.action_mask,
+        )
+
+        critic_loss = self.critic_loss_fn(
+            values,
+            experience.values,
+            experience.returns,
+            action_mask=experience.action_mask,
+        )
+
+        loss = actor_loss + critic_loss
+        self.strategy.backward(loss, self.actor, self.actor_optim)
+        self.strategy.optimizer_step(self.actor_optim, self.actor,
+                                     self.actor_scheduler, name="actor")
+        if self.ema_model:
+            self.strategy.moving_average(self.actor, self.ema_model,
+                                         self.ema_beta, "cpu")
+
+        # status
+        status = {"policy_loss": actor_loss.item(),
+                  "actor_lr": self.actor_scheduler.get_last_lr()[0]}
+        if self.pretrain_dataloader is not None:
+            raise NotImplementedError
+            # status["ptx_loss"] = ptx_loss.item()
+        for k, v in experience.info.items():
+            if k == "kl":
+                status[k] = (
+                    (v * experience.info["response_length"]).sum() /
+                    experience.info["response_length"].sum()
+                ).item()
+            else:
+                status[k] = v.mean().item()
+        status_val = {
+            "critic_loss": critic_loss.item(),
+            "values": masked_mean(values, experience.action_mask).item(),
+            "critic_lr": self.critic_scheduler.get_last_lr()[0],
+        }
+        status.update(status_val)
+
+        return status
+
+
     def training_step(self, experience: Experience, global_steps) -> Dict[str, float]:
         status = {}
-        if global_steps > self.freezing_actor_steps:
-            status = self.training_step_actor(experience)
-        status.update(self.training_step_critic(experience))
+        if self.shared_actorcritic:
+            status = self.training_step_shared_actorcritic(experience)
+        else:
+            if global_steps > self.freezing_actor_steps:
+                status = self.training_step_actor(experience)
+            status.update(self.training_step_critic(experience))
         return status
 
     def training_step_actor(self, experience: Experience) -> Dict[str, float]:
@@ -724,6 +792,7 @@ class PPOTrainer(ABC):
             args.max_ckpt_mem,
             client_states,
         )
-        self.strategy.save_ckpt(
-            self.critic, os.path.join(args.ckpt_path, "_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
-        )
+        if self.critic is not None:
+            self.strategy.save_ckpt(
+                self.critic, os.path.join(args.ckpt_path, "_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+            )

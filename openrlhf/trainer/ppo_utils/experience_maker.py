@@ -87,6 +87,7 @@ class NaiveExperienceMaker(ABC):
         strategy=None,
         remote_rm_url: str = None,
         reward_fn=None,
+        shared_actorcritic=False,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -99,6 +100,7 @@ class NaiveExperienceMaker(ABC):
         self.kl_ctl = kl_controller
         self.strategy = strategy
         self.reward_fn = reward_fn
+        self.shared_actorcritic = shared_actorcritic
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, device):
@@ -116,17 +118,20 @@ class NaiveExperienceMaker(ABC):
 
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], **generate_kwargs) -> Experience:
-        action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
-            prompts, **generate_kwargs)
+        if self.shared_actorcritic:
+            action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_logprobs(
+                prompts, **generate_kwargs)
+        else:
+            action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
+                prompts, **generate_kwargs)
+            # init log probs
+            base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
+            print("--BASE ACTION LOG PROBS--")
+            print(base_action_log_probs.mean())
+            print(base_action_log_probs)
 
-        # init log probs
-        base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
-        print("--BASE ACTION LOG PROBS--")
-        print(base_action_log_probs.mean())
-        print(base_action_log_probs)
-
-        # values
-        value = self.critic(sequences, action_mask, attention_mask)
+            # values
+            value = self.critic(sequences, action_mask, attention_mask)
 
         r = self.compute_reward_no_kl(sequences, attention_mask, action_log_probs)
 
@@ -163,7 +168,8 @@ class NaiveExperienceMaker(ABC):
         }
         # reset model state
         self.actor.train()
-        self.critic.train()
+        if self.critic is not None:
+            self.critic.train()
 
         return Experience(
             sequences,
@@ -234,7 +240,8 @@ class NaiveExperienceMaker(ABC):
 
     def set_all_eval(self):
         self.actor.eval()
-        self.critic.eval()
+        if self.critic is not None:
+            self.critic.eval()
         self.initial_model.eval()
         if self.reward_model is not None:
             self.reward_model.eval()
@@ -249,21 +256,25 @@ class NaiveExperienceMaker(ABC):
 
 
         num_actions = action_mask.size(1)
-        print("--NUM ACTIONS--")
-        print(num_actions)
-        print("--ACTION MASK--")
-        print(action_mask.size()) # TODO check this matches the output_len
-        print(action_mask)
-        print("--Sequences--")
-        print(sequences)
-        print(self.tokenizer.batch_decode(sequences))
-        print("--End Sequences--")
+        # print("--NUM ACTIONS--")
+        # print(num_actions)
+        # print("--ACTION MASK--")
+        # print(action_mask.size()) # check this matches the output_len
+        # print(action_mask)
+        # print("--Sequences--")
+        # print(sequences)
+        # print(self.tokenizer.batch_decode(sequences))
+        # print("--End Sequences--")
         # log probs
-        action_log_probs = self.actor(sequences, num_actions, attention_mask)
-        print("--ACTION LOG PROBS--")
-        print(action_log_probs.mean())
-        print(action_log_probs)
-        return action_log_probs, action_mask, attention_mask, num_actions, sequences
+        if self.shared_actorcritic:
+            action_log_probs, values = self.actor(sequences, num_actions, attention_mask)
+            return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
+        else:
+            action_log_probs = self.actor(sequences, num_actions, attention_mask)
+            # print("--ACTION LOG PROBS--")
+            # print(action_log_probs.mean())
+            # print(action_log_probs)
+            return action_log_probs, action_mask, attention_mask, num_actions, sequences
 
     @torch.no_grad()
     def get_advantages_and_returns(
@@ -341,6 +352,8 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         # init log probs
         base_action_log_probs_ref = self.initial_model.forward.remote(sequences_cpu, num_actions, attention_mask_cpu)
 
+        if self.shared_actorcritic:
+            raise NotImplementedError # Below stuff not implemented for this yet
         # values
         value_ref = self.critic.forward.remote(sequences_cpu, action_mask_cpu, attention_mask_cpu)
 
