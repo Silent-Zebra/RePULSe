@@ -549,17 +549,17 @@ class ActorCritic(nn.Module):
 
         value = self.critic_head(last_hidden_state).squeeze(-1)
 
-        print(value.shape)
-        print(log_probs.shape)
-        print(log_probs[:, -num_actions:].shape)
-        # TODO check the return statement below then modify this wherever else in the code needs to be modified also.
-        1/0
+        # print(value.shape)
+        # print(log_probs.shape)
+        # print(log_probs[:, -num_actions:].shape)
+        # # TODO check the return statement below then modify this wherever else in the code needs to be modified also.
+        # 1/0
 
         if return_output:
             return output if num_actions is None else (
-            log_probs[:, -num_actions:], output, value)
+            log_probs[:, -num_actions:], output, value[:, -num_actions:])
         else:
-            return log_probs[:, -num_actions:], value
+            return log_probs[:, -num_actions:], value[:, -num_actions:]
 
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
