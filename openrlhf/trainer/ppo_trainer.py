@@ -547,6 +547,23 @@ class PPOTrainer(ABC):
         status_list = []
         status_mean = {}
         for epoch in range(self.max_epochs):
+
+            if self.shared_actorcritic:
+                vhead_weight = torch.load("/h/zhaostep/twisted-smc-lm/vhead_weight_{epoch}.pt", weights_only=True)
+                vhead_bias = torch.load("/h/zhaostep/twisted-smc-lm/vhead_bias_{epoch}.pt", weights_only=True)
+
+                print("OPENRLHF CRITIC HEAD WEIGHT")
+                print(self.critic_head.weight)
+                print(self.critic_head.bias)
+
+                print("TRL CRITIC HEAD WEIGHT")
+                print(vhead_weight)
+                print(vhead_bias)
+
+                self.actor.critic_head.weight = vhead_weight
+                self.actor.critic_head.bias = vhead_bias
+                # TODO REMOVE LATER DEBUG ONLY
+
             pbar = tqdm(
                 dataloader,
                 desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
@@ -607,6 +624,12 @@ class PPOTrainer(ABC):
             attention_mask=experience.attention_mask, return_output=False
         )  # TODO later revert this and fix the above (return_output=True)
 
+        print("LOG PROBS")
+        print(action_log_probs)
+
+        print("VALUES")
+        print(values)
+
         actor_loss = self.actor_loss_fn(
             action_log_probs,
             experience.action_log_probs,
@@ -614,14 +637,24 @@ class PPOTrainer(ABC):
             action_mask=experience.action_mask,
         )
 
+        print("ACTOR LOSS")
+        print(actor_loss)
+
         critic_loss = self.critic_loss_fn(
             values,
             experience.values,
             experience.returns,
             action_mask=experience.action_mask,
         )
+        print("CRITIC LOSS")
+        print(critic_loss)
 
         loss = actor_loss + self.vf_coef * critic_loss
+
+        print(self.vf_coef)
+        print("TOTAL LOSS")
+        print(loss)
+
         self.strategy.backward(loss, self.actor, self.actor_optim)
         self.strategy.optimizer_step(self.actor_optim, self.actor,
                                      self.actor_scheduler, name="actor")
