@@ -549,8 +549,8 @@ class PPOTrainer(ABC):
         for epoch in range(self.max_epochs):
 
             if self.shared_actorcritic:
-                vhead_weight = torch.load("/h/zhaostep/twisted-smc-lm/vhead_weight_{epoch}.pt", weights_only=True)
-                vhead_bias = torch.load("/h/zhaostep/twisted-smc-lm/vhead_bias_{epoch}.pt", weights_only=True)
+                vhead_weight = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_weight_{epoch}.pt", weights_only=True)
+                vhead_bias = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_bias_{epoch}.pt", weights_only=True)
 
                 print("OPENRLHF CRITIC HEAD WEIGHT")
                 print(self.critic_head.weight)
