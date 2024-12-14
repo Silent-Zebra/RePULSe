@@ -562,8 +562,8 @@ class PPOTrainer(ABC):
                 print(vhead_weight)
                 print(vhead_bias)
 
-                self.actor.critic_head.weight = vhead_weight
-                self.actor.critic_head.bias = vhead_bias
+                self.actor.critic_head.weight.data = vhead_weight
+                self.actor.critic_head.bias.data = vhead_bias
                 # TODO REMOVE LATER DEBUG ONLY
 
             pbar = tqdm(
