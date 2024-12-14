@@ -621,7 +621,7 @@ class PPOTrainer(ABC):
             action_mask=experience.action_mask,
         )
 
-        loss = actor_loss + self.vf_ceof * critic_loss
+        loss = actor_loss + self.vf_coef * critic_loss
         self.strategy.backward(loss, self.actor, self.actor_optim)
         self.strategy.optimizer_step(self.actor_optim, self.actor,
                                      self.actor_scheduler, name="actor")
