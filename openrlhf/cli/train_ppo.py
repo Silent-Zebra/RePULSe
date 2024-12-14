@@ -512,6 +512,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q")
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
+    parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
 
     parser.add_argument("--actor_modulates_base", action="store_true", help="Use parameterization where actor outputs an addition (modulation) to base log prob")
     parser.add_argument("--shared_actorcritic", action="store_true", help="Use parameterization where actor and critic are just different heads, not separate networks. Uses actor lr for shared learning rate")

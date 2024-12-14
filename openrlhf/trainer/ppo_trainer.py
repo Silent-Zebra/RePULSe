@@ -222,10 +222,11 @@ class PPOTrainer(ABC):
             start_episode = 0 # TODO later make sure this hasn't messed things up
             steps = 0 # TODO later make sure this hasn't messed things up
 
-            self.f_q_g_q_evaluation(args, f_q_estimates_list,
-                                    g_q_estimates_list, iwae_lbs_list,
-                                    iwae_ubs_list, n_seeds_f_q, prompt_text,
-                                    true_posterior_samples)
+            if not args.no_test_info:
+                self.f_q_g_q_evaluation(args, f_q_estimates_list,
+                                        g_q_estimates_list, iwae_lbs_list,
+                                        iwae_ubs_list, n_seeds_f_q, prompt_text,
+                                        true_posterior_samples)
 
 
 
@@ -290,10 +291,11 @@ class PPOTrainer(ABC):
                     # self.save_logs_and_checkpoints(args, global_steps, pbar,
                     #                                status, client_states)
 
-                self.f_q_g_q_evaluation(args, f_q_estimates_list,
-                                        g_q_estimates_list, iwae_lbs_list,
-                                        iwae_ubs_list, n_seeds_f_q, prompt_text,
-                                        true_posterior_samples)
+                if not args.no_test_info:
+                    self.f_q_g_q_evaluation(args, f_q_estimates_list,
+                                            g_q_estimates_list, iwae_lbs_list,
+                                            iwae_ubs_list, n_seeds_f_q, prompt_text,
+                                            true_posterior_samples)
 
                 pbar.update()
 
