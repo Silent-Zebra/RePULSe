@@ -555,8 +555,8 @@ class PPOTrainer(ABC):
                 vhead_bias = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_bias_{epoch}.pt", weights_only=True)
 
                 print("OPENRLHF CRITIC HEAD WEIGHT")
-                print(self.critic_head.weight)
-                print(self.critic_head.bias)
+                print(self.actor.critic_head.weight)
+                print(self.actor.critic_head.bias)
 
                 print("TRL CRITIC HEAD WEIGHT")
                 print(vhead_weight)
