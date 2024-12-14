@@ -78,6 +78,7 @@ class PPOTrainer(ABC):
         remote_rm_url: str = None,
         reward_fn: Callable[[List[torch.Tensor]], torch.Tensor] = None,
         shared_actorcritic: bool = False,
+        vf_coef: float = 0.1,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -117,6 +118,8 @@ class PPOTrainer(ABC):
         self.ptx_loss_fn = GPTLMLoss()
 
         self.freezing_actor_steps = getattr(self.args, "freezing_actor_steps", -1)
+
+        self.vf_coef = vf_coef
 
         # Mixtral 8x7b
         self.aux_loss = self.args.aux_loss_coef > 1e-8
@@ -618,7 +621,7 @@ class PPOTrainer(ABC):
             action_mask=experience.action_mask,
         )
 
-        loss = actor_loss + critic_loss
+        loss = actor_loss + self.vf_ceof * critic_loss
         self.strategy.backward(loss, self.actor, self.actor_optim)
         self.strategy.optimizer_step(self.actor_optim, self.actor,
                                      self.actor_scheduler, name="actor")

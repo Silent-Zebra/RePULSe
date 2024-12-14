@@ -286,6 +286,8 @@ def train(args):
 
     os.makedirs(args.save_path, exist_ok=True)
 
+    vf_coef = args.critic_learning_rate / args.actor_learning_rate
+
     # configure Trainer
     trainer = PPOTrainer(
         strategy,
@@ -324,7 +326,8 @@ def train(args):
         eos_token_id=tokenizer.eos_token_id,
         # remote reward model
         remote_rm_url=args.remote_rm_url,
-        shared_actorcritic=args.shared_actorcritic
+        shared_actorcritic=args.shared_actorcritic,
+        vf_coef=vf_coef
     )
 
     true_posterior_samples = None
