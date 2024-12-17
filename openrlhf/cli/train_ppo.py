@@ -361,7 +361,7 @@ def train(args):
         f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
     )
 
-    extra_str = "_"
+    extra_str = ""
     lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
     if args.actor_modulates_base:
         extra_str = "actormodbase"
