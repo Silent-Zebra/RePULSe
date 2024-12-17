@@ -258,6 +258,18 @@ class PPOTrainer(ABC):
                         else:
                             num_twist_updates_to_do = 2 ** episode
 
+                    if self.shared_actorcritic:
+                        vhead_weight = torch.load(
+                            f"/h/zhaostep/twisted-smc-lm/vhead_weight_0.pt",
+                            weights_only=True)
+                        vhead_bias = torch.load(
+                            f"/h/zhaostep/twisted-smc-lm/vhead_bias_0.pt",
+                            weights_only=True)
+
+                        self.actor.critic_head.weight.data = vhead_weight
+                        self.actor.critic_head.bias.data = vhead_bias
+                        # TODO REMOVE LATER DEBUG ONLY
+
                     for update in range(num_twist_updates_to_do):
                         experience = self.experience_maker.make_experience(
                             custom_prompt,
