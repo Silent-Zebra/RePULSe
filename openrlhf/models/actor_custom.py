@@ -559,9 +559,9 @@ class ActorCritic(nn.Module):
             last_hidden_state = last_hidden_state.to(
                 self.critic_head.weight.device)
 
-        value = self.critic_head(last_hidden_state).squeeze(-1)
+        # value = self.critic_head(last_hidden_state).squeeze(-1)
 
-        # value = self.critic_head(last_hidden_state).squeeze(-1)[:,:-1]
+        value = self.critic_head(last_hidden_state).squeeze(-1)[:,:-1]
         # print(value.shape)
         # print(log_probs.shape)
         # print(log_probs[:, -num_actions:].shape)
@@ -570,7 +570,7 @@ class ActorCritic(nn.Module):
 
         print("--VALUE--")
         print(value)
-        print(value[:, -num_actions-1:-1])
+        # print(value[:, -num_actions-1:-1])
         print(value[:, -num_actions:])
 
         if return_output:
