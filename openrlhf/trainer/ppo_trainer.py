@@ -258,17 +258,17 @@ class PPOTrainer(ABC):
                         else:
                             num_twist_updates_to_do = 2 ** episode
 
-                    if self.shared_actorcritic:
-                        vhead_weight = torch.load(
-                            f"/h/zhaostep/twisted-smc-lm/vhead_weight_0.pt",
-                            weights_only=True)
-                        vhead_bias = torch.load(
-                            f"/h/zhaostep/twisted-smc-lm/vhead_bias_0.pt",
-                            weights_only=True)
-
-                        self.actor.critic_head.weight.data = vhead_weight
-                        self.actor.critic_head.bias.data = vhead_bias
-                        # TODO REMOVE LATER DEBUG ONLY
+                    # if self.shared_actorcritic:
+                    #     vhead_weight = torch.load(
+                    #         f"/h/zhaostep/twisted-smc-lm/vhead_weight_0.pt",
+                    #         weights_only=True)
+                    #     vhead_bias = torch.load(
+                    #         f"/h/zhaostep/twisted-smc-lm/vhead_bias_0.pt",
+                    #         weights_only=True)
+                    #
+                    #     self.actor.critic_head.weight.data = vhead_weight
+                    #     self.actor.critic_head.bias.data = vhead_bias
+                    #     # TODO REMOVE LATER DEBUG ONLY
 
                     for update in range(num_twist_updates_to_do):
                         experience = self.experience_maker.make_experience(
@@ -285,11 +285,11 @@ class PPOTrainer(ABC):
                         self.replay_buffer.append(experience)
 
                         torch.cuda.empty_cache()
-                        print("REPLAY BUFFER BEFORE NORMALIZATION")
-                        print(self.replay_buffer.items)
+                        # print("REPLAY BUFFER BEFORE NORMALIZATION")
+                        # print(self.replay_buffer.items)
                         self.replay_buffer.normalize("advantages", self.strategy)
-                        print("REPLAY BUFFER AFTER NORMALIZATION")
-                        print(self.replay_buffer.items)
+                        # print("REPLAY BUFFER AFTER NORMALIZATION")
+                        # print(self.replay_buffer.items)
 
                         status = self.ppo_train(global_steps)
                         self.replay_buffer.clear()
@@ -509,23 +509,23 @@ class PPOTrainer(ABC):
         rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
                                                                    attention_mask,
                                                                    action_log_probs)
-        print("log p phi eval")
-        print(rewards_no_kl)
+        # print("log p phi eval")
+        # print(rewards_no_kl)
         # Recall that we have p(s_1:T)p(toxic class | s_1:T)^beta which is also
         # = p(s_1:T)e^{beta log p(toxic class | s_1:T))
         # Now consider r = log p(toxic class | s_1:T)), then we have the RL setting, but we must have KL penalties
         # Also, with phi = e^{beta log p(toxic class | s_1:T)), log_phi is simply just beta log p(toxic class | s_1:T)
         rewards_no_kl = rewards_no_kl.float() # more precision
         log_phi = args.target_dist_beta * rewards_no_kl
-        print(args.target_dist_beta)
-        print(log_phi)
+        # print(args.target_dist_beta)
+        # print(log_phi)
         base_action_log_probs = self.experience_maker.initial_model(sequences,
                                                                     num_actions,
                                                                     attention_mask)
         base_action_log_probs = base_action_log_probs.float() # more precision
 
         log_p = base_action_log_probs.sum(dim=-1)
-        print(log_p)
+        # print(log_p)
         log_tilde_sigma = log_p + log_phi
         return log_tilde_sigma
 
@@ -567,21 +567,21 @@ class PPOTrainer(ABC):
         status_mean = {}
         for epoch in range(self.max_epochs):
 
-            if self.shared_actorcritic:
-                vhead_weight = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_weight_{epoch}.pt", weights_only=True)
-                vhead_bias = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_bias_{epoch}.pt", weights_only=True)
-
-                print("OPENRLHF CRITIC HEAD WEIGHT")
-                print(self.actor.critic_head.weight)
-                print(self.actor.critic_head.bias)
-
-                print("TRL CRITIC HEAD WEIGHT")
-                print(vhead_weight)
-                print(vhead_bias)
-
-                self.actor.critic_head.weight.data = vhead_weight
-                self.actor.critic_head.bias.data = vhead_bias
-                # TODO REMOVE LATER DEBUG ONLY
+            # if self.shared_actorcritic:
+            #     vhead_weight = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_weight_{epoch}.pt", weights_only=True)
+            #     vhead_bias = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_bias_{epoch}.pt", weights_only=True)
+            #
+            #     print("OPENRLHF CRITIC HEAD WEIGHT")
+            #     print(self.actor.critic_head.weight)
+            #     print(self.actor.critic_head.bias)
+            #
+            #     print("TRL CRITIC HEAD WEIGHT")
+            #     print(vhead_weight)
+            #     print(vhead_bias)
+            #
+            #     self.actor.critic_head.weight.data = vhead_weight
+            #     self.actor.critic_head.bias.data = vhead_bias
+            #     # TODO REMOVE LATER DEBUG ONLY
 
             pbar = tqdm(
                 dataloader,
@@ -658,11 +658,11 @@ class PPOTrainer(ABC):
             attention_mask=experience.attention_mask, return_output=False
         )  # TODO later revert this and fix the above (return_output=True)
 
-        print("LOG PROBS")
-        print(action_log_probs)
+        # print("LOG PROBS")
+        # print(action_log_probs)
 
-        print("VALUES")
-        print(values)
+        # print("VALUES")
+        # print(values)
 
         actor_loss = self.actor_loss_fn(
             action_log_probs,
@@ -671,8 +671,8 @@ class PPOTrainer(ABC):
             action_mask=experience.action_mask,
         )
 
-        print("ACTOR LOSS")
-        print(actor_loss)
+        # print("ACTOR LOSS")
+        # print(actor_loss)
 
         critic_loss = self.critic_loss_fn(
             values,
@@ -680,14 +680,14 @@ class PPOTrainer(ABC):
             experience.returns,
             action_mask=experience.action_mask,
         )
-        print("CRITIC LOSS")
-        print(critic_loss)
+        # print("CRITIC LOSS")
+        # print(critic_loss)
 
         loss = actor_loss + self.vf_coef * critic_loss
 
-        print(self.vf_coef)
-        print("TOTAL LOSS")
-        print(loss)
+        # print(self.vf_coef)
+        # print("TOTAL LOSS")
+        # print(loss)
 
         self.strategy.backward(loss, self.actor, self.actor_optim)
         self.strategy.optimizer_step(self.actor_optim, self.actor,

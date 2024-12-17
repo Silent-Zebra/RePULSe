@@ -45,19 +45,19 @@ class PolicyLoss(nn.Module):
         surr1 = ratio * advantages
         surr2 = ratio.clamp(1 - self.clip_eps, 1 + self.clip_eps) * advantages
         loss = -torch.min(surr1, surr2)
-        print("RATIO")
-        print(ratio)
-        print("ADVANTAGES")
-        print(advantages)
-
-        print("ACTOR LOSS DETAILS")
-        print(surr1)
-        print(surr2)
-        print(loss)
-        print(loss.abs())
-        print(masked_mean(loss.abs(), action_mask, dim=-1).mean())
+        # print("RATIO")
+        # print(ratio)
+        # print("ADVANTAGES")
+        # print(advantages)
+        #
+        # print("ACTOR LOSS DETAILS")
+        # print(surr1)
+        # print(surr2)
+        # print(loss)
+        # print(loss.abs())
+        # print(masked_mean(loss.abs(), action_mask, dim=-1).mean())
         loss = masked_mean(loss, action_mask, dim=-1).mean()
-        print(loss)
+        # print(loss)
         return loss
 
 
@@ -85,16 +85,16 @@ class ValueLoss(nn.Module):
         else:
             loss = (values - returns) ** 2
 
-        print("--VALUE LOSS--")
-        print("--values--")
-        print(values)
-        print("--returns--")
-        print(returns)
-        print("--loss--")
-        print(loss)
+        # print("--VALUE LOSS--")
+        # print("--values--")
+        # print(values)
+        # print("--returns--")
+        # print(returns)
+        # print("--loss--")
+        # print(loss)
         loss = masked_mean(loss, action_mask, dim=-1).mean()
-        print("--masked mean--")
-        print(masked_mean(loss, action_mask, dim=-1))
+        # print("--masked mean--")
+        # print(masked_mean(loss, action_mask, dim=-1))
         return 0.5 * loss
 
 

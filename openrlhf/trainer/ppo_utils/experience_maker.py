@@ -131,16 +131,16 @@ class NaiveExperienceMaker(ABC):
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions,
                                                    attention_mask)
-        print("--BASE ACTION LOG PROBS--")
-        print(base_action_log_probs.mean())
-        print(base_action_log_probs)
+        # print("--BASE ACTION LOG PROBS--")
+        # print(base_action_log_probs.mean())
+        # print(base_action_log_probs)
 
         r = self.compute_reward_no_kl(sequences, attention_mask, action_log_probs)
 
-        print("--Rewards--")
-        print(r)
-        print(r.mean())
-        print("--End Rewards--")
+        # print("--Rewards--")
+        # print(r)
+        # print(r.mean())
+        # print("--End Rewards--")
 
         reward, kl = compute_reward(
             r,
@@ -149,10 +149,10 @@ class NaiveExperienceMaker(ABC):
             base_action_log_probs,
             action_mask=action_mask,
         )
-        print("--Rewards--")
-        print(reward)
-        print(reward.mean())
-        print("--End Rewards--")
+        # print("--Rewards--")
+        # print(reward)
+        # print(reward.mean())
+        # print("--End Rewards--")
         advantage, returns = self.get_advantages_and_returns(
             value,
             reward,
@@ -279,10 +279,9 @@ class NaiveExperienceMaker(ABC):
         # log probs
         if self.shared_actorcritic:
 
-            print("attention_mask")
-            print(attention_mask.shape)
-            print(sequences.shape)
-            # ALSO TODO Figure out why this works on the f_q but not on the g_q and also why only for sharedactorcritic...
+            # print("attention_mask")
+            # print(attention_mask.shape)
+            # print(sequences.shape)
 
             action_log_probs, values = self.actor(sequences, num_actions, attention_mask)
             return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
@@ -337,12 +336,12 @@ class NaiveExperienceMaker(ABC):
             advantages_reversed.append(lastgaelam)
         advantages = torch.stack(advantages_reversed[::-1], dim=1)
         returns = advantages + values
-        print("ADV-RETURNS")
-        print(returns)
-        print("ADV-VALUES")
-        print(values)
-        print("ADV-ADV")
-        print(advantages)
+        # print("ADV-RETURNS")
+        # print(returns)
+        # print("ADV-VALUES")
+        # print(values)
+        # print("ADV-ADV")
+        # print(advantages)
 
         return advantages.detach(), returns
 
