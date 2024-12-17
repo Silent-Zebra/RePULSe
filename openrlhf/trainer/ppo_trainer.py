@@ -631,7 +631,8 @@ class PPOTrainer(ABC):
         # But on the other hand, I'm probably not training to convergence anyway
         # So I already have a kind of early stopping implicit regularization
         # I probably don't need further regularization from dropout
-        # This is probably why the results are worse if I have it; it's just making learning slower
+        # This is probably why the results are worse if I have it; it's just making learning/converging to optimum slower
+        # TODO later also rerun separate critic experiments with eval on the actor (and/or critic too) and compare results
 
         num_actions = experience.action_mask.size(1)
 
