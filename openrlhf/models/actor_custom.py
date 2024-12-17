@@ -568,10 +568,10 @@ class ActorCritic(nn.Module):
         # # TODO check the return statement below then modify this wherever else in the code needs to be modified also.
         # 1/0
 
-        print("--VALUE--")
-        print(value)
+        # print("--VALUE--")
+        # print(value)
         # print(value[:, -num_actions-1:-1])
-        print(value[:, -num_actions:])
+        # print(value[:, -num_actions:])
 
         if return_output:
             return output if num_actions is None else (

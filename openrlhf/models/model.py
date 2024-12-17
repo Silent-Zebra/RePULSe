@@ -218,8 +218,8 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
             last_hidden_states = outputs["last_hidden_state"]
             values = getattr(self, self.value_head_prefix)(last_hidden_states).squeeze(-1)
 
-            print("VALUES/CRITIC CHECK")
-            print(values)
+            # print("VALUES/CRITIC CHECK")
+            # print(values)
 
             if self.packing_samples:
                 reward = values

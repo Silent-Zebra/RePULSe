@@ -256,15 +256,15 @@ class NaiveExperienceMaker(ABC):
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
 
-        if self.shared_actorcritic:
-            sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,
-                     561, 5858, 790, 3329, 13, 21326, 340, 28077, 11, 262,
-                     8966, 373, 9314, 13, 4380, 422, 1978, 8288],
-                    [7454, 2402, 257, 640, 11, 612, 373, 257, 1263, 8848,
-                     351, 257, 1263, 18021, 13, 383, 8848, 373, 845, 1593,
-                     284, 262, 661, 319, 340, 11, 523, 484]],
-                   device='cuda:0')
-            # TODO REMOVE LATER DEBUG ONLY
+        # if self.shared_actorcritic:
+        #     sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,
+        #              561, 5858, 790, 3329, 13, 21326, 340, 28077, 11, 262,
+        #              8966, 373, 9314, 13, 4380, 422, 1978, 8288],
+        #             [7454, 2402, 257, 640, 11, 612, 373, 257, 1263, 8848,
+        #              351, 257, 1263, 18021, 13, 383, 8848, 373, 845, 1593,
+        #              284, 262, 661, 319, 340, 11, 523, 484]],
+        #            device='cuda:0')
+        #     # TODO REMOVE LATER DEBUG ONLY
 
         num_actions = action_mask.size(1)
         # print("--NUM ACTIONS--")

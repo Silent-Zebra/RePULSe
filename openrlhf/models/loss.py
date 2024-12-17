@@ -50,14 +50,14 @@ class PolicyLoss(nn.Module):
         # print("ADVANTAGES")
         # print(advantages)
         #
-        print("ACTOR LOSS DETAILS")
-        print(surr1)
-        print(surr2)
-        print(loss)
-        print(loss.abs())
-        print(masked_mean(loss.abs(), action_mask, dim=-1).mean())
+        # print("ACTOR LOSS DETAILS")
+        # print(surr1)
+        # print(surr2)
+        # print(loss)
+        # print(loss.abs())
+        # print(masked_mean(loss.abs(), action_mask, dim=-1).mean())
         loss = masked_mean(loss, action_mask, dim=-1).mean()
-        print(loss)
+        # print(loss)
         return loss
 
 
