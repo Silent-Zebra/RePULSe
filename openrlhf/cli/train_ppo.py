@@ -327,7 +327,8 @@ def train(args):
         # remote reward model
         remote_rm_url=args.remote_rm_url,
         shared_actorcritic=args.shared_actorcritic,
-        vf_coef=vf_coef
+        vf_coef=vf_coef,
+        model_eval=args.model_eval
     )
 
     true_posterior_samples = None
@@ -361,13 +362,16 @@ def train(args):
         f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
     )
 
+    eval_str = ""
     extra_str = ""
     lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
     if args.actor_modulates_base:
         extra_str = "actormodbase"
     if args.shared_actorcritic:
         lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
-    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_PPOepochs{args.max_epochs}_lrschedule{args.lr_scheduler}_{lr_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{extra_str}_seed{args.seed}"
+    if args.model_eval:
+        eval_str = "eval"
+    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{extra_str}_seed{args.seed}"
 
     torch.save(target_to_save, save_str)
 
@@ -517,6 +521,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--actor_modulates_base", action="store_true", help="Use parameterization where actor outputs an addition (modulation) to base log prob")
     parser.add_argument("--shared_actorcritic", action="store_true", help="Use parameterization where actor and critic are just different heads, not separate networks. Uses actor lr for shared learning rate")
+    parser.add_argument("--model_eval", action="store_true", help="Use model.eval() instead of model.train(). Turns off dropout and norm statistics")
 
 
     parser.add_argument(
