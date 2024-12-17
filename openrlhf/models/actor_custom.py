@@ -415,7 +415,8 @@ class ActorCritic(nn.Module):
         # new_layer = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features, )
         new_layer = nn.Linear(self.model.lm_head.in_features, 1)
 
-        nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
+        # nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
+        # NOTE: with out features 1 this xavier init does not actually seem to be low variance at all for a value head...
 
         if new_layer.bias is not None:
             nn.init.zeros_(new_layer.bias)
