@@ -218,11 +218,19 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
             last_hidden_states = outputs["last_hidden_state"]
             values = getattr(self, self.value_head_prefix)(last_hidden_states).squeeze(-1)
 
+            print("VALUES/CRITIC CHECK")
+            print(values)
+
             if self.packing_samples:
                 reward = values
             else:
                 eos_indices = attention_mask.size(1) - 1 - attention_mask.long().fliplr().argmax(dim=1, keepdim=True)
                 reward = values.gather(dim=1, index=eos_indices).squeeze(1)
+
+            print(eos_indices)
+            print(reward)
+            # TODO ENSURE THERE IS NO OFF BY ONE ERROR HERE AND THAT THE REWARD IS CORRECTLY PRODUCED
+            1/0
 
             if not self.training and self.normalize_reward:
                 reward = (reward - self.mean) / self.std

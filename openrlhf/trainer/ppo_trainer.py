@@ -258,17 +258,17 @@ class PPOTrainer(ABC):
                         else:
                             num_twist_updates_to_do = 2 ** episode
 
-                    # if self.shared_actorcritic:
-                    #     vhead_weight = torch.load(
-                    #         f"/h/zhaostep/twisted-smc-lm/vhead_weight_0.pt",
-                    #         weights_only=True)
-                    #     vhead_bias = torch.load(
-                    #         f"/h/zhaostep/twisted-smc-lm/vhead_bias_0.pt",
-                    #         weights_only=True)
-                    #
-                    #     self.actor.critic_head.weight.data = vhead_weight
-                    #     self.actor.critic_head.bias.data = vhead_bias
-                    #     # TODO REMOVE LATER DEBUG ONLY
+                    if self.shared_actorcritic:
+                        vhead_weight = torch.load(
+                            f"/h/zhaostep/twisted-smc-lm/vhead_weight_0.pt",
+                            weights_only=True)
+                        vhead_bias = torch.load(
+                            f"/h/zhaostep/twisted-smc-lm/vhead_bias_0.pt",
+                            weights_only=True)
+
+                        self.actor.critic_head.weight.data = vhead_weight
+                        self.actor.critic_head.bias.data = vhead_bias
+                        # TODO REMOVE LATER DEBUG ONLY
 
                     for update in range(num_twist_updates_to_do):
                         experience = self.experience_maker.make_experience(
@@ -567,21 +567,21 @@ class PPOTrainer(ABC):
         status_mean = {}
         for epoch in range(self.max_epochs):
 
-            # if self.shared_actorcritic:
-            #     vhead_weight = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_weight_{epoch}.pt", weights_only=True)
-            #     vhead_bias = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_bias_{epoch}.pt", weights_only=True)
-            #
-            #     print("OPENRLHF CRITIC HEAD WEIGHT")
-            #     print(self.actor.critic_head.weight)
-            #     print(self.actor.critic_head.bias)
-            #
-            #     print("TRL CRITIC HEAD WEIGHT")
-            #     print(vhead_weight)
-            #     print(vhead_bias)
-            #
-            #     self.actor.critic_head.weight.data = vhead_weight
-            #     self.actor.critic_head.bias.data = vhead_bias
-            #     # TODO REMOVE LATER DEBUG ONLY
+            if self.shared_actorcritic:
+                vhead_weight = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_weight_{epoch}.pt", weights_only=True)
+                vhead_bias = torch.load(f"/h/zhaostep/twisted-smc-lm/vhead_bias_{epoch}.pt", weights_only=True)
+
+                print("OPENRLHF CRITIC HEAD WEIGHT")
+                print(self.actor.critic_head.weight)
+                print(self.actor.critic_head.bias)
+
+                print("TRL CRITIC HEAD WEIGHT")
+                print(vhead_weight)
+                print(vhead_bias)
+
+                self.actor.critic_head.weight.data = vhead_weight
+                self.actor.critic_head.bias.data = vhead_bias
+                # TODO REMOVE LATER DEBUG ONLY
 
             pbar = tqdm(
                 dataloader,
