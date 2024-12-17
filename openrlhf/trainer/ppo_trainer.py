@@ -617,7 +617,21 @@ class PPOTrainer(ABC):
         return status_mean
 
     def training_step_shared_actorcritic(self, experience: Experience) -> Dict[str, float]:
-        self.actor.train()
+        # self.actor.train()
+        self.actor.eval() # Turn off dropout related, stuff, seems like it could be causing problems
+        # In our setup, do we want dropout? Not sure what the answer is, but perhaps an argument for why
+        # we may not want dropout is: we don't really need additional regularization here
+        # our objective is the RL with KL penalties, which at its optimum, achieves the twists we want
+        # We don't need further regularization which is what would be provided by dropout
+        # That is, in most ML use cases, we're worried about overoptimizing, overfitting, etc.
+        # But here we don't have this problem - we want to go as hard as we can on the optimization
+        # Since we already have the in built KL penalty regularizer
+        # Now I guess you could argue that this dropout may still help avoid finding high reward areas of reward model or classifier that
+        # aren't ACTUALLY high reward (e.g. a human would not consider them good)
+        # But on the other hand, I'm probably not training to convergence anyway
+        # So I already have a kind of early stopping implicit regularization
+        # I probably don't need further regularization from dropout
+        # This is probably why the results are worse if I have it; it's just making learning slower
 
         num_actions = experience.action_mask.size(1)
 
