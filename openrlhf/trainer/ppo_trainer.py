@@ -273,7 +273,12 @@ class PPOTrainer(ABC):
                         self.replay_buffer.append(experience)
 
                         torch.cuda.empty_cache()
+                        print("REPLAY BUFFER BEFORE NORMALIZATION")
+                        print(self.replay_buffer.items)
                         self.replay_buffer.normalize("advantages", self.strategy)
+                        print("REPLAY BUFFER AFTER NORMALIZATION")
+                        print(self.replay_buffer.items)
+
                         status = self.ppo_train(global_steps)
                         self.replay_buffer.clear()
                         torch.cuda.empty_cache()

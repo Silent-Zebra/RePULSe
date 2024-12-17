@@ -337,6 +337,13 @@ class NaiveExperienceMaker(ABC):
             advantages_reversed.append(lastgaelam)
         advantages = torch.stack(advantages_reversed[::-1], dim=1)
         returns = advantages + values
+        print("ADV-RETURNS")
+        print(returns)
+        print("ADV-VALUES")
+        print(values)
+        print("ADV-ADV")
+        print(advantages)
+
         return advantages.detach(), returns
 
 
