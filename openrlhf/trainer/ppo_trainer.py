@@ -285,11 +285,11 @@ class PPOTrainer(ABC):
                         self.replay_buffer.append(experience)
 
                         torch.cuda.empty_cache()
-                        # print("REPLAY BUFFER BEFORE NORMALIZATION")
-                        # print(self.replay_buffer.items)
+                        print("REPLAY BUFFER BEFORE NORMALIZATION")
+                        print(self.replay_buffer.items)
                         self.replay_buffer.normalize("advantages", self.strategy)
-                        # print("REPLAY BUFFER AFTER NORMALIZATION")
-                        # print(self.replay_buffer.items)
+                        print("REPLAY BUFFER AFTER NORMALIZATION")
+                        print(self.replay_buffer.items)
 
                         status = self.ppo_train(global_steps)
                         self.replay_buffer.clear()
@@ -680,14 +680,14 @@ class PPOTrainer(ABC):
             experience.returns,
             action_mask=experience.action_mask,
         )
-        # print("CRITIC LOSS")
-        # print(critic_loss)
+        print("CRITIC LOSS")
+        print(critic_loss)
 
         loss = actor_loss + self.vf_coef * critic_loss
 
-        # print(self.vf_coef)
-        # print("TOTAL LOSS")
-        # print(loss)
+        print(self.vf_coef)
+        print("TOTAL LOSS")
+        print(loss)
 
         self.strategy.backward(loss, self.actor, self.actor_optim)
         self.strategy.optimizer_step(self.actor_optim, self.actor,

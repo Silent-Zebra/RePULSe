@@ -569,9 +569,10 @@ class ActorCritic(nn.Module):
 
         if return_output:
             return output if num_actions is None else (
-            log_probs[:, -num_actions:], output, value[:, -num_actions:])
+            log_probs[:, -num_actions:], output, value[:, -num_actions-1:-1])
+            # Right, reason why we do this: in the last token state, where you have the full generation: you are no longer taking any actions. You don't need the value in that state, to compare against rewards or whatever, because there are no further actions to be taken. Once all the 8 or whatever initial prompt tokens are given, your model outputs a value. This is the value for the initial state, which you then take an action corresponding to a token generation, then for that generated token, you do r + next val - curr val, and the curr value is the one based on the 8 prompt tokens you generated, ie in the 8th position (index 7 via 0 indexing). So yeah, the 7 index (8th value counting from 1) should already be used.
         else:
-            return log_probs[:, -num_actions:], value[:, -num_actions:]
+            return log_probs[:, -num_actions:], value[:, -num_actions-1:-1]
 
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
