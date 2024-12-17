@@ -362,11 +362,12 @@ def train(args):
     )
 
     extra_str = "_"
+    lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
     if args.actor_modulates_base:
-        extra_str = "_actormodbase_"
-    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_lrschedule{args.lr_scheduler}_actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}{extra_str}seed{args.seed}"
+        extra_str = "actormodbase"
     if args.shared_actorcritic:
-        save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_lrschedule{args.lr_scheduler}_sharedactorcritic_lr{args.actor_learning_rate}{extra_str}seed{args.seed}"
+        lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
+    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_PPOepochs{args.max_epochs}_lrschedule{args.lr_scheduler}_{lr_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{extra_str}_seed{args.seed}"
 
     torch.save(target_to_save, save_str)
 
@@ -406,7 +407,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_episodes", type=int, default=1)
     parser.add_argument("--rollout_batch_size", type=int, default=512)
     parser.add_argument("--micro_rollout_batch_size", type=int, default=8)
-    parser.add_argument("--max_epochs", type=int, default=1)
+    parser.add_argument("--max_epochs", type=int, default=1, help="Number of PPO inner loop steps")
     parser.add_argument("--prompt_max_len", type=int, default=1024, help="Max tokens for each prompt")
     parser.add_argument("--generate_max_len", type=int, default=1024, help="Max tokens to generate in PPO")
     parser.add_argument("--max_len", type=int, default=None, help="deprecated max_len")
