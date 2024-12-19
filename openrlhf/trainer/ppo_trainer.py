@@ -638,8 +638,9 @@ class PPOTrainer(ABC):
 
     def training_step_shared_actorcritic(self, experience: Experience) -> Dict[str, float]:
         # self.actor.train()
+
         if self.model_eval:
-            self.actor.eval() # Turn off dropout related, stuff, seems like it could be causing problems
+            self.actor.eval() # Turn off dropout (no batch norm in GPT2)
             # In our setup, do we want dropout? Not sure what the answer is, but perhaps an argument for why
             # we may not want dropout is: we don't really need additional regularization here
             # our objective is the RL with KL penalties, which at its optimum, achieves the twists we want
@@ -652,8 +653,8 @@ class PPOTrainer(ABC):
             # But on the other hand, I'm probably not training to convergence anyway
             # So I already have a kind of early stopping implicit regularization
             # I probably don't need further regularization from dropout
-            # This is probably why the results are worse if I have it; it's just making learning/converging to optimum slower
-            # TODO later also rerun separate critic experiments with eval on the actor (and/or critic too) and compare results
+            # Actually: turns out not to make a big difference for the separate actor/critic, and dropout does help
+            # Whereas for the shared actor/critic makes no difference at all, which seems like a bug to me.
         else:
             self.actor.train()
 
