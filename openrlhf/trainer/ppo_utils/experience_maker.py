@@ -184,7 +184,7 @@ class NaiveExperienceMaker(ABC):
             info,
         )
 
-    def compute_reward_no_kl(self, sequences, attention_mask, action_log_probs, classifier_reward=True, class_num=0):
+    def compute_reward_no_kl(self, sequences, attention_mask, action_log_probs, rm_type=None, class_num=0):
         # rewards
         if self.remote_rm_url is not None:
             # remote RM
@@ -196,7 +196,10 @@ class NaiveExperienceMaker(ABC):
             # local RM
             r = self.reward_model(sequences, attention_mask)
 
-        if classifier_reward:
+        if rm_type is None:
+            return r
+
+        if rm_type == "exp_beta_toxicity_class_logprob":
             print("WARNING: only set up for toxicity so far") # TODO later make more flexible, for different reward models. Also, be careful that this is the only place the reward model is used
             score = r
             nontoxic_class_logprob = torch.nn.functional.logsigmoid(score)
@@ -237,8 +240,14 @@ class NaiveExperienceMaker(ABC):
                 # print(log_prob_of_class)
 
             return log_prob_of_class
+        elif rm_type == "toxicity_threshold":
+            eps = 1e-16
+            threshold = -5
+            score = r
+            return torch.log((score < threshold) + eps)
 
-        return r
+        else:
+            raise NotImplementedError
 
     def set_all_eval(self):
         self.actor.eval()
@@ -424,6 +433,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         if self.strategy.args.colocate_actor_ref:
             torch.cuda.empty_cache()
 
+        # TODO check whether you want clamping in the below
         reward, kl = compute_reward(
             r,
             self.kl_ctl.value,

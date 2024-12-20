@@ -44,6 +44,7 @@ def compute_reward(
     log_probs: torch.Tensor,
     log_probs_base: torch.Tensor,
     action_mask: Optional[torch.Tensor] = None,
+    clamp_reward: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     if kl_coef <= 0.0:
         kl_coef = 0.0
@@ -56,8 +57,8 @@ def compute_reward(
 
     # print("REWARD BEFORE CLAMP")
     # print(r)
-
-    r = r.clamp(min=-10, max=10)
+    if clamp_reward:
+        r = r.clamp(min=-10, max=10)
 
     # print("REWARD AFTER CLAMP")
     # print(r)

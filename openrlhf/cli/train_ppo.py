@@ -498,6 +498,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
     )
+    parser.add_argument("--rm_type", type=str, default="exp_beta_toxicity_class_logprob",
+                        choices=["exp_beta_rew_p_continuation", "exp_beta_rew_p_continuation_divided_by_p",
+                                 "p_continuation", "exp_beta_toxicity", "exp_beta_toxicity_class_logprob",
+                                 "exp_beta_sentiment_class_logprob",
+                                 "toxicity_threshold", "sentiment_threshold",
+                                 "p_last_tokens", "toy_test"])
 
     # wandb parameters
     parser.add_argument("--use_wandb", type=str, default=None)
@@ -523,6 +529,7 @@ if __name__ == "__main__":
     parser.add_argument("--shared_actorcritic", action="store_true", help="Use parameterization where actor and critic are just different heads, not separate networks. Uses actor lr for shared learning rate")
     parser.add_argument("--model_eval", action="store_true", help="Use model.eval() instead of model.train(). Turns off dropout and norm statistics")
 
+    parser.add_argument("--clamp_reward", action="store_true", help="Clamp reward between -10 and 10")
 
     parser.add_argument(
         "--lr_scheduler", type=str, default="cosine_with_min_lr",
@@ -549,4 +556,9 @@ if __name__ == "__main__":
     if args.input_template and not "{}" in args.input_template:
         print("[Warning] {} not in args.input_template, set to None")
         args.input_template = None
+
+    assert not args.clamp_reward # TODO I have this as default no clamp everywhere; if you want clamp, modify the code for it
+    if not args.custom_single_prompt:
+        print("[Warning] stuff like clamp reward, and probably some other things changed, and not yet tested without custom_single_prompt. The rm_type stuff might also need to be modified too") # TODO
+
     train(args)
