@@ -314,10 +314,10 @@ class PPOTrainer(ABC):
                         steps = steps + 1
 
                     # logs/checkpoints
-                    # client_states = {
-                    #     "consumed_samples": global_steps * args.rollout_batch_size}
-                    # self.save_logs_and_checkpoints(args, global_steps, pbar,
-                    #                                status, client_states)
+                    client_states = {
+                        "consumed_samples": global_steps * args.rollout_batch_size}
+                    self.save_logs_and_checkpoints(args, global_steps, pbar,
+                                                   status, client_states)
 
                 if not args.no_test_info:
                     self.f_q_g_q_evaluation(args, f_q_estimates_list,
