@@ -89,6 +89,7 @@ class NaiveExperienceMaker(ABC):
         reward_fn=None,
         shared_actorcritic=False,
         threshold=-5.,
+        rm_type=None
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -103,6 +104,7 @@ class NaiveExperienceMaker(ABC):
         self.reward_fn = reward_fn
         self.shared_actorcritic = shared_actorcritic
         self.threshold = threshold
+        self.rm_type = rm_type
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, device):
@@ -186,7 +188,7 @@ class NaiveExperienceMaker(ABC):
             info,
         )
 
-    def compute_reward_no_kl(self, sequences, attention_mask, action_log_probs, rm_type=None, class_num=0):
+    def compute_reward_no_kl(self, sequences, attention_mask, action_log_probs, class_num=0):
         # rewards
         if self.remote_rm_url is not None:
             # remote RM
@@ -198,10 +200,10 @@ class NaiveExperienceMaker(ABC):
             # local RM
             r = self.reward_model(sequences, attention_mask)
 
-        if rm_type is None:
-            return r
+        # if self.rm_type is None:
+        #     return r
 
-        if rm_type == "exp_beta_toxicity_class_logprob":
+        if self.rm_type == "exp_beta_toxicity_class_logprob":
             print("WARNING: only set up for toxicity so far") # TODO later make more flexible, for different reward models. Also, be careful that this is the only place the reward model is used
             score = r
             nontoxic_class_logprob = torch.nn.functional.logsigmoid(score)
@@ -242,7 +244,7 @@ class NaiveExperienceMaker(ABC):
                 # print(log_prob_of_class)
 
             return log_prob_of_class
-        elif rm_type == "toxicity_threshold":
+        elif self.rm_type == "toxicity_threshold":
             eps = 1e-16
             score = r
             print("score")

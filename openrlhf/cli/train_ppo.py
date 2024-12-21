@@ -330,7 +330,8 @@ def train(args):
         vf_coef=vf_coef,
         model_eval=args.model_eval,
         threshold=args.threshold,
-        n_seeds_f_q=args.n_seeds_f_q
+        n_seeds_f_q=args.n_seeds_f_q,
+        rm_type=args.rm_type
     )
 
     true_posterior_samples = None

@@ -82,6 +82,7 @@ class PPOTrainer(ABC):
         model_eval: bool = False,
         threshold: float = -5.,
         n_seeds_f_q: int = 4,
+        rm_type: str = '',
         **generate_kwargs,
     ) -> None:
         assert (
@@ -150,7 +151,8 @@ class PPOTrainer(ABC):
             remote_rm_url,
             reward_fn,
             shared_actorcritic,
-            threshold
+            threshold,
+            rm_type
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 
@@ -540,7 +542,8 @@ class PPOTrainer(ABC):
                                 num_actions, sequences):
         rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
                                                                    attention_mask,
-                                                                   action_log_probs)
+                                                                   action_log_probs,
+                                                                   )
         # print("log p phi eval")
         # print(rewards_no_kl)
         # Recall that we have p(s_1:T)p(toxic class | s_1:T)^beta which is also
