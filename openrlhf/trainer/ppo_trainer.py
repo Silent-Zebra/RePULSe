@@ -902,8 +902,20 @@ class PPOTrainer(ABC):
             pass
         # save ckpt
         # TODO: save best model on dev, use loss/perplexity/others on whole dev dataset as metric
+
+        eval_str = ""
+        extra_str = ""
+        lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
+        if args.actor_modulates_base:
+            extra_str = "actormodbase"
+        if args.shared_actorcritic:
+            lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
+        if args.model_eval:
+            eval_str = "eval"
+        save_str = f"PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_{extra_str}_seed{args.seed}"
+
         if (global_step + 1) % args.save_steps == 0:
-            tag = f"global_step{global_step + 1}"
+            tag = f"{save_str}_global_step{global_step + 1}"
             self._save_checkpoint(args, tag, client_states)
 
     def _save_checkpoint(self, args, tag, client_states):
