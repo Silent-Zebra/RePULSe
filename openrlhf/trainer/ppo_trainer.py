@@ -528,13 +528,13 @@ class PPOTrainer(ABC):
                                                            sequences)
 
             f_qs = log_tilde_sigma - log_q
-            print("f_q estimate details")
-            print("log q")
-            print(log_q)
-            print("log tilde sigma")
-            print(log_tilde_sigma)
-            print("f_qs")
-            print(f_qs)
+            # print("f_q estimate details")
+            # print("log q")
+            # print(log_q)
+            # print("log tilde sigma")
+            # print(log_tilde_sigma)
+            # print("f_qs")
+            # print(f_qs)
 
         return f_qs, attention_mask, num_actions, sequences
 
@@ -553,8 +553,8 @@ class PPOTrainer(ABC):
         rewards_no_kl = rewards_no_kl.float() # more precision
         log_phi = args.target_dist_beta * rewards_no_kl
         # print(args.target_dist_beta)
-        print("log_phi")
-        print(log_phi)
+        # print("log_phi")
+        # print(log_phi)
         base_action_log_probs = self.experience_maker.initial_model(sequences,
                                                                     num_actions,
                                                                     attention_mask)

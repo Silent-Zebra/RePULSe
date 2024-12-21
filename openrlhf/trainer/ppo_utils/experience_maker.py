@@ -247,8 +247,8 @@ class NaiveExperienceMaker(ABC):
         elif self.rm_type == "toxicity_threshold":
             eps = 1e-16
             score = r
-            print("score")
-            print(score)
+            # print("score")
+            # print(score)
             return torch.log((score < self.threshold) + eps)
 
         else:
