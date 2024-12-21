@@ -347,7 +347,8 @@ def train(args):
             true_posterior_samples,
             dtype=torch.int64)
 
-    iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
+    iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = \
+        trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
 
 
     print("FINAL RESULTS IWAE LB LIST", flush=True)
@@ -556,10 +557,12 @@ if __name__ == "__main__":
     assert args.kl_target is None # Just use fixed KL for now
 
     if args.critic_pretrain is None:
-        if not args.remote_rm_url:
-            args.critic_pretrain = args.reward_pretrain
-        else:
-            args.critic_pretrain = args.pretrain
+        print("[Warning]: --critic_pretrain not specified, defaulting to --pretrain")
+        args.critic_pretrain = args.pretrain
+        # if not args.remote_rm_url:
+        #     args.critic_pretrain = args.reward_pretrain
+        # else:
+        #     args.critic_pretrain = args.pretrain
 
     if args.input_template and not "{}" in args.input_template:
         print("[Warning] {} not in args.input_template, set to None")
