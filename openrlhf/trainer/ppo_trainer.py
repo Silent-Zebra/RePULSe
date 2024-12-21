@@ -407,7 +407,8 @@ class PPOTrainer(ABC):
                         # print(condition_twist_on_tokens.shape)
                         # print(condition_twist_on_tokens[i * n_samples_f_q: (i+1) * n_samples_f_q].shape)
                         g_qs = self.g_q_estimate(args, samples,
-                                                 num_actions, attention_mask)
+                                                 num_actions, None) # No attention mask - using the f_q mask would be wrong here.
+                        # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
 
                         print(g_qs)
                         print("Avg G_q Estimate (Learned Model)")
@@ -434,7 +435,11 @@ class PPOTrainer(ABC):
                 iwae_ub_weights = self.g_q_estimate(args,
                                                     iwae_mixture_with_one_post,
                                                     num_actions,
-                                                    attention_mask)
+                                                    None
+                                                    )
+                # No attention mask - using the f_q mask would be wrong here.
+                # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
+
                 print("IWAE Upper Bound Estimate (Learned Model)")
                 iwae_upper_bound_estimate = torch.logsumexp(
                     iwae_ub_weights, dim=0) - torch.log(
@@ -538,7 +543,7 @@ class PPOTrainer(ABC):
 
 
 
-    def g_q_estimate(self, args, true_sigma_samples, num_actions, attention_mask, condition_twist_on_tokens=None):
+    def g_q_estimate(self, args, true_sigma_samples, num_actions, attention_mask=None, condition_twist_on_tokens=None):
         self.experience_maker.set_all_eval()
         sequences = true_sigma_samples
         with torch.no_grad():
