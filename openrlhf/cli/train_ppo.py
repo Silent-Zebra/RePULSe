@@ -378,20 +378,21 @@ def train(args):
 
     torch.save(target_to_save, save_str)
 
-    if args.save_actor:
-        # save model checkpoint after fitting on only rank0
-        strategy.save_model(
-            ema_model if args.enable_ema else actor,
-            tokenizer,
-            args.save_path,
-        )
-
-    if args.save_value_network:
-        strategy.save_model(
-            critic,
-            tokenizer,
-            args.save_path + "_critic",
-        )
+    # ppo_trainer will do saving...
+    # if args.save_actor:
+    #     # save model checkpoint after fitting on only rank0
+    #     strategy.save_model(
+    #         ema_model if args.enable_ema else actor,
+    #         tokenizer,
+    #         args.save_path,
+    #     )
+    #
+    # if args.save_value_network:
+    #     strategy.save_model(
+    #         critic,
+    #         tokenizer,
+    #         args.save_path + "_critic",
+    #     )
 
 
 

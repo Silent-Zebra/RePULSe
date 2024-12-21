@@ -313,6 +313,7 @@ class PPOTrainer(ABC):
 
                         steps = steps + 1
 
+
                     # logs/checkpoints
                     client_states = {
                         "consumed_samples": global_steps * args.rollout_batch_size}
@@ -901,8 +902,8 @@ class PPOTrainer(ABC):
             pass
         # save ckpt
         # TODO: save best model on dev, use loss/perplexity/others on whole dev dataset as metric
-        if global_step % args.save_steps == 0:
-            tag = f"global_step{global_step}"
+        if (global_step + 1) % args.save_steps == 0:
+            tag = f"global_step{global_step + 1}"
             self._save_checkpoint(args, tag, client_states)
 
     def _save_checkpoint(self, args, tag, client_states):
