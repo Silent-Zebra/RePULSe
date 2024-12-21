@@ -329,7 +329,8 @@ def train(args):
         shared_actorcritic=args.shared_actorcritic,
         vf_coef=vf_coef,
         model_eval=args.model_eval,
-        threshold=args.threshold
+        threshold=args.threshold,
+        n_seeds_f_q=args.n_seeds_f_q
     )
 
     true_posterior_samples = None
@@ -524,7 +525,9 @@ if __name__ == "__main__":
     parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
     parser.add_argument("--save_info_path", type=str, default="./info")
     parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q")
-    parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss) per episode")
+    parser.add_argument("--n_seeds_f_q", type=int, default=4, help="Number of seeds to use for f_q")
+
+    parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss outer loop) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
     parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
 

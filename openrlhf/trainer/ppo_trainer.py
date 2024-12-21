@@ -81,6 +81,7 @@ class PPOTrainer(ABC):
         vf_coef: float = 0.1,
         model_eval: bool = False,
         threshold: float = -5.,
+        n_seeds_f_q: int = 4,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -124,6 +125,8 @@ class PPOTrainer(ABC):
         self.vf_coef = vf_coef
 
         self.model_eval = model_eval
+
+        self.n_seeds_f_q = n_seeds_f_q
 
         # Mixtral 8x7b
         self.aux_loss = self.args.aux_loss_coef > 1e-8
@@ -211,7 +214,6 @@ class PPOTrainer(ABC):
         f_q_estimates_list = []
         g_q_estimates_list = []
 
-        n_seeds_f_q = 4
         # if true_posterior_samples is not None:
         #     n_seeds_f_q = true_posterior_samples.shape[0] // args.train_batch_size
         #     print(f"n_seeds_f_q: {n_seeds_f_q}")
@@ -230,7 +232,7 @@ class PPOTrainer(ABC):
             if not args.no_test_info:
                 self.f_q_g_q_evaluation(args, f_q_estimates_list,
                                         g_q_estimates_list, iwae_lbs_list,
-                                        iwae_ubs_list, n_seeds_f_q, prompt_text,
+                                        iwae_ubs_list, prompt_text,
                                         true_posterior_samples)
 
 
@@ -316,7 +318,7 @@ class PPOTrainer(ABC):
                 if not args.no_test_info:
                     self.f_q_g_q_evaluation(args, f_q_estimates_list,
                                             g_q_estimates_list, iwae_lbs_list,
-                                            iwae_ubs_list, n_seeds_f_q, prompt_text,
+                                            iwae_ubs_list, prompt_text,
                                             true_posterior_samples)
 
                 pbar.update()
@@ -365,14 +367,14 @@ class PPOTrainer(ABC):
         return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
 
     def f_q_g_q_evaluation(self, args, f_q_estimates_list, g_q_estimates_list,
-                           iwae_lbs_list, iwae_ubs_list, n_seeds_f_q,
+                           iwae_lbs_list, iwae_ubs_list,
                            prompt_text, true_posterior_samples):
         # This function appends to f_q_estimates_list and g_q_estimates_list
-        iwae_lbs = torch.zeros((n_seeds_f_q,))
-        iwae_ubs = torch.zeros((n_seeds_f_q,))
+        iwae_lbs = torch.zeros((self.n_seeds_f_q,))
+        iwae_ubs = torch.zeros((self.n_seeds_f_q,))
         total_f_qs = None
         total_g_qs = None
-        for i in range(n_seeds_f_q):
+        for i in range(self.n_seeds_f_q):
             custom_prompt_for_f_q = [prompt_text] * args.n_samples_for_f_q
 
             f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
