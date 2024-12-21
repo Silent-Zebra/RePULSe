@@ -518,15 +518,22 @@ class PPOTrainer(ABC):
                     batch_prompt, **self.generate_kwargs)
             action_log_probs = action_log_probs.float() # more precision
             log_q = action_log_probs.sum(dim=-1)
-            print("f_q estimate details")
-            print(log_q)
             # print(log_q.shape)
             # print(action_mask.shape)
             log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
                                                            attention_mask,
                                                            num_actions,
                                                            sequences)
+
             f_qs = log_tilde_sigma - log_q
+            print("f_q estimate details")
+            print("log q")
+            print(log_q)
+            print("log tilde sigma")
+            print(log_tilde_sigma)
+            print("f_qs")
+            print(f_qs)
+
         return f_qs, attention_mask, num_actions, sequences
 
     def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask,
@@ -543,7 +550,8 @@ class PPOTrainer(ABC):
         rewards_no_kl = rewards_no_kl.float() # more precision
         log_phi = args.target_dist_beta * rewards_no_kl
         # print(args.target_dist_beta)
-        # print(log_phi)
+        print("log_phi")
+        print(log_phi)
         base_action_log_probs = self.experience_maker.initial_model(sequences,
                                                                     num_actions,
                                                                     attention_mask)
