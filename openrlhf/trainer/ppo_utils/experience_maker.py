@@ -88,6 +88,7 @@ class NaiveExperienceMaker(ABC):
         remote_rm_url: str = None,
         reward_fn=None,
         shared_actorcritic=False,
+        threshold=-5.,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -101,6 +102,7 @@ class NaiveExperienceMaker(ABC):
         self.strategy = strategy
         self.reward_fn = reward_fn
         self.shared_actorcritic = shared_actorcritic
+        self.threshold = threshold
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, device):
@@ -242,9 +244,8 @@ class NaiveExperienceMaker(ABC):
             return log_prob_of_class
         elif rm_type == "toxicity_threshold":
             eps = 1e-16
-            threshold = -5
             score = r
-            return torch.log((score < threshold) + eps)
+            return torch.log((score < self.threshold) + eps)
 
         else:
             raise NotImplementedError

@@ -80,6 +80,7 @@ class PPOTrainer(ABC):
         shared_actorcritic: bool = False,
         vf_coef: float = 0.1,
         model_eval: bool = False,
+        threshold: float = -5.,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -145,7 +146,8 @@ class PPOTrainer(ABC):
             strategy,
             remote_rm_url,
             reward_fn,
-            shared_actorcritic
+            shared_actorcritic,
+            threshold
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 

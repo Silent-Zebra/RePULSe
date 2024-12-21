@@ -328,7 +328,8 @@ def train(args):
         remote_rm_url=args.remote_rm_url,
         shared_actorcritic=args.shared_actorcritic,
         vf_coef=vf_coef,
-        model_eval=args.model_eval
+        model_eval=args.model_eval,
+        threshold=args.threshold
     )
 
     true_posterior_samples = None
@@ -504,6 +505,8 @@ if __name__ == "__main__":
                                  "exp_beta_sentiment_class_logprob",
                                  "toxicity_threshold", "sentiment_threshold",
                                  "p_last_tokens", "toy_test"])
+    parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score")
+
 
     # wandb parameters
     parser.add_argument("--use_wandb", type=str, default=None)
