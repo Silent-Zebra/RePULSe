@@ -475,8 +475,9 @@ class ActorCritic(nn.Module):
         return sequences, attention_mask, action_mask
 
     def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
+
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
-        seq_length = attention_mask.size(1)
+        # seq_length = attention_mask.size(1)
 
         # print("--Sequences before modification--")
         # print(sequences)
@@ -531,6 +532,7 @@ class ActorCritic(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         return_output=False,
     ) -> torch.Tensor:
+
         """Returns action log probs"""
         if not self.packing_samples:
             # https://github.com/OpenRLHF/OpenRLHF/issues/217

@@ -229,6 +229,8 @@ class PPOTrainer(ABC):
             start_episode = 0 # TODO later make sure this hasn't messed things up
             steps = 0 # TODO later make sure this hasn't messed things up
 
+
+
             if not args.no_test_info:
                 self.f_q_g_q_evaluation(args, f_q_estimates_list,
                                         g_q_estimates_list, iwae_lbs_list,
@@ -392,6 +394,8 @@ class PPOTrainer(ABC):
                 true_posterior_samples = true_posterior_samples.to(
                     q_seqs.device)
                 # TODO later account for the above possiblity
+            eos_token_id = self.generate_kwargs["eos_token_id"]
+            pad_token_id = self.generate_kwargs["pad_token_id"]
 
             if i == 0:
                 assert true_posterior_samples is not None
@@ -406,8 +410,13 @@ class PPOTrainer(ABC):
                         # print(samples.shape)
                         # print(condition_twist_on_tokens.shape)
                         # print(condition_twist_on_tokens[i * n_samples_f_q: (i+1) * n_samples_f_q].shape)
+                        attention_mask_g_q = (
+                                samples.ne(eos_token_id) & samples.ne(
+                                pad_token_id)).to(
+                            dtype=torch.long)
+
                         g_qs = self.g_q_estimate(args, samples,
-                                                 num_actions, None) # No attention mask - using the f_q mask would be wrong here.
+                                                 num_actions, attention_mask_g_q) # No attention mask - using the f_q mask would be wrong here.
                         # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
 
                         print(g_qs)
@@ -432,10 +441,14 @@ class PPOTrainer(ABC):
                 iwae_mixture_with_one_post = q_seqs.detach().clone()
                 iwae_mixture_with_one_post[i] = true_posterior_samples[
                     i]  # To keep the conditioning tokens constant
+                attention_mask_g_q = (
+                    iwae_mixture_with_one_post.ne(eos_token_id) & iwae_mixture_with_one_post.ne(
+                    pad_token_id)).to(
+                    dtype=torch.long)
                 iwae_ub_weights = self.g_q_estimate(args,
                                                     iwae_mixture_with_one_post,
                                                     num_actions,
-                                                    None
+                                                    attention_mask_g_q
                                                     )
                 # No attention mask - using the f_q mask would be wrong here.
                 # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
@@ -543,7 +556,7 @@ class PPOTrainer(ABC):
 
 
 
-    def g_q_estimate(self, args, true_sigma_samples, num_actions, attention_mask=None, condition_twist_on_tokens=None):
+    def g_q_estimate(self, args, true_sigma_samples, num_actions, attention_mask, condition_twist_on_tokens=None):
         self.experience_maker.set_all_eval()
         sequences = true_sigma_samples
         with torch.no_grad():
