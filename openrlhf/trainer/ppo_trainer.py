@@ -903,6 +903,13 @@ class PPOTrainer(ABC):
         # save ckpt
         # TODO: save best model on dev, use loss/perplexity/others on whole dev dataset as metric
 
+
+
+        if (global_step + 1) % args.save_steps == 0:
+            tag = f"global_step{global_step + 1}"
+            self._save_checkpoint(args, tag, client_states)
+
+    def _save_checkpoint(self, args, tag, client_states):
         eval_str = ""
         extra_str = ""
         lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
@@ -914,14 +921,9 @@ class PPOTrainer(ABC):
             eval_str = "eval"
         save_str = f"PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_{extra_str}_seed{args.seed}"
 
-        if (global_step + 1) % args.save_steps == 0:
-            tag = f"{save_str}_global_step{global_step + 1}"
-            self._save_checkpoint(args, tag, client_states)
-
-    def _save_checkpoint(self, args, tag, client_states):
         self.strategy.save_ckpt(
             self.actor.model,
-            os.path.join(args.ckpt_path, "_actor"),
+            os.path.join(args.ckpt_path, f"{save_str}_actor"),
             tag,
             args.max_ckpt_num,
             args.max_ckpt_mem,
@@ -929,5 +931,5 @@ class PPOTrainer(ABC):
         )
         if self.critic is not None:
             self.strategy.save_ckpt(
-                self.critic, os.path.join(args.ckpt_path, "_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+                self.critic, os.path.join(args.ckpt_path, f"{save_str}_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
             )
