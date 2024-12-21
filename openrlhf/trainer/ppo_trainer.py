@@ -311,8 +311,8 @@ class PPOTrainer(ABC):
                                                args.rollout_batch_size)
                         pbar.set_postfix(status)
 
-                        steps = steps + 1
-
+                    steps = steps + 1
+                    global_steps = steps // update_timesteps
 
                     # logs/checkpoints
                     client_states = {
@@ -905,8 +905,8 @@ class PPOTrainer(ABC):
 
 
 
-        if (global_step + 1) % args.save_steps == 0:
-            tag = f"global_step{global_step + 1}"
+        if global_step % args.save_steps == 0:
+            tag = f"global_step{global_step}"
             self._save_checkpoint(args, tag, client_states)
 
     def _save_checkpoint(self, args, tag, client_states):
