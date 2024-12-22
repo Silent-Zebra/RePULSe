@@ -286,7 +286,11 @@ def train(args):
 
     os.makedirs(args.save_path, exist_ok=True)
 
-    vf_coef = args.critic_learning_rate / args.actor_learning_rate
+    if args.actor_learning_rate == 0:
+        assert not args.shared_actorcritic # Should not do this with shared actor critic
+        vf_coef = 100000 # Dummy value
+    else:
+        vf_coef = args.critic_learning_rate / args.actor_learning_rate
 
     # configure Trainer
     trainer = PPOTrainer(
