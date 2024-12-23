@@ -305,11 +305,11 @@ def train(args):
             true_posterior_samples,
             dtype=torch.int64)
 
-        print("--DEVICE CHECK--")
-        print(next(actor.parameters()).device)
-        print(true_posterior_samples.device)
+        # print("--DEVICE CHECK--")
+        # print(next(actor.parameters()).device)
+        # print(true_posterior_samples.device)
         true_posterior_samples = true_posterior_samples.to(next(actor.parameters()).device)
-        print(true_posterior_samples.device)
+        # print(true_posterior_samples.device)
 
     # configure Trainer
     trainer = PPOTrainer(

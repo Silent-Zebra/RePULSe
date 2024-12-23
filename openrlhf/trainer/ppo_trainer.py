@@ -824,16 +824,16 @@ class PPOTrainer(ABC):
             # First try just with it all the way through, later try taking away halfway through
 
             # Attend to all tokens in exact sample
-            attention_mask_sigma_samples = torch.ones_like(experience.attention_mask).to(
+            attention_mask_sigma_samples = torch.ones_like(self.true_posterior_samples).to(
                 dtype=torch.long)
 
-            print("--DEVICES--")
-            print(experience.sequences.device)
-            print(experience.attention_mask.device)
-            print(self.true_posterior_samples.device)
-            print(attention_mask_sigma_samples.device)
-            print(action_log_probs.device)
-            print(next(self.experience_maker.actor.parameters()).device)
+            # print("--DEVICES--")
+            # print(experience.sequences.device)
+            # print(experience.attention_mask.device)
+            # print(self.true_posterior_samples.device)
+            # print(attention_mask_sigma_samples.device)
+            # print(action_log_probs.device)
+            # print(next(self.experience_maker.actor.parameters()).device)
 
             action_log_probs = self.experience_maker.actor(self.true_posterior_samples,
                                                            num_actions,
