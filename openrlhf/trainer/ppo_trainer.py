@@ -841,7 +841,7 @@ class PPOTrainer(ABC):
             action_log_probs = action_log_probs.float()  # more precision
             log_q = action_log_probs.sum(dim=-1)
 
-            loss = loss + self.args.bc_coef * (- log_q) # loss is - log prob, so decrease loss is increase log p
+            loss = loss + self.args.bc_coef * (- log_q.sum()) # loss is - log prob, so decrease loss is increase log p
 
         self.strategy.backward(loss, self.actor, self.actor_optim)
 
