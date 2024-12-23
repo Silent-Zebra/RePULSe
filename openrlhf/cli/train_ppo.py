@@ -356,6 +356,7 @@ def train(args):
         n_seeds_f_q=args.n_seeds_f_q,
         rm_type=args.rm_type,
         bc_coef=args.bc_coef,
+        bc_steps=args.bc_steps,
         true_posterior_samples=true_posterior_samples
     )
 
@@ -449,6 +450,7 @@ if __name__ == "__main__":
     parser.add_argument("--normalize_reward", action="store_true", default=False, help="Enable Reward Normalization")
 
     parser.add_argument("--bc_coef", type=float, default=0.0, help="Do behaviour cloning on exact posterior samples (cheating for the sake of illustrating optimality)")
+    parser.add_argument("--bc_steps", type=int, default=-1, help="Default -1 means always use bc_coef; otherwise, after bc_steps, set bc_coef to 0")
 
     parser.add_argument("--top_p", type=float, default=1.0)
     parser.add_argument("--top_k", type=int, default=0)

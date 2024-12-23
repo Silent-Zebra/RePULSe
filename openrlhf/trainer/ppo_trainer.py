@@ -84,6 +84,7 @@ class PPOTrainer(ABC):
         n_seeds_f_q: int = 4,
         rm_type: str = '',
         bc_coef: float = 0,
+        bc_steps: int = -1,
         true_posterior_samples = None, # would otherwise be torch.Tensor
         **generate_kwargs,
     ) -> None:
@@ -127,6 +128,8 @@ class PPOTrainer(ABC):
 
         self.vf_coef = vf_coef
         self.bc_coef = bc_coef
+
+        self.bc_steps = bc_steps
 
         self.true_posterior_samples = true_posterior_samples
 
@@ -266,6 +269,10 @@ class PPOTrainer(ABC):
                     print(f"Step: {steps}")
 
                     global_steps = steps // update_timesteps
+
+                    if self.bc_steps > 0:
+                        if global_steps >= self.bc_steps:
+                            self.bc_coef = 0
 
                     num_twist_updates_to_do = args.update_steps_per_episode
                     if args.exp_num_twist_updates:
@@ -841,7 +848,7 @@ class PPOTrainer(ABC):
             action_log_probs = action_log_probs.float()  # more precision
             log_q = action_log_probs.sum(dim=-1)
 
-            loss = loss + self.args.bc_coef * (- log_q.sum()) # loss is - log prob, so decrease loss is increase log p
+            loss = loss + self.bc_coef * (- log_q.sum()) # loss is - log prob, so decrease loss is increase log p
 
         self.strategy.backward(loss, self.actor, self.actor_optim)
 
