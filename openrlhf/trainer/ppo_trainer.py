@@ -952,6 +952,10 @@ class PPOTrainer(ABC):
             lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
         if args.model_eval:
             eval_str = "eval"
+
+        if args.bc_coef > 0:
+            lr_str += f"_bc{args.bc_coef}"
+
         save_str = f"PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_{extra_str}_seed{args.seed}"
 
         self.strategy.save_ckpt(
