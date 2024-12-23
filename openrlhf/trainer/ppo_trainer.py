@@ -821,6 +821,7 @@ class PPOTrainer(ABC):
         loss = actor_loss + aux_loss * self.args.aux_loss_coef
 
         if self.bc_coef > 0:
+            print("DOING BEHAVIOUR CLONING")
             # TODO implement also for shared actorcritic using
             # action_log_probs, _ = self.experience_maker.actor(sigma_samples,
             #                                                            num_actions,
