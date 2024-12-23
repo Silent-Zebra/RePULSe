@@ -827,9 +827,13 @@ class PPOTrainer(ABC):
             attention_mask_sigma_samples = torch.ones_like(experience.attention_mask).to(
                 dtype=torch.long)
 
+            print("--DEVICES--")
+            print(experience.sequences.device)
+            print(experience.attention_mask.device)
             print(self.true_posterior_samples.device)
             print(attention_mask_sigma_samples.device)
             print(action_log_probs.device)
+            print(next(self.experience_maker.actor.parameters()).device)
 
             action_log_probs = self.experience_maker.actor(self.true_posterior_samples,
                                                            num_actions,
