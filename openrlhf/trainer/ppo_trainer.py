@@ -805,7 +805,6 @@ class PPOTrainer(ABC):
         )
 
 
-
         # mixtral
         if self.aux_loss:
             raise NotImplementedError
@@ -827,6 +826,11 @@ class PPOTrainer(ABC):
             # Attend to all tokens in exact sample
             attention_mask_sigma_samples = torch.ones_like(experience.attention_mask).to(
                 dtype=torch.long)
+
+            print(self.true_posterior_samples.device)
+            print(attention_mask_sigma_samples.device)
+            print(action_log_probs.device)
+
             action_log_probs = self.experience_maker.actor(self.true_posterior_samples,
                                                            num_actions,
                                                            attention_mask_sigma_samples)
