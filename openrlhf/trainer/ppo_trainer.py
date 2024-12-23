@@ -397,11 +397,11 @@ class PPOTrainer(ABC):
                 torch.tensor(f_qs.shape[0]))
             print(iwae_lower_bound_estimate)
             iwae_lbs[i] = iwae_lower_bound_estimate.item()
-            # TODO load the posterior samples, pass through to get g_q estimate
-            if true_posterior_samples is not None:
-                true_posterior_samples = true_posterior_samples.to(
-                    q_seqs.device)
-                # TODO later account for the above possiblity
+            # # TODO load the posterior samples, pass through to get g_q estimate
+            # if true_posterior_samples is not None:
+            #     true_posterior_samples = true_posterior_samples.to(
+            #         q_seqs.device)
+            #     # TODO later account for the above possiblity
             eos_token_id = self.generate_kwargs["eos_token_id"]
             pad_token_id = self.generate_kwargs["pad_token_id"]
 
