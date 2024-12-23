@@ -292,6 +292,20 @@ def train(args):
     else:
         vf_coef = args.critic_learning_rate / args.actor_learning_rate
 
+    true_posterior_samples = None
+    if args.load_posterior_samples:
+
+        print("Loading true posterior samples")
+
+        true_posterior_samples_by_prompt_and_by_token = torch.load(f"{args.load_posterior_samples_name}")
+        true_posterior_samples = \
+            true_posterior_samples_by_prompt_and_by_token[
+                0]
+        true_posterior_samples = torch.tensor(
+            true_posterior_samples,
+            dtype=torch.int64)
+
+
     # configure Trainer
     trainer = PPOTrainer(
         strategy,
@@ -335,21 +349,11 @@ def train(args):
         model_eval=args.model_eval,
         threshold=args.threshold,
         n_seeds_f_q=args.n_seeds_f_q,
-        rm_type=args.rm_type
+        rm_type=args.rm_type,
+        bc_coef=args.bc_coef,
+        true_posterior_samples=true_posterior_samples
     )
 
-    true_posterior_samples = None
-    if args.load_posterior_samples:
-
-        print("Loading true posterior samples")
-
-        true_posterior_samples_by_prompt_and_by_token = torch.load(f"{args.load_posterior_samples_name}")
-        true_posterior_samples = \
-            true_posterior_samples_by_prompt_and_by_token[
-                0]
-        true_posterior_samples = torch.tensor(
-            true_posterior_samples,
-            dtype=torch.int64)
 
     iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = \
         trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
@@ -435,6 +439,8 @@ if __name__ == "__main__":
     parser.add_argument("--micro_train_batch_size", type=int, default=4, help="batch size per GPU")
     parser.add_argument("--train_batch_size", type=int, default=128, help="Global training batch size")
     parser.add_argument("--normalize_reward", action="store_true", default=False, help="Enable Reward Normalization")
+
+    parser.add_argument("--bc_coef", type=float, default=0.0, help="Do behaviour cloning on exact posterior samples (cheating for the sake of illustrating optimality)")
 
     parser.add_argument("--top_p", type=float, default=1.0)
     parser.add_argument("--top_k", type=int, default=0)

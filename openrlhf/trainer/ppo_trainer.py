@@ -83,6 +83,8 @@ class PPOTrainer(ABC):
         threshold: float = -5.,
         n_seeds_f_q: int = 4,
         rm_type: str = '',
+        bc_coef: float = 0,
+        true_posterior_samples = None, # would otherwise be torch.Tensor
         **generate_kwargs,
     ) -> None:
         assert (
@@ -124,6 +126,9 @@ class PPOTrainer(ABC):
         self.freezing_actor_steps = getattr(self.args, "freezing_actor_steps", -1)
 
         self.vf_coef = vf_coef
+        self.bc_coef = bc_coef
+
+        self.true_posterior_samples = true_posterior_samples
 
         self.model_eval = model_eval
 
@@ -419,7 +424,7 @@ class PPOTrainer(ABC):
                             dtype=torch.long)
 
                         g_qs = self.g_q_estimate(args, samples,
-                                                 num_actions, attention_mask_g_q) # No attention mask - using the f_q mask would be wrong here.
+                                                 num_actions, attention_mask_g_q) # using the f_q mask would be wrong here.
                         # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
 
                         print(g_qs)
@@ -673,6 +678,9 @@ class PPOTrainer(ABC):
     def training_step_shared_actorcritic(self, experience: Experience) -> Dict[str, float]:
         # self.actor.train()
 
+        if self.bc_coef > 0:
+            raise NotImplementedError # see training_step_actor
+
         if self.model_eval:
             self.actor.eval() # Turn off dropout (no batch norm in GPT2)
             # In our setup, do we want dropout? Not sure what the answer is, but perhaps an argument for why
@@ -795,6 +803,9 @@ class PPOTrainer(ABC):
             experience.advantages,
             action_mask=experience.action_mask,
         )
+
+
+
         # mixtral
         if self.aux_loss:
             raise NotImplementedError
@@ -802,6 +813,28 @@ class PPOTrainer(ABC):
         else:
             aux_loss = 0
         loss = actor_loss + aux_loss * self.args.aux_loss_coef
+
+        if self.bc_coef > 0:
+            # TODO implement also for shared actorcritic using
+            # action_log_probs, _ = self.experience_maker.actor(sigma_samples,
+            #                                                            num_actions,
+            #                                                            attention_mask_sigma_samples)
+            # THEN TODO set up the args properly for this
+            # Including the coefficient, maybe also having an option to take away the coefficient or anneal the coefficient over time
+            # Maybe just take away the coefficient halfway through is an easy thing to implement
+            # First try just with it all the way through, later try taking away halfway through
+
+            # Attend to all tokens in exact sample
+            attention_mask_sigma_samples = torch.ones_like(experience.attention_mask).to(
+                dtype=torch.long)
+            action_log_probs = self.experience_maker.actor(self.true_posterior_samples,
+                                                           num_actions,
+                                                           attention_mask_sigma_samples)
+            action_log_probs = action_log_probs.float()  # more precision
+            log_q = action_log_probs.sum(dim=-1)
+
+            loss = loss + self.args.bc_coef * (- log_q) # loss is - log prob, so decrease loss is increase log p
+
         self.strategy.backward(loss, self.actor, self.actor_optim)
 
         # ptx loss
