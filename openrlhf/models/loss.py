@@ -122,8 +122,8 @@ class CTLLoss(nn.Module):
         print("CTL LOSS STUFF")
 
         # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
-        base_action_seq_log_probs = base_action_log_probs.sum(dim=-1)
-        curr_seq_log_probs = curr_log_probs.sum(dim=-1)
+        base_action_seq_log_probs = base_action_log_probs.sum(dim=-1)[:, None]
+        curr_seq_log_probs = curr_log_probs.sum(dim=-1)[:, None]
         print(base_action_seq_log_probs.shape)
         print(curr_seq_log_probs.shape)
         # TODO EXPECTED SHAPE FOR BOTH OF THE ABOVE: (batch_size, )
