@@ -173,13 +173,13 @@ class CTLLoss(nn.Module):
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
         # Try to do this batched instead of in for loop (verify that manual and batched give the same result)
-        for i in range(log_w_t_approx_sigma_samples.shape[0]):
+        for i in range(log_w_t_approx_sigma_samples.shape[1]):
             positive_samples_term += (
                 F.softmax(
-                    log_w_t_approx_sigma_samples[i].detach()) @
+                    log_w_t_approx_sigma_samples[:, i].detach()) @
                 # IMPORTANT!! We should not have gradients flowing through these weights. Compare e.g. vs resampling
-                log_psi_t_eval_list_proposal_samples[i])
-        positive_samples_term /= log_w_t_approx_sigma_samples.shape[0]
+                log_psi_t_eval_list_proposal_samples[:, i])
+        positive_samples_term /= log_w_t_approx_sigma_samples.shape[1]
 
         print("Positive term check")
         print(positive_samples_term_new.sum(dim=-1).mean(dim=0))
@@ -197,13 +197,13 @@ class CTLLoss(nn.Module):
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
         # Try to do this batched instead of in for loop
-        for i in range(log_w_t_approx_pi_samples.shape[0]):
+        for i in range(log_w_t_approx_pi_samples.shape[1]):
             negative_samples_term += (
                 F.softmax(
-                    log_w_t_approx_pi_samples[i].detach()) @
+                    log_w_t_approx_pi_samples[:, i].detach()) @
                 # IMPORTANT!! We should not have gradients flowing through these weights. Compare e.g. vs resampling
-                log_psi_t_eval_list_proposal_samples[i])
-        negative_samples_term /= log_w_t_approx_pi_samples.shape[0]
+                log_psi_t_eval_list_proposal_samples[:, i])
+        negative_samples_term /= log_w_t_approx_pi_samples.shape[1]
 
         print("Negative term check")
         print(negative_samples_term_new.sum(dim=-1).mean(dim=0))
