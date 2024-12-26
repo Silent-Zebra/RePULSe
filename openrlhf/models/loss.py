@@ -150,7 +150,10 @@ class CTLLoss(nn.Module):
 
         print("CTL LOSS STUFF")
 
-        print(base_action_log_probs.shape) # TODO: Ensure that you sum across the t dimension
+        # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
+        base_action_log_probs = base_action_log_probs.sum(dim=-1)
+        curr_log_probs = curr_log_probs.sum(dim=-1)
+        print(base_action_log_probs.shape)
         print(curr_log_probs.shape)
         # TODO EXPECTED SHAPE FOR BOTH OF THE ABOVE: (batch_size, )
 
@@ -159,14 +162,16 @@ class CTLLoss(nn.Module):
         print(log_w_t_approx_sigma_samples.shape) # Expected: (batch_size, seq_len)
         print(log_w_t_approx_pi_samples.shape)
 
-        normalized_w_t_sigma_samples = F.softmax(
-            log_w_t_approx_sigma_samples.detach())
-        log_psi_on_truncated_proposal_samples = values
+        # normalized_w_t_sigma_samples = F.softmax(
+        #     log_w_t_approx_sigma_samples.detach())
+        # log_psi_on_truncated_proposal_samples = values
 
+        print("Wgt shapes")
         normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples.detach(), dim=0) # do softmax along the batch dimension
         print(normalized_w_t_approx_sigma_samples.shape)
         # EXPECTED: above has shape (batch_size, seq_len)
         positive_samples_term_new = normalized_w_t_approx_sigma_samples * log_psi_t_eval_list_proposal_samples
+        print(positive_samples_term_new.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
         # Try to do this batched instead of in for loop (verify that manual and batched give the same result)
@@ -178,6 +183,7 @@ class CTLLoss(nn.Module):
                 log_psi_t_eval_list_proposal_samples[i])
         positive_samples_term /= log_w_t_approx_sigma_samples.shape[0]
 
+        print("Positive term check")
         print(positive_samples_term_new.sum(dim=-1).mean(dim=0))
         print(positive_samples_term) # TODO check, these should match each other
         print(positive_samples_term_new[:, 0] / returns[:, -1]) # TODO check: this should be a constant value; if not, investigate why not.
@@ -201,6 +207,7 @@ class CTLLoss(nn.Module):
                 log_psi_t_eval_list_proposal_samples[i])
         negative_samples_term /= log_w_t_approx_pi_samples.shape[0]
 
+        print("Negative term check")
         print(negative_samples_term_new.sum(dim=-1).mean(dim=0))
         print(negative_samples_term) # TODO check, these should match each other
 
