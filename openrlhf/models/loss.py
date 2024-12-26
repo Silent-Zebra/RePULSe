@@ -119,8 +119,14 @@ class CTLLoss(nn.Module):
         negative_samples_term = 0.
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
 
-        # TODO figure out how to get the things I need: log probs of seqs from curr model and ref model
-        # Maybe better to just pass in the logprobs instead of the models? Think about best structure to implement this.
+        print("CTL LOSS STUFF")
+
+        # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
+        base_action_seq_log_probs = base_action_log_probs.sum(dim=-1)
+        curr_seq_log_probs = curr_log_probs.sum(dim=-1)
+        print(base_action_seq_log_probs.shape)
+        print(curr_seq_log_probs.shape)
+        # TODO EXPECTED SHAPE FOR BOTH OF THE ABOVE: (batch_size, )
 
         # returns is the sum of future rewards, which is exactly the phi_t(s_{1:T}) that we want
         # basically the potential that we want to resample
@@ -136,7 +142,7 @@ class CTLLoss(nn.Module):
         # Also, that the weights - we do not differentiate through the weights. The gradient should only be on log psi = values, not the returns
         # (Not differentiating through weights would be the same as in our previous TSMC paper/experiments)
         # Finally, we can sum up across t, as we want to learn for all t at the same time
-        log_w_t_approx_sigma_samples = base_action_log_probs + returns - curr_log_probs
+        log_w_t_approx_sigma_samples = base_action_seq_log_probs + returns - curr_seq_log_probs
         # Is it log returns or just returns? I think just returns. Why? Because I already have defined
         # the reward in terms of a log phi, and then the other rewards are the log(q/p)
         # Which means that the sum of rewards, the returns, are just sum of intermediate reward + log phi
@@ -146,16 +152,8 @@ class CTLLoss(nn.Module):
         # Btw it also just makes sense, just look at the structure of the two weights, you know they should be equal at the optimum
         # and clearly, the optimum is when values = returns
         log_psi_t_eval_list_proposal_samples = values # TODO ensure this is correct
-        log_w_t_approx_pi_samples = base_action_log_probs + values - curr_log_probs
+        log_w_t_approx_pi_samples = base_action_seq_log_probs + values - curr_seq_log_probs
 
-        print("CTL LOSS STUFF")
-
-        # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
-        base_action_log_probs = base_action_log_probs.sum(dim=-1)
-        curr_log_probs = curr_log_probs.sum(dim=-1)
-        print(base_action_log_probs.shape)
-        print(curr_log_probs.shape)
-        # TODO EXPECTED SHAPE FOR BOTH OF THE ABOVE: (batch_size, )
 
         print(log_psi_t_eval_list_proposal_samples.shape) # EXPECTED: (batch_size, seq_len)
 
