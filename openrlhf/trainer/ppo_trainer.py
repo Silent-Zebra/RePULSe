@@ -124,6 +124,7 @@ class PPOTrainer(ABC):
 
         self.actor_loss_fn = PolicyLoss(eps_clip)
 
+        self.critic_loss_type = critic_loss_type
         if critic_loss_type == "mse":
             self.critic_loss_fn = ValueLoss(value_clip)
         elif critic_loss_type == "ctl":
@@ -805,6 +806,7 @@ class PPOTrainer(ABC):
         else:
             if global_steps > self.freezing_actor_steps:
                 status = self.training_step_actor(experience)
+
             status.update(self.training_step_critic(experience))
         return status
 
@@ -930,12 +932,27 @@ class PPOTrainer(ABC):
             return_output=True,
         )
         # loss function
-        critic_loss = self.critic_loss_fn(
-            values,
-            experience.values,
-            experience.returns,
-            action_mask=experience.action_mask,
-        )
+        if self.critic_loss_type == "mse":
+            critic_loss = self.critic_loss_fn(
+                values,
+                experience.values,
+                experience.returns,
+                action_mask=experience.action_mask,
+            )
+        elif self.critic_loss_type == "ctl":
+            num_actions = experience.action_mask.size(1)
+            base_action_log_probs = self.experience_maker.initial_model(
+                experience.sequences, num_actions,
+                experience.attention_mask)
+            critic_loss = self.critic_loss_fn(
+                values,
+                experience.returns,
+                action_mask=experience.action_mask,
+                curr_log_probs=experience.action_log_probs,
+                base_action_log_probs=base_action_log_probs
+            )
+        else:
+            raise NotImplementedError
         # mixtral
         if self.aux_loss:
             aux_loss = output.aux_loss
