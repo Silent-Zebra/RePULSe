@@ -148,6 +148,8 @@ class CTLLoss(nn.Module):
         log_psi_t_eval_list_proposal_samples = values # TODO ensure this is correct
         log_w_t_approx_pi_samples = base_action_log_probs + values - curr_log_probs
 
+        print("CTL LOSS STUFF")
+
         print(base_action_log_probs.shape) # TODO: Ensure that you sum across the t dimension
         print(curr_log_probs.shape)
         # TODO EXPECTED SHAPE FOR BOTH OF THE ABOVE: (batch_size, )
