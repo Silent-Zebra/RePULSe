@@ -356,8 +356,9 @@ def train(args):
         n_seeds_f_q=args.n_seeds_f_q,
         rm_type=args.rm_type,
         bc_coef=args.bc_coef,
-        bc_steps=args.bc_steps,
-        true_posterior_samples=true_posterior_samples
+        bc_iters=args.bc_iters,
+        true_posterior_samples=true_posterior_samples,
+        critic_loss_type=args.critic_loss_type
     )
 
 
@@ -450,7 +451,7 @@ if __name__ == "__main__":
     parser.add_argument("--normalize_reward", action="store_true", default=False, help="Enable Reward Normalization")
 
     parser.add_argument("--bc_coef", type=float, default=0.0, help="Do behaviour cloning on exact posterior samples (cheating for the sake of illustrating optimality)")
-    parser.add_argument("--bc_steps", type=int, default=-1, help="Default -1 means always use bc_coef; otherwise, after bc_steps, set bc_coef to 0")
+    parser.add_argument("--bc_iters", type=int, default=-1, help="Default -1 means always use bc_coef; otherwise, after bc_iters, set bc_coef to 0")
 
     parser.add_argument("--top_p", type=float, default=1.0)
     parser.add_argument("--top_k", type=int, default=0)
@@ -565,6 +566,11 @@ if __name__ == "__main__":
         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant",
                  "constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau",
                  "cosine_with_min_lr", "warmup_stable_decay"]
+    )
+
+    parser.add_argument(
+        "--critic_loss_type", type=str, default="mse",
+        choices=["mse", "ctl"]
     )
 
     args = parser.parse_args()

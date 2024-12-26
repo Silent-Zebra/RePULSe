@@ -98,6 +98,127 @@ class ValueLoss(nn.Module):
         return 0.5 * loss
 
 
+
+class CTLLoss(nn.Module):
+    """
+    CTL Twist learning loss
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(
+        self,
+        values: torch.Tensor,
+        returns: torch.Tensor,
+        action_mask: torch.Tensor,
+        curr_log_probs: torch.Tensor,
+        base_action_log_probs: torch.Tensor
+    ) -> torch.Tensor:
+        positive_samples_term = 0.
+        negative_samples_term = 0.
+        # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
+
+        # TODO figure out how to get the things I need: log probs of seqs from curr model and ref model
+        # Maybe better to just pass in the logprobs instead of the models? Think about best structure to implement this.
+
+        # returns is the sum of future rewards, which is exactly the phi_t(s_{1:T}) that we want
+        # basically the potential that we want to resample
+        # ie returns are the phi_t(s_{1:T}) that we want to use
+        # so we are going to resample (rather reweight/calculate weights here) according to sigma_t(s_{1:T}) for each t
+        # then truncate each of those samples
+        # then use the weights from each of those calculations of phi_t(s_{1:T})
+        # the importance weights are p_0(s_{1:T}) phi_t(s_{1:T}) / q(s_{1:T})
+        # thus the log weights will be log (ref_model(full_seq)) + log (returns) - log (curr_model(full_seq))
+        # Only the middle term is different across different time steps, so I can calculate the first and last terms just once
+        # then broadcast it according to the returns
+        # Also make sure here that we are only taking the grad through the values and not through the policy here
+        # Also, that the weights - we do not differentiate through the weights. The gradient should only be on log psi = values, not the returns
+        # (Not differentiating through weights would be the same as in our previous TSMC paper/experiments)
+        # Finally, we can sum up across t, as we want to learn for all t at the same time
+        log_w_t_approx_sigma_samples = base_action_log_probs + returns - curr_log_probs
+        # Is it log returns or just returns? I think just returns. Why? Because I already have defined
+        # the reward in terms of a log phi, and then the other rewards are the log(q/p)
+        # Which means that the sum of rewards, the returns, are just sum of intermediate reward + log phi
+        # which in exp space, is the product of e^intermediate rewards and the final potential, which is
+        # exactly the product of little phi and big phi as desired, e.g. in our appendix of the SMC paper
+        # TODO write this logic out clearly, write out all the math in a document to make sure it adds up correctly
+        # Btw it also just makes sense, just look at the structure of the two weights, you know they should be equal at the optimum
+        # and clearly, the optimum is when values = returns
+        log_psi_t_eval_list_proposal_samples = values # TODO ensure this is correct
+        log_w_t_approx_pi_samples = base_action_log_probs + values - curr_log_probs
+
+        print(base_action_log_probs.shape) # TODO: Ensure that you sum across the t dimension
+        print(curr_log_probs.shape)
+        # TODO EXPECTED SHAPE FOR BOTH OF THE ABOVE: (batch_size, )
+
+        print(log_psi_t_eval_list_proposal_samples.shape) # EXPECTED: (batch_size, seq_len)
+
+        print(log_w_t_approx_sigma_samples.shape) # Expected: (batch_size, seq_len)
+        print(log_w_t_approx_pi_samples.shape)
+
+        normalized_w_t_sigma_samples = F.softmax(
+            log_w_t_approx_sigma_samples.detach())
+        log_psi_on_truncated_proposal_samples = values
+
+        normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples.detach(), dim=0) # do softmax along the batch dimension
+        print(normalized_w_t_approx_sigma_samples.shape)
+        # EXPECTED: above has shape (batch_size, seq_len)
+        positive_samples_term_new = normalized_w_t_approx_sigma_samples * log_psi_t_eval_list_proposal_samples
+        # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
+
+        # Try to do this batched instead of in for loop (verify that manual and batched give the same result)
+        for i in range(log_w_t_approx_sigma_samples.shape[0]):
+            positive_samples_term += (
+                F.softmax(
+                    log_w_t_approx_sigma_samples[i].detach()) @
+                # IMPORTANT!! We should not have gradients flowing through these weights. Compare e.g. vs resampling
+                log_psi_t_eval_list_proposal_samples[i])
+        positive_samples_term /= log_w_t_approx_sigma_samples.shape[0]
+
+        print(positive_samples_term_new.sum(dim=-1).mean(dim=0))
+        print(positive_samples_term) # TODO check, these should match each other
+        print(positive_samples_term_new[:, 0] / returns[:, -1]) # TODO check: this should be a constant value; if not, investigate why not.
+
+
+
+        # TODO INSTEAD OF ADDING THE DOT: have a 2-d array at the end and then do the masked mean on that
+
+        normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples.detach(), dim=0) # do softmax along the batch dimension
+        print(normalized_w_t_approx_pi_samples.shape)
+        # EXPECTED: above has shape (batch_size, seq_len)
+        negative_samples_term_new = normalized_w_t_approx_pi_samples * log_psi_t_eval_list_proposal_samples
+        # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
+
+        # Try to do this batched instead of in for loop
+        for i in range(log_w_t_approx_pi_samples.shape[0]):
+            negative_samples_term += (
+                F.softmax(
+                    log_w_t_approx_pi_samples[i].detach()) @
+                # IMPORTANT!! We should not have gradients flowing through these weights. Compare e.g. vs resampling
+                log_psi_t_eval_list_proposal_samples[i])
+        negative_samples_term /= log_w_t_approx_pi_samples.shape[0]
+
+        print(negative_samples_term_new.sum(dim=-1).mean(dim=0))
+        print(negative_samples_term) # TODO check, these should match each other
+
+        # This is the first term calculation, but really should do a similar kind of thing here as above
+        loss = -(positive_samples_term_new - negative_samples_term_new)
+
+        print(loss.shape)
+        print(action_mask.shape)
+
+        loss = masked_mean(loss, action_mask, dim=-1).mean()
+        # I guess mean is ok, just to keep things consistent. This does mean that I need ~10 to ~20x the learning rate
+        # I had previously, in order to have the same results. So something like 1e-3 then... But can try 1e-4 just to be
+        # consistent with what I have for the PPO critic loss...
+
+        1/0 # TODO Don't remove until every little step along the way checked, and all makes sense.
+
+        # print("--masked mean--")
+        # print(masked_mean(loss, action_mask, dim=-1))
+        return loss
+
 class PairWiseLoss(nn.Module):
     """
     Pairwise Loss for Reward Model

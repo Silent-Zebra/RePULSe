@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
+from openrlhf.models.loss import CTLLoss
 from openrlhf.models.utils import masked_mean
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
@@ -86,6 +87,7 @@ class PPOTrainer(ABC):
         bc_coef: float = 0,
         bc_steps: int = -1,
         true_posterior_samples = None, # would otherwise be torch.Tensor
+        critic_loss_type: str = 'mse',
         **generate_kwargs,
     ) -> None:
         assert (
@@ -121,7 +123,13 @@ class PPOTrainer(ABC):
         self.critic_scheduler = critic_scheduler
 
         self.actor_loss_fn = PolicyLoss(eps_clip)
-        self.critic_loss_fn = ValueLoss(value_clip)
+
+        if critic_loss_type == "mse":
+            self.critic_loss_fn = ValueLoss(value_clip)
+        elif critic_loss_type == "ctl":
+            self.critic_loss_fn = CTLLoss() # TODO fill in
+        else:
+            raise NotImplementedError
         self.ptx_loss_fn = GPTLMLoss()
 
         self.freezing_actor_steps = getattr(self.args, "freezing_actor_steps", -1)
@@ -731,12 +739,25 @@ class PPOTrainer(ABC):
         # print("ACTOR LOSS")
         # print(actor_loss)
 
-        critic_loss = self.critic_loss_fn(
-            values,
-            experience.values,
-            experience.returns,
-            action_mask=experience.action_mask,
-        )
+        if self.critic_loss_type == "mse":
+            critic_loss = self.critic_loss_fn(
+                values,
+                experience.values,
+                experience.returns,
+                action_mask=experience.action_mask,
+            )
+        elif self.critic_loss_type == "ctl":
+            base_action_log_probs = self.experience_maker.initial_model(experience.sequences, num_actions,
+                                                       experience.attention_mask)
+            critic_loss = self.critic_loss_fn(
+                values,
+                experience.returns,
+                action_mask=experience.action_mask,
+                curr_log_probs=action_log_probs,
+                base_action_log_probs=base_action_log_probs
+            )
+        else:
+            raise NotImplementedError
         # print("CRITIC LOSS")
         # print(critic_loss)
 
