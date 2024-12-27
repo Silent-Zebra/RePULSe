@@ -120,18 +120,9 @@ class CTLLoss(nn.Module):
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
 
         print("CTL LOSS STUFF")
-
-        # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
-
-        # TODO EXPECTED SHAPE FOR BOTH OF THE ABOVE: (batch_size, 1)
-
-        print(base_action_log_probs.sum(dim=-1)[:, None].shape)
-        print(returns.shape)
-        print(returns[:, -1].shape)
-        print(curr_log_probs.sum(dim=-1)[:, None].shape)
-
         # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
-        log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1)[:, None] + returns[:, -1] - curr_log_probs.sum(dim=-1)[:, None] # why this: well, the target is base * phi, then denom for IS is q.
+        # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
+        log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + returns[:, -1] - curr_log_probs.sum(dim=-1) # why this: well, the target is base * phi, then denom for IS is q.
         log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
 
         # TODO write this logic out clearly, write out all the math in a document to make sure it adds up correctly
@@ -158,7 +149,7 @@ class CTLLoss(nn.Module):
         normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=0) # do softmax along the batch dimension
         print(normalized_w_t_approx_sigma_samples.shape)
         # EXPECTED: above has shape (batch_size)
-        positive_samples_term_new = normalized_w_t_approx_sigma_samples * log_psi_t_eval_list_proposal_samples
+        positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         print(positive_samples_term_new.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
