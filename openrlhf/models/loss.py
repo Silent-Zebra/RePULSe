@@ -115,11 +115,11 @@ class CTLLoss(nn.Module):
         curr_log_probs: torch.Tensor,
         base_action_log_probs: torch.Tensor
     ) -> torch.Tensor:
-        positive_samples_term = 0.
-        negative_samples_term = 0.
+        # positive_samples_term = 0.
+        # negative_samples_term = 0.
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
 
-        print("CTL LOSS STUFF")
+        # print("CTL LOSS STUFF")
         # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
         # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
         log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + returns[:, -1] - curr_log_probs.sum(dim=-1) # why this: well, the target is base * phi, then denom for IS is q.
@@ -134,58 +134,55 @@ class CTLLoss(nn.Module):
         log_w_t_approx_pi_samples = base_action_log_probs.cumsum(dim=1) + values - curr_log_probs.cumsum(dim=1) # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum
         log_w_t_approx_pi_samples = log_w_t_approx_pi_samples.detach()
 
-        print(log_psi_t_eval_list_proposal_samples.shape) # EXPECTED: (batch_size, seq_len)
+        # print(log_psi_t_eval_list_proposal_samples.shape) # EXPECTED: (batch_size, seq_len)
 
-        print("Log Wgt shapes")
-
-        print(log_w_t_approx_sigma_samples.shape) # Expected: (batch_size)
-        print(log_w_t_approx_pi_samples.shape) # Expected: (batch_size, seq_len)
+        # print("Log Wgt shapes")
+        # print(log_w_t_approx_sigma_samples.shape) # Expected: (batch_size)
+        # print(log_w_t_approx_pi_samples.shape) # Expected: (batch_size, seq_len)
 
         # normalized_w_t_sigma_samples = F.softmax(
         #     log_w_t_approx_sigma_samples.detach())
         # log_psi_on_truncated_proposal_samples = values
 
-        print("Wgt shapes")
+        # print("Wgt shapes")
         normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=0) # do softmax along the batch dimension
-        print(normalized_w_t_approx_sigma_samples.shape)
+        # print(normalized_w_t_approx_sigma_samples.shape)
         # EXPECTED: above has shape (batch_size)
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
-        print(positive_samples_term_new.shape)
+        # print(positive_samples_term_new.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
         # TODO INSTEAD OF ADDING THE DOT: have a 2-d array at the end and then do the masked mean on that
 
         normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=0) # do softmax along the batch dimension
-        print(normalized_w_t_approx_pi_samples.shape)
+        # print(normalized_w_t_approx_pi_samples.shape)
         # EXPECTED: above has shape (batch_size, seq_len)
         negative_samples_term_new = normalized_w_t_approx_pi_samples * log_psi_t_eval_list_proposal_samples
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
         # Try to do this batched instead of in for loop
-        for i in range(log_w_t_approx_pi_samples.shape[1]):
-            negative_samples_term += (
-                F.softmax(
-                    log_w_t_approx_pi_samples[:, i], dim=0) @ log_psi_t_eval_list_proposal_samples[:, i])
+        # for i in range(log_w_t_approx_pi_samples.shape[1]):
+        #     negative_samples_term += (
+        #         F.softmax(
+        #             log_w_t_approx_pi_samples[:, i], dim=0) @ log_psi_t_eval_list_proposal_samples[:, i])
+        #
+        #         # IMPORTANT!! We should not have gradients flowing through these weights. Compare e.g. vs resampling
+        # negative_samples_term /= log_w_t_approx_pi_samples.shape[1]
 
-                # IMPORTANT!! We should not have gradients flowing through these weights. Compare e.g. vs resampling
-        negative_samples_term /= log_w_t_approx_pi_samples.shape[1]
-
-        print("Negative term check")
-        print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
-        print(negative_samples_term) # TODO check, these should match each other
+        # print("Negative term check")
+        # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
+        # print(negative_samples_term) # check, these should match each other
 
         # This is the first term calculation, but really should do a similar kind of thing here as above
         loss = -(positive_samples_term_new - negative_samples_term_new)
 
-        print(loss.shape)
-        print(action_mask.shape)
+        # print(loss.shape)
+        # print(action_mask.shape)
 
         loss = masked_mean(loss, action_mask, dim=-1).mean()
-        # I guess mean is ok, just to keep things consistent. This does mean that I need ~10 to ~20x the learning rate
-        # I had previously, in order to have the same results. So something like 1e-3 then... But can try 1e-4 just to be
+        # I guess mean is ok, just to keep things consistent. This does mean that I need ~100x the learning rate
+        # I had previously, in order to have the same results. So something like 1e-2 then... But can try 1e-4 just to be
         # consistent with what I have for the PPO critic loss...
-
-        1/0 # TODO Don't remove until every little step along the way checked, and all makes sense.
 
         # print("--masked mean--")
         # print(masked_mean(loss, action_mask, dim=-1))
