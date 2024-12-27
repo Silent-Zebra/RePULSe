@@ -125,6 +125,11 @@ class CTLLoss(nn.Module):
 
         # TODO EXPECTED SHAPE FOR BOTH OF THE ABOVE: (batch_size, 1)
 
+        print(base_action_log_probs.sum(dim=-1)[:, None].shape)
+        print(returns.shape)
+        print(returns[:, -1].shape)
+        print(curr_log_probs.sum(dim=-1)[:, None].shape)
+
         # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
         log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1)[:, None] + returns[:, -1] - curr_log_probs.sum(dim=-1)[:, None] # why this: well, the target is base * phi, then denom for IS is q.
         log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
