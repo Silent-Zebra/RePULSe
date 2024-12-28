@@ -188,6 +188,27 @@ class CTLLoss(nn.Module):
         # print(masked_mean(loss, action_mask, dim=-1))
         return loss
 
+class MixedCTLValueLoss(nn.Module):
+    def __init__(self, clip_eps: float = None, alpha: float = 0.5) -> None:
+        super().__init__()
+        self.clip_eps = clip_eps
+        self.alpha = alpha
+        self.value_loss = ValueLoss(clip_eps)
+        self.ctl_loss = CTLLoss()
+
+    def forward(
+        self,
+        values: torch.Tensor,
+        old_values: torch.Tensor,
+        returns: torch.Tensor,
+        action_mask: torch.Tensor,
+        curr_log_probs: torch.Tensor,
+        base_action_log_probs: torch.Tensor
+    ) -> torch.Tensor:
+        ctl_loss = self.ctl_loss(values, returns, action_mask, curr_log_probs, base_action_log_probs)
+        mse_loss = self.value_loss(values, old_values, returns, action_mask)
+        return self.alpha * ctl_loss + (1 - self.alpha) * mse_loss
+
 class PairWiseLoss(nn.Module):
     """
     Pairwise Loss for Reward Model

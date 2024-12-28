@@ -358,7 +358,8 @@ def train(args):
         bc_coef=args.bc_coef,
         bc_iters=args.bc_iters,
         true_posterior_samples=true_posterior_samples,
-        critic_loss_type=args.critic_loss_type
+        critic_loss_type=args.critic_loss_type,
+        alpha=args.alpha
     )
 
 
@@ -468,6 +469,9 @@ if __name__ == "__main__":
     parser.add_argument("--init_kl_coef", type=float, default=1., help="KL penalty in PPO")
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
 
+
+    parser.add_argument("--alpha", type=float, default=0.5, help="Only for use in mixed_ctl_mse loss; choose how much to prioritize ctl")
+
     # DeepSpeed
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--local_rank", type=int, default=-1, help="local_rank for deepspeed")
@@ -570,7 +574,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--critic_loss_type", type=str, default="mse",
-        choices=["mse", "ctl"]
+        choices=["mse", "ctl", "mixed_ctl_mse"]
     )
 
     args = parser.parse_args()

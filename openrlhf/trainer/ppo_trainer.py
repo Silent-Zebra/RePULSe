@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
-from openrlhf.models.loss import CTLLoss
+from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss
 from openrlhf.models.utils import masked_mean
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
@@ -88,6 +88,7 @@ class PPOTrainer(ABC):
         bc_steps: int = -1,
         true_posterior_samples = None, # would otherwise be torch.Tensor
         critic_loss_type: str = 'mse',
+        alpha: float = 0.5,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -129,6 +130,8 @@ class PPOTrainer(ABC):
             self.critic_loss_fn = ValueLoss(value_clip)
         elif critic_loss_type == "ctl":
             self.critic_loss_fn = CTLLoss() # TODO fill in
+        elif critic_loss_type == "mixed_ctl_mse":
+            self.critic_loss_fn = MixedCTLValueLoss(clip_eps=value_clip, alpha=alpha)
         else:
             raise NotImplementedError
         self.ptx_loss_fn = GPTLMLoss()
@@ -757,6 +760,18 @@ class PPOTrainer(ABC):
                 curr_log_probs=action_log_probs,
                 base_action_log_probs=base_action_log_probs
             )
+        elif self.critic_loss_type == "mixed_ctl_mse":
+            base_action_log_probs = self.experience_maker.initial_model(
+                experience.sequences, num_actions,
+                experience.attention_mask)
+            critic_loss = self.critic_loss_fn(
+                values,
+                experience.values,
+                experience.returns,
+                action_mask=experience.action_mask,
+                curr_log_probs=experience.action_log_probs,
+                base_action_log_probs=base_action_log_probs
+            )
         else:
             raise NotImplementedError
         # print("CRITIC LOSS")
@@ -946,6 +961,19 @@ class PPOTrainer(ABC):
                 experience.attention_mask)
             critic_loss = self.critic_loss_fn(
                 values,
+                experience.returns,
+                action_mask=experience.action_mask,
+                curr_log_probs=experience.action_log_probs,
+                base_action_log_probs=base_action_log_probs
+            )
+        elif self.critic_loss_type == "mixed_ctl_mse":
+            num_actions = experience.action_mask.size(1)
+            base_action_log_probs = self.experience_maker.initial_model(
+                experience.sequences, num_actions,
+                experience.attention_mask)
+            critic_loss = self.critic_loss_fn(
+                values,
+                experience.values,
                 experience.returns,
                 action_mask=experience.action_mask,
                 curr_log_probs=experience.action_log_probs,
