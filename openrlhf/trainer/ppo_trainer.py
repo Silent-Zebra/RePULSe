@@ -1010,7 +1010,7 @@ class PPOTrainer(ABC):
         if args.bc_coef > 0:
             lr_str += f"_bc{args.bc_coef}"
 
-        save_str = f"PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_{extra_str}_seed{args.seed}"
+        save_str = f"PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
 
         self.strategy.save_ckpt(
             self.actor.model,

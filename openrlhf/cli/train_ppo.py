@@ -393,7 +393,7 @@ def train(args):
 
     if args.bc_coef > 0:
         lr_str += f"_bc{args.bc_coef}"
-    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{extra_str}_seed{args.seed}"
+    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_PPO_PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{extra_str}_seed{args.seed}"
 
     torch.save(target_to_save, save_str)
 
