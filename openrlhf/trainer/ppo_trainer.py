@@ -570,9 +570,7 @@ class PPOTrainer(ABC):
     def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask,
                                 num_actions, sequences):
         rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
-                                                                   attention_mask,
-                                                                   action_log_probs,
-                                                                   )
+                                                                   attention_mask)
         # print("log p phi eval")
         # print(rewards_no_kl)
         # Recall that we have p(s_1:T)p(toxic class | s_1:T)^beta which is also
@@ -953,24 +951,24 @@ class PPOTrainer(ABC):
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
-            final_return = self.reward_model(experience.sequences, experience.attention_mask)
+            final_reward = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
 
             print("FINAL RETURN COMPARISON")
-            print(final_return)
+            print(final_reward)
             print(experience.returns[:, -1])
-            print(experience.returns[:, -1] - final_return)
+            print(experience.returns[:, -1] - final_reward)
 
 
             critic_loss = self.critic_loss_fn(
                 values,
-                final_return=final_return,
+                final_reward=final_reward,
                 action_mask=experience.action_mask,
                 curr_log_probs=experience.action_log_probs,
                 base_action_log_probs=base_action_log_probs
             )
         elif self.critic_loss_type == "mixed_ctl_mse":
             num_actions = experience.action_mask.size(1)
-            final_return = self.reward_model(experience.sequences, experience.attention_mask)
+            final_reward = self.reward_model(experience.sequences, experience.attention_mask)
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
@@ -981,14 +979,14 @@ class PPOTrainer(ABC):
                 action_mask=experience.action_mask,
                 curr_log_probs=experience.action_log_probs,
                 base_action_log_probs=base_action_log_probs,
-                final_return=final_return
+                final_reward=final_reward
             )
         elif self.critic_loss_type in ["sixo", "sixo_approxneg"]:
             num_actions = experience.action_mask.size(1)
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
-            final_return = self.reward_model(experience.sequences, experience.attention_mask)
+            final_reward = self.reward_model(experience.sequences, experience.attention_mask)
 
             values_on_base_samples = None
             if self.critic_loss_type == "sixo":
@@ -1010,7 +1008,7 @@ class PPOTrainer(ABC):
 
             critic_loss = self.critic_loss_fn(
                 values,
-                final_return=final_return,
+                final_reward=final_reward,
                 action_mask=experience.action_mask,
                 curr_log_probs=experience.action_log_probs,
                 base_action_log_probs=base_action_log_probs,

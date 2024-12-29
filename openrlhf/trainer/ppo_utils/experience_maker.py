@@ -139,7 +139,7 @@ class NaiveExperienceMaker(ABC):
         # print(base_action_log_probs.mean())
         # print(base_action_log_probs)
 
-        r = self.compute_reward_no_kl(sequences, attention_mask, action_log_probs)
+        r = self.compute_reward_no_kl(sequences, attention_mask)
 
         # print("--Rewards--")
         # print(r)
@@ -188,14 +188,14 @@ class NaiveExperienceMaker(ABC):
             info,
         )
 
-    def compute_reward_no_kl(self, sequences, attention_mask, action_log_probs, class_num=0):
+    def compute_reward_no_kl(self, sequences, attention_mask, class_num=0):
         # rewards
         if self.remote_rm_url is not None:
             # remote RM
             queries = self.tokenizer.batch_decode(sequences.cpu(),
                                                   skip_special_tokens=False)
             r = remote_rm_fn(self.remote_rm_url, queries=queries).to(
-                device=action_log_probs.device)
+                device=attention_mask.device)
         else:
             # local RM
             r = self.reward_model(sequences, attention_mask)
