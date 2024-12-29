@@ -251,11 +251,11 @@ class SIXOLoss(nn.Module):
         positive_samples_term = normalized_w_t_approx_sigma_samples[:,
                                     None] * F.logsigmoid(values)
 
-        print(F.logsigmoid(values).shape) # Expected (batch, seq_len)
+        # print(F.logsigmoid(values).shape) # Expected (batch, seq_len)
 
-        print(positive_samples_term.shape[0]) # Expected (batch)
+        # print(positive_samples_term.shape[0]) # Expected (batch)
 
-        print(positive_samples_term.shape)
+        # print(positive_samples_term.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
         if self.approx_neg:
