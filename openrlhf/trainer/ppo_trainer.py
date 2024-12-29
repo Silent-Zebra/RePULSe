@@ -953,15 +953,24 @@ class PPOTrainer(ABC):
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
+            final_return = self.reward_model(experience.sequences, experience.attention_mask)
+
+            print("FINAL RETURN COMPARISON")
+            print(final_return)
+            print(experience.returns[:, -1])
+            print(experience.returns[:, -1] - final_return)
+
+
             critic_loss = self.critic_loss_fn(
                 values,
-                experience.returns,
+                final_return=final_return,
                 action_mask=experience.action_mask,
                 curr_log_probs=experience.action_log_probs,
                 base_action_log_probs=base_action_log_probs
             )
         elif self.critic_loss_type == "mixed_ctl_mse":
             num_actions = experience.action_mask.size(1)
+            final_return = self.reward_model(experience.sequences, experience.attention_mask)
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
@@ -971,13 +980,15 @@ class PPOTrainer(ABC):
                 experience.returns,
                 action_mask=experience.action_mask,
                 curr_log_probs=experience.action_log_probs,
-                base_action_log_probs=base_action_log_probs
+                base_action_log_probs=base_action_log_probs,
+                final_return=final_return
             )
         elif self.critic_loss_type in ["sixo", "sixo_approxneg"]:
             num_actions = experience.action_mask.size(1)
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
+            final_return = self.reward_model(experience.sequences, experience.attention_mask)
 
             values_on_base_samples = None
             if self.critic_loss_type == "sixo":
@@ -999,7 +1010,7 @@ class PPOTrainer(ABC):
 
             critic_loss = self.critic_loss_fn(
                 values,
-                experience.returns,
+                final_return=final_return,
                 action_mask=experience.action_mask,
                 curr_log_probs=experience.action_log_probs,
                 base_action_log_probs=base_action_log_probs,

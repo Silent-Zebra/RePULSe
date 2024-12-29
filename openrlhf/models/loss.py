@@ -110,7 +110,7 @@ class CTLLoss(nn.Module):
     def forward(
         self,
         values: torch.Tensor,
-        returns: torch.Tensor,
+        final_reward: torch.Tensor,
         action_mask: torch.Tensor,
         curr_log_probs: torch.Tensor,
         base_action_log_probs: torch.Tensor
@@ -119,10 +119,13 @@ class CTLLoss(nn.Module):
         # negative_samples_term = 0.
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
 
+        print(final_reward.shape)
+        print(base_action_log_probs.sum(dim=-1).shape)
+
         # print("CTL LOSS STUFF")
         # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
         # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
-        log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + returns[:, -1] - curr_log_probs.sum(dim=-1) # why this: well, the target is base * phi, then denom for IS is q.
+        log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + final_reward - curr_log_probs.sum(dim=-1) # why this: well, the target is base * phi, then denom for IS is q.
         log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
 
         log_psi_t_eval_list_proposal_samples = values
@@ -205,9 +208,10 @@ class MixedCTLValueLoss(nn.Module):
         returns: torch.Tensor,
         action_mask: torch.Tensor,
         curr_log_probs: torch.Tensor,
-        base_action_log_probs: torch.Tensor
+        base_action_log_probs: torch.Tensor,
+        final_reward: torch.Tensor
     ) -> torch.Tensor:
-        ctl_loss = self.ctl_loss(values, returns, action_mask, curr_log_probs, base_action_log_probs)
+        ctl_loss = self.ctl_loss(values, final_reward, action_mask, curr_log_probs, base_action_log_probs)
         mse_loss = self.value_loss(values, old_values, returns, action_mask)
         return self.alpha * ctl_loss + (1 - self.alpha) * mse_loss
 
@@ -224,7 +228,7 @@ class SIXOLoss(nn.Module):
     def forward(
         self,
         values: torch.Tensor,
-        returns: torch.Tensor,
+        final_reward: torch.Tensor,
         action_mask: torch.Tensor,
         curr_log_probs: torch.Tensor,
         base_action_log_probs: torch.Tensor,
@@ -239,8 +243,11 @@ class SIXOLoss(nn.Module):
         # First step is the same as in CTL; get the approx sigma samples based on p * phi / q on the FULL SEQUENCE then truncating
         # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
         # Again I use q as the proposal and do SIS reweighting
+        print(final_reward.shape)
+        print(base_action_log_probs.sum(dim=-1).shape)
+
         log_w_t_approx_sigma_samples = base_action_log_probs.sum(
-            dim=-1) + returns[:, -1] - curr_log_probs.sum(
+            dim=-1) + final_reward - curr_log_probs.sum(
             dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
         log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
 
