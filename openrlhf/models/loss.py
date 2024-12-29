@@ -293,7 +293,7 @@ class SIXOLoss(nn.Module):
 
         loss = masked_mean(loss, action_mask, dim=-1).mean()
 
-        return loss
+        return loss.float()
 
 
 class PairWiseLoss(nn.Module):
