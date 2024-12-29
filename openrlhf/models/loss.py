@@ -125,12 +125,7 @@ class CTLLoss(nn.Module):
         log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + returns[:, -1] - curr_log_probs.sum(dim=-1) # why this: well, the target is base * phi, then denom for IS is q.
         log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
 
-        # TODO write this logic out clearly, write out all the math in a document to make sure it adds up correctly
-        # Btw it also just makes sense, just look at the structure of the two weights, you know they should be equal at the optimum
-        # and clearly, the optimum is when values = returns
-
-        # TODO check all the math again, check all the logs - something seems a bit odd...
-        log_psi_t_eval_list_proposal_samples = values # TODO ensure this is correct
+        log_psi_t_eval_list_proposal_samples = values
         log_w_t_approx_pi_samples = base_action_log_probs.cumsum(dim=1) + values - curr_log_probs.cumsum(dim=1) # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum
         log_w_t_approx_pi_samples = log_w_t_approx_pi_samples.detach()
 
@@ -152,8 +147,6 @@ class CTLLoss(nn.Module):
         # print(positive_samples_term_new.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
-        # TODO INSTEAD OF ADDING THE DOT: have a 2-d array at the end and then do the masked mean on that
-
         normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=0) # do softmax along the batch dimension
         # print(normalized_w_t_approx_pi_samples.shape)
         # EXPECTED: above has shape (batch_size, seq_len)
@@ -168,6 +161,15 @@ class CTLLoss(nn.Module):
         #
         #         # IMPORTANT!! We should not have gradients flowing through these weights. Compare e.g. vs resampling
         # negative_samples_term /= log_w_t_approx_pi_samples.shape[1]
+
+        # TODO Consider doing this
+        # Why? Because: multiplying by normalized weights, we are already reducing each value. For the weighted mean, we multiply by weights, then add up. So if I multiply by weights, then do mean, I'm dividing by the batch size twice, which seems undesirable
+        # Of course here for CTL it doesn't really matter, because this is just a constant rescaling of the loss which can be absorbed into the learning rate. But still, maybe is good to just keep it consistent with the math and with the previous implementation
+        # print(positive_samples_term_new.shape[0])
+        # print(negative_samples_term_new.shape[0])
+        # positive_samples_term_new *= positive_samples_term_new.shape[0]
+        # negative_samples_term_new *= negative_samples_term_new.shape[0]
+        # Arguably this makes things worse; arguably you would rather not rescale e.g. * 100 and then have a 100x lower lr, you'd rather just have the 100x higher lr and avoid the *100/100 calculation which maybe loses precision
 
         # print("Negative term check")
         # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
@@ -208,6 +210,92 @@ class MixedCTLValueLoss(nn.Module):
         ctl_loss = self.ctl_loss(values, returns, action_mask, curr_log_probs, base_action_log_probs)
         mse_loss = self.value_loss(values, old_values, returns, action_mask)
         return self.alpha * ctl_loss + (1 - self.alpha) * mse_loss
+
+
+class SIXOLoss(nn.Module):
+    """
+    SIXO Twist learning loss
+    """
+
+    def __init__(self, approx_neg: bool = False) -> None:
+        super().__init__()
+        self.approx_neg = approx_neg
+
+    def forward(
+        self,
+        values: torch.Tensor,
+        returns: torch.Tensor,
+        action_mask: torch.Tensor,
+        curr_log_probs: torch.Tensor,
+        base_action_log_probs: torch.Tensor,
+        values_on_base_samples: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        if self.approx_neg:
+            assert values_on_base_samples is None
+        else:
+            assert values_on_base_samples is not None
+
+        print("SIXO LOSS STUFF")
+        # First step is the same as in CTL; get the approx sigma samples based on p * phi / q on the FULL SEQUENCE then truncating
+        # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
+        # Again I use q as the proposal and do SIS reweighting
+        log_w_t_approx_sigma_samples = base_action_log_probs.sum(
+            dim=-1) + returns[:, -1] - curr_log_probs.sum(
+            dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
+        log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
+
+        normalized_w_t_approx_sigma_samples = F.softmax(
+            log_w_t_approx_sigma_samples,
+            dim=0)  # do softmax along the batch dimension
+
+        positive_samples_term = normalized_w_t_approx_sigma_samples[:,
+                                    None] * F.logsigmoid(values)
+
+        print(F.logsigmoid(values).shape) # Expected (batch, seq_len)
+
+        print(positive_samples_term.shape[0]) # Expected (batch)
+
+        print(positive_samples_term.shape)
+        # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
+
+        if self.approx_neg:
+            log_w_t_approx_p_samples = base_action_log_probs.sum(
+                dim=-1) - curr_log_probs.sum(
+                dim=-1)  # target p, denom for IS is q.
+            log_w_t_approx_p_samples = log_w_t_approx_p_samples.detach()
+
+            normalized_w_t_approx_p_samples = F.softmax(
+                log_w_t_approx_p_samples,
+                dim=0)  # do softmax along the batch dimension
+            negative_samples_term = normalized_w_t_approx_p_samples[:,
+                                    None] * torch.log(1 - F.sigmoid(values))
+        else:
+            negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
+
+        if not self.approx_neg:
+            # positive_samples_term *= positive_samples_term.shape[0]
+            # Should actually do the above on CTL too (for both on CTL). Why? Because: multiplying by normalized weights, we are already reducing each value. For the weighted mean, we multiply by weights, then add up. So if I multiply by weights, then do mean, I'm dividing by the batch size twice, which is undesirable
+            # The negative term here doesn't need this multiplication since it's not being multiplied by the normalized weights
+
+            negative_samples_term /= negative_samples_term.shape[0]
+            # Alternatively: I can do this to make things the same... now this is consistent with mean on top of mean (which I believe does too much dividing... but oh well.
+            # At least this now makes sixoloss and sixloss using approx p samples based on IS reweighting of q samples, have the same scale
+
+
+        # print("Negative term check")
+        # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
+        # print(negative_samples_term) # check, these should match each other
+
+        # This is the first term calculation, but really should do a similar kind of thing here as above
+        loss = positive_samples_term + negative_samples_term
+
+        # print(loss.shape)
+        # print(action_mask.shape)
+
+        loss = masked_mean(loss, action_mask, dim=-1).mean()
+
+        return loss
+
 
 class PairWiseLoss(nn.Module):
     """

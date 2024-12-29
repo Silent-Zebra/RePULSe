@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
-from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss
+from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss
 from openrlhf.models.utils import masked_mean
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
@@ -129,9 +129,13 @@ class PPOTrainer(ABC):
         if critic_loss_type == "mse":
             self.critic_loss_fn = ValueLoss(value_clip)
         elif critic_loss_type == "ctl":
-            self.critic_loss_fn = CTLLoss() # TODO fill in
+            self.critic_loss_fn = CTLLoss()
         elif critic_loss_type == "mixed_ctl_mse":
             self.critic_loss_fn = MixedCTLValueLoss(clip_eps=value_clip, alpha=alpha)
+        elif critic_loss_type == "sixo":
+            self.critic_loss_fn = SIXOLoss()
+        elif critic_loss_type == "sixo_approxneg":
+            self.critic_loss_fn = SIXOLoss(approx_neg=True)
         else:
             raise NotImplementedError
         self.ptx_loss_fn = GPTLMLoss()
@@ -242,7 +246,7 @@ class PPOTrainer(ABC):
         # rewards_list = []
         # kl_to_prior_list = []
 
-
+        custom_prompt = None
         if args.custom_single_prompt:
             prompt_text = 'Once upon a time, there was a'
             custom_prompt = [prompt_text] * args.train_batch_size
@@ -326,7 +330,7 @@ class PPOTrainer(ABC):
                         # print("REPLAY BUFFER AFTER NORMALIZATION")
                         # print(self.replay_buffer.items)
 
-                        status = self.ppo_train(global_steps)
+                        status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
                         self.replay_buffer.clear()
                         torch.cuda.empty_cache()
 
@@ -378,7 +382,7 @@ class PPOTrainer(ABC):
 
                         torch.cuda.empty_cache()
                         self.replay_buffer.normalize("advantages", self.strategy)
-                        status = self.ppo_train(global_steps)
+                        status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
                         self.replay_buffer.clear()
                         torch.cuda.empty_cache()
 
@@ -612,7 +616,7 @@ class PPOTrainer(ABC):
 
         return log_tilde_sigma - log_q
 
-    def ppo_train(self, global_steps=0):
+    def ppo_train(self, global_steps=0, custom_prompt=None):
         # replay buffer may be empty at first, we should rebuild at each training
         dataloader = DataLoader(
             self.replay_buffer,
@@ -651,7 +655,7 @@ class PPOTrainer(ABC):
             )
             for experience in pbar:
                 experience.to_device(device)
-                status = self.training_step(experience, global_steps)
+                status = self.training_step(experience, global_steps, custom_prompt=custom_prompt)
 
                 # for DP
                 # weighted mean for kl
@@ -694,7 +698,7 @@ class PPOTrainer(ABC):
                 status_mean[k] /= len(status_list)
         return status_mean
 
-    def training_step_shared_actorcritic(self, experience: Experience) -> Dict[str, float]:
+    def training_step_shared_actorcritic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
         # self.actor.train()
 
         if self.bc_coef > 0:
@@ -743,37 +747,8 @@ class PPOTrainer(ABC):
         # print("ACTOR LOSS")
         # print(actor_loss)
 
-        if self.critic_loss_type == "mse":
-            critic_loss = self.critic_loss_fn(
-                values,
-                experience.values,
-                experience.returns,
-                action_mask=experience.action_mask,
-            )
-        elif self.critic_loss_type == "ctl":
-            base_action_log_probs = self.experience_maker.initial_model(experience.sequences, num_actions,
-                                                       experience.attention_mask)
-            critic_loss = self.critic_loss_fn(
-                values,
-                experience.returns,
-                action_mask=experience.action_mask,
-                curr_log_probs=action_log_probs,
-                base_action_log_probs=base_action_log_probs
-            )
-        elif self.critic_loss_type == "mixed_ctl_mse":
-            base_action_log_probs = self.experience_maker.initial_model(
-                experience.sequences, num_actions,
-                experience.attention_mask)
-            critic_loss = self.critic_loss_fn(
-                values,
-                experience.values,
-                experience.returns,
-                action_mask=experience.action_mask,
-                curr_log_probs=experience.action_log_probs,
-                base_action_log_probs=base_action_log_probs
-            )
-        else:
-            raise NotImplementedError
+        critic_loss = self.get_critic_loss(experience, values, custom_prompt=custom_prompt)
+
         # print("CRITIC LOSS")
         # print(critic_loss)
 
@@ -814,15 +789,15 @@ class PPOTrainer(ABC):
         return status
 
 
-    def training_step(self, experience: Experience, global_steps) -> Dict[str, float]:
+    def training_step(self, experience: Experience, global_steps, custom_prompt=None) -> Dict[str, float]:
         status = {}
         if self.shared_actorcritic:
-            status = self.training_step_shared_actorcritic(experience)
+            status = self.training_step_shared_actorcritic(experience, custom_prompt=custom_prompt)
         else:
             if global_steps > self.freezing_actor_steps:
                 status = self.training_step_actor(experience)
 
-            status.update(self.training_step_critic(experience))
+            status.update(self.training_step_critic(experience, custom_prompt=custom_prompt))
         return status
 
     def training_step_actor(self, experience: Experience) -> Dict[str, float]:
@@ -933,7 +908,7 @@ class PPOTrainer(ABC):
                 status[k] = v.mean().item()
         return status
 
-    def training_step_critic(self, experience: Experience) -> Dict[str, float]:
+    def training_step_critic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
         if self.model_eval:
             self.critic.eval()
         else:
@@ -947,6 +922,25 @@ class PPOTrainer(ABC):
             return_output=True,
         )
         # loss function
+        critic_loss = self.get_critic_loss(experience, values, custom_prompt=custom_prompt)
+        # mixtral
+        if self.aux_loss:
+            aux_loss = output.aux_loss
+        else:
+            aux_loss = 0
+        loss = critic_loss + aux_loss * self.args.aux_loss_coef
+        self.strategy.backward(loss, self.critic, self.critic_optim)
+        self.strategy.optimizer_step(self.critic_optim, self.critic, self.critic_scheduler, name="critic")
+
+        # status
+        status = {
+            "critic_loss": critic_loss.item(),
+            "values": masked_mean(values, experience.action_mask).item(),
+            "critic_lr": self.critic_scheduler.get_last_lr()[0],
+        }
+        return status
+
+    def get_critic_loss(self, experience, values, custom_prompt=None):
         if self.critic_loss_type == "mse":
             critic_loss = self.critic_loss_fn(
                 values,
@@ -979,24 +973,41 @@ class PPOTrainer(ABC):
                 curr_log_probs=experience.action_log_probs,
                 base_action_log_probs=base_action_log_probs
             )
+        elif self.critic_loss_type in ["sixo", "sixo_approxneg"]:
+            num_actions = experience.action_mask.size(1)
+            base_action_log_probs = self.experience_maker.initial_model(
+                experience.sequences, num_actions,
+                experience.attention_mask)
+
+            values_on_base_samples = None
+            if self.critic_loss_type == "sixo":
+                self.initial_model.eval()
+
+                inputs = self.experience_maker.tokenize_fn(custom_prompt, self.prompt_max_len,
+                                          device="cuda")
+
+                base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
+                    **inputs,
+                    **self.generate_kwargs)
+
+                values_on_base_samples = self.critic(
+                    base_sequences,
+                    action_mask=base_action_mask,
+                    attention_mask=base_attention_mask,
+                    return_output=False,
+                )
+
+            critic_loss = self.critic_loss_fn(
+                values,
+                experience.returns,
+                action_mask=experience.action_mask,
+                curr_log_probs=experience.action_log_probs,
+                base_action_log_probs=base_action_log_probs,
+                values_on_base_samples=values_on_base_samples
+            )
         else:
             raise NotImplementedError
-        # mixtral
-        if self.aux_loss:
-            aux_loss = output.aux_loss
-        else:
-            aux_loss = 0
-        loss = critic_loss + aux_loss * self.args.aux_loss_coef
-        self.strategy.backward(loss, self.critic, self.critic_optim)
-        self.strategy.optimizer_step(self.critic_optim, self.critic, self.critic_scheduler, name="critic")
-
-        # status
-        status = {
-            "critic_loss": critic_loss.item(),
-            "values": masked_mean(values, experience.action_mask).item(),
-            "critic_lr": self.critic_scheduler.get_last_lr()[0],
-        }
-        return status
+        return critic_loss
 
     def save_logs_and_checkpoints(self, args, global_step, step_bar, logs_dict={}, client_states={}):
         if global_step % args.logging_steps == 0:

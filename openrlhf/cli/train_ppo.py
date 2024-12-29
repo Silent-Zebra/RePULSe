@@ -576,7 +576,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--critic_loss_type", type=str, default="mse",
-        choices=["mse", "ctl", "mixed_ctl_mse"]
+        choices=["mse", "ctl", "mixed_ctl_mse", "sixo", "sixo_approxneg"]
     )
 
     args = parser.parse_args()
