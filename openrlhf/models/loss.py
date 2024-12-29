@@ -235,7 +235,7 @@ class SIXOLoss(nn.Module):
         else:
             assert values_on_base_samples is not None
 
-        print("SIXO LOSS STUFF")
+        # print("SIXO LOSS STUFF")
         # First step is the same as in CTL; get the approx sigma samples based on p * phi / q on the FULL SEQUENCE then truncating
         # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
         # Again I use q as the proposal and do SIS reweighting
@@ -269,10 +269,9 @@ class SIXOLoss(nn.Module):
                 dim=0)  # do softmax along the batch dimension
             negative_samples_term = normalized_w_t_approx_p_samples[:,
                                     None] * torch.log(1 - F.sigmoid(values))
-        else:
+        else: # use exact p samples
             negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
 
-        if not self.approx_neg:
             # positive_samples_term *= positive_samples_term.shape[0]
             # Should actually do the above on CTL too (for both on CTL). Why? Because: multiplying by normalized weights, we are already reducing each value. For the weighted mean, we multiply by weights, then add up. So if I multiply by weights, then do mean, I'm dividing by the batch size twice, which is undesirable
             # The negative term here doesn't need this multiplication since it's not being multiplied by the normalized weights
