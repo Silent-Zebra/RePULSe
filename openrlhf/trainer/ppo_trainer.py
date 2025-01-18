@@ -252,7 +252,16 @@ class PPOTrainer(ABC):
 
         custom_prompt = None
         if args.custom_single_prompt:
-            prompt_text = 'Once upon a time, there was a'
+            if 'TinyStories' in args.pretrain:
+                prompt_text = 'Once upon a time, there was a'
+            elif 'gpt2' in args.pretrain:
+                if args.rm_type == 'toy_rlhf':
+                    prompt_text = "Who is the greatest basketball player of all time?"
+                else:
+                    raise NotImplementedError
+            else:
+                raise NotImplementedError
+
             custom_prompt = [prompt_text] * args.train_batch_size
             print("USING CUSTOM PROMPT")
             print(len(custom_prompt))
