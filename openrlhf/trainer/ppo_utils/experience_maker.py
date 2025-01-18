@@ -90,6 +90,7 @@ class NaiveExperienceMaker(ABC):
         shared_actorcritic=False,
         threshold=-5.,
         reward_cap=4.5,
+        target_dist_beta=1.,
         rm_type=None
     ) -> None:
         super().__init__()
@@ -106,6 +107,7 @@ class NaiveExperienceMaker(ABC):
         self.shared_actorcritic = shared_actorcritic
         self.threshold = threshold
         self.reward_cap = reward_cap
+        self.target_dist_beta = target_dist_beta
         self.rm_type = rm_type
 
     # tokenizer
@@ -245,17 +247,24 @@ class NaiveExperienceMaker(ABC):
                 # print("INSPECTING REWARDS: log_prob_of_class (softplus)")
                 # print(log_prob_of_class)
 
-            return log_prob_of_class
+            return log_prob_of_class * 1 / self.target_dist_beta # Because remember r_u = 1/beta log phi is the right way to set up the unregularized reward for equivalence between standard RL formulation and our setup
         elif self.rm_type == "toxicity_threshold":
             eps = 1e-16
             score = r
             # print("score")
             # print(score)
-            return torch.log((score < self.threshold) + eps)
+            return torch.log((score < self.threshold) + eps) / self.target_dist_beta
         elif self.rm_type == "toy_rlhf":
             score = r
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
-            return capped_reward
+
+            print("hihi")
+            print(score)
+            print(capped_reward)
+            print(self.target_dist_beta) # Debug only
+            1/0
+
+            return capped_reward # Here, 1/beta log phi = 1/beta log e^beta (capped r) = capped r.
 
         else:
             raise NotImplementedError

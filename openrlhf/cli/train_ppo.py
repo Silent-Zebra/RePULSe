@@ -335,6 +335,7 @@ def train(args):
         lambd=args.lambd,
         init_kl_coef=args.init_kl_coef,
         kl_target=args.kl_target,
+        target_dist_beta=args.target_dist_beta,
         ema_beta=0.992,
         ptx_coef=args.ptx_coef,
         max_norm=args.max_norm,
@@ -469,7 +470,7 @@ if __name__ == "__main__":
     parser.add_argument("--actor_learning_rate", type=float, default=1e-6)
     parser.add_argument("--critic_learning_rate", type=float, default=9e-6)
     parser.add_argument("--kl_target", type=float, default=None)
-    parser.add_argument("--init_kl_coef", type=float, default=1., help="KL penalty in PPO")
+    # parser.add_argument("--init_kl_coef", type=float, default=1., help="KL penalty in PPO") # DO NOT USE: USE THE TARGET_DIST_BETA
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
 
 
@@ -583,10 +584,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    assert args.target_dist_beta == args.init_kl_coef # Because otherwise you don't have the equivalence between
+    args.init_kl_coef = 1 / args.target_dist_beta
+    print(f"Init KL coef set to: {args.init_kl_coef}, based on target_dist_beta {args.target_dist_beta}")
+    # Because otherwise you don't have the equivalence between the RL formulation and the probabilistic inference formulation with target dist
 
-    if args.target_dist_beta != 1 or args.init_kl_coef != 1:
-        raise Exception("Be very careful; this has not been tested; be careful that the PPO = inference formulation is correctly implemented. Be careful about x or 1/x also.")
+    # assert args.init_kl_coef == 1 / args.target_dist_beta
+    # assert args.target_dist_beta == args.init_kl_coef
+    # if args.target_dist_beta != 1 or args.init_kl_coef != 1:
+    #     raise Exception("Be very careful; this has not been tested; be careful that the PPO = inference formulation is correctly implemented. Be careful about x or 1/x also.")
 
     assert args.kl_target is None # Just use fixed KL for now
 
