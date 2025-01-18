@@ -163,6 +163,9 @@ class PPOTrainer(ABC):
         else:
             self.kl_ctl = FixedKLController(init_kl_coef)
 
+            print(init_kl_coef)
+            1/0
+
         self.shared_actorcritic = shared_actorcritic
 
         self.experience_maker = NaiveExperienceMaker(

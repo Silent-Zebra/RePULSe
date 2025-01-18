@@ -258,11 +258,9 @@ class NaiveExperienceMaker(ABC):
             score = r
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
 
-            print("hihi")
-            print(score)
-            print(capped_reward)
-            print(self.target_dist_beta) # Debug only
-            1/0
+            # print(score)
+            # print(capped_reward)
+            # print(self.target_dist_beta) # Debug only
 
             return capped_reward # Here, 1/beta log phi = 1/beta log e^beta (capped r) = capped r.
 
