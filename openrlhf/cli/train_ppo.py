@@ -353,6 +353,7 @@ def train(args):
         vf_coef=vf_coef,
         model_eval=args.model_eval,
         threshold=args.threshold,
+        reward_cap=args.reward_cap,
         n_seeds_f_q=args.n_seeds_f_q,
         rm_type=args.rm_type,
         bc_coef=args.bc_coef,
@@ -535,8 +536,9 @@ if __name__ == "__main__":
                                  "p_continuation", "exp_beta_toxicity", "exp_beta_toxicity_class_logprob",
                                  "exp_beta_sentiment_class_logprob",
                                  "toxicity_threshold", "sentiment_threshold",
-                                 "p_last_tokens", "toy_test"])
+                                 "p_last_tokens", "toy_test", "toy_rlhf"])
     parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score")
+    parser.add_argument("--reward_cap", type=float, default=4.5, help="Only for use with toy_rlhf rm_type")
 
 
     # wandb parameters

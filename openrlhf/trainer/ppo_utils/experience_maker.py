@@ -89,6 +89,7 @@ class NaiveExperienceMaker(ABC):
         reward_fn=None,
         shared_actorcritic=False,
         threshold=-5.,
+        reward_cap=4.5,
         rm_type=None
     ) -> None:
         super().__init__()
@@ -104,6 +105,7 @@ class NaiveExperienceMaker(ABC):
         self.reward_fn = reward_fn
         self.shared_actorcritic = shared_actorcritic
         self.threshold = threshold
+        self.reward_cap = reward_cap
         self.rm_type = rm_type
 
     # tokenizer
@@ -250,6 +252,10 @@ class NaiveExperienceMaker(ABC):
             # print("score")
             # print(score)
             return torch.log((score < self.threshold) + eps)
+        elif self.rm_type == "toy_rlhf":
+            score = r
+            capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
+            return capped_reward
 
         else:
             raise NotImplementedError

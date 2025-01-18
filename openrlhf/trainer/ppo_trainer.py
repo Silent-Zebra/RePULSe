@@ -82,6 +82,7 @@ class PPOTrainer(ABC):
         vf_coef: float = 0.1,
         model_eval: bool = False,
         threshold: float = -5.,
+        reward_cap: float = 4.5,
         n_seeds_f_q: int = 4,
         rm_type: str = '',
         bc_coef: float = 0,
@@ -176,6 +177,7 @@ class PPOTrainer(ABC):
             reward_fn,
             shared_actorcritic,
             threshold,
+            reward_cap,
             rm_type
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
