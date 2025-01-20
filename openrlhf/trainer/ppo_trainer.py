@@ -180,7 +180,8 @@ class PPOTrainer(ABC):
             threshold,
             reward_cap,
             target_dist_beta,
-            rm_type
+            rm_type,
+            self.generate_kwargs['max_new_tokens']
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 

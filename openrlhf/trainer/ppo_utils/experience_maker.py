@@ -91,7 +91,8 @@ class NaiveExperienceMaker(ABC):
         threshold=-5.,
         reward_cap=4.5,
         target_dist_beta=1.,
-        rm_type=None
+        rm_type=None,
+        max_new_tokens=None,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -109,6 +110,7 @@ class NaiveExperienceMaker(ABC):
         self.reward_cap = reward_cap
         self.target_dist_beta = target_dist_beta
         self.rm_type = rm_type
+        self.max_new_tokens = max_new_tokens
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, device):
@@ -195,12 +197,16 @@ class NaiveExperienceMaker(ABC):
     def compute_reward_no_kl(self, sequences, attention_mask, class_num=0):
         # rewards
         if self.remote_rm_url is not None:
+
+            # TODO not yet supported/checked with custom_single_prompt
+
             # remote RM
             queries = self.tokenizer.batch_decode(sequences.cpu(),
                                                   skip_special_tokens=False)
             r = remote_rm_fn(self.remote_rm_url, queries=queries).to(
                 device=attention_mask.device)
         else:
+
             # local RM
             r = self.reward_model(sequences, attention_mask)
 

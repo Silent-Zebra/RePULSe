@@ -235,7 +235,7 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
     return RewardModel
 
 
-def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config):
+def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, separatequeryanswer=False, max_new_tokens=None):
     class RewardModel(base_pretrained_class):
         supports_gradient_checkpointing = True
 
@@ -250,29 +250,72 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config):
             self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
             self.tokenizer = tokenizer  # TODO ensure this works
 
+
         def forward(
             self,
             input_ids: torch.LongTensor = None,
             attention_mask=None,
             return_output=False,
         ) -> torch.Tensor:
-            assert return_output == False
-            # print("--FORWARD CALL--")
-            # print(input_ids.device)
-            text = self.tokenizer.batch_decode(input_ids)
-            # print(text)
-            tokens = self.tokenizer_RM(text, return_tensors="pt", padding=True)
-            # print(tokens)
-            # print(tokens['input_ids'].device)
-            # print(tokens['attention_mask'].device)
-            rew = self.rm(input_ids=tokens['input_ids'].to(input_ids.device),
-                  attention_mask=tokens['attention_mask'].to(input_ids.device)).logits.squeeze()
-            # print(rew)
-            # print("--MEAN OF REWARDS--")
-            # print(rew.mean())
-            # print("--END FORWARD CALL--")
 
-            return rew
+            if separatequeryanswer:
+                assert max_new_tokens is not None
+
+                print("Toy RLHF inspection")
+                print(input_ids.shape)
+                print(max_new_tokens)
+
+                question_seq = input_ids[:, :-self.max_new_tokens]
+                answer_seq = input_ids[:, -self.max_new_tokens:]
+
+                text_question = self.tokenizer.batch_decode(question_seq,
+                                                       skip_special_tokens=True)
+                text_answer = self.tokenizer.batch_decode(answer_seq,
+                                                     skip_special_tokens=True)
+
+                # print(text_question)
+                # print(text_answer)
+
+                inputs = self.tokenizer_RM(text_question, text_answer,
+                                      return_tensors="pt",
+                                      padding=True
+                                      )
+
+                output_len = answer_seq.shape[-1]
+                print(output_len)
+
+                device = self.reward_model.device
+                inputs = {key: value[:, :self.max_new_tokens * 2].to(device) for
+                          key, value in
+                          inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
+
+                with torch.no_grad():
+                    r = self.reward_model(**inputs).logits.squeeze(
+                        -1).detach()
+
+                print("reward")
+                print(r)
+                1/0
+
+            else:
+
+                assert return_output == False
+                # print("--FORWARD CALL--")
+                # print(input_ids.device)
+                text = self.tokenizer.batch_decode(input_ids)
+                # print(text)
+                tokens = self.tokenizer_RM(text, return_tensors="pt", padding=True)
+                # print(tokens)
+                # print(tokens['input_ids'].device)
+                # print(tokens['attention_mask'].device)
+                r = self.rm(input_ids=tokens['input_ids'].to(input_ids.device),
+                      attention_mask=tokens['attention_mask'].to(input_ids.device)).logits.squeeze()
+                # print(rew)
+                # print("--MEAN OF REWARDS--")
+                # print(rew.mean())
+                # print("--END FORWARD CALL--")
+
+            return r
 
     return RewardModel()
 

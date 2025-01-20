@@ -93,7 +93,7 @@ def train(args):
 
     if not args.remote_rm_url:
         if args.reward_pretrain == "nicholasKluge/ToxicityModel":
-            print("USING CUSTOM REWARD MODEL")
+            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
             from transformers import AutoTokenizer, AutoConfig, AutoModel
 
             def get_tokenizer_custom(model_config):
@@ -112,7 +112,36 @@ def train(args):
             reward_model = _get_reward_model_custom(base_pretrained_class, rm_name,
                                              tokenizer=tokenizer, config=config)
 
+        elif args.reward_pretrain == "OpenAssistant/reward-model-deberta-v3-base":
+            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
+            from transformers import AutoTokenizer, AutoConfig, AutoModel
+
+            def get_tokenizer_custom(model_config):
+                tokenizer = AutoTokenizer.from_pretrained(model_config)
+                tokenizer.pad_token = tokenizer.eos_token
+                return tokenizer
+
+            tokenizer = get_tokenizer_custom(args.pretrain)
+
+            rm_name = args.reward_pretrain
+            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
+            config.normalize_reward = False
+            assert not args.normalize_reward  # Not yet implemented
+            base_class = AutoModel._model_mapping[type(config)]
+            base_pretrained_class = base_class.__base__
+            reward_model = _get_reward_model_custom(base_pretrained_class,
+                                                    rm_name,
+                                                    tokenizer=tokenizer,
+                                                    config=config,
+                                                    separatequeryanswer=True,
+                                                    max_new_tokens=args.generate_max_len)
+
+
+
         else:
+            if args.custom_single_prompt:
+                raise NotImplementedError # Below does not necessarily work with my custom reward models
+
 
             reward_model = get_llm_for_sequence_regression(
                 args.reward_pretrain,
