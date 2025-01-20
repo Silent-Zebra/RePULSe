@@ -262,9 +262,9 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, 
             if separatequeryanswer:
                 assert max_new_tokens is not None
 
-                print("Toy RLHF inspection")
-                print(input_ids.shape)
-                print(max_new_tokens)
+                # print("Toy RLHF inspection")
+                # print(input_ids.shape)
+                # print(max_new_tokens)
 
                 question_seq = input_ids[:, :-self.max_new_tokens]
                 answer_seq = input_ids[:, -self.max_new_tokens:]
@@ -282,14 +282,14 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, 
                                       padding=True
                                       )
 
-                output_len = answer_seq.shape[-1]
-                print(output_len)
+                # output_len = answer_seq.shape[-1]
+                # print(output_len)
 
                 device = self.rm.device
-                print("device")
-                print(device)
-                print(inputs)
-                print(question_seq.device)
+                # print("device")
+                # print(device)
+                # print(inputs)
+                # print(question_seq.device)
 
                 inputs = {key: value[:, :self.max_new_tokens * 2].to(device) for
                           key, value in
@@ -299,9 +299,9 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, 
                     r = self.rm(**inputs).logits.squeeze(
                         -1).detach()
 
-                print("reward")
-                print(r)
-                1/0
+                # print("reward")
+                # print(r)
+                # 1/0
 
             else:
 
