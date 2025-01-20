@@ -249,6 +249,7 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, 
                 rm_name)
             self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
             self.tokenizer = tokenizer  # TODO ensure this works
+            self.max_new_tokens = max_new_tokens
 
 
         def forward(
