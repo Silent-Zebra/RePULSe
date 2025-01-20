@@ -296,7 +296,7 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, 
                           inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
 
                 with torch.no_grad():
-                    r = self.reward_model(**inputs).logits.squeeze(
+                    r = self.rm(**inputs).logits.squeeze(
                         -1).detach()
 
                 print("reward")
