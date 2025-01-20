@@ -285,7 +285,12 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, 
                 output_len = answer_seq.shape[-1]
                 print(output_len)
 
-                device = self.reward_model.device
+                device = self.rm.device
+                print("device")
+                print(device)
+                print(inputs)
+                print(question_seq.device)
+
                 inputs = {key: value[:, :self.max_new_tokens * 2].to(device) for
                           key, value in
                           inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
