@@ -133,7 +133,7 @@ class ActorCustom(Actor):
             generate_args["max_length"] = kwargs.get("max_length")
 
         # Generate with logits processor
-        sequences = self.model.generate(logits_processor=[self.logits_processor], **generate_args)
+        sequences = self.model.model.generate(logits_processor=[self.logits_processor], **generate_args)
         # Call generate
         # sequences = self.model.generate()
 
