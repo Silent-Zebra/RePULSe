@@ -124,7 +124,7 @@ class CTLLoss(nn.Module):
         # Therefore, to calculate positive weights, we just need p * phi / q (in log terms, log p + log phi - log q)
         # For negative weights, we need p * psi / q (in log space, log p + log psi - log q)
 
-
+        print("CTL ACTOR LOSS FUNCTION")
         print(final_reward.shape)
         print(base_action_log_probs.sum(dim=-1).shape)
 
