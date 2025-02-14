@@ -135,8 +135,13 @@ class NaiveExperienceMaker(ABC):
             action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
                 prompts, **generate_kwargs)
 
-            # values
-            value = self.critic(sequences, action_mask, attention_mask)
+            if self.critic is not None:
+                # values
+                value = self.critic(sequences, action_mask, attention_mask)
+
+            else:
+                value = None
+
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions,
@@ -163,6 +168,10 @@ class NaiveExperienceMaker(ABC):
         # print(reward)
         # print(reward.mean())
         # print("--End Rewards--")
+
+        if value is None:
+            value = torch.zeros_like(r)
+
         advantage, returns = self.get_advantages_and_returns(
             value,
             reward,
@@ -170,6 +179,22 @@ class NaiveExperienceMaker(ABC):
             generate_kwargs["gamma"],
             generate_kwargs["lambd"],
         )
+
+        print("INSPECTION")
+        print(returns)
+        print(advantages)
+
+        returns2 = action_mask * rewards
+        print(returns2)
+        print(returns2.shape)
+        returns3 = returns2.sum(dim=-1)
+        print(returns3.shape)
+        print(returns3)
+        print("COMPARISON")
+        print(returns3 - returns)
+        print(torch.abs(returns3 - returns).sum())
+        1/0
+
 
         info = {
             "kl": masked_mean(kl, action_mask, dim=-1),
