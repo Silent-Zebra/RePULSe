@@ -20,7 +20,9 @@ from transformers import LogitsProcessor
 class ModelWithHiddenStateCache(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
+        model.config.output_hidden_states = True
         self.model = model
+        self.config = model.config
         self.last_hidden_state = None  # Cache for hidden states
 
     def forward(self, input_ids, **kwargs):
@@ -88,7 +90,6 @@ class ActorCustom(Actor):
         self, args, **kwargs,
     ) -> None:
         super().__init__(args, **kwargs)
-        self.model.config.output_hidden_states = True
 
         # Add a modifier head (a simple linear layer for demonstration)
         hidden_size = self.model.config.hidden_size
