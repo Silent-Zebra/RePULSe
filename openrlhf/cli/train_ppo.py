@@ -646,4 +646,7 @@ if __name__ == "__main__":
     if not args.custom_single_prompt:
         print("[Warning] stuff like clamp reward, and probably some other things changed, and not yet tested without custom_single_prompt. The rm_type stuff might also need to be modified too") # TODO
 
+    if args.actor_loss_type != "ppo":
+        assert args.actor_modulates_base # Need the twist formulation with the CustomActor for this
+
     train(args)
