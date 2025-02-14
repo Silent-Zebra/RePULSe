@@ -134,17 +134,14 @@ class CTLLoss(nn.Module):
         log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + final_reward - curr_log_probs.sum(dim=-1) # why this: well, the target is base * phi, then denom for IS is q.
         log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
 
-
         log_psi_t_eval_list_proposal_samples = values
 
-        print(log_psi_t_eval_list_proposal_samples)
+        # print(log_psi_t_eval_list_proposal_samples)
         print(log_psi_t_eval_list_proposal_samples.shape)
         print(base_action_log_probs.cumsum(dim=1).shape)
         print(curr_log_probs.cumsum(dim=1).shape)
 
-        1/0
-
-        log_w_t_approx_pi_samples = base_action_log_probs.cumsum(dim=1) + values - curr_log_probs.cumsum(dim=1) # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum
+        log_w_t_approx_pi_samples = base_action_log_probs.cumsum(dim=1) + log_psi_t_eval_list_proposal_samples - curr_log_probs.cumsum(dim=1) # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum
         log_w_t_approx_pi_samples = log_w_t_approx_pi_samples.detach()
 
         # print(log_psi_t_eval_list_proposal_samples.shape) # EXPECTED: (batch_size, seq_len)

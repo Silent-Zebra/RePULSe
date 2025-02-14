@@ -475,7 +475,7 @@ class ActorCustom(nn.Module):
             # print(log_probs.shape)
             # print(sequences.shape)
             # print(log_probs_labels.shape)
-            return modulation_on_selected_tokens
+            return modulation_on_selected_tokens.squeeze(-1)
 
         with torch.no_grad():
             base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)

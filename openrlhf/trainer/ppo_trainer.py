@@ -939,12 +939,12 @@ class PPOTrainer(ABC):
             final_reward = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
 
-            print("ACTOR LOSS STUFF")
-            print(experience.action_log_probs.shape)
-            print(base_action_log_probs.shape)
-            print(log_psi.shape)
+            # print("ACTOR LOSS STUFF")
+            # print(experience.action_log_probs.shape)
+            # print(base_action_log_probs.shape)
+            # print(log_psi.shape)
             log_psi = log_psi[:, -num_actions:]
-            print(log_psi.shape)
+            # print(log_psi.shape)
 
             actor_loss = self.actor_loss_fn(
                 log_psi,
