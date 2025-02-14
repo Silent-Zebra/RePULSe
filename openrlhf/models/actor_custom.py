@@ -463,7 +463,7 @@ class ActorCustom(nn.Module):
         # log_psi
         modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
         if return_only_modulation:
-            return modulation
+            return modulation["logits"]
 
         with torch.no_grad():
             base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
