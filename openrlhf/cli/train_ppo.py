@@ -654,5 +654,6 @@ if __name__ == "__main__":
 
     if args.actor_loss_type != "ppo":
         assert args.actor_modulates_base # Need the twist formulation with the CustomActor for this
+        args.no_critic = True # No (PPO) critic when using the twist formulation
 
     train(args)
