@@ -89,6 +89,7 @@ class PPOTrainer(ABC):
         bc_coef: float = 0,
         bc_steps: int = -1,
         true_posterior_samples = None, # would otherwise be torch.Tensor
+        actor_loss_type: str = 'ppo',
         critic_loss_type: str = 'mse',
         alpha: float = 0.5,
         **generate_kwargs,
@@ -125,7 +126,15 @@ class PPOTrainer(ABC):
         self.actor_scheduler = actor_scheduler
         self.critic_scheduler = critic_scheduler
 
-        self.actor_loss_fn = PolicyLoss(eps_clip)
+
+        self.actor_loss_type = actor_loss_type
+        if self.actor_loss_type == "ppo":
+            self.actor_loss_fn = PolicyLoss(eps_clip)
+        elif self.actor_loss_type == "ctl":
+            self.actor_loss_fn = CTLLoss()
+        else:
+            raise NotImplementedError
+
 
         self.critic_loss_type = critic_loss_type
         if critic_loss_type == "mse":
@@ -735,26 +744,25 @@ class PPOTrainer(ABC):
         else:
             self.actor.train()
 
+        actor_loss, num_actions = self.get_actor_loss(experience)
 
-        num_actions = experience.action_mask.size(1)
-
-        action_log_probs, values = self.actor(
-            experience.sequences, num_actions,
-            attention_mask=experience.attention_mask, return_output=False
-        )  # TODO later revert this and fix the above (return_output=True)
-
-        # print("LOG PROBS")
-        # print(action_log_probs)
-
-        # print("VALUES")
-        # print(values)
-
-        actor_loss = self.actor_loss_fn(
-            action_log_probs,
-            experience.action_log_probs,
-            experience.advantages,
-            action_mask=experience.action_mask,
-        )
+        # action_log_probs, values = self.actor(
+        #     experience.sequences, num_actions,
+        #     attention_mask=experience.attention_mask, return_output=False
+        # )  # TODO later revert this and fix the above (return_output=True)
+        #
+        # # print("LOG PROBS")
+        # # print(action_log_probs)
+        #
+        # # print("VALUES")
+        # # print(values)
+        #
+        # actor_loss = self.actor_loss_fn(
+        #     action_log_probs,
+        #     experience.action_log_probs,
+        #     experience.advantages,
+        #     action_mask=experience.action_mask,
+        # )
 
         # print("ACTOR LOSS")
         # print(actor_loss)
@@ -818,24 +826,7 @@ class PPOTrainer(ABC):
         else:
             self.actor.train()
 
-        num_actions = experience.action_mask.size(1)
-        # actor loss
-        # action_log_probs, output = self.actor(
-        #     experience.sequences, num_actions, attention_mask=experience.attention_mask, return_output=True
-        # )
-        action_log_probs = self.actor(
-            experience.sequences, num_actions,
-            attention_mask=experience.attention_mask, return_output=False
-        ) # TODO later revert this and fix the above (return_output=True)
-
-        # loss function
-        actor_loss = self.actor_loss_fn(
-            action_log_probs,
-            experience.action_log_probs,
-            experience.advantages,
-            action_mask=experience.action_mask,
-        )
-
+        actor_loss, num_actions = self.get_actor_loss(experience)
 
         # mixtral
         if self.aux_loss:
@@ -919,6 +910,45 @@ class PPOTrainer(ABC):
             else:
                 status[k] = v.mean().item()
         return status
+
+    def get_actor_loss(self, experience):
+        # actor loss
+        # action_log_probs, output = self.actor(
+        #     experience.sequences, num_actions, attention_mask=experience.attention_mask, return_output=True
+        # )
+        num_actions = experience.action_mask.size(1)
+
+        if self.actor_loss_type == "ppo":
+            action_log_probs = self.actor(
+                experience.sequences, num_actions,
+                attention_mask=experience.attention_mask, return_output=False
+            )  # TODO later revert this and fix the above (return_output=True)
+            actor_loss = self.actor_loss_fn(
+                action_log_probs,
+                experience.action_log_probs,
+                experience.advantages,
+                action_mask=experience.action_mask,
+            )
+        elif self.actor_loss_type == "ctl":
+            base_action_log_probs = self.experience_maker.initial_model(
+                experience.sequences, num_actions,
+                experience.attention_mask)
+            final_reward = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
+            log_psi = self.experience_maker.actor(sequences, num_actions, attention_mask, return_only_modulation=True)
+            print(log_psi)
+            1/0
+
+            actor_loss = self.actor_loss_fn(
+                log_psi,
+                final_reward,
+                experience.action_mask,
+                experience.action_log_probs,
+                base_action_log_probs
+            )
+        else:
+            raise NotImplementedError
+
+        return actor_loss, num_actions
 
     def training_step_critic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
         if self.model_eval:

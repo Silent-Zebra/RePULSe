@@ -233,6 +233,7 @@ class ActorCustom(nn.Module):
             else:
                 nf4_config = None
 
+            # TODO right now this is an entirely separate model, later should also support just head on top of existing model
             self.model = AutoModelForCausalLM.from_pretrained(
                 pretrain_or_model,
                 trust_remote_code=True,
@@ -388,6 +389,17 @@ class ActorCustom(nn.Module):
                 sequences, input_ids.size(1), eos_token_id, pad_token_id)
         return action_mask, attention_mask, sequences
 
+    @torch.no_grad()
+    def smc_procedure(self, input_ids: torch.Tensor, resample: bool = False, **kwargs) -> Union[
+        Tuple[torch.LongTensor, torch.LongTensor],
+        Tuple[torch.LongTensor, torch.LongTensor, torch.BoolTensor],
+    ]:
+        if resample:
+            raise NotImplementedError
+        else:
+            # TODO later also return the log Z estimates (and maybe also the twist values)
+            return self.generate(input_ids, **kwargs)
+
     def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
         seq_length = attention_mask.size(1)
@@ -437,29 +449,26 @@ class ActorCustom(nn.Module):
         return sequences, attention_mask, action_mask
 
 
-
     def forward(
         self,
         sequences: torch.LongTensor,
         num_actions: int = None,
         attention_mask: Optional[torch.Tensor] = None,
         return_output=False,
-        use_for_generation=False
+        use_for_generation=False,
+        return_only_modulation=False
     ) -> torch.Tensor:
         """Returns action log probs"""
-        if not self.packing_samples:
-            # https://github.com/OpenRLHF/OpenRLHF/issues/217
-            position_ids = attention_mask.long().cumsum(-1) - 1
-        else:
-            # reset the positions for packed samples
-            position_ids = reset_position_ids(attention_mask)
-        position_ids.masked_fill_(attention_mask == 0, 1)
+        position_ids = self.get_position_ids(attention_mask)
+        # log_psi
+        modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+        if return_only_modulation:
+            return modulation
 
         with torch.no_grad():
             base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
 
-        # log_psi
-        modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+
         if use_for_generation: # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
             return_all_vocab = True
             log_probs = log_probs_from_logits_with_modulation(
@@ -481,6 +490,16 @@ class ActorCustom(nn.Module):
             # else:
 
             return log_probs[:, -num_actions:]
+
+    def get_position_ids(self, attention_mask):
+        if not self.packing_samples:
+            # https://github.com/OpenRLHF/OpenRLHF/issues/217
+            position_ids = attention_mask.long().cumsum(-1) - 1
+        else:
+            # reset the positions for packed samples
+            position_ids = reset_position_ids(attention_mask)
+        position_ids.masked_fill_(attention_mask == 0, 1)
+        return position_ids
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
         self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)

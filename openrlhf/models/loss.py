@@ -115,9 +115,15 @@ class CTLLoss(nn.Module):
         curr_log_probs: torch.Tensor,
         base_action_log_probs: torch.Tensor
     ) -> torch.Tensor:
-        # positive_samples_term = 0.
-        # negative_samples_term = 0.
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
+
+        # Values = log_psi in the twist formulation
+        # final_reward = log phi
+        # curr_log_probs = log q
+        # base_action_log_probs = log p_0
+        # Therefore, to calculate positive weights, we just need p * phi / q (in log terms, log p + log phi - log q)
+        # For negative weights, we need p * psi / q (in log space, log p + log psi - log q)
+
 
         print(final_reward.shape)
         print(base_action_log_probs.sum(dim=-1).shape)

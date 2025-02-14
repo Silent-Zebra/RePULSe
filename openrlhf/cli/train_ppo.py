@@ -389,6 +389,7 @@ def train(args):
         bc_coef=args.bc_coef,
         bc_steps=args.bc_steps,
         true_posterior_samples=true_posterior_samples,
+        actor_loss_type=args.actor_loss_type,
         critic_loss_type=args.critic_loss_type,
         alpha=args.alpha
     )
@@ -604,6 +605,11 @@ if __name__ == "__main__":
         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant",
                  "constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau",
                  "cosine_with_min_lr", "warmup_stable_decay"]
+    )
+
+    parser.add_argument(
+        "--actor_loss_type", type=str, default="ppo",
+        choices=["ppo", "ctl", "sixo", "sixo_approxneg"]
     )
 
     parser.add_argument(
