@@ -471,7 +471,7 @@ class ActorCustom(nn.Module):
             # modulation = modulation["logits"][:, prompt_len:]
             # log_probs_labels = modulation.gather(dim=-1, index=labels.unsqueeze(-1))
 
-            log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=return_all_vocab)
+            log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=True)
             print(log_probs.shape)
             print(base_output["logits"][:, :-1, :].shape)
             print(sequences.shape)
