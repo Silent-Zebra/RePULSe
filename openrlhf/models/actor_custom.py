@@ -46,7 +46,7 @@ class HiddenStateLogitsProcessor(LogitsProcessor):
         self.model_with_cache = model_with_cache
         self.modifier_head = modifier_head
 
-    def __call__(self, scores):
+    def __call__(self, inputs, scores):
         """
         Modifies logits using the cached hidden state.
         """
@@ -164,7 +164,7 @@ class ActorCustom(Actor):
         original_logits = output.logits  # Shape: (batch_size, seq_len, vocab_size)
 
         # Apply LogitsProcessor on last-step logits
-        modified_logits = self.logits_processor(original_logits)
+        modified_logits = self.logits_processor(input_ids, original_logits)
 
         output.logits = modified_logits  # Overwrite logits with modified ones
 
