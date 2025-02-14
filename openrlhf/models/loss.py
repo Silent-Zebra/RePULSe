@@ -141,6 +141,7 @@ class CTLLoss(nn.Module):
         print(log_psi_t_eval_list_proposal_samples.shape)
         print(base_action_log_probs.cumsum(dim=1).shape)
         print(curr_log_probs.cumsum(dim=1).shape)
+
         1/0
 
         log_w_t_approx_pi_samples = base_action_log_probs.cumsum(dim=1) + values - curr_log_probs.cumsum(dim=1) # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum

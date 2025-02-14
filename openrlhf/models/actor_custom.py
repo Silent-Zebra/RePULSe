@@ -463,6 +463,20 @@ class ActorCustom(nn.Module):
         # log_psi
         modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
         if return_only_modulation:
+            base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+
+
+            # TODO something like the below on the modulation, check that everything makes sense and prompt_len should be correct
+            # (Check how was it defined elsewhere? Where did I get prompt_len for the other actor/critic modules?
+            # modulation = modulation["logits"][:, prompt_len:]
+            # log_probs_labels = modulation.gather(dim=-1, index=labels.unsqueeze(-1))
+
+            log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=return_all_vocab)
+            print(log_probs.shape)
+            print(base_output["logits"][:, :-1, :].shape)
+            print(sequences.shape)
+            1/0
+
             return modulation["logits"]
 
         with torch.no_grad():
