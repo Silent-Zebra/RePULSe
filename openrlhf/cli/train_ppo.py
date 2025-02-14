@@ -43,9 +43,6 @@ def train(args):
 
     else:
         if args.actor_modulates_base:
-
-            print("HERE")
-            1/0
             actor = ActorCustom(
                 args.pretrain,
                 initial_model=initial_model,
