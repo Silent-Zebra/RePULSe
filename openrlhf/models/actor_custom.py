@@ -335,19 +335,19 @@ class ActorCustom(nn.Module):
             "min_new_tokens": kwargs.get("min_new_tokens", 1),
         }
 
-        if kwargs.get("max_new_tokens", None):
-            generate_args["max_new_tokens"] = kwargs.get("max_new_tokens")
-        if kwargs.get("max_length", None):
-            generate_args["max_length"] = kwargs.get("max_length")
+        # if kwargs.get("max_new_tokens", None):
+        #     generate_args["max_new_tokens"] = kwargs.get("max_new_tokens")
+        # if kwargs.get("max_length", None):
+        #     generate_args["max_length"] = kwargs.get("max_length")
 
-        sequences = super().generate(
-            **generate_args
-        )
-        sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
+        # sequences = super().generate(
+        #     **generate_args
+        # )
+        # sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
 
-        # action_mask, attention_mask, sequences = self.custom_generate(
-        #     attention_mask, generate_args, input_ids, **kwargs)
+        action_mask, attention_mask, sequences = self.custom_generate(
+            attention_mask, generate_args, input_ids, **kwargs)
 
         # sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
