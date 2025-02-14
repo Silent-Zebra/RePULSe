@@ -32,6 +32,8 @@ def train(args):
     get_tokenizer(args.pretrain, initial_model.model, "left", strategy)
 
     if args.shared_actorcritic:
+
+        assert not args.actor_modulates_base # not yet implemented
         actor = ActorCritic(
             args.pretrain,
             use_flash_attention_2=args.flash_attn,
@@ -70,23 +72,25 @@ def train(args):
                 ds_config=strategy.get_ds_train_config(is_actor=True),
             )
 
+        if args.no_critic:
+            critic = None
 
-
-        critic = get_llm_for_sequence_regression(
-            args.critic_pretrain,
-            "critic",
-            normalize_reward=args.normalize_reward,
-            use_flash_attention_2=args.flash_attn,
-            bf16=args.bf16,
-            load_in_4bit=args.load_in_4bit,
-            lora_rank=args.lora_rank,
-            lora_alpha=args.lora_alpha,
-            target_modules=args.target_modules,
-            lora_dropout=args.lora_dropout,
-            ds_config=strategy.get_ds_train_config(is_actor=False),
-            value_head_prefix=args.value_head_prefix,
-            init_value_head=strategy.args.pretrain == strategy.args.critic_pretrain,
-        )
+        else:
+            critic = get_llm_for_sequence_regression(
+                args.critic_pretrain,
+                "critic",
+                normalize_reward=args.normalize_reward,
+                use_flash_attention_2=args.flash_attn,
+                bf16=args.bf16,
+                load_in_4bit=args.load_in_4bit,
+                lora_rank=args.lora_rank,
+                lora_alpha=args.lora_alpha,
+                target_modules=args.target_modules,
+                lora_dropout=args.lora_dropout,
+                ds_config=strategy.get_ds_train_config(is_actor=False),
+                value_head_prefix=args.value_head_prefix,
+                init_value_head=strategy.args.pretrain == strategy.args.critic_pretrain,
+            )
 
     if args.actor_init_on_gpu:
         actor = actor.to(torch.cuda.current_device())
@@ -597,6 +601,8 @@ if __name__ == "__main__":
     parser.add_argument("--actor_modulates_base", action="store_true", help="Use parameterization where actor outputs an addition (modulation) to base log prob")
     parser.add_argument("--shared_actorcritic", action="store_true", help="Use parameterization where actor and critic are just different heads, not separate networks. Uses actor lr for shared learning rate")
     parser.add_argument("--model_eval", action="store_true", help="Use model.eval() instead of model.train(). Turns off dropout and norm statistics")
+
+    parser.add_argument("--no_critic", action="store_true", help="Do not use a critic")
 
     parser.add_argument("--clamp_reward", action="store_true", help="Clamp reward between -10 and 10")
 
