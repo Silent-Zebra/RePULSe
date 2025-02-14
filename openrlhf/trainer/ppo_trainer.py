@@ -933,12 +933,14 @@ class PPOTrainer(ABC):
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
 
-
-
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
             final_reward = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
+            print(experience.action_log_probs.shape)
+            print(base_action_log_probs.shape)
+            1/0
+
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
             # print(log_psi)
 
