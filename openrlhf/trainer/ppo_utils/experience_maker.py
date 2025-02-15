@@ -211,7 +211,7 @@ class NaiveExperienceMaker(ABC):
 
         info = {
             "kl": masked_mean(kl, action_mask, dim=-1),
-            "rewards": r,
+            "reward": r,
             "return": rewards.sum(dim=-1),
             "response_length": action_mask.float().sum(dim=-1),
             "total_length": attention_mask.float().sum(dim=-1),
