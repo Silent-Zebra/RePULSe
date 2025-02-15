@@ -157,7 +157,7 @@ class NaiveExperienceMaker(ABC):
         # print(r.mean())
         # print("--End Rewards--")
 
-        reward, kl = compute_reward(
+        rewards, kl = compute_reward(
             r,
             self.kl_ctl.value,
             action_log_probs,
@@ -165,16 +165,16 @@ class NaiveExperienceMaker(ABC):
             action_mask=action_mask,
         )
         # print("--Rewards--")
-        # print(reward)
-        # print(reward.mean())
+        # print(rewards)
+        # print(rewards.mean())
         # print("--End Rewards--")
 
         if value is None:
-            value = torch.zeros_like(reward)
+            value = torch.zeros_like(rewards)
 
         advantages, returns = self.get_advantages_and_returns(
             value,
-            reward,
+            rewards,
             action_mask,
             generate_kwargs["gamma"],
             generate_kwargs["lambd"],
@@ -202,8 +202,8 @@ class NaiveExperienceMaker(ABC):
 
         info = {
             "kl": masked_mean(kl, action_mask, dim=-1),
-            "reward": r,
-            "return": reward.sum(dim=-1),
+            "rewards": r,
+            "return": rewards.sum(dim=-1),
             "response_length": action_mask.float().sum(dim=-1),
             "total_length": attention_mask.float().sum(dim=-1),
         }
