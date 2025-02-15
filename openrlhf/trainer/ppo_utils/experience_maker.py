@@ -176,7 +176,7 @@ class NaiveExperienceMaker(ABC):
         # print("--End Rewards--")
 
         if value is None:
-            advantages = None
+            advantages = torch.zeros_like(rewards)
             returns = action_mask * rewards
             value = torch.zeros_like(rewards)
         else:
