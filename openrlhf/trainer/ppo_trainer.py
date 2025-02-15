@@ -816,8 +816,14 @@ class PPOTrainer(ABC):
         else:
             if global_steps > self.freezing_actor_steps:
                 status = self.training_step_actor(experience)
+
+            print("STATUS")
+            print(status)
             if self.critic is not None:
                 status.update(self.training_step_critic(experience, custom_prompt=custom_prompt))
+            print("STATUS")
+            print(status)
+            1/0
         return status
 
     def training_step_actor(self, experience: Experience) -> Dict[str, float]:
@@ -940,7 +946,7 @@ class PPOTrainer(ABC):
                 experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
             )
             # print("REWARD COMPARISON")
-            # print(experience.returns[:, -1] - log_phi)
+            # print(experience.returns[:, -1] - log_phi) # same
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
 
             # print("ACTOR LOSS STUFF")
