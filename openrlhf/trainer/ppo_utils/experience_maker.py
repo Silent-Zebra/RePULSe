@@ -51,7 +51,8 @@ class Experience:
         self.action_log_probs = self.action_log_probs.to(device)
         self.values = self.values.to(device)
         self.returns = self.returns.to(device)
-        self.advantages = self.advantages.to(device)
+        if self.advantages is not None:
+            self.advantages = self.advantages.to(device)
         if self.attention_mask is not None:
             self.attention_mask = self.attention_mask.to(device)
         if self.action_mask is not None:
