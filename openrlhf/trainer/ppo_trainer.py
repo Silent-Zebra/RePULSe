@@ -817,13 +817,9 @@ class PPOTrainer(ABC):
             if global_steps > self.freezing_actor_steps:
                 status = self.training_step_actor(experience)
 
-            print("STATUS")
-            print(status)
             if self.critic is not None:
                 status.update(self.training_step_critic(experience, custom_prompt=custom_prompt))
-            print("STATUS")
-            print(status)
-            1/0
+
         return status
 
     def training_step_actor(self, experience: Experience) -> Dict[str, float]:
