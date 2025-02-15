@@ -195,9 +195,10 @@ class NaiveExperienceMaker(ABC):
         print(returns3.shape)
         print(returns3)
         print("COMPARISON")
-        print(returns3 - returns)
-        print(torch.abs(returns3 - returns).sum())
+        print(returns2 - returns)
+        print(torch.abs(returns2 - returns).sum())
         1/0
+        # TODO Also need to ensure the target distribution defined in the correct way...
 
 
         info = {
