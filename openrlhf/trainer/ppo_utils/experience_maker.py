@@ -172,7 +172,7 @@ class NaiveExperienceMaker(ABC):
         if value is None:
             value = torch.zeros_like(reward)
 
-        advantage, returns = self.get_advantages_and_returns(
+        advantages, returns = self.get_advantages_and_returns(
             value,
             reward,
             action_mask,
@@ -183,11 +183,15 @@ class NaiveExperienceMaker(ABC):
         print("INSPECTION")
         print(returns)
         print(advantages)
+        print(returns.shape)
+        print(advantages.shape)
 
         returns2 = action_mask * rewards
+        print("INSPECTION2")
         print(returns2)
         print(returns2.shape)
         returns3 = returns2.sum(dim=-1)
+        print("INSPECTION3")
         print(returns3.shape)
         print(returns3)
         print("COMPARISON")
@@ -213,7 +217,7 @@ class NaiveExperienceMaker(ABC):
             action_log_probs,
             value,
             returns,
-            advantage,
+            advantages,
             attention_mask,
             action_mask,
             info,
