@@ -112,6 +112,11 @@ class NaiveExperienceMaker(ABC):
         self.rm_type = rm_type
         self.max_new_tokens = max_new_tokens
 
+        if self.rm_type == "ppo":
+            self.multiply_by_beta = False
+        else:
+            self.multiply_by_beta = True
+
     # tokenizer
     def tokenize_fn(self, texts, max_length, device):
         batch = self.tokenizer(
@@ -150,7 +155,7 @@ class NaiveExperienceMaker(ABC):
         # print(base_action_log_probs.mean())
         # print(base_action_log_probs)
 
-        r = self.compute_reward_no_kl(sequences, attention_mask)
+        r = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta)
 
         # print("--Rewards--")
         # print(r)
@@ -170,35 +175,37 @@ class NaiveExperienceMaker(ABC):
         # print("--End Rewards--")
 
         if value is None:
+            advantages = None
+            returns = action_mask * rewards
             value = torch.zeros_like(rewards)
+        else:
+            advantages, returns = self.get_advantages_and_returns(
+                value,
+                rewards,
+                action_mask,
+                generate_kwargs["gamma"],
+                generate_kwargs["lambd"],
+            )
 
-        advantages, returns = self.get_advantages_and_returns(
-            value,
-            rewards,
-            action_mask,
-            generate_kwargs["gamma"],
-            generate_kwargs["lambd"],
-        )
+        # print("INSPECTION")
+        # print(returns)
+        # print(advantages)
+        # print(returns.shape)
+        # print(advantages.shape)
+        #
+        # returns2 = action_mask * rewards
+        # print("INSPECTION2")
+        # print(returns2)
+        # print(returns2.shape)
+        # returns3 = returns2.sum(dim=-1)
+        # print("INSPECTION3")
+        # print(returns3.shape)
+        # print(returns3)
+        # print("COMPARISON")
+        # print(returns2 - returns)
+        # print(torch.abs(returns2 - returns).sum())
+        # 1/0
 
-        print("INSPECTION")
-        print(returns)
-        print(advantages)
-        print(returns.shape)
-        print(advantages.shape)
-
-        returns2 = action_mask * rewards
-        print("INSPECTION2")
-        print(returns2)
-        print(returns2.shape)
-        returns3 = returns2.sum(dim=-1)
-        print("INSPECTION3")
-        print(returns3.shape)
-        print(returns3)
-        print("COMPARISON")
-        print(returns2 - returns)
-        print(torch.abs(returns2 - returns).sum())
-        1/0
-        # TODO Also need to ensure the target distribution defined in the correct way...
 
 
         info = {
@@ -224,7 +231,7 @@ class NaiveExperienceMaker(ABC):
             info,
         )
 
-    def compute_reward_no_kl(self, sequences, attention_mask, class_num=0):
+    def compute_reward_no_kl(self, sequences, attention_mask, class_num=0, multiply_by_beta=False):
         # rewards
         if self.remote_rm_url is not None:
 
@@ -283,13 +290,15 @@ class NaiveExperienceMaker(ABC):
                 # print("INSPECTING REWARDS: log_prob_of_class (softplus)")
                 # print(log_prob_of_class)
 
-            return log_prob_of_class * 1 / self.target_dist_beta # Because remember r_u = 1/beta log phi is the right way to set up the unregularized reward for equivalence between standard RL formulation and our setup
+            final_reward = log_prob_of_class
+            # Because remember r_u = 1/beta log phi is the right way to set up the unregularized reward for equivalence between standard RL formulation and our setup
+            # BUT remember that phi = p(class | s)^\beta right? So log phi is beta * p(class | s). But anyway, my experiments just use beta = 1 here...
         elif self.rm_type == "toxicity_threshold":
             eps = 1e-16
             score = r
             # print("score")
             # print(score)
-            return torch.log((score < self.threshold) + eps) / self.target_dist_beta
+            final_reward =  torch.log((score < self.threshold) + eps)
         elif self.rm_type == "toy_rlhf":
             score = r
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
@@ -298,10 +307,15 @@ class NaiveExperienceMaker(ABC):
             # print(capped_reward)
             # print(self.target_dist_beta) # Debug only
 
-            return capped_reward # Here, 1/beta log phi = 1/beta log e^beta (capped r) = capped r.
+            final_reward = capped_reward # Here, 1/beta log phi = 1/beta log e^beta (capped r) = capped r.
 
         else:
             raise NotImplementedError
+
+        if multiply_by_beta: # Use for twist formulation
+            return final_reward * self.target_dist_beta
+        else: # Use for PPO formulation
+            return final_reward
 
     def set_all_eval(self):
         self.actor.eval()

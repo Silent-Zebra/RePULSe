@@ -942,7 +942,12 @@ class PPOTrainer(ABC):
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
-            final_reward = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
+            log_phi = self.experience_maker.compute_reward_no_kl(
+                experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
+            )
+            print("REWARD COMPARISON")
+            print(experience.returns[:, -1] - log_phi)
+            1/0
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
 
             # print("ACTOR LOSS STUFF")
@@ -954,7 +959,7 @@ class PPOTrainer(ABC):
 
             actor_loss = self.actor_loss_fn(
                 log_psi,
-                final_reward,
+                log_phi,
                 experience.action_mask,
                 experience.action_log_probs,
                 base_action_log_probs
