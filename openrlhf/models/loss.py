@@ -98,7 +98,7 @@ class ValueLoss(nn.Module):
         return 0.5 * loss
 
 
-def get_positive_weights_tildesigma_over_q(self, base_action_log_probs, curr_log_probs, final_reward, values):
+def get_positive_weights_tildesigma_over_q(base_action_log_probs, curr_log_probs, final_reward, values):
     # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
     # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
     log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + final_reward - curr_log_probs.sum(
