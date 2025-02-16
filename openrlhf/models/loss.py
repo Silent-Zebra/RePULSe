@@ -303,17 +303,18 @@ class SIXOLoss(nn.Module):
             print("positive weights")
             print(normalized_w_t_approx_sigma_samples[:,None])
             print(normalized_w_t_approx_sigma_samples[:,None].shape)
-            print("positive sample terms")
+            print("logisgmoid values")
             print(F.logsigmoid(values))
             print(F.logsigmoid(values).shape)
+            print("positive sample terms")
+            print(positive_samples_term)
+            print(positive_samples_term.shape)
 
             negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
 
             print("negative sample terms")
             print(negative_samples_term)
             print(negative_samples_term.shape)
-            1/0
-
 
             # positive_samples_term *= positive_samples_term.shape[0]
             # Should actually do the above on CTL too (for both on CTL). Why? Because: multiplying by normalized weights, we are already reducing each value. For the weighted mean, we multiply by weights, then add up. So if I multiply by weights, then do mean, I'm dividing by the batch size twice, which is undesirable
@@ -323,6 +324,10 @@ class SIXOLoss(nn.Module):
             # Alternatively: I can do this to make things the same... now this is consistent with mean on top of mean (which I believe does too much dividing... but oh well.
             # At least this now makes sixoloss and sixloss using approx p samples based on IS reweighting of q samples, have the same scale
 
+            print("negative sample terms 2")
+            print(negative_samples_term)
+            print(negative_samples_term.shape)
+            1/0
 
         # print("Negative term check")
         # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
