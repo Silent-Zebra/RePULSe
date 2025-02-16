@@ -747,7 +747,7 @@ class PPOTrainer(ABC):
         else:
             self.actor.train()
 
-        actor_loss, num_actions = self.get_actor_loss(experience)
+        actor_loss, num_actions = self.get_actor_loss(experience, custom_prompt)
 
         # action_log_probs, values = self.actor(
         #     experience.sequences, num_actions,
@@ -818,20 +818,20 @@ class PPOTrainer(ABC):
             status = self.training_step_shared_actorcritic(experience, custom_prompt=custom_prompt)
         else:
             if global_steps > self.freezing_actor_steps:
-                status = self.training_step_actor(experience)
+                status = self.training_step_actor(experience, custom_prompt=custom_prompt)
 
             if self.critic is not None:
                 status.update(self.training_step_critic(experience, custom_prompt=custom_prompt))
 
         return status
 
-    def training_step_actor(self, experience: Experience) -> Dict[str, float]:
+    def training_step_actor(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
         if self.model_eval:
             self.actor.eval()
         else:
             self.actor.train()
 
-        actor_loss, num_actions = self.get_actor_loss(experience)
+        actor_loss, num_actions = self.get_actor_loss(experience, custom_prompt)
 
         # mixtral
         if self.aux_loss:
@@ -916,7 +916,7 @@ class PPOTrainer(ABC):
                 status[k] = v.mean().item()
         return status
 
-    def get_actor_loss(self, experience):
+    def get_actor_loss(self, experience, custom_prompt=None):
         # actor loss
         # action_log_probs, output = self.actor(
         #     experience.sequences, num_actions, attention_mask=experience.attention_mask, return_output=True
