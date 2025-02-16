@@ -98,6 +98,34 @@ class ValueLoss(nn.Module):
         return 0.5 * loss
 
 
+def get_positive_weights_tildesigma_over_q(self, base_action_log_probs, curr_log_probs, final_reward, values):
+    # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
+    # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
+    log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + final_reward - curr_log_probs.sum(
+        dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
+    log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
+    log_psi_t_eval_list_proposal_samples = values
+    # print(log_psi_t_eval_list_proposal_samples)
+    # print(log_psi_t_eval_list_proposal_samples.shape)
+    # print(base_action_log_probs.cumsum(dim=1).shape)
+    # print(curr_log_probs.cumsum(dim=1).shape)
+    log_w_t_approx_pi_samples = base_action_log_probs.cumsum(
+        dim=1) + log_psi_t_eval_list_proposal_samples - curr_log_probs.cumsum(
+        dim=1)  # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum
+    log_w_t_approx_pi_samples = log_w_t_approx_pi_samples.detach()
+    # print(log_psi_t_eval_list_proposal_samples.shape) # EXPECTED: (batch_size, seq_len)
+    # print("Log Wgt shapes")
+    # print(log_w_t_approx_sigma_samples.shape) # Expected: (batch_size)
+    # print(log_w_t_approx_pi_samples.shape) # Expected: (batch_size, seq_len)
+    # normalized_w_t_sigma_samples = F.softmax(
+    #     log_w_t_approx_sigma_samples.detach())
+    # log_psi_on_truncated_proposal_samples = values
+    # print("Wgt shapes")
+    normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples,
+                                                    dim=0)  # do softmax along the batch dimension
+    # print(normalized_w_t_approx_sigma_samples.shape)
+    # EXPECTED: above has shape (batch_size)
+    return log_psi_t_eval_list_proposal_samples, log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples
 
 class CTLLoss(nn.Module):
     """
@@ -129,35 +157,8 @@ class CTLLoss(nn.Module):
         # print(base_action_log_probs.sum(dim=-1).shape)
 
         # print("CTL LOSS STUFF")
-        # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
-        # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
-        log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + final_reward - curr_log_probs.sum(dim=-1) # why this: well, the target is base * phi, then denom for IS is q.
-        log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
-
-        log_psi_t_eval_list_proposal_samples = values
-
-        # print(log_psi_t_eval_list_proposal_samples)
-        # print(log_psi_t_eval_list_proposal_samples.shape)
-        # print(base_action_log_probs.cumsum(dim=1).shape)
-        # print(curr_log_probs.cumsum(dim=1).shape)
-
-        log_w_t_approx_pi_samples = base_action_log_probs.cumsum(dim=1) + log_psi_t_eval_list_proposal_samples - curr_log_probs.cumsum(dim=1) # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum
-        log_w_t_approx_pi_samples = log_w_t_approx_pi_samples.detach()
-
-        # print(log_psi_t_eval_list_proposal_samples.shape) # EXPECTED: (batch_size, seq_len)
-
-        # print("Log Wgt shapes")
-        # print(log_w_t_approx_sigma_samples.shape) # Expected: (batch_size)
-        # print(log_w_t_approx_pi_samples.shape) # Expected: (batch_size, seq_len)
-
-        # normalized_w_t_sigma_samples = F.softmax(
-        #     log_w_t_approx_sigma_samples.detach())
-        # log_psi_on_truncated_proposal_samples = values
-
-        # print("Wgt shapes")
-        normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=0) # do softmax along the batch dimension
-        # print(normalized_w_t_approx_sigma_samples.shape)
-        # EXPECTED: above has shape (batch_size)
+        log_psi_t_eval_list_proposal_samples, log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q(
+            base_action_log_probs, curr_log_probs, final_reward, values)
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         # print(positive_samples_term_new.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
@@ -204,6 +205,9 @@ class CTLLoss(nn.Module):
         # print("--masked mean--")
         # print(masked_mean(loss, action_mask, dim=-1))
         return loss
+
+
+
 
 class MixedCTLValueLoss(nn.Module):
     def __init__(self, clip_eps: float = None, alpha: float = 0.5) -> None:
@@ -258,6 +262,12 @@ class SIXOLoss(nn.Module):
         # print(final_reward.shape)
         # print(base_action_log_probs.sum(dim=-1).shape)
 
+        log_psi_t_eval_list_proposal_samples, log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q(
+            base_action_log_probs, curr_log_probs, final_reward, values)
+
+        positive_samples_term_new = normalized_w_t_approx_sigma_samples[:,
+                                None] * F.logsigmoid(values)
+
         log_w_t_approx_sigma_samples = base_action_log_probs.sum(
             dim=-1) + final_reward - curr_log_probs.sum(
             dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
@@ -269,6 +279,10 @@ class SIXOLoss(nn.Module):
 
         positive_samples_term = normalized_w_t_approx_sigma_samples[:,
                                     None] * F.logsigmoid(values)
+
+        print(positive_samples_term_new - positive_samples_term)
+        print(torch.abs(positive_samples_term_new - positive_samples_term).sum())
+        1/0
 
         # print(F.logsigmoid(values).shape) # Expected (batch, seq_len)
 
