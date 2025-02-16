@@ -133,6 +133,8 @@ class PPOTrainer(ABC):
             self.actor_loss_fn = PolicyLoss(eps_clip)
         elif self.actor_loss_type == "ctl":
             self.actor_loss_fn = CTLLoss()
+        elif self.actor_loss_type == "sixo":
+            self.actor_loss_fn = SIXOLoss()
         else:
             raise NotImplementedError
 
@@ -960,6 +962,36 @@ class PPOTrainer(ABC):
                 experience.action_log_probs,
                 base_action_log_probs
             )
+        elif self.actor_loss_type == "sixo":
+            base_action_log_probs = self.experience_maker.initial_model(
+                experience.sequences, num_actions,
+                experience.attention_mask)
+            log_phi = self.experience_maker.compute_reward_no_kl(
+                experience.sequences, experience.attention_mask, multiply_by_beta=True
+                # beta multiplied for non-PPO formulations
+            )
+
+            base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs(custom_prompt)
+            num_actions = base_action_mask.size(1)
+
+            log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
+            log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions, base_attention_mask, return_only_modulation=True)
+
+            # print("ACTOR LOSS STUFF")
+            # print(experience.action_log_probs.shape)
+            # print(base_action_log_probs.shape)
+            # print(log_psi.shape)
+            log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
+            # print(log_psi.shape)
+
+            actor_loss = self.actor_loss_fn(
+                log_psi,
+                log_phi,
+                experience.action_mask,
+                experience.action_log_probs,
+                base_action_log_probs,
+                log_psi_on_base_samples
+            )
         else:
             raise NotImplementedError
 
@@ -1045,19 +1077,13 @@ class PPOTrainer(ABC):
             num_actions = experience.action_mask.size(1)
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
-                experience.attention_mask)
+                experience.attention_mask) # NOTE: for clarity, these are p(seqs), where seqs are generated according to the (twisted) proposal. This is used in the p phi / q calculation for positive samples
+            # This is different from p(seqs) where seqs are generated according to p
             final_reward = self.reward_model(experience.sequences, experience.attention_mask)
 
             values_on_base_samples = None
             if self.critic_loss_type == "sixo":
-                self.initial_model.eval()
-
-                inputs = self.experience_maker.tokenize_fn(custom_prompt, self.prompt_max_len,
-                                          device="cuda")
-
-                base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
-                    **inputs,
-                    **self.generate_kwargs)
+                base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs(custom_prompt)
 
                 values_on_base_samples = self.critic(
                     base_sequences,
@@ -1077,6 +1103,15 @@ class PPOTrainer(ABC):
         else:
             raise NotImplementedError
         return critic_loss
+
+    def generate_base_seqs(self, custom_prompt):
+        self.initial_model.eval()
+        inputs = self.experience_maker.tokenize_fn(custom_prompt, self.prompt_max_len,
+                                                   device="cuda")
+        base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
+            **inputs,
+            **self.generate_kwargs)
+        return base_action_mask, base_attention_mask, base_sequences
 
     def save_logs_and_checkpoints(self, args, global_step, step_bar, logs_dict={}, client_states={}):
         if global_step % args.logging_steps == 0:
