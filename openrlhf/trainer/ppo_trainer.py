@@ -975,6 +975,8 @@ class PPOTrainer(ABC):
             num_actions = base_action_mask.size(1)
 
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
+            log_psi = log_psi[:, -num_actions:]
+
             log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions, base_attention_mask, return_only_modulation=True)
 
             # print("ACTOR LOSS STUFF")
