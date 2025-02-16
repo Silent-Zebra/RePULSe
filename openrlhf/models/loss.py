@@ -255,8 +255,8 @@ class SIXOLoss(nn.Module):
         # First step is the same as in CTL; get the approx sigma samples based on p * phi / q on the FULL SEQUENCE then truncating
         # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
         # Again I use q as the proposal and do SIS reweighting
-        print(final_reward.shape)
-        print(base_action_log_probs.sum(dim=-1).shape)
+        # print(final_reward.shape)
+        # print(base_action_log_probs.sum(dim=-1).shape)
 
         log_w_t_approx_sigma_samples = base_action_log_probs.sum(
             dim=-1) + final_reward - curr_log_probs.sum(
