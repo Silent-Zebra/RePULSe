@@ -124,9 +124,9 @@ class CTLLoss(nn.Module):
         # Therefore, to calculate positive weights, we just need p * phi / q (in log terms, log p + log phi - log q)
         # For negative weights, we need p * psi / q (in log space, log p + log psi - log q)
 
-        print("CTL ACTOR LOSS FUNCTION")
-        print(final_reward.shape)
-        print(base_action_log_probs.sum(dim=-1).shape)
+        # print("CTL ACTOR LOSS FUNCTION")
+        # print(final_reward.shape)
+        # print(base_action_log_probs.sum(dim=-1).shape)
 
         # print("CTL LOSS STUFF")
         # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
@@ -137,9 +137,9 @@ class CTLLoss(nn.Module):
         log_psi_t_eval_list_proposal_samples = values
 
         # print(log_psi_t_eval_list_proposal_samples)
-        print(log_psi_t_eval_list_proposal_samples.shape)
-        print(base_action_log_probs.cumsum(dim=1).shape)
-        print(curr_log_probs.cumsum(dim=1).shape)
+        # print(log_psi_t_eval_list_proposal_samples.shape)
+        # print(base_action_log_probs.cumsum(dim=1).shape)
+        # print(curr_log_probs.cumsum(dim=1).shape)
 
         log_w_t_approx_pi_samples = base_action_log_probs.cumsum(dim=1) + log_psi_t_eval_list_proposal_samples - curr_log_probs.cumsum(dim=1) # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum
         log_w_t_approx_pi_samples = log_w_t_approx_pi_samples.detach()

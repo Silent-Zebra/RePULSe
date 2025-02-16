@@ -120,3 +120,26 @@ def blending_datasets(
         return train_dataset, eval_dataset
     else:
         return train_dataset
+
+
+def get_info_name_str(args):
+    eval_str = ""
+    extra_str = ""
+    lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
+    if args.actor_modulates_base:
+        extra_str = "actormodbase"
+    if args.shared_actorcritic:
+        lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
+    if args.model_eval:
+        eval_str = "eval"
+    if args.bc_coef > 0:
+        lr_str += f"_bc{args.bc_coef}"
+    if args.no_critic:
+        critic_loss_str = ""
+    else:
+        critic_loss_str = f"criticloss{args.critic_loss_type}"
+    if args.critic_loss_type == "mixed_ctl_mse":
+        lr_str += f"_alpha{args.alpha}"
+
+    info_name_str = f"{args.rm_type}_{args.actor_loss_type}_epochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_{critic_loss_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{extra_str}_seed{args.seed}"
+    return info_name_str

@@ -15,6 +15,7 @@ from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss
 from openrlhf.models.utils import masked_mean
 from openrlhf.utils.distributed_sampler import DistributedSampler
+from openrlhf.utils.utils import get_info_name_str
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveExperienceMaker, NaiveReplayBuffer
 
@@ -1104,23 +1105,25 @@ class PPOTrainer(ABC):
             self._save_checkpoint(args, tag, client_states)
 
     def _save_checkpoint(self, args, tag, client_states):
-        eval_str = ""
-        extra_str = ""
-        lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
-        if args.actor_modulates_base:
-            extra_str = "actormodbase"
-        if args.shared_actorcritic:
-            lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
-        if args.model_eval:
-            eval_str = "eval"
+        # eval_str = ""
+        # extra_str = ""
+        # lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
+        # if args.actor_modulates_base:
+        #     extra_str = "actormodbase"
+        # if args.shared_actorcritic:
+        #     lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
+        # if args.model_eval:
+        #     eval_str = "_eval"
+        #
+        # if args.bc_coef > 0:
+        #     lr_str += f"_bc{args.bc_coef}"
+        #
+        # if args.critic_loss_type == "mixed_ctl_mse":
+        #     lr_str += f"_alpha{args.alpha}"
 
-        if args.bc_coef > 0:
-            lr_str += f"_bc{args.bc_coef}"
-
-        if args.critic_loss_type == "mixed_ctl_mse":
-            lr_str += f"_alpha{args.alpha}"
-
-        save_str = f"PPOepochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
+        info_name_str = get_info_name_str(args)
+        save_str = f"{info_name_str}"
+        # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
 
         self.strategy.save_ckpt(
             self.actor.model,

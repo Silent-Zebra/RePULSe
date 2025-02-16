@@ -14,6 +14,7 @@ from openrlhf.models.actor_custom import ActorCustom, ActorCritic
 from openrlhf.trainer import PPOTrainer
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
 from openrlhf.models.model import _get_reward_model_custom
+from openrlhf.utils.utils import get_info_name_str
 
 
 def train(args):
@@ -418,27 +419,8 @@ def train(args):
         f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
     )
 
-    eval_str = ""
-    extra_str = ""
-    lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
-    if args.actor_modulates_base:
-        extra_str = "actormodbase"
-    if args.shared_actorcritic:
-        lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
-    if args.model_eval:
-        eval_str = "eval"
-    if args.bc_coef > 0:
-        lr_str += f"_bc{args.bc_coef}"
-
-    if args.no_critic:
-        critic_loss_str = ""
-    else:
-        critic_loss_str = f"criticloss{args.critic_loss_type}"
-
-    if args.critic_loss_type == "mixed_ctl_mse":
-        lr_str += f"_alpha{args.alpha}"
-    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{args.actor_loss_type}_epochs{args.max_epochs}_{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_{critic_loss_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{extra_str}_seed{args.seed}"
-
+    info_name_str = get_info_name_str(args)
+    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
     torch.save(target_to_save, save_str)
 
     # ppo_trainer will do saving...
@@ -456,6 +438,7 @@ def train(args):
     #         tokenizer,
     #         args.save_path + "_critic",
     #     )
+
 
 
 
