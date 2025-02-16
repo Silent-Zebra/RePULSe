@@ -265,24 +265,20 @@ class SIXOLoss(nn.Module):
         log_psi_t_eval_list_proposal_samples, log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q(
             base_action_log_probs, curr_log_probs, final_reward, values)
 
-        positive_samples_term_new = normalized_w_t_approx_sigma_samples[:,
-                                None] * F.logsigmoid(values)
-
-        log_w_t_approx_sigma_samples = base_action_log_probs.sum(
-            dim=-1) + final_reward - curr_log_probs.sum(
-            dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
-        log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
-
-        normalized_w_t_approx_sigma_samples = F.softmax(
-            log_w_t_approx_sigma_samples,
-            dim=0)  # do softmax along the batch dimension
+        # positive_samples_term_new = normalized_w_t_approx_sigma_samples[:,
+        #                         None] * F.logsigmoid(values)
+        #
+        # log_w_t_approx_sigma_samples = base_action_log_probs.sum(
+        #     dim=-1) + final_reward - curr_log_probs.sum(
+        #     dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
+        # log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
+        #
+        # normalized_w_t_approx_sigma_samples = F.softmax(
+        #     log_w_t_approx_sigma_samples,
+        #     dim=0)  # do softmax along the batch dimension
 
         positive_samples_term = normalized_w_t_approx_sigma_samples[:,
                                     None] * F.logsigmoid(values)
-
-        print(positive_samples_term_new - positive_samples_term)
-        print(torch.abs(positive_samples_term_new - positive_samples_term).sum())
-        1/0
 
         # print(F.logsigmoid(values).shape) # Expected (batch, seq_len)
 
@@ -303,7 +299,21 @@ class SIXOLoss(nn.Module):
             negative_samples_term = normalized_w_t_approx_p_samples[:,
                                     None] * torch.log(1 - F.sigmoid(values))
         else: # use exact p samples
+
+            print("positive weights")
+            print(normalized_w_t_approx_sigma_samples[:,None])
+            print(normalized_w_t_approx_sigma_samples[:,None].shape)
+            print("positive sample terms")
+            print(F.logsigmoid(values))
+            print(F.logsigmoid(values).shape)
+
             negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
+
+            print("negative sample terms")
+            print(negative_samples_term)
+            print(negative_samples_term.shape)
+            1/0
+
 
             # positive_samples_term *= positive_samples_term.shape[0]
             # Should actually do the above on CTL too (for both on CTL). Why? Because: multiplying by normalized weights, we are already reducing each value. For the weighted mean, we multiply by weights, then add up. So if I multiply by weights, then do mean, I'm dividing by the batch size twice, which is undesirable
