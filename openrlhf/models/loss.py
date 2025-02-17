@@ -98,13 +98,12 @@ class ValueLoss(nn.Module):
         return 0.5 * loss
 
 
-def get_positive_weights_tildesigma_over_q(base_action_log_probs, curr_log_probs, final_reward, values):
+def get_positive_weights_tildesigma_over_q_detached(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
     # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
     # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
     log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + final_reward - curr_log_probs.sum(
         dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
     log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
-    log_psi_t_eval_list_proposal_samples = values
     # print(log_psi_t_eval_list_proposal_samples)
     # print(log_psi_t_eval_list_proposal_samples.shape)
     # print(base_action_log_probs.cumsum(dim=1).shape)
@@ -125,7 +124,7 @@ def get_positive_weights_tildesigma_over_q(base_action_log_probs, curr_log_probs
                                                     dim=0)  # do softmax along the batch dimension
     # print(normalized_w_t_approx_sigma_samples.shape)
     # EXPECTED: above has shape (batch_size)
-    return log_psi_t_eval_list_proposal_samples, log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples
+    return log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples
 
 class CTLLoss(nn.Module):
     """
@@ -157,8 +156,9 @@ class CTLLoss(nn.Module):
         # print(base_action_log_probs.sum(dim=-1).shape)
 
         # print("CTL LOSS STUFF")
-        log_psi_t_eval_list_proposal_samples, log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q(
-            base_action_log_probs, curr_log_probs, final_reward, values)
+        log_psi_t_eval_list_proposal_samples = values
+        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q_detached(
+            base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         # print(positive_samples_term_new.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
@@ -262,8 +262,9 @@ class SIXOLoss(nn.Module):
         # print(final_reward.shape)
         # print(base_action_log_probs.sum(dim=-1).shape)
 
-        log_psi_t_eval_list_proposal_samples, log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q(
-            base_action_log_probs, curr_log_probs, final_reward, values)
+        log_psi_t_eval_list_proposal_samples = values
+        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q_detached(
+            base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
 
         # positive_samples_term_new = normalized_w_t_approx_sigma_samples[:,
         #                         None] * F.logsigmoid(values)
@@ -277,8 +278,7 @@ class SIXOLoss(nn.Module):
         #     log_w_t_approx_sigma_samples,
         #     dim=0)  # do softmax along the batch dimension
 
-        positive_samples_term = normalized_w_t_approx_sigma_samples[:,
-                                    None] * F.logsigmoid(values)
+        positive_samples_term = normalized_w_t_approx_sigma_samples[:, None] * F.logsigmoid(log_psi_t_eval_list_proposal_samples)
 
         # print(F.logsigmoid(values).shape) # Expected (batch, seq_len)
 
@@ -300,21 +300,21 @@ class SIXOLoss(nn.Module):
                                     None] * torch.log(1 - F.sigmoid(values))
         else: # use exact p samples
 
-            print("positive weights")
-            print(normalized_w_t_approx_sigma_samples[:,None])
-            print(normalized_w_t_approx_sigma_samples[:,None].shape)
-            print("logisgmoid values")
-            print(F.logsigmoid(values))
-            print(F.logsigmoid(values).shape)
-            print("positive sample terms")
-            print(positive_samples_term)
-            print(positive_samples_term.shape)
+            # print("positive weights")
+            # print(normalized_w_t_approx_sigma_samples[:,None])
+            # print(normalized_w_t_approx_sigma_samples[:,None].shape)
+            # print("logisgmoid values")
+            # print(F.logsigmoid(values))
+            # print(F.logsigmoid(values).shape)
+            # print("positive sample terms")
+            # print(positive_samples_term)
+            # print(positive_samples_term.shape)
 
             negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
 
-            print("negative sample terms")
-            print(negative_samples_term)
-            print(negative_samples_term.shape)
+            # print("negative sample terms")
+            # print(negative_samples_term)
+            # print(negative_samples_term.shape)
 
             # positive_samples_term *= positive_samples_term.shape[0]
             # Should actually do the above on CTL too (for both on CTL). Why? Because: multiplying by normalized weights, we are already reducing each value. For the weighted mean, we multiply by weights, then add up. So if I multiply by weights, then do mean, I'm dividing by the batch size twice, which is undesirable
@@ -322,19 +322,18 @@ class SIXOLoss(nn.Module):
 
             negative_samples_term /= negative_samples_term.shape[0]
             # Alternatively: I can do this to make things the same... now this is consistent with mean on top of mean (which I believe does too much dividing... but oh well.
-            # At least this now makes sixoloss and sixloss using approx p samples based on IS reweighting of q samples, have the same scale
+            # At least this now makes sixoloss and sixoloss using approx p samples based on IS reweighting of q samples, have the same scale
 
-            print("negative sample terms 2")
-            print(negative_samples_term)
-            print(negative_samples_term.shape)
-            1/0
+            # print("negative sample terms 2")
+            # print(negative_samples_term)
+            # print(negative_samples_term.shape)
 
         # print("Negative term check")
         # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
         # print(negative_samples_term) # check, these should match each other
 
         # This is the first term calculation, but really should do a similar kind of thing here as above
-        loss = positive_samples_term + negative_samples_term
+        loss = - (positive_samples_term + negative_samples_term) # see my new derivation; the KL divergence/loss has the negative term
 
         # print(loss.shape)
         # print(action_mask.shape)
