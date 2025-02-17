@@ -186,6 +186,11 @@ class CTLLoss(nn.Module):
         # positive_samples_term_new *= positive_samples_term_new.shape[0]
         # negative_samples_term_new *= negative_samples_term_new.shape[0]
         # Arguably this makes things worse; arguably you would rather not rescale e.g. * 100 and then have a 100x lower lr, you'd rather just have the 100x higher lr and avoid the *100/100 calculation which maybe loses precision
+        # ACTUALLY all of this logic is not correct. It is correct for simple SGD, but for Adam, since it scales by moments, in the limit,
+        # you actually get the same behaviour regardless of sum or avg or scaling by a factor of 100.
+        # HOWEVER you may have different behaviour at the beginning, before Adam has learned the moments well
+        # So with sum instead of avg you may have more instability and more aggressive gradient updates at the start of training
+        # Maybe this is bad for SIXO? Or rather, less aggressive updates/scaled down values at the beginning is better?
 
         # print("Negative term check")
         # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
@@ -197,10 +202,8 @@ class CTLLoss(nn.Module):
         # print(loss.shape)
         # print(action_mask.shape)
 
-        loss = masked_mean(loss, action_mask, dim=-1).mean()
-        # I guess mean is ok, just to keep things consistent. This does mean that I need ~100x the learning rate
-        # I had previously, in order to have the same results. So something like 1e-2 then... But can try 1e-4 just to be
-        # consistent with what I have for the PPO critic loss...
+        # loss = masked_mean(loss, action_mask, dim=-1).mean()
+        loss = masked_mean(loss, action_mask, dim=-1).sum()
 
         # print("--masked mean--")
         # print(masked_mean(loss, action_mask, dim=-1))
@@ -338,7 +341,8 @@ class SIXOLoss(nn.Module):
         # print(loss.shape)
         # print(action_mask.shape)
 
-        loss = masked_mean(loss, action_mask, dim=-1).mean()
+        # loss = masked_mean(loss, action_mask, dim=-1).mean()
+        loss = masked_mean(loss, action_mask, dim=-1).sum()
 
         return loss.float()
 
