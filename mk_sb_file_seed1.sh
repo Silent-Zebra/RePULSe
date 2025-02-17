@@ -55,11 +55,14 @@ if [ -z "$MICRO_TRAIN" ] || [ -z "$TRAIN" ] || [ -z "$MICRO_ROLLOUT" ] || [ -z "
     exit 1
 fi
 
+#echo $ACTOR_LOSS
+
+
 # Get current date in required format
 CURRENT_DATE=$(date +%Y-%m-%d)
 
 # Generate output filename
-PATTERN="${CURRENT_DATE}_batch${MICRO_TRAIN}_${TRAIN}_${MICRO_ROLLOUT}_${ROLLOUT}_ep${MAX_EPOCHS}_len${GEN_MAX_LEN}_$(ACTOR_LOSS)_alr${ACTOR_LR}_clr${CRITIC_LR}_beta${TARGET_BETA}_${LR_SCHED}${CUSTOM_PROMPT}${ACTOR_MOD}${ADAM_BETA2}"
+PATTERN="${CURRENT_DATE}_batch${MICRO_TRAIN}_${TRAIN}_${MICRO_ROLLOUT}_${ROLLOUT}_ep${MAX_EPOCHS}_len${GEN_MAX_LEN}_${ACTOR_LOSS}_alr${ACTOR_LR}_clr${CRITIC_LR}_beta${TARGET_BETA}_${LR_SCHED}${CUSTOM_PROMPT}${ACTOR_MOD}${ADAM_BETA2}"
 SBATCH_FILE="sbatch_${PATTERN}"
 OUTPUT_FILE="result_${PATTERN}_s1.txt"
 
