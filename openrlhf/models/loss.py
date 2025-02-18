@@ -128,17 +128,16 @@ def get_positive_and_negative_weights_detached(base_action_log_probs, curr_log_p
 
 def get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
     log_p_1_to_t_psi_1_to_t = base_action_log_probs.cumsum(dim=1) + log_psi_t_eval_list_proposal_samples
-    log_q_1_to_t = curr_log_probs.cumsum(dim=1)
-    w_t = 0
+    log_w_t = 0
     for i in range(base_action_log_probs.shape[-1]):
         if i == 0:
-            incremental_w_t = log_p_1_to_t_psi_1_to_t[:, 0] - log_q_1_to_t[:, 0]
+            incremental_w_t = log_p_1_to_t_psi_1_to_t[:, 0] - curr_log_probs[:, 0]
         elif i == base_action_log_probs.shape[-1] - 1:
-            incremental_w_t = base_action_log_probs.cumsum(dim=1)[:, -1] + final_reward - log_q_1_to_t[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
+            incremental_w_t = base_action_log_probs.cumsum(dim=1)[:, -1] + final_reward - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
         else:
-            incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - log_q_1_to_t[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
-        w_t += incremental_w_t
-    normalized_w_t_approx_sigma_samples = F.softmax(w_t, dim=0)  # do softmax along the batch dimension
+            incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
+        log_w_t += incremental_w_t
+    normalized_w_t_approx_sigma_samples = F.softmax(log_w_t, dim=0)  # do softmax along the batch dimension
     return None, normalized_w_t_approx_sigma_samples
 
 
