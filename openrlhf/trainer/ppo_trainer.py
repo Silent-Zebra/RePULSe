@@ -583,28 +583,30 @@ class PPOTrainer(ABC):
                                                            sequences)
 
             f_qs = log_tilde_sigma - log_q
-            # print("f_q estimate details")
-            # print("log q")
-            # print(log_q)
-            # print("log tilde sigma")
-            # print(log_tilde_sigma)
-            # print("f_qs")
-            # print(f_qs)
+            print("f_q estimate details")
+            print("log q")
+            print(log_q)
+            print("log tilde sigma")
+            print(log_tilde_sigma)
+            print("f_qs")
+            print(f_qs)
 
         return f_qs, attention_mask, num_actions, sequences
 
     def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask,
                                 num_actions, sequences):
-        rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
-                                                                   attention_mask)
+        # rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
+        #                                                            attention_mask, multiply_by_beta=True)
         # print("log p phi eval")
         # print(rewards_no_kl)
         # Recall that we have p(s_1:T)p(toxic class | s_1:T)^beta which is also
         # = p(s_1:T)e^{beta log p(toxic class | s_1:T))
         # Now consider r = log p(toxic class | s_1:T)), then we have the RL setting, but we must have KL penalties
         # Also, with phi = e^{beta log p(toxic class | s_1:T)), log_phi is simply just beta log p(toxic class | s_1:T)
-        rewards_no_kl = rewards_no_kl.float() # more precision
-        log_phi = args.target_dist_beta * rewards_no_kl
+        # rewards_no_kl = rewards_no_kl.float() # more precision
+        # log_phi = args.target_dist_beta * rewards_no_kl
+        log_phi = self.experience_maker.compute_reward_no_kl(sequences,
+                                                                   attention_mask, multiply_by_beta=True)
         # print(args.target_dist_beta)
         # print("log_phi")
         # print(log_phi)
@@ -614,7 +616,9 @@ class PPOTrainer(ABC):
         base_action_log_probs = base_action_log_probs.float() # more precision
 
         log_p = base_action_log_probs.sum(dim=-1)
-        # print(log_p)
+        print('P PHI INSPECTION')
+        print(log_p)
+        print(log_phi)
         log_tilde_sigma = log_p + log_phi
         return log_tilde_sigma
 
