@@ -284,13 +284,14 @@ class SIXOLoss(nn.Module):
         log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
 
-        _, normalized_w_t_approx_sigma_samples2 = get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+        _, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+        # TODO LATER REMOVE
 
-        print("HIHI")
-        print(normalized_w_t_approx_sigma_samples2)
-        print(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples)
-        print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).mean())
-        1/0
+        # print("HIHI")
+        # print(normalized_w_t_approx_sigma_samples2)
+        # print(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples)
+        # print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).mean())
+        # 1/0
 
         # positive_samples_term_new = normalized_w_t_approx_sigma_samples[:,
         #                         None] * F.logsigmoid(values)
