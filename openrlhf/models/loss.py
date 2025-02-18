@@ -98,7 +98,7 @@ class ValueLoss(nn.Module):
         return 0.5 * loss
 
 
-def get_positive_weights_tildesigma_over_q_detached(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
+def get_positive_and_negative_weights_detached(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
     # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
     # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
     log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + final_reward - curr_log_probs.sum(
@@ -125,6 +125,22 @@ def get_positive_weights_tildesigma_over_q_detached(base_action_log_probs, curr_
     # print(normalized_w_t_approx_sigma_samples.shape)
     # EXPECTED: above has shape (batch_size)
     return log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples
+
+def get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
+    log_p_1_to_t_psi_1_to_t = base_action_log_probs.cumsum(dim=1) + log_psi_t_eval_list_proposal_samples
+    log_q_1_to_t = curr_log_probs.cumsum(dim=1)
+    w_t = 0
+    for i in range(base_action_log_probs.shape[-1]):
+        if i == 0:
+            incremental_w_t = log_p_1_to_t_psi_1_to_t[:, 0] - log_q_1_to_t[:, 0]
+        elif i == base_action_log_probs.shape[-1] - 1:
+            incremental_w_t = base_action_log_probs.cumsum(dim=1)[:, -1] + final_reward - log_q_1_to_t[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
+        else:
+            incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - log_q_1_to_t[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
+        w_t += incremental_w_t
+    normalized_w_t_approx_sigma_samples = F.softmax(w_t, dim=0)  # do softmax along the batch dimension
+    return None, normalized_w_t_approx_sigma_samples
+
 
 class CTLLoss(nn.Module):
     """
@@ -157,7 +173,7 @@ class CTLLoss(nn.Module):
 
         # print("CTL LOSS STUFF")
         log_psi_t_eval_list_proposal_samples = values
-        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q_detached(
+        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         # print(positive_samples_term_new.shape)
@@ -266,8 +282,16 @@ class SIXOLoss(nn.Module):
         # print(base_action_log_probs.sum(dim=-1).shape)
 
         log_psi_t_eval_list_proposal_samples = values
-        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_weights_tildesigma_over_q_detached(
+        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+
+        _, normalized_w_t_approx_sigma_samples2 = get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+
+        print("HIHI")
+        print(normalized_w_t_approx_sigma_samples2)
+        print(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples)
+        print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).mean())
+        1/0
 
         # positive_samples_term_new = normalized_w_t_approx_sigma_samples[:,
         #                         None] * F.logsigmoid(values)
