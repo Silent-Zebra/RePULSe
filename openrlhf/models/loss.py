@@ -131,6 +131,12 @@ def get_positive_and_negative_weights_detached_incremental(base_action_log_probs
     log_w_t = 0
     negative_weights = []
     positive_log_w_t = 0
+
+    log_w_t_approx_pi_samples_ref = base_action_log_probs.cumsum(
+        dim=1) + log_psi_t_eval_list_proposal_samples - curr_log_probs.cumsum(
+        dim=1)
+
+
     for i in range(base_action_log_probs.shape[-1]):
         if i == 0:
             incremental_w_t = log_p_1_to_t_psi_1_to_t[:, 0] - curr_log_probs[:, 0]
@@ -143,10 +149,17 @@ def get_positive_and_negative_weights_detached_incremental(base_action_log_probs
         else:
             incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
             log_w_t += incremental_w_t
+
+        print(f'iter {i}')
+        print(log_w_t)
+        print(log_w_t_approx_pi_samples_ref[:, i])
+        print(torch.abs(log_w_t_approx_pi_samples_ref[:, i] - log_w_t).mean())
+
         negative_weights.append(log_w_t)
     normalized_w_t_approx_sigma_samples = F.softmax(positive_total_weight, dim=0).detach()  # do softmax along the batch dimension
 
-    negative_weights = torch.stack(negative_weights, dim=1)
+    # DETACH ON WEIGHTS IS IMPORTANT FOR THE RIGHT GRADIENTS
+    negative_weights = torch.stack(negative_weights, dim=1).detach()
 
     return negative_weights, normalized_w_t_approx_sigma_samples
 
