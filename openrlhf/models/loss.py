@@ -140,15 +140,15 @@ def get_positive_and_negative_weights_detached_incremental(base_action_log_probs
     for i in range(base_action_log_probs.shape[-1]):
         if i == 0:
             incremental_w_t = log_p_1_to_t_psi_1_to_t[:, 0] - curr_log_probs[:, 0]
-            log_w_t += incremental_w_t
+            log_w_t += incremental_w_t # BE CAREFUL - THIS IN-PLACE OPERATION MODIFIES MUTABLE STRUCTURES LIKE LISTS; THIS IS WHY JAX DOESN'T ALLOW THIS KIND OF STUFF
         elif i == base_action_log_probs.shape[-1] - 1:
             incremental_w_t = base_action_log_probs.cumsum(dim=1)[:, -1] + final_reward - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
             positive_total_weight = incremental_w_t + log_w_t
             negative_incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
-            log_w_t += negative_incremental_w_t
+            log_w_t += negative_incremental_w_t # BE CAREFUL - THIS IN-PLACE OPERATION MODIFIES MUTABLE STRUCTURES LIKE LISTS; THIS IS WHY JAX DOESN'T ALLOW THIS KIND OF STUFF
         else:
             incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
-            log_w_t += incremental_w_t
+            log_w_t += incremental_w_t # BE CAREFUL - THIS IN-PLACE OPERATION MODIFIES MUTABLE STRUCTURES LIKE LISTS; THIS IS WHY JAX DOESN'T ALLOW THIS KIND OF STUFF
 
         # print(f'iter {i}')
         # print(log_w_t)
@@ -207,14 +207,7 @@ class CTLLoss(nn.Module):
         log_w_t_approx_pi_samples2, normalized_w_t_approx_sigma_samples2 = get_positive_and_negative_weights_detached_incremental(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
         # TODO REMOVE LATER COMPARISON ONLY
-        print("COMPARISON")
-        for i in range(len(log_w_t_approx_pi_samples2)):
-            print(f"comparison {i}")
-            print(log_w_t_approx_pi_samples2[i] - log_w_t_approx_pi_samples[:, i])
-            print(torch.abs(log_w_t_approx_pi_samples2[i] - log_w_t_approx_pi_samples[:, i]).mean())
-
         print("FINAL")
-        log_w_t_approx_pi_samples2 = torch.stack(log_w_t_approx_pi_samples2, dim=1)
         print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples))
         print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples).mean())
         print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).mean())
