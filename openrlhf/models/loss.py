@@ -146,9 +146,7 @@ def get_positive_and_negative_weights_detached_incremental(base_action_log_probs
         negative_weights.append(log_w_t)
     normalized_w_t_approx_sigma_samples = F.softmax(positive_total_weight, dim=0).detach()  # do softmax along the batch dimension
 
-    print(negative_weights)
-    # TODO stack the negative weights
-    1/0
+    negative_weights = torch.stack(negative_weights, dim=1)
 
     return negative_weights, normalized_w_t_approx_sigma_samples
 
@@ -187,9 +185,12 @@ class CTLLoss(nn.Module):
         log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
 
-        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(
+        log_w_t_approx_pi_samples2, normalized_w_t_approx_sigma_samples2 = get_positive_and_negative_weights_detached_incremental(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
         # TODO REMOVE LATER COMPARISON ONLY
+        print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples).sum())
+        print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).sum())
+        1/0
 
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         # print(positive_samples_term_new.shape)
