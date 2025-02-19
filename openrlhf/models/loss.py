@@ -204,14 +204,14 @@ class CTLLoss(nn.Module):
         log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
 
-        log_w_t_approx_pi_samples2, normalized_w_t_approx_sigma_samples2 = get_positive_and_negative_weights_detached_incremental(
+        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
-        # TODO REMOVE LATER COMPARISON ONLY
-        print("FINAL")
-        print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples))
-        print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples).mean())
-        print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).mean())
-        1/0
+        # # TODO REMOVE ABOVE LATER COMPARISON ONLY
+        # print("FINAL")
+        # print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples))
+        # print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples).mean())
+        # print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).mean())
+        # 1/0
 
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         # print(positive_samples_term_new.shape)
@@ -324,7 +324,7 @@ class SIXOLoss(nn.Module):
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
 
         # _, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
-        # # TODO LATER REMOVE
+        # # TODO REMOVE ABOVE LATER COMPARISON ONLY
 
         # print("HIHI")
         # print(normalized_w_t_approx_sigma_samples2)
