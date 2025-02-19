@@ -129,16 +129,28 @@ def get_positive_and_negative_weights_detached(base_action_log_probs, curr_log_p
 def get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
     log_p_1_to_t_psi_1_to_t = base_action_log_probs.cumsum(dim=1) + log_psi_t_eval_list_proposal_samples
     log_w_t = 0
+    negative_weights = []
+    positive_log_w_t = 0
     for i in range(base_action_log_probs.shape[-1]):
         if i == 0:
             incremental_w_t = log_p_1_to_t_psi_1_to_t[:, 0] - curr_log_probs[:, 0]
+            log_w_t += incremental_w_t
         elif i == base_action_log_probs.shape[-1] - 1:
             incremental_w_t = base_action_log_probs.cumsum(dim=1)[:, -1] + final_reward - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
+            positive_total_weight = incremental_w_t + log_w_t
+            negative_incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
+            log_w_t += negative_incremental_w_t
         else:
             incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
-        log_w_t += incremental_w_t
-    normalized_w_t_approx_sigma_samples = F.softmax(log_w_t, dim=0).detach()  # do softmax along the batch dimension
-    return None, normalized_w_t_approx_sigma_samples
+            log_w_t += incremental_w_t
+        negative_weights.append(log_w_t)
+    normalized_w_t_approx_sigma_samples = F.softmax(positive_total_weight, dim=0).detach()  # do softmax along the batch dimension
+
+    print(negative_weights)
+    # TODO stack the negative weights
+    1/0
+
+    return negative_weights, normalized_w_t_approx_sigma_samples
 
 
 class CTLLoss(nn.Module):
@@ -174,6 +186,10 @@ class CTLLoss(nn.Module):
         log_psi_t_eval_list_proposal_samples = values
         log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+
+        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(
+            base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+        # TODO REMOVE LATER COMPARISON ONLY
 
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         # print(positive_samples_term_new.shape)
