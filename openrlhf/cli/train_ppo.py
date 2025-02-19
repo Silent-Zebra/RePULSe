@@ -30,6 +30,14 @@ def train(args):
         load_in_4bit=args.load_in_4bit,
         ds_config=strategy.get_ds_eval_config(offload=False),
     )
+    # Freeze initial model
+    # This doesn't make a difference normally, but for my CustomActor
+    # where I take this in as an argument, then the optimizer will optimize these
+    # and this has two undesired effects 1) I'm basically adding parameters/capacity to the twist architecture
+    # 2) More problematic is that I would then be modifying the initial model, so things like KL to prior
+    # and F_q and G_q evaluations are all messed up.
+    for param in initial_model.parameters():
+        param.requires_grad = False
     get_tokenizer(args.pretrain, initial_model.model, "left", strategy)
 
     if args.shared_actorcritic:
