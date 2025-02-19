@@ -174,6 +174,7 @@ class CTLLoss(nn.Module):
         log_psi_t_eval_list_proposal_samples = values
         log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         # print(positive_samples_term_new.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
@@ -284,7 +285,7 @@ class SIXOLoss(nn.Module):
         log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
 
-        # _, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+        _, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
         # TODO LATER REMOVE
 
         # print("HIHI")
