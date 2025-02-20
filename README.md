@@ -1,3 +1,24 @@
+## Setup Notes:
+
+On Vector cluster: first consider deleting cache if the below commands don't work: ```rm -rf ~/.cache```
+
+Then run the following commands (this does setup on a GPU which is useful for linking certain things):
+```
+srun -c 4 --gres=gpu:1 --mem=10GB -p a40 --pty bash
+cd ~/OpenRLHF/
+/pkgs/python-3.10.12/bin/python3 -m venv ~/OpenRLHF/newenv
+source newenv/bin/activate
+module load cuda-12.3
+pip install -e .
+pip install vllm
+pip install flash-attn --no-build-isolation
+```
+Check that the installation works as expected:
+```
+python
+from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
+```
+
 <div align="center">
     <img alt="OpenRLHF logo" src="./docs/logo.png" style="height: 140px;" />
 </div>
