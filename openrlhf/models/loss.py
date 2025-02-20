@@ -204,9 +204,9 @@ class CTLLoss(nn.Module):
         log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
 
-        log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(
-            base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
-        # # TODO REMOVE ABOVE LATER COMPARISON ONLY
+        # log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(
+        #     base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
+        # TODO REMOVE ABOVE LATER COMPARISON ONLY
         # print("FINAL")
         # print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples))
         # print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples).mean())
