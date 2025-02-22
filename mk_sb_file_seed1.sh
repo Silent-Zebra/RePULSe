@@ -18,17 +18,17 @@ PARAMS=$(echo "$COMMAND" | awk '
     
     # Scan through all matches in the string
     for(i=1; i<=NF; i++) {
-        if($i == "--micro_train_batch_size" && i<NF) micro_train = $(i+1)
-        if($i == "--train_batch_size" && i<NF) train = $(i+1)
-        if($i == "--micro_rollout_batch_size" && i<NF) micro_rollout = $(i+1)
-        if($i == "--rollout_batch_size" && i<NF) rollout = $(i+1)
-        if($i == "--max_epochs" && i<NF) max_epochs = $(i+1)
-        if($i == "--generate_max_len" && i<NF) gen_max_len = $(i+1)
-        if($i == "--actor_learning_rate" && i<NF) actor_lr = $(i+1)
-        if($i == "--critic_learning_rate" && i<NF) critic_lr = $(i+1)
-        if($i == "--target_dist_beta" && i<NF) target_beta = $(i+1)
-        if($i == "--lr_scheduler" && i<NF) lr_sched = $(i+1)
-        if($i == "--actor_loss_type" && i<NF) actor_loss = $(i+1)
+        if($i == "--micro_train_batch_size") micro_train = $(i+1)
+        if($i == "--train_batch_size") train = $(i+1)
+        if($i == "--micro_rollout_batch_size") micro_rollout = $(i+1)
+        if($i == "--rollout_batch_size") rollout = $(i+1)
+        if($i == "--max_epochs") max_epochs = $(i+1)
+        if($i == "--generate_max_len") gen_max_len = $(i+1)
+        if($i == "--actor_learning_rate") actor_lr = $(i+1)
+        if($i == "--critic_learning_rate") critic_lr = $(i+1)
+        if($i == "--target_dist_beta") target_beta = $(i+1)
+        if($i == "--lr_scheduler") lr_sched = $(i+1)
+        if($i == "--actor_loss_type") actor_loss = $(i+1)
         if($i == "--custom_single_prompt") custom_prompt = "_custom"
         if($i == "--actor_modulates_base") actor_mod = "_actmod"
         if($i == "--adam_betas") adam_beta2 = "_adambeta2_"$(i+2)
