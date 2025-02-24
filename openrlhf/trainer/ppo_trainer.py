@@ -420,6 +420,29 @@ class PPOTrainer(ABC):
                         client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
                         self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
 
+                        if not args.no_test_info:
+                            print("prompts")
+                            print(rand_prompts)
+                            f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
+                                args, rand_prompts)
+
+                            print("f_qs")
+                            print(f_qs)
+
+                            output = self.tokenizer.batch_decode(
+                                q_seqs,
+                                skip_special_tokens=True)
+                            print("seqs")
+                            print(output)
+                            print("seqs2")
+                            self.strategy.print(output[0])
+                            # self.f_q_g_q_evaluation(args, f_q_estimates_list,
+                            #                         g_q_estimates_list, iwae_lbs_list,
+                            #                         iwae_ubs_list, prompt_text,
+                            #                         true_posterior_samples)
+                        1/0
+
+
                     pbar.update()
                     steps = steps + 1
 
@@ -605,8 +628,7 @@ class PPOTrainer(ABC):
         # Also, with phi = e^{beta log p(toxic class | s_1:T)), log_phi is simply just beta log p(toxic class | s_1:T)
         # rewards_no_kl = rewards_no_kl.float() # more precision
         # log_phi = args.target_dist_beta * rewards_no_kl
-        log_phi = self.experience_maker.compute_reward_no_kl(sequences,
-                                                                   attention_mask, multiply_by_beta=True)
+        log_phi = self.experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
         # print(args.target_dist_beta)
         # print("log_phi")
         # print(log_phi)

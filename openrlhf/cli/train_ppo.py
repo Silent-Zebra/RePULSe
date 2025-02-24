@@ -569,7 +569,7 @@ if __name__ == "__main__":
                                  "toxicity_threshold", "sentiment_threshold",
                                  "p_last_tokens", "toy_test", "toy_rlhf"])
     parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score")
-    parser.add_argument("--reward_cap", type=float, default=4.5, help="Only for use with toy_rlhf rm_type")
+    parser.add_argument("--reward_cap", type=float, default=10000, help="Only for use with toy_rlhf rm_type")
 
 
     # wandb parameters
