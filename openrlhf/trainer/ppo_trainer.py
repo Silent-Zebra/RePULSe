@@ -624,10 +624,10 @@ class PPOTrainer(ABC):
             # print(log_q.shape)
             # print(action_mask.shape)
 
-            print("ACTION LOG PROBS")
-            print(action_log_probs)
-            print(action_log_probs.shape)
-            1/0
+            # print("ACTION LOG PROBS")
+            # print(action_log_probs)
+            # print(action_log_probs.shape)
+            # 1/0
 
             log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
                                                            attention_mask,
