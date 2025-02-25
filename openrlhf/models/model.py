@@ -290,12 +290,14 @@ def _get_reward_model_custom(
 
                 print(text_question)
                 print(text_answer)
-                1/0
 
                 inputs = self.tokenizer_RM(text_question, text_answer,
                                       return_tensors="pt",
                                       padding=True
                                       )
+
+                print(inputs)
+                1/0
 
                 # output_len = answer_seq.shape[-1]
                 # print(output_len)
@@ -303,7 +305,6 @@ def _get_reward_model_custom(
                 device = self.rm.device
                 # print("device")
                 # print(device)
-                # print(inputs)
                 # print(question_seq.device)
 
                 inputs = {key: value[:, :self.max_new_tokens * 2].to(device) for
