@@ -125,7 +125,7 @@ def train(args):
             reward_model = _get_reward_model_custom(base_pretrained_class, rm_name,
                                              tokenizer=tokenizer, config=config)
 
-        elif args.reward_pretrain == "OpenAssistant/reward-model-deberta-v3-base":
+        elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base", "OpenAssistant/reward-model-deberta-v3-large-v2"]:
             print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
             from transformers import AutoTokenizer, AutoConfig, AutoModel
 
