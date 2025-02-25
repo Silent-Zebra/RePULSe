@@ -335,6 +335,12 @@ class NaiveExperienceMaker(ABC):
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
 
+        print("generate_inspection")
+        print(prompts)
+        print(inputs)
+        print(sequences)
+        1/0
+
         # if self.shared_actorcritic:
         #     sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,
         #              561, 5858, 790, 3329, 13, 21326, 340, 28077, 11, 262,
