@@ -237,7 +237,7 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
 
 def _get_reward_model_custom(
     base_pretrained_class, rm_name, tokenizer, config, separatequeryanswer=False, max_new_tokens=None,
-    lstrip_from_question_n_tokens=0, rstrip_from_question_n_tokens=0, strip_from_answer_n_tokens=0
+    strip_question_chat_template_fn=None
 ):
     class RewardModel(base_pretrained_class):
         supports_gradient_checkpointing = True
@@ -288,6 +288,9 @@ def _get_reward_model_custom(
                 text_answer = self.tokenizer.batch_decode(answer_seq,
                                                      skip_special_tokens=True)
 
+                text_question = list(map(strip_question_chat_template_fn, texts))
+
+                # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
                 print(text_question)
                 print(text_answer)
 

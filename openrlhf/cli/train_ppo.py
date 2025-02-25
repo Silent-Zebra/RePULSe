@@ -144,9 +144,8 @@ def train(args):
             base_pretrained_class = base_class.__base__
             if args.apply_chat_template:
                 if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct"]:
-                    lstrip_from_question_n_tokens = 3
-                    rstrip_from_question_n_tokens = 2
-                    strip_from_answer_n_tokens = 4
+                    def strip_question_chat_template_fn(text):
+                        return text.removeprefix('user\n').removesuffix('\nassistant\n')
                 else:
                     raise NotImplementedError
             reward_model = _get_reward_model_custom(
@@ -155,9 +154,7 @@ def train(args):
                 config=config,
                 separatequeryanswer=True,
                 max_new_tokens=args.generate_max_len,
-                lstrip_from_question_n_tokens=lstrip_from_question_n_tokens,
-                rstrip_from_question_n_tokens=rstrip_from_question_n_tokens,
-                strip_from_answer_n_tokens=strip_from_answer_n_tokens
+                strip_question_chat_template_fn=strip_question_chat_template_fn
             )
 
 
