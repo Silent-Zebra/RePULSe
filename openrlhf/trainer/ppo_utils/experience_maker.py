@@ -149,6 +149,11 @@ class NaiveExperienceMaker(ABC):
                 value = None
 
 
+        print("base action inspection")
+        print(sequences)
+        print(num_actions)
+        print(attention_mask)
+
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions,
                                                    attention_mask)
@@ -335,11 +340,10 @@ class NaiveExperienceMaker(ABC):
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
 
-        print("generate_inspection")
-        print(prompts)
-        print(inputs)
-        print(sequences)
-        1/0
+        # print("generate_inspection")
+        # print(prompts)
+        # print(inputs)
+        # print(sequences)
 
         # if self.shared_actorcritic:
         #     sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,
