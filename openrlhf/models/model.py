@@ -291,16 +291,15 @@ def _get_reward_model_custom(
                 text_question = list(map(strip_question_chat_template_fn, text_question))
 
                 # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
-                print(text_question)
-                print(text_answer)
+                # print(text_question)
+                # print(text_answer)
 
                 inputs = self.tokenizer_RM(text_question, text_answer,
                                       return_tensors="pt",
                                       padding=True
                                       )
 
-                print(inputs)
-                1/0
+                # print(inputs)
 
                 # output_len = answer_seq.shape[-1]
                 # print(output_len)
