@@ -235,7 +235,10 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
     return RewardModel
 
 
-def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, separatequeryanswer=False, max_new_tokens=None):
+def _get_reward_model_custom(
+    base_pretrained_class, rm_name, tokenizer, config, separatequeryanswer=False, max_new_tokens=None,
+    lstrip_from_question_n_tokens=0, rstrip_from_question_n_tokens=0, strip_from_answer_n_tokens=0
+):
     class RewardModel(base_pretrained_class):
         supports_gradient_checkpointing = True
 
@@ -250,6 +253,8 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, 
             self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
             self.tokenizer = tokenizer  # TODO ensure this works
             self.max_new_tokens = max_new_tokens
+            if max_new_tokens is not None:
+                assert self.max_new_tokens > 0
 
 
         def forward(
@@ -266,16 +271,17 @@ def _get_reward_model_custom(base_pretrained_class, rm_name, tokenizer, config, 
                 # print(input_ids.shape)
                 # print(max_new_tokens)
 
-                question_seq = input_ids[:, :-self.max_new_tokens]
-                answer_seq = input_ids[:, -self.max_new_tokens:]
+                question_seq = input_ids[:, lstrip_from_question_n_tokens : -self.max_new_tokens - rstrip_from_question_n_tokens]
+                answer_seq = input_ids[:, -self.max_new_tokens + strip_from_answer_n_tokens : ]
 
                 text_question = self.tokenizer.batch_decode(question_seq,
                                                        skip_special_tokens=True)
                 text_answer = self.tokenizer.batch_decode(answer_seq,
                                                      skip_special_tokens=True)
 
-                # print(text_question)
-                # print(text_answer)
+                print(text_question)
+                print(text_answer)
+                1/0
 
                 inputs = self.tokenizer_RM(text_question, text_answer,
                                       return_tensors="pt",

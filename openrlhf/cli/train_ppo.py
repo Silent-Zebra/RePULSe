@@ -142,12 +142,23 @@ def train(args):
             assert not args.normalize_reward  # Not yet implemented
             base_class = AutoModel._model_mapping[type(config)]
             base_pretrained_class = base_class.__base__
-            reward_model = _get_reward_model_custom(base_pretrained_class,
-                                                    rm_name,
-                                                    tokenizer=tokenizer,
-                                                    config=config,
-                                                    separatequeryanswer=True,
-                                                    max_new_tokens=args.generate_max_len)
+            if args.apply_chat_template:
+                if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct"]:
+                    lstrip_from_question_n_tokens = 3
+                    rstrip_from_question_n_tokens = 2
+                    strip_from_answer_n_tokens = 4
+                else:
+                    raise NotImplementedError
+            reward_model = _get_reward_model_custom(
+                base_pretrained_class, rm_name,
+                tokenizer=tokenizer,
+                config=config,
+                separatequeryanswer=True,
+                max_new_tokens=args.generate_max_len,
+                lstrip_from_question_n_tokens=lstrip_from_question_n_tokens,
+                rstrip_from_question_n_tokens=rstrip_from_question_n_tokens,
+                strip_from_answer_n_tokens=strip_from_answer_n_tokens
+            )
 
 
 
