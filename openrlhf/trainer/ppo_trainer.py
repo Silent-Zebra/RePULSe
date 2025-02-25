@@ -450,6 +450,7 @@ class PPOTrainer(ABC):
 
                             print("f_qs")
                             print(f_qs)
+                            print(f"Avg F_q: {f_qs.mean()}")
 
                             output = self.tokenizer.batch_decode(
                                 q_seqs,
