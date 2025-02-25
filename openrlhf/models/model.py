@@ -288,7 +288,7 @@ def _get_reward_model_custom(
                 text_answer = self.tokenizer.batch_decode(answer_seq,
                                                      skip_special_tokens=True)
 
-                text_question = list(map(strip_question_chat_template_fn, texts))
+                text_question = list(map(strip_question_chat_template_fn, text_question))
 
                 # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
                 print(text_question)
