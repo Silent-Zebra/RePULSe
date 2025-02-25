@@ -274,8 +274,10 @@ def _get_reward_model_custom(
                 print("input_ids")
                 print(input_ids)
 
-                question_seq = input_ids[:, lstrip_from_question_n_tokens : -self.max_new_tokens - rstrip_from_question_n_tokens]
-                answer_seq = input_ids[:, -self.max_new_tokens + strip_from_answer_n_tokens : ]
+                # question_seq = input_ids[:, lstrip_from_question_n_tokens : -self.max_new_tokens - rstrip_from_question_n_tokens]
+                # answer_seq = input_ids[:, -self.max_new_tokens + strip_from_answer_n_tokens : ]
+                question_seq = input_ids[:, : -self.max_new_tokens]
+                answer_seq = input_ids[:, -self.max_new_tokens : ]
 
                 print("seqs")
                 print(question_seq)

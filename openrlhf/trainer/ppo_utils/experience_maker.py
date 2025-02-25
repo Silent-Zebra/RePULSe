@@ -329,11 +329,8 @@ class NaiveExperienceMaker(ABC):
     def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
         self.set_all_eval()
         # generate seq
-        print('generate_seqs')
-        print(prompts)
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
-        print(inputs)
-        1/0
+
 
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
