@@ -338,6 +338,7 @@ class PPOTrainer(ABC):
                     for update in range(num_twist_updates_to_do):
                         experience = self.experience_maker.make_experience(
                             custom_prompt,
+                            samples_per_prompt=args.samples_per_prompt
                             **self.generate_kwargs)
 
                         if update == 0:
@@ -430,6 +431,7 @@ class PPOTrainer(ABC):
 
                         torch.cuda.empty_cache()
                         self.replay_buffer.normalize("advantages", self.strategy)
+                        assert custom_prompt is None
                         status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
                         self.replay_buffer.clear()
                         torch.cuda.empty_cache()
@@ -976,6 +978,9 @@ class PPOTrainer(ABC):
         #     experience.sequences, num_actions, attention_mask=experience.attention_mask, return_output=True
         # )
         num_actions = experience.action_mask.size(1)
+        batch_size = experience.sequences.size(0)
+        samples_per_prompt = self.args.samples_per_prompt
+        num_prompts = batch_size // samples_per_prompt
 
         if self.actor_loss_type == "ppo":
             action_log_probs = self.actor(
@@ -988,6 +993,7 @@ class PPOTrainer(ABC):
                 experience.advantages,
                 action_mask=experience.action_mask,
             )
+
         elif self.actor_loss_type == "ctl":
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
@@ -1009,13 +1015,23 @@ class PPOTrainer(ABC):
             log_psi = log_psi[:, -num_actions:]
             # print(log_psi.shape)
 
+            # Reshape tensors to group samples by prompt
+            log_psi = log_psi.view(num_prompts, samples_per_prompt, -1)
+            log_phi = log_phi.view(num_prompts, samples_per_prompt)
+            exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+            exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
+            base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
+
+            # Calculate loss for all groups at once
             actor_loss = self.actor_loss_fn(
-                log_psi,
-                log_phi,
-                experience.action_mask,
-                experience.action_log_probs,
-                base_action_log_probs
+                log_psi,  # shape: [num_prompts, samples_per_prompt, num_actions]
+                log_phi,  # shape: [num_prompts, samples_per_prompt]
+                exper_action_mask,
+                exper_action_log_probs,
+                base_action_log_probs,
+                reduce_mean_per_prompt=True
             )
+
         elif self.actor_loss_type == "sixo":
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
@@ -1040,14 +1056,25 @@ class PPOTrainer(ABC):
             log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
             # print(log_psi.shape)
 
+            # Reshape tensors to group samples by prompt
+            log_psi = log_psi.view(num_prompts, samples_per_prompt, -1)
+            log_phi = log_phi.view(num_prompts, samples_per_prompt)
+            exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+            exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
+            base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
+            log_psi_on_base_samples = log_psi_on_base_samples.view(num_prompts, samples_per_prompt, -1)
+
+            # Calculate loss for all groups at once
             actor_loss = self.actor_loss_fn(
-                log_psi,
-                log_phi,
-                experience.action_mask,
-                experience.action_log_probs,
+                log_psi,  # shape: [num_prompts, samples_per_prompt, num_actions]
+                log_phi,  # shape: [num_prompts, samples_per_prompt]
+                exper_action_mask,
+                exper_action_log_probs,
                 base_action_log_probs,
-                log_psi_on_base_samples
+                log_psi_on_base_samples,
+                reduce_mean_per_prompt=True
             )
+
         else:
             raise NotImplementedError
 

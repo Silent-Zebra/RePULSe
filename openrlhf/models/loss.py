@@ -188,6 +188,46 @@ class CTLLoss(nn.Module):
     ) -> torch.Tensor:
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
 
+        if reduce_mean_per_prompt:
+            # Use vmap to compute weights for all prompts at once
+            batched_get_weights = torch.func.vmap(get_positive_and_negative_weights_detached, in_dims=0)
+            log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = batched_get_weights(
+                base_action_log_probs,
+                curr_log_probs,
+                final_reward,
+                values
+            )
+
+            # Compute terms using the vectorized weights
+            positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * values
+            normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=1)
+            negative_samples_term = normalized_w_t_approx_pi_samples * values
+
+            print(action_mask.shape)
+            print(positive_samples_term.shape)
+            print(negative_samples_term.shape)
+            print(log_w_t_approx_pi_samples.shape)
+            print(normalized_w_t_approx_sigma_samples.shape)
+
+
+            loss = -(positive_samples_term_new - negative_samples_term_new)
+            print(loss.shape)
+
+            loss = masked_mean(loss, action_mask, dim=-1).sum()
+            print(loss)
+
+            1/0
+
+            # TODO March 8 after this, try running the previous experiments (custom single prompt) except now just use
+            # these vmapped losses instead. First try exact reproduction, but use format below
+            # Try: even if prompt repeated, put it into batches, and softmax/weights over each of those individual batches
+            # As you set the prompt batch size to 1 and n_samples_per_prompt to previous batch size, it should reproduce
+            # As you set prompt batch size bigger and n_samples_per_prompt to smaller, the loss should get more and more noisy and worse performance. 1 sample per prompt should totally fail.
+            # TODO LATER test also the SIXO loss formulation
+
+
+            return loss
+
         # Values = log_psi in the twist formulation
         # final_reward = log phi
         # curr_log_probs = log q

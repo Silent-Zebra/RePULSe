@@ -133,13 +133,22 @@ class NaiveExperienceMaker(ABC):
 
 
     @torch.no_grad()
-    def make_experience(self, prompts: Union[str, List[str]], **generate_kwargs) -> Experience:
+    def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, **generate_kwargs) -> Experience:
+        # Convert single prompt to list
+        if isinstance(prompts, str):
+            prompts = [prompts]
+        
+        # Repeat each prompt samples_per_prompt times
+        expanded_prompts = []
+        for prompt in prompts:
+            expanded_prompts.extend([prompt] * samples_per_prompt)
+
         if self.shared_actorcritic:
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_logprobs(
-                prompts, **generate_kwargs)
+                expanded_prompts, **generate_kwargs)
         else:
             action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
-                prompts, **generate_kwargs)
+                expanded_prompts, **generate_kwargs)
 
             if self.critic is not None:
                 # values

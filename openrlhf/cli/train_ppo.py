@@ -598,6 +598,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q")
     parser.add_argument("--n_seeds_f_q", type=int, default=4, help="Number of seeds to use for f_q")
 
+    parser.add_argument("--samples_per_prompt", type=int, default=4, help="Number of samples to generate (specifically needed for twist learning, though I guess it works for PPO) per prompt. For twist learning methods, should be > 1")
+
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss outer loop) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
     parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
@@ -663,6 +665,7 @@ if __name__ == "__main__":
         args.no_critic = True # No (PPO) critic when using the twist formulation
         args.init_kl_coef = 0
         assert args.kl_target is None
+        assert args.samples_per_prompt > 1
 
 
     train(args)
