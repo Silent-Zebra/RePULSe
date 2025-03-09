@@ -1048,6 +1048,9 @@ class PPOTrainer(ABC):
 
             print(experience.sequences)
             print(experience.sequences.shape)
+            print(num_actions)
+            print(experience.sequences[:, :-num_actions])
+            print(experience.sequences[:, :-num_actions].shape)
             1/0
 
 
