@@ -351,7 +351,8 @@ class SIXOLoss(nn.Module):
         action_mask: torch.Tensor,
         curr_log_probs: torch.Tensor,
         base_action_log_probs: torch.Tensor,
-        values_on_base_samples: Optional[torch.Tensor] = None
+        values_on_base_samples: Optional[torch.Tensor] = None,
+        reduce_mean_per_prompt: bool = False,
     ) -> torch.Tensor:
         if self.approx_neg:
             assert values_on_base_samples is None
