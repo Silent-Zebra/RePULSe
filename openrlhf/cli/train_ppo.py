@@ -502,8 +502,10 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--freezing_actor_steps", type=int, default=-1, help="Used for critic initialization")
     parser.add_argument(
-        "--n_samples_per_prompt", type=int, default=1, help="number of responses for each prompt in generation"
+        "--n_samples_per_prompt", type=int, default=1, help="number of responses for each prompt in generation. For twist learning methods, should be > 1"
     )
+    # parser.add_argument("--samples_per_prompt", type=int, default=4, help="Number of samples to generate (specifically needed for twist learning, though I guess it works for PPO) per prompt. For twist learning methods, should be > 1")
+
     parser.add_argument("--save_value_network", action="store_true", default=False, help="Save critic model")
     parser.add_argument("--actor_learning_rate", type=float, default=1e-6)
     parser.add_argument("--critic_learning_rate", type=float, default=9e-6)
@@ -598,7 +600,6 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q")
     parser.add_argument("--n_seeds_f_q", type=int, default=4, help="Number of seeds to use for f_q")
 
-    parser.add_argument("--samples_per_prompt", type=int, default=4, help="Number of samples to generate (specifically needed for twist learning, though I guess it works for PPO) per prompt. For twist learning methods, should be > 1")
 
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss outer loop) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
@@ -665,7 +666,7 @@ if __name__ == "__main__":
         args.no_critic = True # No (PPO) critic when using the twist formulation
         args.init_kl_coef = 0
         assert args.kl_target is None
-        assert args.samples_per_prompt > 1
+        assert args.n_samples_per_prompt > 1
 
 
     train(args)
