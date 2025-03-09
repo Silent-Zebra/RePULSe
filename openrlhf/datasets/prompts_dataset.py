@@ -59,4 +59,9 @@ class PromptDataset(Dataset):
         return length * self.n_samples_per_prompt
 
     def __getitem__(self, idx):
+        print(idx)
+        print(self.prompts)
+        print(self.prompts[idx])
+        print(self.prompts[idx // self.n_samples_per_prompt])
+        1/0
         return self.prompts[idx // self.n_samples_per_prompt]
