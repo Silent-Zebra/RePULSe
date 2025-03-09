@@ -338,7 +338,7 @@ class PPOTrainer(ABC):
                     for update in range(num_twist_updates_to_do):
                         experience = self.experience_maker.make_experience(
                             custom_prompt,
-                            samples_per_prompt=args.duplicate_rollout_batch_by
+                            samples_per_prompt=args.duplicate_rollout_batch_by,
                             **self.generate_kwargs)
 
                         if update == 0:
