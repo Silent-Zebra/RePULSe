@@ -1057,10 +1057,15 @@ class PPOTrainer(ABC):
             print(experience.attention_mask[:, :-num_actions])
             print(experience.attention_mask[:, :-num_actions].shape)
 
+            self.generate_base_seqs_from_str_prompt(custom_prompt)
+
             1/0
 
 
-            base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs(custom_prompt)
+            base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs_from_torch_prompt(
+                experience.sequences[:, :-num_actions],
+                experience.attention_mask[:, :-num_actions],
+            )
             num_actions = base_action_mask.size(1)
 
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
@@ -1212,6 +1217,10 @@ class PPOTrainer(ABC):
         self.initial_model.eval()
         inputs = self.experience_maker.tokenize_fn(custom_prompt, self.prompt_max_len,
                                                    device="cuda")
+
+        print(inputs)
+        1/0
+
         base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
             **inputs,
             **self.generate_kwargs)
