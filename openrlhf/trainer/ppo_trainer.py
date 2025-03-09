@@ -1046,26 +1046,22 @@ class PPOTrainer(ABC):
                 # beta multiplied for non-PPO formulations
             )
 
-            print(experience.sequences)
-            print(experience.sequences.shape)
-            print(num_actions)
-            print(experience.sequences[:, :-num_actions])
-            print(experience.sequences[:, :-num_actions].shape)
-
-            print(experience.attention_mask)
-            print(experience.attention_mask.shape)
-            print(experience.attention_mask[:, :-num_actions])
-            print(experience.attention_mask[:, :-num_actions].shape)
-
-            self.generate_base_seqs_from_str_prompt(custom_prompt)
-
-            1/0
-
+            # print(experience.sequences)
+            # print(experience.sequences.shape)
+            # print(num_actions)
+            # print(experience.sequences[:, :-num_actions])
+            # print(experience.sequences[:, :-num_actions].shape)
+            #
+            # print(experience.attention_mask)
+            # print(experience.attention_mask.shape)
+            # print(experience.attention_mask[:, :-num_actions])
+            # print(experience.attention_mask[:, :-num_actions].shape)
 
             base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs_from_torch_prompt(
                 experience.sequences[:, :-num_actions],
                 experience.attention_mask[:, :-num_actions],
             )
+            # TODO not yet tested on multiple different prompts (though I expect it should work)
             num_actions = base_action_mask.size(1)
 
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
@@ -1218,19 +1214,16 @@ class PPOTrainer(ABC):
         inputs = self.experience_maker.tokenize_fn(custom_prompt, self.prompt_max_len,
                                                    device="cuda")
 
-        print(inputs)
-        1/0
-
         base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
             **inputs,
             **self.generate_kwargs)
         return base_action_mask, base_attention_mask, base_sequences
 
-    def generate_base_seqs_from_torch_prompt(self, prompts):
+    def generate_base_seqs_from_torch_prompt(self, input_ids, attention_mask):
         self.initial_model.eval()
 
         base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
-            **inputs,
+            input_ids=input_ids, attention_mask=attention_mask,
             **self.generate_kwargs)
         return base_action_mask, base_attention_mask, base_sequences
 
