@@ -666,7 +666,7 @@ if __name__ == "__main__":
         args.no_critic = True # No (PPO) critic when using the twist formulation
         args.init_kl_coef = 0
         assert args.kl_target is None
-        assert args.duplicate_rollout_batch_by > 1 # NOTE: this is also the "batch" or "number of particles" used in twist learning; for a given prompt, how many particles we use.
+        # assert args.duplicate_rollout_batch_by > 1 # NOTE: this is also the "batch" or "number of particles" used in twist learning; for a given prompt, how many particles we use.
 
 
     train(args)
