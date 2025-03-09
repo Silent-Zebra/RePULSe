@@ -211,7 +211,7 @@ class CTLLoss(nn.Module):
             print(normalized_w_t_approx_sigma_samples.shape)
 
 
-            loss = -(positive_samples_term_new - negative_samples_term_new)
+            loss = -(positive_samples_term - negative_samples_term)
             print(loss.shape)
 
             loss = masked_mean(loss, action_mask, dim=-1).sum()
