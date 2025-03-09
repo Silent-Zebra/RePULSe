@@ -184,7 +184,8 @@ class CTLLoss(nn.Module):
         final_reward: torch.Tensor,
         action_mask: torch.Tensor,
         curr_log_probs: torch.Tensor,
-        base_action_log_probs: torch.Tensor
+        base_action_log_probs: torch.Tensor,
+        reduce_mean_per_prompt: bool = False,
     ) -> torch.Tensor:
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
 
