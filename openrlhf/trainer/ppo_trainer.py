@@ -1051,6 +1051,12 @@ class PPOTrainer(ABC):
             print(num_actions)
             print(experience.sequences[:, :-num_actions])
             print(experience.sequences[:, :-num_actions].shape)
+
+            print(experience.attention_mask)
+            print(experience.attention_mask.shape)
+            print(experience.attention_mask[:, :-num_actions])
+            print(experience.attention_mask[:, :-num_actions].shape)
+
             1/0
 
 
@@ -1202,10 +1208,18 @@ class PPOTrainer(ABC):
             raise NotImplementedError
         return critic_loss
 
-    def generate_base_seqs(self, custom_prompt):
+    def generate_base_seqs_from_str_prompt(self, custom_prompt):
         self.initial_model.eval()
         inputs = self.experience_maker.tokenize_fn(custom_prompt, self.prompt_max_len,
                                                    device="cuda")
+        base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
+            **inputs,
+            **self.generate_kwargs)
+        return base_action_mask, base_attention_mask, base_sequences
+
+    def generate_base_seqs_from_torch_prompt(self, prompts):
+        self.initial_model.eval()
+
         base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
             **inputs,
             **self.generate_kwargs)
