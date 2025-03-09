@@ -338,7 +338,7 @@ class PPOTrainer(ABC):
                     for update in range(num_twist_updates_to_do):
                         experience = self.experience_maker.make_experience(
                             custom_prompt,
-                            samples_per_prompt=args.n_samples_per_prompt
+                            samples_per_prompt=args.duplicate_rollout_batch_by
                             **self.generate_kwargs)
 
                         if update == 0:
@@ -421,7 +421,7 @@ class PPOTrainer(ABC):
 
                     experience = self.experience_maker.make_experience(
                         rand_prompts,
-                        samples_per_prompt=args.n_samples_per_prompt,
+                        samples_per_prompt=args.duplicate_rollout_batch_by,
                         **self.generate_kwargs
                     )
                     # print prompt/answer in each update step
@@ -983,7 +983,7 @@ class PPOTrainer(ABC):
         # )
         num_actions = experience.action_mask.size(1)
         batch_size = experience.sequences.size(0)
-        samples_per_prompt = self.args.n_samples_per_prompt
+        samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
 
         if self.actor_loss_type == "ppo":

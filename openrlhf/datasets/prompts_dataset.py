@@ -59,9 +59,7 @@ class PromptDataset(Dataset):
         return length * self.n_samples_per_prompt
 
     def __getitem__(self, idx):
-        print(idx)
-        print(self.prompts)
-        print(self.prompts[idx])
-        print(self.prompts[idx // self.n_samples_per_prompt])
-        1/0
+        # The way this currently works is the dataset itself is extended by n_samples_per_prompt
+        # This is fine after a whole pass over the dataset in making experiences... but not what I want for batched CTL/SIXO etc.
+        # So for CTL SIXO etc. just use n_samples_per_prompt 1 and use a separate argument
         return self.prompts[idx // self.n_samples_per_prompt]
