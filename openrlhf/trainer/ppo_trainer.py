@@ -275,7 +275,7 @@ class PPOTrainer(ABC):
             else:
                 raise NotImplementedError
 
-            custom_prompt = [prompt_text] * args.train_batch_size
+            custom_prompt = [prompt_text] * args.rollout_batch_size
             print("USING CUSTOM PROMPT")
             print(len(custom_prompt))
             start_episode = 0 # TODO later make sure this hasn't messed things up
