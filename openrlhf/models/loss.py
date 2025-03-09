@@ -190,6 +190,7 @@ class CTLLoss(nn.Module):
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
 
         if reduce_mean_per_prompt:
+            # This version is for batching over different prompts
             # Use vmap to compute weights for all prompts at once
             batched_get_weights = torch.func.vmap(get_positive_and_negative_weights_detached, in_dims=0)
             log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = batched_get_weights(
@@ -204,23 +205,23 @@ class CTLLoss(nn.Module):
             normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=1)
             negative_samples_term = normalized_w_t_approx_pi_samples * values
 
-            print('wgts')
-            print(normalized_w_t_approx_sigma_samples)
-            print(normalized_w_t_approx_pi_samples)
-
-            print('shapes')
-            print(action_mask.shape)
-            print(positive_samples_term.shape)
-            print(negative_samples_term.shape)
-            print(log_w_t_approx_pi_samples.shape)
-            print(normalized_w_t_approx_sigma_samples.shape)
+            # print('wgts')
+            # print(normalized_w_t_approx_sigma_samples)
+            # print(normalized_w_t_approx_pi_samples)
+            #
+            # print('shapes')
+            # print(action_mask.shape)
+            # print(positive_samples_term.shape)
+            # print(negative_samples_term.shape)
+            # print(log_w_t_approx_pi_samples.shape)
+            # print(normalized_w_t_approx_sigma_samples.shape)
 
 
             loss = -(positive_samples_term - negative_samples_term)
-            print(loss.shape)
+            # print(loss.shape)
 
             loss = masked_mean(loss, action_mask, dim=-1).sum()
-            print(loss)
+            # print(loss)
 
             # 1/0
             # TODO March 8 after this, try running the previous experiments (custom single prompt) except now just use
@@ -356,6 +357,55 @@ class SIXOLoss(nn.Module):
             assert values_on_base_samples is None
         else:
             assert values_on_base_samples is not None
+
+
+        if reduce_mean_per_prompt:
+            # This version is for batching over different prompts
+            # Use vmap to compute weights for all prompts at once
+            batched_get_weights = torch.func.vmap(get_positive_and_negative_weights_detached, in_dims=0)
+            log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = batched_get_weights(
+                base_action_log_probs,
+                curr_log_probs,
+                final_reward,
+                values
+            )
+
+            # Compute positive term with batched weights
+            positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * F.logsigmoid(values)
+
+            print('shapes')
+            print(action_mask.shape)
+            print(positive_samples_term.shape)
+            print(log_w_t_approx_pi_samples.shape)
+            print(normalized_w_t_approx_sigma_samples.shape)
+            print(values_on_base_samples.shape)
+
+            if self.approx_neg:
+                raise NotImplementedError # not tested yet
+                # For approximate negative samples, compute weights based on p/q ratio for each prompt
+                log_w_t_approx_p_samples = base_action_log_probs.sum(dim=-1) - curr_log_probs.sum(dim=-1)
+                log_w_t_approx_p_samples = log_w_t_approx_p_samples.detach()
+                
+                # Normalize weights per prompt batch
+                normalized_w_t_approx_p_samples = F.softmax(log_w_t_approx_p_samples, dim=1)  # softmax over samples within each prompt
+                negative_samples_term = normalized_w_t_approx_p_samples.unsqueeze(-1) * torch.log(1 - F.sigmoid(values))
+            else:
+                # For exact negative samples, use provided base samples
+                negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
+                # Average across samples within each prompt batch
+                negative_samples_term = negative_samples_term / negative_samples_term.shape[1]
+
+            print(negative_samples_term.shape)
+
+
+            # Compute final loss with negative term
+            loss = -(positive_samples_term + negative_samples_term)
+            
+            # Apply action mask and sum across prompts
+            loss = masked_mean(loss, action_mask, dim=-1).sum()
+
+            return loss
+
 
         # print("SIXO LOSS STUFF")
         # First step is the same as in CTL; get the approx sigma samples based on p * phi / q on the FULL SEQUENCE then truncating
