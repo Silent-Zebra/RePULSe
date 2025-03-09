@@ -14,6 +14,7 @@ from openrlhf.models.actor import Actor
 from openrlhf.models.utils import compute_reward, masked_mean
 from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
+from openrlhf.utils.utils import tile_prompts
 
 logger = init_logger(__name__)
 
@@ -134,17 +135,7 @@ class NaiveExperienceMaker(ABC):
 
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, **generate_kwargs) -> Experience:
-        # Convert single prompt to list
-        if isinstance(prompts, str):
-            prompts = [prompts]
-        
-        # Repeat each prompt samples_per_prompt times
-        expanded_prompts = []
-        for prompt in prompts:
-            expanded_prompts.extend([prompt] * samples_per_prompt)
-
-        print("expanded prompts")
-        print(expanded_prompts)
+        expanded_prompts = tile_prompts(prompts, samples_per_prompt)
 
         if self.shared_actorcritic:
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_logprobs(
@@ -257,6 +248,8 @@ class NaiveExperienceMaker(ABC):
             action_mask,
             info,
         )
+
+
 
     def compute_reward_no_kl(self, sequences, attention_mask, class_num=0, multiply_by_beta=False):
         # rewards

@@ -12,6 +12,18 @@ DEFAULT_BOS_TOKEN = "<s>"
 DEFAULT_UNK_TOKEN = "<unk>"
 
 
+def tile_prompts(prompts, samples_per_prompt):
+    # Convert single prompt to list
+    if isinstance(prompts, str):
+        prompts = [prompts]
+    # Repeat each prompt samples_per_prompt times
+    expanded_prompts = []
+    for prompt in prompts:
+        expanded_prompts.extend([prompt] * samples_per_prompt)
+    print("expanded prompts")
+    print(expanded_prompts)
+    return expanded_prompts
+
 def get_tokenizer(pretrain, model, padding_side="left", strategy=None, use_fast=True):
     tokenizer = AutoTokenizer.from_pretrained(pretrain, trust_remote_code=True, use_fast=use_fast)
     tokenizer.padding_side = padding_side

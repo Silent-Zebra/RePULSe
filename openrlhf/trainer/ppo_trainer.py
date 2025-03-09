@@ -1037,6 +1037,7 @@ class PPOTrainer(ABC):
             )
 
         elif self.actor_loss_type == "sixo":
+
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
                 experience.attention_mask)
@@ -1044,6 +1045,11 @@ class PPOTrainer(ABC):
                 experience.sequences, experience.attention_mask, multiply_by_beta=True
                 # beta multiplied for non-PPO formulations
             )
+
+            print(experience.sequences)
+            print(experience.sequences.shape)
+            1/0
+
 
             base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs(custom_prompt)
             num_actions = base_action_mask.size(1)
@@ -1170,7 +1176,9 @@ class PPOTrainer(ABC):
 
             values_on_base_samples = None
             if self.critic_loss_type == "sixo":
+                raise NotImplementedError # Not yet tested after changes
                 base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs(custom_prompt)
+
 
                 values_on_base_samples = self.critic(
                     base_sequences,
