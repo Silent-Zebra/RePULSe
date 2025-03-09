@@ -419,7 +419,11 @@ class PPOTrainer(ABC):
                     #     #                         true_posterior_samples)
 
 
-                    experience = self.experience_maker.make_experience(rand_prompts, **self.generate_kwargs)
+                    experience = self.experience_maker.make_experience(
+                        rand_prompts,
+                        samples_per_prompt=args.n_samples_per_prompt,
+                        **self.generate_kwargs
+                    )
                     # print prompt/answer in each update step
                     if steps % update_timesteps == 0:
                         output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
