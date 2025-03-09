@@ -222,8 +222,7 @@ class CTLLoss(nn.Module):
             loss = masked_mean(loss, action_mask, dim=-1).sum()
             print(loss)
 
-            1/0
-
+            # 1/0
             # TODO March 8 after this, try running the previous experiments (custom single prompt) except now just use
             # these vmapped losses instead. First try exact reproduction, but use format below
             # Try: even if prompt repeated, put it into batches, and softmax/weights over each of those individual batches
