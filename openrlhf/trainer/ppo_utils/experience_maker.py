@@ -160,8 +160,17 @@ class NaiveExperienceMaker(ABC):
 
         print("base action inspection")
         print(sequences)
+        print(sequences[0])
+        print(sequences[1])
+        print(sequences[5])
+        print(sequences[6])
+
         print(num_actions)
         print(attention_mask)
+        print(attention_mask[0])
+        print(attention_mask[1])
+        print(attention_mask[5])
+        print(attention_mask[6])
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions,
