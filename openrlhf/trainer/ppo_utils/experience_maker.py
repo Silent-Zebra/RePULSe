@@ -143,6 +143,9 @@ class NaiveExperienceMaker(ABC):
         for prompt in prompts:
             expanded_prompts.extend([prompt] * samples_per_prompt)
 
+        print("expanded prompts")
+        print(expanded_prompts)
+
         if self.shared_actorcritic:
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_logprobs(
                 expanded_prompts, **generate_kwargs)
@@ -358,10 +361,23 @@ class NaiveExperienceMaker(ABC):
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
 
-        # print("generate_inspection")
-        # print(prompts)
-        # print(inputs)
-        # print(sequences)
+        print("generate_inspection")
+        print(prompts)
+        print(prompts[0])
+        print(prompts[1])
+        print(prompts[5])
+        print(prompts[6])
+
+        print(inputs)
+        print(inputs[0])
+        print(inputs[1])
+        print(inputs[5])
+        print(inputs[6])
+        print(sequences)
+        print(sequences[0])
+        print(sequences[1])
+        print(sequences[5])
+        print(sequences[6])
 
         # if self.shared_actorcritic:
         #     sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,
