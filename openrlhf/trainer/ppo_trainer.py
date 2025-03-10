@@ -988,10 +988,10 @@ class PPOTrainer(ABC):
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
 
-        print("inspection 03-09")
-        print(experience.action_mask)
-        print(experience.action_mask.shape)
-        print(experience.action_mask.size(1))
+        # print("inspection 03-09")
+        # print(experience.action_mask)
+        # print(experience.action_mask.shape)
+        # print(experience.action_mask.size(1))
 
 
         if self.actor_loss_type == "ppo":
@@ -1075,11 +1075,6 @@ class PPOTrainer(ABC):
                 )
                 # TODO not yet tested on multiple different prompts (though I expect it should work)
                 num_actions = base_action_mask.size(1)
-
-                print("inspection 03-09")
-                print(base_action_mask)
-                print(base_action_mask.shape)
-                print(base_action_mask.size(1))
 
                 log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions, base_attention_mask,
                                                                       return_only_modulation=True)

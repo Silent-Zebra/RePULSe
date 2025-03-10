@@ -374,30 +374,30 @@ class SIXOLoss(nn.Module):
             # Compute positive term with batched weights
             positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * F.logsigmoid(values)
 
-            print('shapes')
-            print(action_mask.shape)
-            print(positive_samples_term.shape)
-            print(log_w_t_approx_pi_samples.shape)
-            print(normalized_w_t_approx_sigma_samples.shape)
-            if values_on_base_samples is not None:
-                print(values_on_base_samples.shape)
+            # print('shapes')
+            # print(action_mask.shape)
+            # print(positive_samples_term.shape)
+            # print(log_w_t_approx_pi_samples.shape)
+            # print(normalized_w_t_approx_sigma_samples.shape)
+            # if values_on_base_samples is not None:
+            #     print(values_on_base_samples.shape)
 
             if self.approx_neg:
                 # For approximate negative samples, compute weights based on p/q ratio for each prompt
                 log_w_t_approx_p_samples = base_action_log_probs.sum(dim=-1) - curr_log_probs.sum(dim=-1)
                 log_w_t_approx_p_samples = log_w_t_approx_p_samples.detach()
 
-                print("approx neg inspection")
-                print(log_w_t_approx_p_samples.shape)
+                # print("approx neg inspection")
+                # print(log_w_t_approx_p_samples.shape)
 
                 # Normalize weights per prompt batch
                 normalized_w_t_approx_p_samples = F.softmax(log_w_t_approx_p_samples, dim=1)  # softmax over samples within each prompt
 
-                print(normalized_w_t_approx_p_samples.shape)
+                # print(normalized_w_t_approx_p_samples.shape)
 
                 negative_samples_term = normalized_w_t_approx_p_samples.unsqueeze(-1) * torch.log(1 - F.sigmoid(values))
 
-                print(negative_samples_term.shape)
+                # print(negative_samples_term.shape)
 
 
             else:
@@ -406,7 +406,7 @@ class SIXOLoss(nn.Module):
                 # Average across samples within each prompt batch
                 negative_samples_term = negative_samples_term / negative_samples_term.shape[1]
 
-            print(negative_samples_term.shape)
+            # print(negative_samples_term.shape)
 
 
             # Compute final loss with negative term
