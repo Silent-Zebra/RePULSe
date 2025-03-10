@@ -623,7 +623,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--actor_loss_type", type=str, default="ppo",
         choices=[
-            "ppo", "ctl", "sixo", # "sixo_approxneg"
+            "ppo", "ctl", "sixo", "sixo_approxneg"
         ]
     )
 

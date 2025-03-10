@@ -135,6 +135,8 @@ class PPOTrainer(ABC):
             self.actor_loss_fn = CTLLoss()
         elif self.actor_loss_type == "sixo":
             self.actor_loss_fn = SIXOLoss()
+        elif self.actor_loss_type == "sixo_approxneg":
+            self.actor_loss_fn = SIXOLoss(approx_neg=True)
         else:
             raise NotImplementedError
 
@@ -986,6 +988,12 @@ class PPOTrainer(ABC):
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
 
+        print("inspection 03-09")
+        print(experience.action_mask)
+        print(experience.action_mask.shape)
+        print(experience.action_mask.size(1))
+
+
         if self.actor_loss_type == "ppo":
             action_log_probs = self.actor(
                 experience.sequences, num_actions,
@@ -1036,7 +1044,9 @@ class PPOTrainer(ABC):
                 reduce_mean_per_prompt=True
             )
 
-        elif self.actor_loss_type == "sixo":
+        elif self.actor_loss_type in ["sixo", "sixo_approxneg"]:
+
+            log_psi_on_base_samples = None
 
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
@@ -1057,23 +1067,33 @@ class PPOTrainer(ABC):
             # print(experience.attention_mask[:, :-num_actions])
             # print(experience.attention_mask[:, :-num_actions].shape)
 
-            base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs_from_torch_prompt(
-                experience.sequences[:, :-num_actions],
-                experience.attention_mask[:, :-num_actions],
-            )
-            # TODO not yet tested on multiple different prompts (though I expect it should work)
-            num_actions = base_action_mask.size(1)
+            if self.actor_loss_type == "sixo":
+
+                base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs_from_torch_prompt(
+                    experience.sequences[:, :-num_actions],
+                    experience.attention_mask[:, :-num_actions],
+                )
+                # TODO not yet tested on multiple different prompts (though I expect it should work)
+                num_actions = base_action_mask.size(1)
+
+                print("inspection 03-09")
+                print(base_action_mask)
+                print(base_action_mask.shape)
+                print(base_action_mask.size(1))
+
+                log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions, base_attention_mask,
+                                                                      return_only_modulation=True)
+                log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
+
 
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
             log_psi = log_psi[:, -num_actions:]
 
-            log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions, base_attention_mask, return_only_modulation=True)
 
             # print("ACTOR LOSS STUFF")
             # print(experience.action_log_probs.shape)
             # print(base_action_log_probs.shape)
             # print(log_psi.shape)
-            log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
             # print(log_psi.shape)
 
             # Reshape tensors to group samples by prompt
@@ -1082,7 +1102,8 @@ class PPOTrainer(ABC):
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
             base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
-            log_psi_on_base_samples = log_psi_on_base_samples.view(num_prompts, samples_per_prompt, -1)
+            if log_psi_on_base_samples is not None:
+                log_psi_on_base_samples = log_psi_on_base_samples.view(num_prompts, samples_per_prompt, -1)
 
             # Calculate loss for all groups at once
             actor_loss = self.actor_loss_fn(
