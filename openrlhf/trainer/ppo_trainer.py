@@ -399,27 +399,9 @@ class PPOTrainer(ABC):
                 )
 
                 for rand_prompts in self.prompts_dataloader:
-                    # if not args.no_test_info:
-                    #     print("prompts")
-                    #     print(rand_prompts)
-                    #     f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
-                    #         args, rand_prompts)
-                    #
-                    #     print("f_qs")
-                    #     print(f_qs)
-                    #
-                    #     output = self.tokenizer.batch_decode(
-                    #         q_seqs,
-                    #         skip_special_tokens=True)
-                    #     print("seqs")
-                    #     print(output)
-                    #     print("seqs2")
-                    #     self.strategy.print(output[0])
-                    #     # self.f_q_g_q_evaluation(args, f_q_estimates_list,
-                    #     #                         g_q_estimates_list, iwae_lbs_list,
-                    #     #                         iwae_ubs_list, prompt_text,
-                    #     #                         true_posterior_samples)
-
+                    if not args.no_test_info:
+                        if steps == 1: # do some test at the very beginning
+                            self.test_info_multiprompt(args, rand_prompts)
 
                     experience = self.experience_maker.make_experience(
                         rand_prompts,
@@ -452,32 +434,32 @@ class PPOTrainer(ABC):
 
                         if not args.no_test_info:
                             if steps % args.test_info_every == 0:
-                                print("prompts")
-                                print(rand_prompts)
-                                f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
-                                    args, rand_prompts)
-
-                                print("f_qs")
-                                print(f_qs)
-                                print(f"Avg F_q: {f_qs.mean()}")
-
-                                output = self.tokenizer.batch_decode(
-                                    q_seqs,
-                                    skip_special_tokens=True)
-                                print("seqs")
-                                print(output)
-                                print("seqs2")
-                                self.strategy.print(output[0])
-                                # self.f_q_g_q_evaluation(args, f_q_estimates_list,
-                                #                         g_q_estimates_list, iwae_lbs_list,
-                                #                         iwae_ubs_list, prompt_text,
-                                #                         true_posterior_samples)
-
+                                self.test_info_multiprompt(args, rand_prompts)
 
                     pbar.update()
                     steps = steps + 1
 
         return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
+
+    def test_info_multiprompt(self, args, rand_prompts):
+        print("prompts")
+        print(rand_prompts)
+        f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
+            args, rand_prompts)
+        print("f_qs")
+        print(f_qs)
+        print(f"Avg F_q: {f_qs.mean()}")
+        output = self.tokenizer.batch_decode(
+            q_seqs,
+            skip_special_tokens=True)
+        print("seqs")
+        print(output)
+        print("seqs2")
+        self.strategy.print(output[0])
+        # self.f_q_g_q_evaluation(args, f_q_estimates_list,
+        #                         g_q_estimates_list, iwae_lbs_list,
+        #                         iwae_ubs_list, prompt_text,
+        #                         true_posterior_samples)
 
     def f_q_g_q_evaluation(self, args, f_q_estimates_list, g_q_estimates_list,
                            iwae_lbs_list, iwae_ubs_list,
