@@ -382,14 +382,23 @@ class SIXOLoss(nn.Module):
             print(values_on_base_samples.shape)
 
             if self.approx_neg:
-                raise NotImplementedError # not tested yet
                 # For approximate negative samples, compute weights based on p/q ratio for each prompt
                 log_w_t_approx_p_samples = base_action_log_probs.sum(dim=-1) - curr_log_probs.sum(dim=-1)
                 log_w_t_approx_p_samples = log_w_t_approx_p_samples.detach()
-                
+
+                print("approx neg inspection")
+                print(log_w_t_approx_p_samples.shape)
+
                 # Normalize weights per prompt batch
                 normalized_w_t_approx_p_samples = F.softmax(log_w_t_approx_p_samples, dim=1)  # softmax over samples within each prompt
+
+                print(normalized_w_t_approx_p_samples.shape)
+
                 negative_samples_term = normalized_w_t_approx_p_samples.unsqueeze(-1) * torch.log(1 - F.sigmoid(values))
+
+                print(negative_samples_term.shape)
+
+
             else:
                 # For exact negative samples, use provided base samples
                 negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
