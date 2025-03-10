@@ -267,9 +267,9 @@ def _get_reward_model_custom(
             if separatequeryanswer:
                 assert max_new_tokens is not None
 
-                # print("Toy RLHF inspection")
-                # print(input_ids.shape)
-                # print(max_new_tokens)
+                print("Toy RLHF inspection")
+                print(input_ids.shape)
+                print(max_new_tokens)
 
                 print("input_ids")
                 print(input_ids)
@@ -291,15 +291,15 @@ def _get_reward_model_custom(
                 text_question = list(map(strip_question_chat_template_fn, text_question))
 
                 # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
-                # print(text_question)
-                # print(text_answer)
+                print(text_question)
+                print(text_answer)
 
                 inputs = self.tokenizer_RM(text_question, text_answer,
                                       return_tensors="pt",
                                       padding=True
                                       )
 
-                # print(inputs)
+                print(inputs)
 
                 # output_len = answer_seq.shape[-1]
                 # print(output_len)
@@ -313,13 +313,15 @@ def _get_reward_model_custom(
                           key, value in
                           inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
 
+                print(inputs)
+
                 with torch.no_grad():
                     r = self.rm(**inputs).logits.squeeze(
                         -1).detach()
 
-                # print("reward")
-                # print(r)
-                # 1/0
+                print("reward")
+                print(r)
+                1/0
 
             else:
 

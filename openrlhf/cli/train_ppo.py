@@ -142,6 +142,7 @@ def train(args):
             assert not args.normalize_reward  # Not yet implemented
             base_class = AutoModel._model_mapping[type(config)]
             base_pretrained_class = base_class.__base__
+            strip_question_chat_template_fn = None
             if args.apply_chat_template:
                 if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct"]:
                     def strip_question_chat_template_fn(text):
