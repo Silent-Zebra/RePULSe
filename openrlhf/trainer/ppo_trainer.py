@@ -15,7 +15,7 @@ from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss
 from openrlhf.models.utils import masked_mean
 from openrlhf.utils.distributed_sampler import DistributedSampler
-from openrlhf.utils.utils import get_info_name_str
+from openrlhf.utils.utils import get_info_name_str, tile_prompts
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveExperienceMaker, NaiveReplayBuffer
 
@@ -451,26 +451,27 @@ class PPOTrainer(ABC):
                         self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
 
                         if not args.no_test_info:
-                            print("prompts")
-                            print(rand_prompts)
-                            f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
-                                args, rand_prompts)
+                            if steps % args.test_info_every == 0:
+                                print("prompts")
+                                print(rand_prompts)
+                                f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
+                                    args, rand_prompts)
 
-                            print("f_qs")
-                            print(f_qs)
-                            print(f"Avg F_q: {f_qs.mean()}")
+                                print("f_qs")
+                                print(f_qs)
+                                print(f"Avg F_q: {f_qs.mean()}")
 
-                            output = self.tokenizer.batch_decode(
-                                q_seqs,
-                                skip_special_tokens=True)
-                            print("seqs")
-                            print(output)
-                            print("seqs2")
-                            self.strategy.print(output[0])
-                            # self.f_q_g_q_evaluation(args, f_q_estimates_list,
-                            #                         g_q_estimates_list, iwae_lbs_list,
-                            #                         iwae_ubs_list, prompt_text,
-                            #                         true_posterior_samples)
+                                output = self.tokenizer.batch_decode(
+                                    q_seqs,
+                                    skip_special_tokens=True)
+                                print("seqs")
+                                print(output)
+                                print("seqs2")
+                                self.strategy.print(output[0])
+                                # self.f_q_g_q_evaluation(args, f_q_estimates_list,
+                                #                         g_q_estimates_list, iwae_lbs_list,
+                                #                         iwae_ubs_list, prompt_text,
+                                #                         true_posterior_samples)
 
 
                     pbar.update()
@@ -619,6 +620,7 @@ class PPOTrainer(ABC):
 
     def f_q_estimate(self, args, batch_prompt):
         self.experience_maker.set_all_eval()
+        batch_prompt = tile_prompts(batch_prompt, args.duplicate_rollout_batch_by)
         with torch.no_grad():
             if self.shared_actorcritic:
                 action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_logprobs(
@@ -649,6 +651,8 @@ class PPOTrainer(ABC):
             print(log_tilde_sigma)
             print("f_qs")
             print(f_qs)
+            print(f_qs.shape)
+            1/0
 
         return f_qs, attention_mask, num_actions, sequences
 
