@@ -634,7 +634,6 @@ class PPOTrainer(ABC):
             print("f_qs")
             print(f_qs)
             print(f_qs.shape)
-            1/0
 
         return f_qs, attention_mask, num_actions, sequences
 
