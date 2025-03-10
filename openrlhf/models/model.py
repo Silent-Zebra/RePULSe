@@ -271,8 +271,8 @@ def _get_reward_model_custom(
                 print(input_ids.shape)
                 print(max_new_tokens)
 
-                print("input_ids")
-                print(input_ids)
+                # print("input_ids")
+                # print(input_ids)
 
                 # question_seq = input_ids[:, lstrip_from_question_n_tokens : -self.max_new_tokens - rstrip_from_question_n_tokens]
                 # answer_seq = input_ids[:, -self.max_new_tokens + strip_from_answer_n_tokens : ]
@@ -299,7 +299,7 @@ def _get_reward_model_custom(
                                       padding=True
                                       )
 
-                print(inputs)
+                # print(inputs)
 
                 # output_len = answer_seq.shape[-1]
                 # print(output_len)
@@ -313,7 +313,7 @@ def _get_reward_model_custom(
                           key, value in
                           inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
 
-                print(inputs)
+                # print(inputs)
 
                 with torch.no_grad():
                     r = self.rm(**inputs).logits.squeeze(
@@ -321,7 +321,7 @@ def _get_reward_model_custom(
 
                 print("reward")
                 print(r)
-                1/0
+                # 1/0
 
             else:
 
