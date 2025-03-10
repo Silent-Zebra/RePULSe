@@ -379,7 +379,8 @@ class SIXOLoss(nn.Module):
             print(positive_samples_term.shape)
             print(log_w_t_approx_pi_samples.shape)
             print(normalized_w_t_approx_sigma_samples.shape)
-            print(values_on_base_samples.shape)
+            if values_on_base_samples is not None:
+                print(values_on_base_samples.shape)
 
             if self.approx_neg:
                 # For approximate negative samples, compute weights based on p/q ratio for each prompt
