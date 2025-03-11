@@ -230,6 +230,8 @@ class Actor(nn.Module):
         print("forward_inspection - log_probs")
         print(log_probs.shape)
         print(log_probs)
+        if log_probs.shape[0] == 40:
+            1/0
 
         if return_output:
             return output if num_actions is None else (log_probs[:, -num_actions:], output)
