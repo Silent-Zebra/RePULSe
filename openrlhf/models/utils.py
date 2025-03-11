@@ -35,12 +35,12 @@ def compute_approx_kl(
     print(log_ratio.mean())
     print(log_ratio)
 
-    if log_ratio.mean() < 0:
-        for i in range(log_probs[0].shape):
-            print(f"--{i}--")
-            print(log_probs[i])
-            print(log_probs_base[i])
-            print(action_mask[i])
+    # if log_ratio.mean() < 0:
+    for i in range(log_probs[0].shape[0]):
+        print(f"--{i}--")
+        print(log_probs[i])
+        print(log_probs_base[i])
+        print(action_mask[i])
 
 
     print("--LOG PROBS--")
