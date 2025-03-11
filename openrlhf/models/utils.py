@@ -26,15 +26,15 @@ def compute_approx_kl(
     # print("--KL LOG RATIO--")
     # print(log_ratio.mean())
     # print(log_ratio)
-    # print("--LOG PROBS--")
-    # print(log_probs.mean())
-    # print(log_probs)
-    # print("--LOG PROBS BASE--")
-    # print(log_probs_base.mean())
-    # print(log_probs_base)
-    # print("--ACTION MASK--")
-    # print(action_mask.size())
-    # print(action_mask)
+    print("--LOG PROBS--")
+    print(log_probs.mean())
+    print(log_probs)
+    print("--LOG PROBS BASE--")
+    print(log_probs_base.mean())
+    print(log_probs_base)
+    print("--ACTION MASK--")
+    print(action_mask.size())
+    print(action_mask)
     return log_ratio * action_mask
 
 
@@ -86,6 +86,8 @@ def compute_reward(
 
 def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     log_probs = F.log_softmax(logits, dim=-1)
+    print("log probs full")
+    print(log_probs)
     log_probs_labels = log_probs.gather(dim=-1, index=labels.unsqueeze(-1))
     return log_probs_labels.squeeze(-1)
 
