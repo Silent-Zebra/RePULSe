@@ -189,6 +189,8 @@ class CTLLoss(nn.Module):
     ) -> torch.Tensor:
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
 
+        1/0 # TODO figure out how to deal with EOS and action_mask here
+
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
             # Use vmap to compute weights for all prompts at once
@@ -359,6 +361,7 @@ class SIXOLoss(nn.Module):
         else:
             assert values_on_base_samples is not None
 
+        1/0 # TODO figure out how to deal with EOS and action_mask here
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts

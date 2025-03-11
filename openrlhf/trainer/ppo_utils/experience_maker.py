@@ -156,15 +156,15 @@ class NaiveExperienceMaker(ABC):
         print(sequences)
         print(sequences[0])
         print(sequences[1])
-        print(sequences[5])
-        print(sequences[6])
+        print(sequences[10])
+        print(sequences[11])
 
         print(num_actions)
         print(attention_mask)
         print(attention_mask[0])
         print(attention_mask[1])
-        print(attention_mask[5])
-        print(attention_mask[6])
+        print(attention_mask[10])
+        print(attention_mask[11])
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions,
@@ -358,19 +358,19 @@ class NaiveExperienceMaker(ABC):
         print(prompts)
         print(prompts[0])
         print(prompts[1])
-        print(prompts[5])
-        print(prompts[6])
+        print(prompts[10])
+        print(prompts[11])
 
         print(inputs)
         print(inputs['input_ids'][0])
         print(inputs['input_ids'][1])
-        print(inputs['input_ids'][5])
-        print(inputs['input_ids'][6])
+        print(inputs['input_ids'][10])
+        print(inputs['input_ids'][11])
         print(sequences)
         print(sequences[0])
         print(sequences[1])
-        print(sequences[5])
-        print(sequences[6])
+        print(sequences[10])
+        print(sequences[11])
 
         # if self.shared_actorcritic:
         #     sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,
