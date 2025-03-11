@@ -219,6 +219,7 @@ class Actor(nn.Module):
         output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
 
+        labels = sequences[:, 1:]
         print("forward_inspection - logits")
         print(output["logits"].shape)
         print(output["logits"])
