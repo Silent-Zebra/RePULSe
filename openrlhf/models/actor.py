@@ -212,8 +212,14 @@ class Actor(nn.Module):
             position_ids = reset_position_ids(attention_mask)
         position_ids.masked_fill_(attention_mask == 0, 1)
 
+        print("forward inspection")
+        print(sequences.shape)
+
         output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
+
+        print(output["logits"].shape)
+        print(log_probs.shape)
 
         if return_output:
             return output if num_actions is None else (log_probs[:, -num_actions:], output)
