@@ -155,7 +155,7 @@ class NaiveExperienceMaker(ABC):
         print("action log probs check")
         print(action_log_probs)
 
-        action_log_probs2, _ = self.actor(sequences, num_actions, attention_mask)
+        action_log_probs2 = self.actor(sequences, num_actions, attention_mask)
 
         print(action_log_probs2)
 
