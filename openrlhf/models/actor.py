@@ -160,6 +160,16 @@ class Actor(nn.Module):
 
         sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
+
+
+        print("check1.5")
+        output = self.model(sequences, attention_mask=torch.ones_like(attention_mask))
+        print(output)
+        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
+        print("forward_inspection - log_probs2")
+        print(log_probs.shape)
+        print(log_probs)
+
         print("check2")
         output = self.model(sequences, attention_mask=attention_mask)
         print(output)
