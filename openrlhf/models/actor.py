@@ -119,6 +119,8 @@ class Actor(nn.Module):
         Tuple[torch.LongTensor, torch.LongTensor],
         Tuple[torch.LongTensor, torch.LongTensor, torch.BoolTensor],
     ]:
+        print('hikwargs')
+        print(kwargs)
         print('hihi')
         print(kwargs.get("attention_mask"))
         print('hihi')
@@ -147,7 +149,7 @@ class Actor(nn.Module):
         print('hihi')
         print(generate_args["attention_mask"])
         print('hihi')
-        1/0
+
 
         # Call generate
         sequences = self.model.generate(**generate_args)
@@ -262,10 +264,10 @@ class Actor(nn.Module):
         # print("--Sequences after modification--")
         # print(sequences)
 
-        # For Llama3 and Qwen2 models, there are some eos_tokens in the middle of the prompt.
-        # first_token_indices = attention_mask.long().argmax(dim=1, keepdim=True)
-        # mask = torch.arange(seq_length).unsqueeze(0).expand(sequences.size(0), -1).to(device=sequences.device)
-        # attention_mask = (mask >= first_token_indices) & (mask <= eos_indices).to(dtype=torch.long)
+        # For Llama3 and Qwen2 models (and other models), there are some eos_tokens in the middle of the prompt.
+        first_token_indices = attention_mask.long().argmax(dim=1, keepdim=True)
+        mask = torch.arange(seq_length).unsqueeze(0).expand(sequences.size(0), -1).to(device=sequences.device)
+        attention_mask = (mask >= first_token_indices) & (mask <= eos_indices).to(dtype=torch.long)
 
         # in RL, state_i (current token) + action_i (next token) -> state_i+1 (next token)
         state_seq = sequences[:, input_len - 1 : -1]
