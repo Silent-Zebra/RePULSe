@@ -273,6 +273,7 @@ def train(args):
 
     # configure scheduler
     num_update_steps_per_episodes = len(prompts_dataset) // args.train_batch_size * args.max_epochs
+    num_update_steps_per_episodes = max(num_update_steps_per_episodes, 1) # ensure at least 1
     if args.custom_single_prompt:
         num_update_steps_per_episodes = args.max_epochs
 
