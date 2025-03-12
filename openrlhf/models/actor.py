@@ -143,67 +143,6 @@ class Actor(nn.Module):
         # Call generate
         sequences = self.model.generate(**generate_args)
 
-        print("generated sequences")
-        print(sequences)
-
-        print("check")
-        output = self.model(sequences)
-        print(output)
-        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
-        print("forward_inspection - log_probs")
-        print(log_probs.shape)
-        print(log_probs)
-
-        # TODO REMOVE LATER
-        # Prepare mask tensor
-        eos_token_id = generate_args["eos_token_id"]
-        pad_token_id = generate_args["pad_token_id"]
-
-        sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
-
-
-
-        print("check1.5")
-        output = self.model(sequences, attention_mask=torch.ones_like(attention_mask))
-        print(output)
-        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
-        print("forward_inspection - log_probs2")
-        print(log_probs.shape)
-        print(log_probs)
-
-        print("check2")
-        output = self.model(sequences, attention_mask=attention_mask)
-        print(output)
-        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
-        print("forward_inspection - log_probs2")
-        print(log_probs.shape)
-        print(log_probs)
-
-        """Returns action log probs"""
-        print("packing")
-        print(self.packing_samples)
-
-        if not self.packing_samples:
-            # https://github.com/OpenRLHF/OpenRLHF/issues/217
-            position_ids = attention_mask.long().cumsum(-1) - 1
-        else:
-            # reset the positions for packed samples
-            position_ids = reset_position_ids(attention_mask)
-
-        print(position_ids)
-        position_ids.masked_fill_(attention_mask == 0, 1)
-        print(position_ids)
-
-        print("check3")
-        output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
-        print(output)
-        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
-        print("forward_inspection - log_probs")
-        print(log_probs.shape)
-        print(log_probs)
-
-        1/0
-
         # Prepare mask tensor
         eos_token_id = generate_args["eos_token_id"]
         pad_token_id = generate_args["pad_token_id"]
@@ -235,8 +174,9 @@ class Actor(nn.Module):
         #
 
         eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
-        print("eos_indices")
-        print(eos_indices)
+        # print("eos_indices")
+        # print(eos_indices)
+
         # sequences.scatter_(dim=1, index=eos_indices, value=eos_token_id)
 
         # TODO The above may be the problem
@@ -255,26 +195,26 @@ class Actor(nn.Module):
         # print("--Sequences after modification--")
         # print(sequences)
 
-        print("BEFORE")
-        print(attention_mask)
+        # print("BEFORE")
+        # print(attention_mask)
 
         # For Llama3 and Qwen2 models (and other models), there are some eos_tokens in the middle of the prompt.
         first_token_indices = attention_mask.long().argmax(dim=1, keepdim=True)
         mask = torch.arange(seq_length).unsqueeze(0).expand(sequences.size(0), -1).to(device=sequences.device)
         attention_mask = (mask >= first_token_indices) & (mask <= eos_indices).to(dtype=torch.long)
 
-        print("AFTER")
-        print(attention_mask)
+        # print("AFTER")
+        # print(attention_mask)
 
         # in RL, state_i (current token) + action_i (next token) -> state_i+1 (next token)
         state_seq = sequences[:, input_len - 1 : -1]
         action_mask = state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id)
         action_mask[:, 0] = 1
 
-        print("processed sequences")
-        print(sequences)
-        print(attention_mask)
-        print(action_mask)
+        # print("processed sequences")
+        # print(sequences)
+        # print(attention_mask)
+        # print(action_mask)
 
         return sequences, attention_mask, action_mask
 
