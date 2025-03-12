@@ -37,7 +37,7 @@ def compute_approx_kl(
 
     if log_ratio.mean() < 0:
         # for i in range(log_probs.shape[0]):
-        for i in range(10):
+        for i in range(1):
             print(f"---{i}--")
             print(log_probs[i])
             print(log_probs_base[i])
