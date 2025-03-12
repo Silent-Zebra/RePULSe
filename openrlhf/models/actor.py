@@ -139,6 +139,9 @@ class Actor(nn.Module):
         if kwargs.get("max_length", None):
             generate_args["max_length"] = kwargs.get("max_length")
 
+        print(generate_args['attention_mask'])
+        1/0
+
         # Call generate
         sequences = self.model.generate(**generate_args)
 
@@ -214,6 +217,10 @@ class Actor(nn.Module):
 
     def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
+        # attention_mask = sequences.ne(pad_token_id).to(dtype=torch.long) # Why this is needed; because otherwise you don't attend to the EOS token after the chat templating, which can cause issues
+        # Still mask out all padding tokens though
+        # NO BUT WAIT, EOS TOKEN IS PAD TOKEN. So what should be the right way to deal with this?
+
         seq_length = attention_mask.size(1)
 
         # print("--Sequences before modification--")
