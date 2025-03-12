@@ -152,12 +152,26 @@ class NaiveExperienceMaker(ABC):
                 value = None
 
 
+        print("action log probs check")
+        print(action_log_probs)
+
+        action_log_probs2, _ = self.actor(sequences, num_actions, attention_mask)
+
+        print(action_log_probs2)
+
         print("base action inspection")
         print(sequences)
         print(sequences[0])
         print(sequences[1])
         print(sequences[10])
         print(sequences[11])
+
+        output = self.tokenizer.batch_decode(
+            sequences,
+            skip_special_tokens=True)
+
+        print("text output")
+        print(output)
 
         print(num_actions)
         print(attention_mask)

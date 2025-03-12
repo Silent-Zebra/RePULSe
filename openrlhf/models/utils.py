@@ -36,7 +36,8 @@ def compute_approx_kl(
     print(log_ratio)
 
     if log_ratio.mean() < 0:
-        for i in range(log_probs[0].shape[0]):
+        # for i in range(log_probs.shape[0]):
+        for i in range(10):
             print(f"---{i}--")
             print(log_probs[i])
             print(log_probs_base[i])
@@ -112,6 +113,8 @@ def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
     log_probs = F.log_softmax(logits, dim=-1)
     print("log probs full")
     print(log_probs)
+    print("log probs max")
+    print(log_probs.max(dim=-1))
     log_probs_labels = log_probs.gather(dim=-1, index=labels.unsqueeze(-1))
     return log_probs_labels.squeeze(-1)
 
