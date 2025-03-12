@@ -119,6 +119,8 @@ class Actor(nn.Module):
         Tuple[torch.LongTensor, torch.LongTensor],
         Tuple[torch.LongTensor, torch.LongTensor, torch.BoolTensor],
     ]:
+        print(kwargs.get("attention_mask"))
+
         generate_args = {
             "input_ids": input_ids,
             "top_k": kwargs.get("top_k", None),
@@ -139,7 +141,7 @@ class Actor(nn.Module):
         if kwargs.get("max_length", None):
             generate_args["max_length"] = kwargs.get("max_length")
 
-        print(generate_args['attention_mask'])
+        print(generate_args["attention_mask"])
         1/0
 
         # Call generate
