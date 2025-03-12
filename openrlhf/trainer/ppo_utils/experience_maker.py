@@ -153,16 +153,16 @@ class NaiveExperienceMaker(ABC):
                 value = None
 
 
-        print("action log probs check")
-        print(action_log_probs)
+        # print("action log probs check")
+        # print(action_log_probs)
+        #
+        # action_log_probs2 = self.actor(sequences, num_actions, attention_mask)
+        #
+        # print(action_log_probs2)
 
-        action_log_probs2 = self.actor(sequences, num_actions, attention_mask)
-
-        print(action_log_probs2)
-
-        print("base action inspection")
-        print(sequences)
-        print(sequences[0])
+        # print("base action inspection")
+        # print(sequences)
+        # print(sequences[0])
         # print(sequences[1])
         # print(sequences[10])
         # print(sequences[11])
@@ -171,12 +171,12 @@ class NaiveExperienceMaker(ABC):
             sequences,
             skip_special_tokens=True)
 
-        print("text output")
-        print(output)
-
-        print(num_actions)
-        print(attention_mask)
-        print(attention_mask[0])
+        # print("text output")
+        # print(output)
+        #
+        # print(num_actions)
+        # print(attention_mask)
+        # print(attention_mask[0])
         # print(attention_mask[1])
         # print(attention_mask[10])
         # print(attention_mask[11])
@@ -371,23 +371,23 @@ class NaiveExperienceMaker(ABC):
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
 
-        print("generate_inspection")
-        print(prompts)
-        print(prompts[0])
-        # print(prompts[1])
-        # print(prompts[10])
-        # print(prompts[11])
-
-        print(inputs)
-        print(inputs['input_ids'][0])
-        # print(inputs['input_ids'][1])
-        # print(inputs['input_ids'][10])
-        # print(inputs['input_ids'][11])
-        print(sequences)
-        print(sequences[0])
-        # print(sequences[1])
-        # print(sequences[10])
-        # print(sequences[11])
+        # print("generate_inspection")
+        # print(prompts)
+        # print(prompts[0])
+        # # print(prompts[1])
+        # # print(prompts[10])
+        # # print(prompts[11])
+        #
+        # print(inputs)
+        # print(inputs['input_ids'][0])
+        # # print(inputs['input_ids'][1])
+        # # print(inputs['input_ids'][10])
+        # # print(inputs['input_ids'][11])
+        # print(sequences)
+        # print(sequences[0])
+        # # print(sequences[1])
+        # # print(sequences[10])
+        # # print(sequences[11])
 
         # if self.shared_actorcritic:
         #     sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,

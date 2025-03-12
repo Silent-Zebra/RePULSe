@@ -23,19 +23,31 @@ def compute_approx_kl(
     """
 
     log_ratio = log_probs - log_probs_base
-    print("--ACTION MASK--")
-    print(action_mask.size())
-    print(action_mask)
-    print("--KL LOG RATIO--")
-    print(log_ratio.mean())
-    print(log_ratio)
-    print(log_ratio.size())
-    log_ratio = log_ratio * action_mask
-    print("--KL LOG RATIO AFTER MASK--")
-    print(log_ratio.mean())
-    print(log_ratio)
+    # print("--ACTION MASK--")
+    # print(action_mask.size())
+    # print(action_mask)
+    # print("--KL LOG RATIO--")
+    # print(log_ratio.mean())
+    # print(log_ratio)
+    # print(log_ratio.size())
+    # log_ratio = log_ratio * action_mask
+    # print("--KL LOG RATIO AFTER MASK--")
+    # print(log_ratio.mean())
+    # print(log_ratio)
 
-    if log_ratio.mean() < 0:
+    if log_ratio.mean() < 0: # Diagnostic
+        print("--LOG PROBS--")
+        print(log_probs.mean())
+        print(log_probs)
+        print("--LOG PROBS AFTER MASK--")
+        print((log_probs * action_mask).mean())
+        print(log_probs * action_mask)
+        print("--LOG PROBS BASE--")
+        print(log_probs_base.mean())
+        print(log_probs_base)
+        print("--LOG PROBS BASE AFTER MASK--")
+        print((log_probs_base * action_mask).mean())
+        print(log_probs_base * action_mask)
         # for i in range(log_probs.shape[0]):
         for i in range(1):
             print(f"---{i}--")
@@ -44,18 +56,7 @@ def compute_approx_kl(
             print(action_mask[i])
 
 
-    print("--LOG PROBS--")
-    print(log_probs.mean())
-    print(log_probs)
-    print("--LOG PROBS AFTER MASK--")
-    print((log_probs * action_mask).mean())
-    print(log_probs * action_mask)
-    print("--LOG PROBS BASE--")
-    print(log_probs_base.mean())
-    print(log_probs_base)
-    print("--LOG PROBS BASE AFTER MASK--")
-    print((log_probs_base * action_mask).mean())
-    print(log_probs_base * action_mask)
+
 
     return log_ratio
 

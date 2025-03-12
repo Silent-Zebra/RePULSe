@@ -235,24 +235,24 @@ class Actor(nn.Module):
             position_ids = reset_position_ids(attention_mask)
         position_ids.masked_fill_(attention_mask == 0, 1)
 
-        print("forward_inspection - sequences")
-        print(sequences.shape)
-        print(sequences)
+        # print("forward_inspection - sequences")
+        # print(sequences.shape)
+        # print(sequences)
 
         output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
 
-        labels = sequences[:, 1:]
-        print("forward_inspection - logits")
-        print(output["logits"].shape)
-        print(output["logits"])
-        print("forward_inspection - logits2")
-        print(output["logits"].gather(dim=-1, index=labels.unsqueeze(-1)).shape)
-        print(output["logits"].gather(dim=-1, index=labels.unsqueeze(-1)))
-
-        print("forward_inspection - log_probs")
-        print(log_probs.shape)
-        print(log_probs)
+        # labels = sequences[:, 1:]
+        # print("forward_inspection - logits")
+        # print(output["logits"].shape)
+        # print(output["logits"])
+        # print("forward_inspection - logits2")
+        # print(output["logits"].gather(dim=-1, index=labels.unsqueeze(-1)).shape)
+        # print(output["logits"].gather(dim=-1, index=labels.unsqueeze(-1)))
+        #
+        # print("forward_inspection - log_probs")
+        # print(log_probs.shape)
+        # print(log_probs)
 
 
         if return_output:

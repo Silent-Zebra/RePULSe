@@ -279,9 +279,9 @@ def _get_reward_model_custom(
                 question_seq = input_ids[:, : -self.max_new_tokens]
                 answer_seq = input_ids[:, -self.max_new_tokens : ]
 
-                print("seqs")
-                print(question_seq)
-                print(answer_seq)
+                # print("seqs")
+                # print(question_seq)
+                # print(answer_seq)
 
                 text_question = self.tokenizer.batch_decode(question_seq,
                                                        skip_special_tokens=True)
@@ -291,6 +291,7 @@ def _get_reward_model_custom(
                 text_question = list(map(strip_question_chat_template_fn, text_question))
 
                 # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
+                print("text questions and answers")
                 print(text_question)
                 print(text_answer)
 
