@@ -365,8 +365,8 @@ class NaiveExperienceMaker(ABC):
         # generate seq
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
 
-
-        print(generate_kwargs)
+        # print(inputs)
+        # print(generate_kwargs)
 
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
