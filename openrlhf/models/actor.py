@@ -146,6 +146,10 @@ class Actor(nn.Module):
         eos_token_id = generate_args["eos_token_id"]
         pad_token_id = generate_args["pad_token_id"]
 
+        print(eos_token_id)
+        print(pad_token_id)
+        1/0
+
         return self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
     def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
