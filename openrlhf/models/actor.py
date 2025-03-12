@@ -146,7 +146,25 @@ class Actor(nn.Module):
         print(sequences)
 
         print("check")
-        output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+        output = self.model(sequences)
+        print(output)
+        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
+        print("forward_inspection - log_probs")
+        print(log_probs.shape)
+        print(log_probs)
+
+        print("check2")
+        output = self.model(sequences, attention_mask=generate_args["attention_mask"])
+        print(output)
+        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
+        print("forward_inspection - log_probs")
+        print(log_probs.shape)
+        print(log_probs)
+
+        1/0
+
+        print("check3")
+        # output = self.model(sequences, attention_mask=generate_args["attention_mask"], position_ids=)
         print(output)
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
         print("forward_inspection - log_probs")
