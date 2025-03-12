@@ -238,7 +238,6 @@ class Actor(nn.Module):
         print(sequences)
         print(action_mask)
         print(attention_mask)
-        1/0
 
         return sequences, attention_mask, action_mask
 
