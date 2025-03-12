@@ -137,8 +137,6 @@ class NaiveExperienceMaker(ABC):
     def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, **generate_kwargs) -> Experience:
         expanded_prompts = tile_prompts(prompts, samples_per_prompt)
 
-        print(generate_kwargs['attention_mask'])
-        1/0
 
         if self.shared_actorcritic:
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_logprobs(
@@ -367,6 +365,9 @@ class NaiveExperienceMaker(ABC):
         # generate seq
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
 
+
+        print(generate_kwargs)
+        1/0
 
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
