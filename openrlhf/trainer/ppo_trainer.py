@@ -337,6 +337,10 @@ class PPOTrainer(ABC):
                     #     self.actor.critic_head.bias.data = vhead_bias
                     #     # TODO REMOVE LATER DEBUG ONLY
 
+                    # print(self.generate_kwargs)
+                    # print(self.generate_kwargs['attention_mask'])
+                    # 1/0
+
                     for update in range(num_twist_updates_to_do):
                         experience = self.experience_maker.make_experience(
                             custom_prompt,

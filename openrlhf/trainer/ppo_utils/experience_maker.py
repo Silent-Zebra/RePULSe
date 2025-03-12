@@ -367,7 +367,6 @@ class NaiveExperienceMaker(ABC):
 
 
         print(generate_kwargs)
-        1/0
 
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
