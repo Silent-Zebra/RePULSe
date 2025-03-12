@@ -142,13 +142,15 @@ class Actor(nn.Module):
         # Call generate
         sequences = self.model.generate(**generate_args)
 
+        print("generated sequences")
+        print(sequences)
+
         # Prepare mask tensor
         eos_token_id = generate_args["eos_token_id"]
         pad_token_id = generate_args["pad_token_id"]
 
-        print(eos_token_id)
-        print(pad_token_id)
-        1/0
+        # print(eos_token_id)
+        # print(pad_token_id)
 
         return self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
@@ -197,6 +199,11 @@ class Actor(nn.Module):
         state_seq = sequences[:, input_len - 1 : -1]
         action_mask = state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id)
         action_mask[:, 0] = 1
+
+        print("processed sequences")
+        print(sequences)
+        print(action_mask)
+        print(attention_mask)
 
         return sequences, attention_mask, action_mask
 
