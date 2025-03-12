@@ -153,11 +153,12 @@ class Actor(nn.Module):
         print(log_probs.shape)
         print(log_probs)
 
+        # TODO REMOVE LATER
         # Prepare mask tensor
         eos_token_id = generate_args["eos_token_id"]
         pad_token_id = generate_args["pad_token_id"]
 
-        sequences, action_mask, attention_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
+        sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
         print("check2")
         output = self.model(sequences, attention_mask=attention_mask)
@@ -167,16 +168,29 @@ class Actor(nn.Module):
         print(log_probs.shape)
         print(log_probs)
 
-        1/0
-        #
-        # print("check3")
-        # # output = self.model(sequences, attention_mask=generate_args["attention_mask"], position_ids=)
-        # print(output)
-        # log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
-        # print("forward_inspection - log_probs")
-        # print(log_probs.shape)
-        # print(log_probs)
-        #
+        """Returns action log probs"""
+        print("packing")
+        print(self.packing_samples)
+
+        if not self.packing_samples:
+            # https://github.com/OpenRLHF/OpenRLHF/issues/217
+            position_ids = attention_mask.long().cumsum(-1) - 1
+        else:
+            # reset the positions for packed samples
+            position_ids = reset_position_ids(attention_mask)
+
+        print(position_ids)
+        position_ids.masked_fill_(attention_mask == 0, 1)
+        print(position_ids)
+
+        print("check3")
+        output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+        print(output)
+        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
+        print("forward_inspection - log_probs")
+        print(log_probs.shape)
+        print(log_probs)
+
         1/0
 
         # Prepare mask tensor
@@ -236,8 +250,8 @@ class Actor(nn.Module):
 
         print("processed sequences")
         print(sequences)
-        print(action_mask)
         print(attention_mask)
+        print(action_mask)
 
         return sequences, attention_mask, action_mask
 
