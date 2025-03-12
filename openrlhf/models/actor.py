@@ -153,6 +153,10 @@ class Actor(nn.Module):
         print(log_probs.shape)
         print(log_probs)
 
+        # Prepare mask tensor
+        eos_token_id = generate_args["eos_token_id"]
+        pad_token_id = generate_args["pad_token_id"]
+
         sequences, action_mask, attention_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
         print("check2")
