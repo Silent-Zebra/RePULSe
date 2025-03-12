@@ -162,9 +162,9 @@ class NaiveExperienceMaker(ABC):
         print("base action inspection")
         print(sequences)
         print(sequences[0])
-        print(sequences[1])
-        print(sequences[10])
-        print(sequences[11])
+        # print(sequences[1])
+        # print(sequences[10])
+        # print(sequences[11])
 
         output = self.tokenizer.batch_decode(
             sequences,
@@ -176,9 +176,9 @@ class NaiveExperienceMaker(ABC):
         print(num_actions)
         print(attention_mask)
         print(attention_mask[0])
-        print(attention_mask[1])
-        print(attention_mask[10])
-        print(attention_mask[11])
+        # print(attention_mask[1])
+        # print(attention_mask[10])
+        # print(attention_mask[11])
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions,
@@ -371,20 +371,20 @@ class NaiveExperienceMaker(ABC):
         print("generate_inspection")
         print(prompts)
         print(prompts[0])
-        print(prompts[1])
-        print(prompts[10])
-        print(prompts[11])
+        # print(prompts[1])
+        # print(prompts[10])
+        # print(prompts[11])
 
         print(inputs)
         print(inputs['input_ids'][0])
-        print(inputs['input_ids'][1])
-        print(inputs['input_ids'][10])
-        print(inputs['input_ids'][11])
+        # print(inputs['input_ids'][1])
+        # print(inputs['input_ids'][10])
+        # print(inputs['input_ids'][11])
         print(sequences)
         print(sequences[0])
-        print(sequences[1])
-        print(sequences[10])
-        print(sequences[11])
+        # print(sequences[1])
+        # print(sequences[10])
+        # print(sequences[11])
 
         # if self.shared_actorcritic:
         #     sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,
