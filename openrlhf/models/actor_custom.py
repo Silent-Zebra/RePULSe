@@ -417,7 +417,7 @@ class ActorCustom(nn.Module):
         #             break
         #
 
-        # eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
+        eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
         # sequences.scatter_(dim=1, index=eos_indices, value=eos_token_id)
 
         # TODO The above may be the problem
@@ -701,7 +701,7 @@ class ActorCritic(nn.Module):
         #             break
         #
 
-        # eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
+        eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
         # sequences.scatter_(dim=1, index=eos_indices, value=eos_token_id)
 
         # TODO The above may be the problem
