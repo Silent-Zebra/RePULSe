@@ -194,6 +194,7 @@ class PPOTrainer(ABC):
             threshold,
             reward_cap,
             target_dist_beta,
+            rm_type,
             actor_loss_type,
             self.generate_kwargs['max_new_tokens']
         )

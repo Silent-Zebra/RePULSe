@@ -93,6 +93,7 @@ class NaiveExperienceMaker(ABC):
         threshold=-5.,
         reward_cap=4.5,
         target_dist_beta=1.,
+        rm_type=None,
         actor_loss_type=None,
         max_new_tokens=None,
     ) -> None:
@@ -111,10 +112,11 @@ class NaiveExperienceMaker(ABC):
         self.threshold = threshold
         self.reward_cap = reward_cap
         self.target_dist_beta = target_dist_beta
+        self.rm_type = rm_type
         self.actor_loss_type = actor_loss_type
         self.max_new_tokens = max_new_tokens
 
-        assert self.actor_loss_type is not None
+        assert actor_loss_type is not None
 
         if self.actor_loss_type == "ppo":
             self.multiply_by_beta = False
