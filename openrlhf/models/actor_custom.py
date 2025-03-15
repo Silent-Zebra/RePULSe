@@ -300,7 +300,7 @@ class ActorCustom(nn.Module):
         print(new_layer.weight.mean())
         print(new_layer.weight)
 
-        new_layer.weight /= additional_sd_divider
+        new_layer.weight.data /= additional_sd_divider
 
         print("NEW LAYER WEIGHT 3")
         print(new_layer.weight.mean())
