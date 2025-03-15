@@ -307,8 +307,6 @@ class ActorCustom(nn.Module):
         print(new_layer.weight)
         # ALSO TODO: ensure that the sampling matches the prob under the model.
 
-        1/0
-
         if new_layer.bias is not None:
             nn.init.zeros_(new_layer.bias)
 
