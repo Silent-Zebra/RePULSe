@@ -206,6 +206,7 @@ class ActorCustom(nn.Module):
         ds_config=None,
         device_map=None,
         packing_samples=False,
+        additional_sd_divider=1.,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -290,19 +291,23 @@ class ActorCustom(nn.Module):
         new_layer = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features, )
 
         print("NEW LAYER WEIGHT 1")
+        print(new_layer.weight.mean())
         print(new_layer.weight)
 
         nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
 
         print("NEW LAYER WEIGHT 2")
+        print(new_layer.weight.mean())
         print(new_layer.weight)
-        # TODO: if still doing nonsense, later try actual 0s and ensure it works, at least in the first iteration
+
+        new_layer.weight /= additional_sd_divider
+
+        print("NEW LAYER WEIGHT 3")
+        print(new_layer.weight.mean())
+        print(new_layer.weight)
         # ALSO TODO: ensure that the sampling matches the prob under the model.
 
-        # new_layer.weight.data *= 0 # TODO DEBUG ONLY REMOVE LATER
-        #
-        # print("NEW LAYER WEIGHT 3")
-        # print(new_layer.weight)
+        1/0
 
         if new_layer.bias is not None:
             nn.init.zeros_(new_layer.bias)

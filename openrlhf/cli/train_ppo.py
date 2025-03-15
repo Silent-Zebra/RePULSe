@@ -65,6 +65,7 @@ def train(args):
                 target_modules=args.target_modules,
                 lora_dropout=args.lora_dropout,
                 ds_config=strategy.get_ds_train_config(is_actor=True),
+                additional_sd_divider=args.additional_sd_divider
             )
         else:
             # configure model
@@ -620,6 +621,9 @@ if __name__ == "__main__":
     parser.add_argument("--no_critic", action="store_true", help="Do not use a critic")
 
     parser.add_argument("--clamp_reward", action="store_true", help="Clamp reward between -10 and 10")
+
+    parser.add_argument("--additional_sd_divider", type=float, default=1., help="Reduce the SD on initialization of final linear layer (for CustomActor / --actor_modulates_base) further; additional divisor on SD")
+
 
     parser.add_argument(
         "--lr_scheduler", type=str, default="cosine_with_min_lr",
