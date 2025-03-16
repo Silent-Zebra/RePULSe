@@ -100,7 +100,7 @@ def compute_reward(
     last_reward = torch.zeros_like(kl).scatter_(dim=1, index=eos_indices, src=r.unsqueeze(1).to(kl.dtype))
 
     print("--EOS INDICES--")
-    print(eos_indices)
+    print(eos_indices.squeeze(-1))
 
     print("--LAST REWARD--")
     print(last_reward.mean())

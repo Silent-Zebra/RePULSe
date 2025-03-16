@@ -468,7 +468,7 @@ class ActorCustom(nn.Module):
         if return_only_modulation:
             assert not use_for_generation
             base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
-            log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=True)
+            # log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=True)
 
             # TODO something like the below on the modulation, check that everything makes sense and prompt_len should be correct
             # (Check how was it defined elsewhere? Where did I get prompt_len for the other actor/critic modules?

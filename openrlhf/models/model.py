@@ -290,6 +290,9 @@ def _get_reward_model_custom(
 
                 text_question = list(map(strip_question_chat_template_fn, text_question))
 
+                print("attention_mask")
+                print(attention_mask)
+
                 # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
                 print("text questions and answers")
                 print(text_question)
