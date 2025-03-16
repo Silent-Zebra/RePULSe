@@ -228,8 +228,8 @@ class CTLLoss(nn.Module):
         # print("After mask")
         # print(curr_log_probs.sum(-1))
 
-        # if action_mask.shape[-1] > 50: # Where EOS may start to come into play.
-        #     raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED")
+        if action_mask.shape[-1] > 50: # Where EOS may start to come into play.
+            raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
@@ -418,8 +418,8 @@ class SIXOLoss(nn.Module):
         # print("After mask")
         # print(curr_log_probs.sum(-1))
 
-        # if action_mask.shape[-1] > 50:  # Where EOS may start to come into play.
-        #     raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED")
+        if action_mask.shape[-1] > 50:  # Where EOS may start to come into play.
+            raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
 
 
         if reduce_mean_per_prompt:
