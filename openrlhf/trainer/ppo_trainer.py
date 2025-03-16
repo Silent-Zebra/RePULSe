@@ -991,10 +991,12 @@ class PPOTrainer(ABC):
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
 
-        # print("inspection 03-09")
-        # print(experience.action_mask)
-        # print(experience.action_mask.shape)
+        print("inspection 03-15")
+        print(experience.action_mask)
+        print(experience.action_mask.shape)
         # print(experience.action_mask.size(1))
+        print(experience.sequences)
+        print(experience.sequences.shape)
 
 
         if self.actor_loss_type == "ppo":
