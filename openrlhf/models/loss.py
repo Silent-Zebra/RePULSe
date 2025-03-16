@@ -42,15 +42,15 @@ class PolicyLoss(nn.Module):
         action_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
 
-        print("PPO ACTOR LOSS STUFF")
-        print(log_probs.shape)
-        print(log_probs)
-        print(old_log_probs.shape)
-        print(old_log_probs)
-        print(advantages.shape)
-        print(advantages)
-        print(action_mask.shape)
-        print(action_mask)
+        # print("PPO ACTOR LOSS STUFF")
+        # print(log_probs.shape)
+        # print(log_probs)
+        # print(old_log_probs.shape)
+        # print(old_log_probs)
+        # print(advantages.shape)
+        # print(advantages)
+        # print(action_mask.shape)
+        # print(action_mask)
 
 
         ratio = (log_probs - old_log_probs).exp()
@@ -200,6 +200,12 @@ class CTLLoss(nn.Module):
         reduce_mean_per_prompt: bool = False,
     ) -> torch.Tensor:
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
+        # Note that if you were to do resampling, we would need to figure out how to deal with varying sequence lengths (when EOS generated)
+        # Right now, the code does right padding (replay buffer swaps padding from left to right), which I think is a big problem for resampling
+        # It's fine for SIS, because the log probs are invariant to padding as long as you pass in the right attention mask
+        # But for intermediate resampling, I imagine we probably want left padding instead. And then there's the question of what happens after EOS is generated
+        # If you resample a sequence that has EOS, is it just stuck like that forever afterwards?
+        # Should investigate how people doing SMC for LLM (maybe Lew et al also) deal with this issue, but that will be for later when doing resampling
 
         1/0 # TODO figure out how to deal with EOS and action_mask here
 

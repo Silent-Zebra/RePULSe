@@ -1039,6 +1039,18 @@ class PPOTrainer(ABC):
             exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
             base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
 
+            print("CTL INSPECTION")
+            print(log_psi.shape)
+            print(log_psi)
+            print(log_phi.shape)
+            print(log_phi)
+            print(exper_action_mask.shape)
+            print(exper_action_mask)
+            print(exper_action_log_probs.shape)
+            print(exper_action_log_probs)
+            print(base_action_log_probs.shape)
+            print(base_action_log_probs)
+
             # Calculate loss for all groups at once
             actor_loss = self.actor_loss_fn(
                 log_psi,  # shape: [num_prompts, samples_per_prompt, num_actions]
