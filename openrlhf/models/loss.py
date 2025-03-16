@@ -214,7 +214,11 @@ class CTLLoss(nn.Module):
         print(action_mask)
         print(curr_log_probs.shape)
         print(curr_log_probs)
+        print(curr_log_probs.sum(-1))
+        print(base_action_log_probs.shape)
+        print(base_action_log_probs)
         print(values.shape)
+        print(values)
 
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
         curr_log_probs *= action_mask
@@ -222,7 +226,7 @@ class CTLLoss(nn.Module):
         # The masked mean at the end will take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
 
         print("After mask")
-        print(curr_log_probs)
+        print(curr_log_probs.sum(-1))
 
         1/0 # TODO figure out how to deal with EOS and action_mask here
 
