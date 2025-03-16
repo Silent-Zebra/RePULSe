@@ -41,6 +41,18 @@ class PolicyLoss(nn.Module):
         advantages: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+
+        print("PPO ACTOR LOSS STUFF")
+        print(log_probs.shape)
+        print(log_probs)
+        print(old_log_probs.shape)
+        print(old_log_probs)
+        print(advantages.shape)
+        print(advantages)
+        print(action_mask.shape)
+        print(action_mask)
+
+
         ratio = (log_probs - old_log_probs).exp()
         surr1 = ratio * advantages
         surr2 = ratio.clamp(1 - self.clip_eps, 1 + self.clip_eps) * advantages
