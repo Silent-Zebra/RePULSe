@@ -208,30 +208,28 @@ class CTLLoss(nn.Module):
         # Should investigate how people doing SMC for LLM (maybe Lew et al also) deal with this issue, but that will be for later when doing resampling
 
 
-
-        print("CTLLOSS INSPECTION")
-        print(action_mask.shape)
-        print(action_mask)
-        print(curr_log_probs.shape)
-        print(curr_log_probs)
-        print(curr_log_probs.sum(-1))
-        print(base_action_log_probs.shape)
-        print(base_action_log_probs)
-        print(values.shape)
-        print(values)
+        # print("CTLLOSS INSPECTION")
+        # print(action_mask.shape)
+        # print(action_mask)
+        # print(curr_log_probs.shape)
+        # print(curr_log_probs)
+        # print(curr_log_probs.sum(-1))
+        # print(base_action_log_probs.shape)
+        # print(base_action_log_probs)
+        # print(values.shape)
+        # print(values)
 
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
-        curr_log_probs *= action_mask
+        # curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
         base_action_log_probs *= action_mask
-        # The masked mean at the end will take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
+        values *= action_mask # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
+        # But I'm leaving the above just to be safe; TODO later can test to ensure this is the case.
 
-        print("After mask")
-        print(curr_log_probs.sum(-1))
+        # print("After mask")
+        # print(curr_log_probs.sum(-1))
 
-        1/0 # TODO figure out how to deal with EOS and action_mask here
-
-        if action_mask.shape[-1] > 100:
-            raise Exception("CHECK THE EOS AND PADDING CAREFULLY, ENSURE IT WORKS AS EXPECTED")
+        if action_mask.shape[-1] > 50: # Where EOS may start to come into play.
+            raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED")
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
@@ -403,7 +401,26 @@ class SIXOLoss(nn.Module):
         else:
             assert values_on_base_samples is not None
 
-        1/0 # TODO figure out how to deal with EOS and action_mask here
+        # NOTE: this version of SIXOLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
+        # Note that if you were to do resampling, we would need to figure out how to deal with varying sequence lengths (when EOS generated)
+        # Right now, the code does right padding (replay buffer swaps padding from left to right), which I think is a big problem for resampling
+        # It's fine for SIS, because the log probs are invariant to padding as long as you pass in the right attention mask
+        # But for intermediate resampling, I imagine we probably want left padding instead. And then there's the question of what happens after EOS is generated
+        # If you resample a sequence that has EOS, is it just stuck like that forever afterwards?
+        # Should investigate how people doing SMC for LLM (maybe Lew et al also) deal with this issue, but that will be for later when doing resampling
+
+        # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
+        # curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
+        base_action_log_probs *= action_mask
+        values *= action_mask  # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
+        # But I'm leaving the above just to be safe; TODO later can test to ensure this is the case.
+
+        # print("After mask")
+        # print(curr_log_probs.sum(-1))
+
+        if action_mask.shape[-1] > 50:  # Where EOS may start to come into play.
+            raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED")
+
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
