@@ -207,6 +207,21 @@ class CTLLoss(nn.Module):
         # If you resample a sequence that has EOS, is it just stuck like that forever afterwards?
         # Should investigate how people doing SMC for LLM (maybe Lew et al also) deal with this issue, but that will be for later when doing resampling
 
+        print("CTLLOSS INSPECTION")
+        print(action_mask.shape)
+        print(action_mask)
+        print(curr_log_probs.shape)
+        print(curr_log_probs)
+        print(values.shape)
+
+        # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
+        curr_log_probs *= action_mask
+        base_action_log_probs *= action_mask
+        # The masked mean at the end will take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
+
+        print("After mask")
+        print(curr_log_probs)
+
         1/0 # TODO figure out how to deal with EOS and action_mask here
 
         if reduce_mean_per_prompt:

@@ -1004,6 +1004,12 @@ class PPOTrainer(ABC):
                 experience.sequences, num_actions,
                 attention_mask=experience.attention_mask, return_output=False
             )  # TODO later revert this and fix the above (return_output=True)
+
+            # print(action_log_probs)
+            # print(experience.action_log_probs)
+            # print(experience.advantages)
+            # print(experience.action_mask)
+
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
                 experience.action_log_probs,
@@ -1029,7 +1035,7 @@ class PPOTrainer(ABC):
             # print(experience.action_log_probs.shape)
             # print(base_action_log_probs.shape)
             # print(log_psi.shape)
-            log_psi = log_psi[:, -num_actions:]
+            # log_psi = log_psi[:, -num_actions:]
             # print(log_psi.shape)
 
             # Reshape tensors to group samples by prompt
@@ -1101,12 +1107,11 @@ class PPOTrainer(ABC):
 
                 log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions, base_attention_mask,
                                                                       return_only_modulation=True)
-                log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
+                # log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
 
 
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
-            log_psi = log_psi[:, -num_actions:]
-
+            # log_psi = log_psi[:, -num_actions:]
 
             # print("ACTOR LOSS STUFF")
             # print(experience.action_log_probs.shape)
