@@ -1040,14 +1040,20 @@ class PPOTrainer(ABC):
             base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
 
             print("CTL INSPECTION")
-            print(log_psi.shape)
-            print(log_psi)
-            print(log_phi.shape)
-            print(log_phi)
+            print(experience.sequences.shape)
+            print(experience.sequences)
+            print(experience.attention_mask.shape)
+            print(experience.attention_mask)
             print(exper_action_mask.shape)
             print(exper_action_mask)
             print(exper_action_log_probs.shape)
             print(exper_action_log_probs)
+
+            print(log_psi.shape)
+            print(log_psi)
+            print(log_phi.shape)
+            print(log_phi)
+
             print(base_action_log_probs.shape)
             print(base_action_log_probs)
 
