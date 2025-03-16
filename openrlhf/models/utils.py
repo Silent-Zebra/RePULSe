@@ -30,7 +30,9 @@ def compute_approx_kl(
     # print(log_ratio.mean())
     # print(log_ratio)
     # print(log_ratio.size())
-    # log_ratio = log_ratio * action_mask
+
+    log_ratio = log_ratio * action_mask
+
     # print("--KL LOG RATIO AFTER MASK--")
     # print(log_ratio.mean())
     # print(log_ratio)
@@ -71,6 +73,9 @@ def compute_reward(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     if kl_coef <= 0.0:
         kl_coef = 0.0
+
+    print("action_mask")
+    print(action_mask)
 
     kl = compute_approx_kl(log_probs, log_probs_base, action_mask=action_mask)
     kl_reward = -kl_coef * kl
