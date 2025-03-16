@@ -207,6 +207,8 @@ class CTLLoss(nn.Module):
         # If you resample a sequence that has EOS, is it just stuck like that forever afterwards?
         # Should investigate how people doing SMC for LLM (maybe Lew et al also) deal with this issue, but that will be for later when doing resampling
 
+
+
         print("CTLLOSS INSPECTION")
         print(action_mask.shape)
         print(action_mask)
@@ -223,6 +225,9 @@ class CTLLoss(nn.Module):
         print(curr_log_probs)
 
         1/0 # TODO figure out how to deal with EOS and action_mask here
+
+        if action_mask.shape[-1] > 100:
+            raise Exception("CHECK THE EOS AND PADDING CAREFULLY, ENSURE IT WORKS AS EXPECTED")
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
