@@ -206,7 +206,7 @@ class CTLLoss(nn.Module):
         # If you resample a sequence that has EOS, is it just stuck like that forever afterwards?
         # Should investigate how people doing SMC for LLM (maybe Lew et al also) deal with this issue, but that will be for later when doing resampling
 
-        print(values.shape)
+        # print(values.shape)
         if len(values.shape) == 3:
             reduce_mean_per_prompt = True
         elif len(values.shape) == 2:
@@ -214,8 +214,7 @@ class CTLLoss(nn.Module):
         else:
             raise NotImplementederror
 
-        print(reduce_mean_per_prompt)
-        1/0
+        # print(reduce_mean_per_prompt)
 
         # print("CTLLOSS INSPECTION")
         # print(action_mask.shape)
@@ -409,7 +408,7 @@ class SIXOLoss(nn.Module):
         else:
             assert values_on_base_samples is not None
 
-        print(values.shape)
+        # print(values.shape)
         if len(values.shape) == 3:
             reduce_mean_per_prompt = True
         elif len(values.shape) == 2:
@@ -417,8 +416,7 @@ class SIXOLoss(nn.Module):
         else:
             raise NotImplementederror
 
-        print(reduce_mean_per_prompt)
-        1 / 0
+        # print(reduce_mean_per_prompt)
 
         # NOTE: this version of SIXOLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
         # Note that if you were to do resampling, we would need to figure out how to deal with varying sequence lengths (when EOS generated)
