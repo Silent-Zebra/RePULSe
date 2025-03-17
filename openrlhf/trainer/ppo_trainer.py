@@ -140,6 +140,11 @@ class PPOTrainer(ABC):
         else:
             raise NotImplementedError
 
+        if self.actor_loss_type == "ppo":
+            self.shuffle_replay_buffer_sample = True
+        else:
+            self.shuffle_replay_buffer_sample = False
+
 
         self.critic_loss_type = critic_loss_type
         if critic_loss_type == "mse":
@@ -716,7 +721,7 @@ class PPOTrainer(ABC):
         dataloader = DataLoader(
             self.replay_buffer,
             batch_size=self.replay_buffer.sample_batch_size,
-            shuffle=True,
+            shuffle=self.shuffle_replay_buffer_sample,
             drop_last=True,
             pin_memory=self.dataloader_pin_memory,
             collate_fn=self.replay_buffer.collate_fn,
