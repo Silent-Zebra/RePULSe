@@ -1070,7 +1070,7 @@ class PPOTrainer(ABC):
                 exper_action_mask,
                 exper_action_log_probs,
                 base_action_log_probs,
-                reduce_mean_per_prompt=True
+                # reduce_mean_per_prompt=True
             )
 
         elif self.actor_loss_type in ["sixo", "sixo_approxneg"]:
@@ -1136,7 +1136,7 @@ class PPOTrainer(ABC):
                 exper_action_log_probs,
                 base_action_log_probs,
                 log_psi_on_base_samples,
-                reduce_mean_per_prompt=True
+                # reduce_mean_per_prompt=True
             )
 
         else:
