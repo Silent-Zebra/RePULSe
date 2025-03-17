@@ -268,6 +268,12 @@ class PPOTrainer(ABC):
         start_episode = consumed_samples // args.rollout_batch_size // num_rollouts_per_episodes
         consumed_samples = consumed_samples % (num_rollouts_per_episodes * args.rollout_batch_size)
 
+        print("INSPECT2")
+        print(steps)
+        print(start_episode)
+        print(consumed_samples)
+
+
         iwae_lbs_list = []
         iwae_ubs_list = []
         f_q_estimates_list = []
