@@ -200,6 +200,12 @@ class DeepspeedStrategy(ABC):
         is_actor = isinstance(model, Actor)
         ds_config = self.get_ds_train_config(is_actor)
 
+        print("DS CONFIG")
+        print(ds_config)
+        ds_config['gradient_accumulation_steps'] = 1
+        print(ds_config)
+
+
         engine, optim, _, scheduler = deepspeed.initialize(
             model=model.model if is_actor else model,
             optimizer=optim,
