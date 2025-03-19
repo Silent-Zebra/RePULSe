@@ -112,7 +112,6 @@ class DistributedSampler(Sampler[_T_co]):
         print(self.num_replicas)
         print(self.total_size)
         print(consumed_samples)
-        1 / 0
 
     def __iter__(self) -> Iterator[_T_co]:
         if self.shuffle:
