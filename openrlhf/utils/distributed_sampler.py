@@ -106,12 +106,12 @@ class DistributedSampler(Sampler[_T_co]):
         self.seed = seed
         self.consumed_indicies = consumed_samples // self.num_replicas
 
-        print("distributed sampler info")
-        print(self.num_samples)
-        print(len(self.dataset))
-        print(self.num_replicas)
-        print(self.total_size)
-        print(consumed_samples)
+        # print("distributed sampler info")
+        # print(self.num_samples)
+        # print(len(self.dataset))
+        # print(self.num_replicas)
+        # print(self.total_size)
+        # print(consumed_samples)
 
     def __iter__(self) -> Iterator[_T_co]:
         if self.shuffle:
@@ -140,13 +140,13 @@ class DistributedSampler(Sampler[_T_co]):
         indices = indices[self.consumed_indicies :]
         assert len(indices) == self.num_samples - self.consumed_indicies
 
-        print("distributed sampler info2")
-        print(self.num_samples)
-        print(self.total_size)
-        print(len(self.dataset))
-        print(self.num_replicas)
-        print(self.total_size)
-        print(self.consumed_indicies)
+        # print("distributed sampler info2")
+        # print(self.num_samples)
+        # print(self.total_size)
+        # print(len(self.dataset))
+        # print(self.num_replicas)
+        # print(self.total_size)
+        # print(self.consumed_indicies)
 
         return iter(indices)
 
