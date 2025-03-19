@@ -99,10 +99,20 @@ class DistributedSampler(Sampler[_T_co]):
             )
         else:
             self.num_samples = math.ceil(len(self.dataset) / self.num_replicas)  # type: ignore[arg-type]
+
+
         self.total_size = self.num_samples * self.num_replicas
         self.shuffle = shuffle
         self.seed = seed
         self.consumed_indicies = consumed_samples // self.num_replicas
+
+        print("distributed sampler info")
+        print(self.num_samples)
+        print(len(self.dataset))
+        print(self.num_replicas)
+        print(self.total_size)
+        print(consumed_samples)
+        1 / 0
 
     def __iter__(self) -> Iterator[_T_co]:
         if self.shuffle:
