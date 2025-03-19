@@ -427,7 +427,15 @@ class PPOTrainer(ABC):
                     disable=not self.strategy.is_rank_0(),
                 )
 
+                print("DATALOADER")
+                print(self.prompts_dataloader.sampler, flush=True)
+                print(self.prompts_dataloader.__len__(), flush=True)
+
                 for rand_prompts in self.prompts_dataloader:
+
+                    print("rand_prompts")
+                    print(rand_prompts, flush=True)
+
                     if not args.no_test_info:
                         if steps == 1: # do some test at the very beginning
                             self.test_info_multiprompt(args, rand_prompts)
