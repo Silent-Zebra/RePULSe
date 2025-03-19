@@ -183,27 +183,24 @@ class DeepspeedStrategy(ABC):
             return model
 
     def prepare(
-        self, *models_or_model_optim_pairs: ModelOrModelOptimPair, is_rlhf=False
+        self, *models_or_model_optim_pairs: ModelOrModelOptimPair, is_rlhf=False, gradient_accumulation_steps=1
     ) -> Union[List[ModelOrModelOptimPair], ModelOrModelOptimPair]:
         ret = []
         self.is_rlhf = is_rlhf
         for arg in models_or_model_optim_pairs:
             if isinstance(arg, tuple):
                 assert len(arg) == 3, f'Expect (model, optimizer, scheduler) pair, got a tuple with size "{len(arg)}"'
-                ret.append(self._ds_init_train_model(*arg))
+                ret.append(self._ds_init_train_model(*arg, gradient_accumulation_steps=gradient_accumulation_steps))
             else:
                 ret.append(self._ds_init_eval_model(arg))
 
         return ret[0] if len(ret) == 1 else ret
 
-    def _ds_init_train_model(self, model, optim, scheduler):
+    def _ds_init_train_model(self, model, optim, scheduler, gradient_accumulation_steps=1):
         is_actor = isinstance(model, Actor)
         ds_config = self.get_ds_train_config(is_actor)
 
-        print("DS CONFIG")
-        print(ds_config)
-        ds_config['gradient_accumulation_steps'] = 1
-        print(ds_config)
+        ds_config['gradient_accumulation_steps'] = gradient_accumulation_steps
 
 
         engine, optim, _, scheduler = deepspeed.initialize(

@@ -311,6 +311,7 @@ def train(args):
             reward_model,
             initial_model,
             is_rlhf=True,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
     else:
         (
@@ -322,11 +323,13 @@ def train(args):
             reward_model,
             initial_model,
             is_rlhf=True,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
 
     if ema_model:
         ema_model._offload = True
-        ema_model = strategy.prepare(ema_model, is_rlhf=True)
+        ema_model = strategy.prepare(ema_model, is_rlhf=True,
+                                     gradient_accumulation_steps=args.gradient_accumulation_steps)
 
     # load checkpoint
     consumed_samples = 0
@@ -624,6 +627,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--additional_sd_divider", type=float, default=1., help="Reduce the SD on initialization of final linear layer (for CustomActor / --actor_modulates_base) further; additional divisor on SD")
 
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="gradient_accumulation_steps deepspeed config hyperparameter")
 
     parser.add_argument(
         "--lr_scheduler", type=str, default="cosine_with_min_lr",
