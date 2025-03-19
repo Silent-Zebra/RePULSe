@@ -140,6 +140,14 @@ class DistributedSampler(Sampler[_T_co]):
         indices = indices[self.consumed_indicies :]
         assert len(indices) == self.num_samples - self.consumed_indicies
 
+        print("distributed sampler info2")
+        print(self.num_samples)
+        print(self.total_size)
+        print(len(self.dataset))
+        print(self.num_replicas)
+        print(self.total_size)
+        print(self.consumed_indicies)
+
         return iter(indices)
 
     def __len__(self) -> int:
