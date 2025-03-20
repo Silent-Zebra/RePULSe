@@ -295,7 +295,8 @@ class ActorCustom(nn.Module):
             print(self.model.lm_head.bias)
 
             self.model.lm_head.weight.data /= additional_sd_divider
-            self.model.lm_head.bias.data /= additional_sd_divider
+            if model.lm_head.bias is not None:
+                self.model.lm_head.bias.data /= additional_sd_divider
 
             print(self.model.lm_head.weight)
             print(self.model.lm_head.bias)
