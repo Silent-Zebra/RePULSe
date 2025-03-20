@@ -300,7 +300,6 @@ class ActorCustom(nn.Module):
 
             print(self.model.lm_head.weight)
             print(self.model.lm_head.bias)
-            1/0
 
         else:
 
