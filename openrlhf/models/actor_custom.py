@@ -207,6 +207,7 @@ class ActorCustom(nn.Module):
         device_map=None,
         packing_samples=False,
         additional_sd_divider=1.,
+        init_head_from_base=False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -287,30 +288,45 @@ class ActorCustom(nn.Module):
         else:
             self.model = pretrain_or_model
 
-        # Custom new linear (or later NN) head in order to output modifier to logits
-        new_layer = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features, )
+        if init_head_from_base:
 
-        print("NEW LAYER WEIGHT 1")
-        print(new_layer.weight.mean())
-        print(new_layer.weight)
+            print(self.model.lm_head)
+            print(self.model.lm_head.weight)
+            print(self.model.lm_head.bias)
 
-        nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
+            self.model.lm_head.weight.data /= additional_sd_divider
+            self.model.lm_head.bias.data /= additional_sd_divider
 
-        print("NEW LAYER WEIGHT 2")
-        print(new_layer.weight.mean())
-        print(new_layer.weight)
+            print(self.model.lm_head.weight)
+            print(self.model.lm_head.bias)
+            1/0
 
-        new_layer.weight.data /= additional_sd_divider
+        else:
 
-        print("NEW LAYER WEIGHT 3")
-        print(new_layer.weight.mean())
-        print(new_layer.weight)
-        # ALSO TODO: ensure that the sampling matches the prob under the model.
+            # Custom new linear (or later NN) head in order to output modifier to logits
+            new_layer = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features, )
 
-        if new_layer.bias is not None:
-            nn.init.zeros_(new_layer.bias)
+            print("NEW LAYER WEIGHT 1")
+            print(new_layer.weight.mean())
+            print(new_layer.weight)
 
-        self.model.lm_head = new_layer
+            nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
+
+            print("NEW LAYER WEIGHT 2")
+            print(new_layer.weight.mean())
+            print(new_layer.weight)
+
+            new_layer.weight.data /= additional_sd_divider
+
+            print("NEW LAYER WEIGHT 3")
+            print(new_layer.weight.mean())
+            print(new_layer.weight)
+            # ALSO TODO: ensure that the sampling matches the prob under the model.
+
+            if new_layer.bias is not None:
+                nn.init.zeros_(new_layer.bias)
+
+            self.model.lm_head = new_layer
 
 
 
