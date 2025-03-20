@@ -276,8 +276,8 @@ def _get_reward_model_custom(
 
                 # question_seq = input_ids[:, lstrip_from_question_n_tokens : -self.max_new_tokens - rstrip_from_question_n_tokens]
                 # answer_seq = input_ids[:, -self.max_new_tokens + strip_from_answer_n_tokens : ]
-                question_seq = input_ids[:, : -self.max_new_tokens]
-                answer_seq = input_ids[:, -self.max_new_tokens : ]
+                # question_seq = input_ids[:, : -self.max_new_tokens]
+                # answer_seq = input_ids[:, -self.max_new_tokens : ]
 
 
 
@@ -285,12 +285,17 @@ def _get_reward_model_custom(
                 # print(question_seq)
                 # print(answer_seq)
 
-                text_question = self.tokenizer.batch_decode(question_seq,
-                                                       skip_special_tokens=True)
-                text_answer = self.tokenizer.batch_decode(answer_seq,
-                                                     skip_special_tokens=True)
+                # text_question = self.tokenizer.batch_decode(question_seq,
+                #                                        skip_special_tokens=True)
+                # text_answer = self.tokenizer.batch_decode(answer_seq,
+                #                                      skip_special_tokens=True)
 
-                text_question = list(map(strip_question_chat_template_fn, text_question))
+                text = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+
+                qa_list = list(map(strip_question_chat_template_fn, text))
+                text_question, text_answer = map(list, zip(*qa_list))
+                # text_questions = list(map(lambda x: x[0], qa_list))
+                # text_answers = list(map(lambda x: x[1], qa_list))
 
                 print("attention_mask")
                 print(attention_mask)
