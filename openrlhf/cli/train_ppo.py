@@ -148,7 +148,7 @@ def train(args):
             if args.apply_chat_template:
                 if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct", "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct", "meta-llama/Llama-3.2-3B-Instruct" ]:
                     def strip_question_chat_template_fn(text):
-                        question, answer = text.split('assistant\n')
+                        question, answer = text.split('assistant\n', maxsplit=1) # in case 'assistant\n' shows up in the output, only split on the first occurrence
                         question = question.split('user\n')[-1].strip('\n')
                         # return text.removeprefix('user\n').removesuffix('\nassistant\n')
                         return question, answer
