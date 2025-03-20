@@ -296,9 +296,9 @@ def _get_reward_model_custom(
 
                 qa_list = list(map(strip_question_chat_template_fn, text))
 
-                print(qa_list)
-
-                print(list(zip(*qa_list)))
+                # print(qa_list)
+                #
+                # print(list(zip(*qa_list)))
 
                 text_question, text_answer = map(list, zip(*qa_list))
                 # text_questions = list(map(lambda x: x[0], qa_list))
@@ -312,7 +312,7 @@ def _get_reward_model_custom(
                 print(text_question)
                 print(text_answer)
 
-                1 / 0
+                # 1 / 0
 
                 inputs = self.tokenizer_RM(text_question, text_answer,
                                       return_tensors="pt",
