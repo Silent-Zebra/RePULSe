@@ -279,6 +279,8 @@ def _get_reward_model_custom(
                 question_seq = input_ids[:, : -self.max_new_tokens]
                 answer_seq = input_ids[:, -self.max_new_tokens : ]
 
+
+
                 # print("seqs")
                 # print(question_seq)
                 # print(answer_seq)
@@ -297,6 +299,12 @@ def _get_reward_model_custom(
                 print("text questions and answers")
                 print(text_question)
                 print(text_answer)
+
+                # TODO should not use max new tokens because of EOS possibility. Should use attention_mask perhaps
+                # Or figure out a more robust way of doing this splitting. (perhaps take inspiration from colab/qwen usage)
+                # TODO test this with long output sequence and EOS tokens just to check.
+                # Then afterwards, check this with Qwen and Llama models also.
+                1 / 0
 
                 inputs = self.tokenizer_RM(text_question, text_answer,
                                       return_tensors="pt",

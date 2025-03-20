@@ -145,7 +145,7 @@ def train(args):
             base_pretrained_class = base_class.__base__
             strip_question_chat_template_fn = None
             if args.apply_chat_template:
-                if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct"]:
+                if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct", "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct", "meta-llama/Llama-3.2-3B-Instruct" ]:
                     def strip_question_chat_template_fn(text):
                         return text.removeprefix('user\n').removesuffix('\nassistant\n')
                 else:
