@@ -292,7 +292,14 @@ def _get_reward_model_custom(
 
                 text = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
 
+                print(text)
+
                 qa_list = list(map(strip_question_chat_template_fn, text))
+
+                print(qa_list)
+
+                print(list(zip(*qa_list)))
+
                 text_question, text_answer = map(list, zip(*qa_list))
                 # text_questions = list(map(lambda x: x[0], qa_list))
                 # text_answers = list(map(lambda x: x[1], qa_list))
@@ -305,10 +312,6 @@ def _get_reward_model_custom(
                 print(text_question)
                 print(text_answer)
 
-                # TODO should not use max new tokens because of EOS possibility. Should use attention_mask perhaps
-                # Or figure out a more robust way of doing this splitting. (perhaps take inspiration from colab/qwen usage)
-                # TODO test this with long output sequence and EOS tokens just to check.
-                # Then afterwards, check this with Qwen and Llama models also.
                 1 / 0
 
                 inputs = self.tokenizer_RM(text_question, text_answer,
