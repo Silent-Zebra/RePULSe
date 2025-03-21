@@ -19,175 +19,6 @@ from transformers import LogitsProcessor
 from torch.profiler import profile, record_function, ProfilerActivity
 
 
-# class ModelWithHiddenStateCache(torch.nn.Module):
-#     def __init__(self, model):
-#         super().__init__()
-#         model.config.output_hidden_states = True
-#         self.model = model
-#         self.config = model.config
-#         self.last_hidden_state = None  # Cache for hidden states
-#
-#     def forward(self, input_ids, **kwargs):
-#         outputs = self.model(input_ids, **kwargs)
-#
-#         # Cache the last hidden state
-#         self.last_hidden_state = outputs.hidden_states[-1]  # Shape: (batch_size, seq_len, hidden_dim)
-#         print(self.last_hidden_state.shape)
-#         1/0
-#
-#         return outputs
-#
-#
-# class HiddenStateLogitsProcessor(LogitsProcessor):
-#     def __init__(self, model_with_cache, modifier_head):
-#         """
-#         Args:
-#             model_with_cache: Model wrapper that stores hidden states.
-#             modifier_head: A linear layer to transform hidden states into modifier logits.
-#         """
-#         self.model_with_cache = model_with_cache
-#         self.modifier_head = modifier_head
-#
-#     def __call__(self, inputs, scores):
-#         """
-#         Modifies logits using the cached hidden state.
-#         """
-#         if self.model_with_cache.last_hidden_state is None:
-#             raise Exception()
-#             # return scores  # Fallback in case no hidden state is available
-#
-#         with torch.no_grad():
-#             # Extract hidden state for the last generated token
-#             last_hidden = self.model_with_cache.last_hidden_state  # Shape: (batch_size, seq_len, hidden_dim)
-#
-#         print("LAST HIDDEN")
-#         print(last_hidden)
-#
-#         # Compute modifier logits from hidden state
-#         modifier_logits = self.modifier_head(last_hidden)  # Shape: (batch_size, vocab_size)
-#
-#         print(scores.shape) # Ensure log_softmax is on the right dimension
-#         1/0 # TODO test on interactive first
-#         # Modify the logits before token selection
-#         new_scores = F.log_softmax(scores, dim=-1) + modifier_logits # calculate p psi, where p is normalized but p psi is not
-#
-#         print("SCORE BEFORE")
-#         print(scores)
-#         print("SCORE AFTER")
-#         print(new_scores)
-#
-#         return new_scores
-#
-# class ActorCustom(Actor):
-#     """
-#     Actor model base class.
-#
-#     Args:
-#         model (nn.Module): Actor Model.
-#         lora_rank (int): LoRA rank.
-#         lora_train_bias (str): LoRA bias training mode.
-#     """
-#
-#     def __init__(
-#         self, args, **kwargs,
-#     ) -> None:
-#         super().__init__(args, **kwargs)
-#
-#         # Add a modifier head (a simple linear layer for demonstration)
-#         hidden_size = self.model.config.hidden_size
-#         vocab_size = self.model.config.vocab_size
-#         modifier_head = torch.nn.Linear(hidden_size, vocab_size)
-#
-#         wrapped_model = ModelWithHiddenStateCache(self.model)
-#
-#         # Create a logits processor that uses hidden states
-#         self.logits_processor = HiddenStateLogitsProcessor(wrapped_model, modifier_head)
-#
-#         # # Enable hidden states output
-#         # wrapped_model.model.config.output_hidden_states = True
-#
-#         self.model = wrapped_model
-#
-#
-#     @torch.no_grad()
-#     def generate(self, input_ids: torch.Tensor, **kwargs) -> Union[
-#         Tuple[torch.LongTensor, torch.LongTensor],
-#         Tuple[torch.LongTensor, torch.LongTensor, torch.BoolTensor],
-#     ]:
-#         generate_args = {
-#             "input_ids": input_ids,
-#             "top_k": kwargs.get("top_k", None),
-#             "top_p": kwargs.get("top_p", None),
-#             "do_sample": kwargs.get("do_sample", True),
-#             "early_stopping": True,
-#             "temperature": kwargs.get("temperature", 1),
-#             "use_cache": True,
-#             "num_beams": kwargs.get("num_beams", 1),
-#             "attention_mask": kwargs.get("attention_mask"),
-#             "eos_token_id": kwargs.get("eos_token_id"),
-#             "pad_token_id": kwargs.get("pad_token_id"),
-#             "min_new_tokens": kwargs.get("min_new_tokens", 1),
-#         }
-#
-#         if kwargs.get("max_new_tokens", None):
-#             generate_args["max_new_tokens"] = kwargs.get("max_new_tokens")
-#         if kwargs.get("max_length", None):
-#             generate_args["max_length"] = kwargs.get("max_length")
-#
-#         # Generate with logits processor
-#         sequences = self.model.model.generate(logits_processor=[self.logits_processor], **generate_args)
-#         # Call generate
-#         # sequences = self.model.generate()
-#
-#         # Prepare mask tensor
-#         eos_token_id = generate_args["eos_token_id"]
-#         pad_token_id = generate_args["pad_token_id"]
-#
-#         return self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
-#
-#
-#     def forward(
-#         self,
-#         sequences: torch.LongTensor,
-#         num_actions: int = None,
-#         attention_mask: Optional[torch.Tensor] = None,
-#         return_output=False,
-#     ) -> torch.Tensor:
-#         """Returns action log probs"""
-#         if not self.packing_samples:
-#             # https://github.com/OpenRLHF/OpenRLHF/issues/217
-#             position_ids = attention_mask.long().cumsum(-1) - 1
-#         else:
-#             # reset the positions for packed samples
-#             position_ids = reset_position_ids(attention_mask)
-#         position_ids.masked_fill_(attention_mask == 0, 1)
-#
-#         output = self.model(input_ids, **kwargs)
-#         original_logits = output.logits  # Shape: (batch_size, seq_len, vocab_size)
-#
-#         # Apply LogitsProcessor on last-step logits
-#         modified_logits = self.logits_processor(input_ids, original_logits)
-#
-#         output.logits = modified_logits  # Overwrite logits with modified ones
-#
-#         # output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
-#         log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:])
-#
-#         if return_output:
-#             return output if num_actions is None else (log_probs[:, -num_actions:], output)
-#         else:
-#             return log_probs[:, -num_actions:]
-#
-#     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
-#         self.model.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
-#
-#     def gradient_checkpointing_disable(self):
-#         self.model.model.gradient_checkpointing_disable()
-#
-#     def print_trainable_parameters(self):
-#         self.model.model.print_trainable_parameters()
-
-
 
 class ActorCustom(nn.Module):
     """
@@ -209,6 +40,7 @@ class ActorCustom(nn.Module):
         device_map=None,
         packing_samples=False,
         additional_sd_divider=1.,
+        parameterization=None,
         init_head_from_base=False,
         **kwargs,
     ) -> None:
@@ -216,119 +48,143 @@ class ActorCustom(nn.Module):
 
         self.initial_model = initial_model
 
-        if isinstance(pretrain_or_model, str):
-            attn_implementation = "flash_attention_2" if use_flash_attention_2 else "eager"
+        self.parameterization = parameterization
 
-            # Note: dschf is defined in function scope to avoid global effects
-            # https://huggingface.co/docs/transformers/deepspeed#non-trainer-deepspeed-integration
-            if ds_config is not None and ds_config["zero_optimization"]["stage"] == 3:
-                dschf = HfDeepSpeedConfig(ds_config)
+        if self.parameterization == "modulation_model":
+            self.use_modulation_head = False
+        elif self.parameterization in ["modulation_linear_head", "modulation_nn_head"]:
+            self.use_modulation_head = True
+        else:
+            raise NotImplementedError
+
+        if use_modulation_head:
+            # TODO allow also for nn head or not
+
+            # When using modulation head, we don't need to modify the base model's head
+            self.modulation_head = nn.Linear(self.model.config.hidden_size, self.model.config.vocab_size)
+
+            if init_head_from_base:
+
+                self.modulation_head.weight.data = self.initial_model.lm_head.weight.data / additional_sd_divider
+                if self.modulation_head.bias is not None:
+                    self.modulation_head.bias.data = self.initial_model.lm_head.bias.data / additional_sd_divider
+
             else:
-                dschf = None
+                nn.init.xavier_normal_(self.modulation_head.weight)
+                self.modulation_head.weight.data /= additional_sd_divider
+                if self.modulation_head.bias is not None:
+                    nn.init.zeros_(self.modulation_head.bias)
 
-            if load_in_4bit:
-                assert bf16, "we only support bnb_4bit_compute_dtype = bf16"
-                nf4_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_use_double_quant=True,
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                )
-            else:
-                nf4_config = None
+        else:
 
-            # TODO right now this is an entirely separate model, later should also support just head on top of existing model
-            self.model = AutoModelForCausalLM.from_pretrained(
-                pretrain_or_model,
-                trust_remote_code=True,
-                attn_implementation=attn_implementation,
-                quantization_config=nf4_config,
-                torch_dtype=torch.bfloat16 if bf16 else "auto",
-                device_map=device_map,
-            )
+            if isinstance(pretrain_or_model, str):
+                attn_implementation = "flash_attention_2" if use_flash_attention_2 else "eager"
 
-            # LoRA
-            if lora_rank > 0:
-                # https://github.com/huggingface/peft/issues/137
-                self.model.enable_input_require_grads()
-                lora_config = LoraConfig(
-                    task_type=TaskType.CAUSAL_LM,
-                    r=lora_rank,
-                    lora_alpha=lora_alpha,
-                    target_modules=target_modules,
-                    lora_dropout=lora_dropout,
-                    bias="none",
-                )
-                self.model = get_peft_model(self.model, lora_config)
+                # Note: dschf is defined in function scope to avoid global effects
+                # https://huggingface.co/docs/transformers/deepspeed#non-trainer-deepspeed-integration
+                if ds_config is not None and ds_config["zero_optimization"]["stage"] == 3:
+                    dschf = HfDeepSpeedConfig(ds_config)
+                else:
+                    dschf = None
 
                 if load_in_4bit:
-                    for name, module in self.model.named_modules():
-                        if isinstance(module, LoraLayer):
-                            module = module.to(torch.bfloat16)
-                        if "norm" in name:
-                            module = module.to(torch.float32)
-                        if "lm_head" in name or "embed_tokens" in name:
-                            if hasattr(module, "weight"):
+                    assert bf16, "we only support bnb_4bit_compute_dtype = bf16"
+                    nf4_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_use_double_quant=True,
+                        bnb_4bit_compute_dtype=torch.bfloat16,
+                    )
+                else:
+                    nf4_config = None
+
+                # TODO right now this is an entirely separate model, later should also support just head on top of existing model
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    pretrain_or_model,
+                    trust_remote_code=True,
+                    attn_implementation=attn_implementation,
+                    quantization_config=nf4_config,
+                    torch_dtype=torch.bfloat16 if bf16 else "auto",
+                    device_map=device_map,
+                )
+
+                # LoRA
+                if lora_rank > 0:
+                    # https://github.com/huggingface/peft/issues/137
+                    self.model.enable_input_require_grads()
+                    lora_config = LoraConfig(
+                        task_type=TaskType.CAUSAL_LM,
+                        r=lora_rank,
+                        lora_alpha=lora_alpha,
+                        target_modules=target_modules,
+                        lora_dropout=lora_dropout,
+                        bias="none",
+                    )
+                    self.model = get_peft_model(self.model, lora_config)
+
+                    if load_in_4bit:
+                        for name, module in self.model.named_modules():
+                            if isinstance(module, LoraLayer):
                                 module = module.to(torch.bfloat16)
+                            if "norm" in name:
+                                module = module.to(torch.float32)
+                            if "lm_head" in name or "embed_tokens" in name:
+                                if hasattr(module, "weight"):
+                                    module = module.to(torch.bfloat16)
 
-            # MoE - balancing loss
-            model_config = self.model.config.to_dict()
-            if "output_router_logits" in model_config:
-                print("[MoE] set output_router_logits as True")
-                self.model.config.output_router_logits = True
+                # MoE - balancing loss
+                model_config = self.model.config.to_dict()
+                if "output_router_logits" in model_config:
+                    print("[MoE] set output_router_logits as True")
+                    self.model.config.output_router_logits = True
 
-            # https://github.com/huggingface/transformers/issues/26877
-            # Use `model.generate(use_cache=True)` instead.`
-            self.model.config.use_cache = False
+                # https://github.com/huggingface/transformers/issues/26877
+                # Use `model.generate(use_cache=True)` instead.`
+                self.model.config.use_cache = False
 
-            # packing samples using Flash Attention 2
-            self.packing_samples = packing_samples
-            if packing_samples:
-                assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
-                model_type = getattr(self.model.config, "model_type", None)
-                patch_for_block_diag_attn(model_type)
-        else:
-            self.model = pretrain_or_model
+                # packing samples using Flash Attention 2
+                self.packing_samples = packing_samples
+                if packing_samples:
+                    assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
+                    model_type = getattr(self.model.config, "model_type", None)
+                    patch_for_block_diag_attn(model_type)
+            else:
+                self.model = pretrain_or_model
 
-        if init_head_from_base:
+            if init_head_from_base:
+                print(self.model.lm_head)
+                print(self.model.lm_head.weight)
+                print(self.model.lm_head.bias)
 
-            print(self.model.lm_head)
-            print(self.model.lm_head.weight)
-            print(self.model.lm_head.bias)
+                self.model.lm_head.weight.data /= additional_sd_divider
+                if self.model.lm_head.bias is not None:
+                    self.model.lm_head.bias.data /= additional_sd_divider
 
-            self.model.lm_head.weight.data /= additional_sd_divider
-            if self.model.lm_head.bias is not None:
-                self.model.lm_head.bias.data /= additional_sd_divider
+                print(self.model.lm_head.weight)
+                print(self.model.lm_head.bias)
+            else:
+                # Custom new linear (or later NN) head in order to output modifier to logits
+                new_layer = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features)
+                print("NEW LAYER WEIGHT 1")
+                print(new_layer.weight.mean())
+                print(new_layer.weight)
 
-            print(self.model.lm_head.weight)
-            print(self.model.lm_head.bias)
+                nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
 
-        else:
+                print("NEW LAYER WEIGHT 2")
+                print(new_layer.weight.mean())
+                print(new_layer.weight)
 
-            # Custom new linear (or later NN) head in order to output modifier to logits
-            new_layer = nn.Linear(self.model.lm_head.in_features, self.model.lm_head.out_features, )
+                new_layer.weight.data /= additional_sd_divider
 
-            print("NEW LAYER WEIGHT 1")
-            print(new_layer.weight.mean())
-            print(new_layer.weight)
+                print("NEW LAYER WEIGHT 3")
+                print(new_layer.weight.mean())
+                print(new_layer.weight)
 
-            nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
+                if new_layer.bias is not None:
+                    nn.init.zeros_(new_layer.bias)
 
-            print("NEW LAYER WEIGHT 2")
-            print(new_layer.weight.mean())
-            print(new_layer.weight)
-
-            new_layer.weight.data /= additional_sd_divider
-
-            print("NEW LAYER WEIGHT 3")
-            print(new_layer.weight.mean())
-            print(new_layer.weight)
-            # ALSO TODO: ensure that the sampling matches the prob under the model.
-
-            if new_layer.bias is not None:
-                nn.init.zeros_(new_layer.bias)
-
-            self.model.lm_head = new_layer
+                self.model.lm_head = new_layer
 
 
 
@@ -512,16 +368,37 @@ class ActorCustom(nn.Module):
     ) -> torch.Tensor:
         """Returns action log probs"""
         position_ids = self.get_position_ids(attention_mask)
-        # log_psi
-        modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+
+        base_output = None
+        if self.use_modulation_head:
+            with torch.no_grad():
+                base_output = self.initial_model.model(sequences, attention_mask=attention_mask,
+                                                       position_ids=position_ids, output_hidden_states=True)
+            # Get the final hidden states from the base model
+            last_hidden_state = base_output.hidden_states[-1]
+            # Apply modulation head to get logits
+            modulation_logits = self.modulation_head(last_hidden_state)
+
+            print("last_hidden_state")
+            print(last_hidden_state.shape)
+            print(base_output.hidden_states[0].shape)
+            print(base_output.hidden_states[1].shape)
+            print(base_output.hidden_states[2].shape)
+            print(base_output.hidden_states)
+            print("modulation_logits")
+            print(modulation_logits.shape)
+            print(modulation_logits)
+            # TODO load the arg and then test this.
+            1/0
+
+        else:
+            # Use the full modulation model
+            modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+            modulation_logits = modulation["logits"]
+
         if return_only_modulation:
             assert not use_for_generation
-            # base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
-            # log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=True)
-
-            # TODO something like the below on the modulation, check that everything makes sense and prompt_len should be correct
-            # (Check how was it defined elsewhere? Where did I get prompt_len for the other actor/critic modules?
-            modulation = modulation["logits"][:, :-1, :]
+            modulation = modulation_logits[:, :-1, :]
             labels = sequences[:, 1:]
             modulation_on_selected_tokens = modulation.gather(dim=-1, index=labels.unsqueeze(-1))
             # print(log_probs.shape)
@@ -529,29 +406,30 @@ class ActorCustom(nn.Module):
             # print(log_probs_labels.shape)
             return modulation_on_selected_tokens.squeeze(-1)[:, -num_actions:]
 
-        with torch.no_grad():
-            base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
-
+        if base_output is None:
+            with torch.no_grad():
+                base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
 
         if use_for_generation: # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
             return_all_vocab = True
             log_probs = log_probs_from_logits_with_modulation(
-                base_output["logits"], modulation["logits"], sequences, # UNUSED HERE, TODO refactor to make this cleaner
+                base_output["logits"], modulation_logits, sequences,
                 return_all_vocab=return_all_vocab
             )
             return log_probs # actually only need the very last one of this... [:, -1]
 
         else:
             return_all_vocab = False
-
-            log_probs = log_probs_from_logits_with_modulation(base_output["logits"][:, :-1, :], modulation["logits"][:, :-1, :], sequences[:, 1:], return_all_vocab=return_all_vocab)
-
-            # output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
-
             assert not return_output
             # if return_output:
             #     return output if num_actions is None else (log_probs[:, -num_actions:], output)
             # else:
+            log_probs = log_probs_from_logits_with_modulation(
+                base_output["logits"][:, :-1, :], 
+                modulation_logits[:, :-1, :], 
+                sequences[:, 1:], 
+                return_all_vocab=return_all_vocab
+            )
 
             return log_probs[:, -num_actions:]
 

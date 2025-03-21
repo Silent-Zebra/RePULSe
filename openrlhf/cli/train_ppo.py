@@ -65,6 +65,7 @@ def train(args):
                 target_modules=args.target_modules,
                 lora_dropout=args.lora_dropout,
                 ds_config=strategy.get_ds_train_config(is_actor=True),
+                parameterization=args.parameterization,
                 additional_sd_divider=args.additional_sd_divider,
                 init_head_from_base=args.init_head_from_base
             )
@@ -621,7 +622,12 @@ if __name__ == "__main__":
     parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
     parser.add_argument("--test_info_every", type=int, default=1, help="Test info (e.g., F_q) after this many number of gradient updates")
 
-    parser.add_argument("--actor_modulates_base", action="store_true", help="Use parameterization where actor outputs an addition (modulation) to base log prob")
+    parser.add_argument(
+        "--parameterization", type=str, default="policy",
+        choices=["policy", "modulation_model", "modulation_linear_head", "modulation_nn_head"]
+    )
+
+    # parser.add_argument("--actor_modulates_base", action="store_true", help="Use parameterization where actor outputs an addition (modulation) to base log prob")
     parser.add_argument("--shared_actorcritic", action="store_true", help="Use parameterization where actor and critic are just different heads, not separate networks. Uses actor lr for shared learning rate")
     parser.add_argument("--model_eval", action="store_true", help="Use model.eval() instead of model.train(). Turns off dropout and norm statistics")
 
@@ -654,6 +660,9 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    if args.parameterization != "policy":
+        args.actor_modulates_base = True
 
     args.init_kl_coef = 1 / args.target_dist_beta
     print(f"Init KL coef set to: {args.init_kl_coef}, based on target_dist_beta {args.target_dist_beta}")
