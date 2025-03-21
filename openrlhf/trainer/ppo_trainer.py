@@ -497,12 +497,12 @@ class PPOTrainer(ABC):
     def test_info_multiprompt(self, args, rand_prompts, samples_per_prompt: int = 1):
         print("prompts")
         print(rand_prompts)
-        expanded_prompts = tile_prompts(rand_prompts, samples_per_prompt)
+        # expanded_prompts = tile_prompts(rand_prompts, samples_per_prompt) # this is done within the f_q estimate...
 
         f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
-            args, expanded_prompts)
-        print("f_qs")
-        print(f_qs)
+            args, rand_prompts)
+        # print("f_qs")
+        # print(f_qs)
         print(f"Avg F_q: {f_qs.mean()}")
         output = self.tokenizer.batch_decode(
             q_seqs,

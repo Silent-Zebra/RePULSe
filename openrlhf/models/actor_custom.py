@@ -399,6 +399,11 @@ class ActorCustom(nn.Module):
             print(modulation_logits.shape)
             print(modulation_logits)
             # TODO load the arg and then test this.
+
+            print(self.initial_model.model.lm_head(last_hidden_state))
+            print(base_output)
+            print((self.initial_model.model.lm_head(last_hidden_state) - base_output.logits).abs().sum())
+
             1/0
 
         else:
