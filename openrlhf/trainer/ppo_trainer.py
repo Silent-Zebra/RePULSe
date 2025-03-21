@@ -441,17 +441,17 @@ class PPOTrainer(ABC):
                         if steps == 1: # do some test at the very beginning
                             self.test_info_multiprompt(args, rand_prompts)
 
-                    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                                 profile_memory=True, record_shapes=True) as prof:
+                    # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    #              profile_memory=True, record_shapes=True) as prof:
 
-                        experience = self.experience_maker.make_experience(
-                            rand_prompts,
-                            samples_per_prompt=args.duplicate_rollout_batch_by,
-                            **self.generate_kwargs
-                        )
+                    experience = self.experience_maker.make_experience(
+                        rand_prompts,
+                        samples_per_prompt=args.duplicate_rollout_batch_by,
+                        **self.generate_kwargs
+                    )
 
-                    print("PROFILE1")
-                    print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+                    # print("PROFILE1")
+                    # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
 
                     # print prompt/answer in each update step
