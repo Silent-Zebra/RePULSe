@@ -460,33 +460,33 @@ class PPOTrainer(ABC):
                         self.strategy.print(output[0])
                     self.replay_buffer.append(experience)
 
-                    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                                 profile_memory=True, record_shapes=True) as prof:
+                    # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    #              profile_memory=True, record_shapes=True) as prof:
 
-                        if steps % update_timesteps == 0:
-                            global_steps = steps // update_timesteps
+                    if steps % update_timesteps == 0:
+                        global_steps = steps // update_timesteps
 
-                            torch.cuda.empty_cache()
-                            self.replay_buffer.normalize("advantages", self.strategy)
-                            assert custom_prompt is None
-                            status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
-                            self.replay_buffer.clear()
-                            torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
+                        self.replay_buffer.normalize("advantages", self.strategy)
+                        assert custom_prompt is None
+                        status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
+                        self.replay_buffer.clear()
+                        torch.cuda.empty_cache()
 
-                            if "kl" in status:
-                                self.kl_ctl.update(status["kl"], args.rollout_batch_size)
-                            pbar.set_postfix(status)
+                        if "kl" in status:
+                            self.kl_ctl.update(status["kl"], args.rollout_batch_size)
+                        pbar.set_postfix(status)
 
-                            # logs/checkpoints
-                            client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
-                            self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
+                        # logs/checkpoints
+                        client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
+                        self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
 
-                            if not args.no_test_info:
-                                if steps % args.test_info_every == 0:
-                                    self.test_info_multiprompt(args, rand_prompts)
+                        if not args.no_test_info:
+                            if steps % args.test_info_every == 0:
+                                self.test_info_multiprompt(args, rand_prompts)
 
-                    print("PROFILE2")
-                    print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+                    # print("PROFILE2")
+                    # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
 
                     pbar.update()
