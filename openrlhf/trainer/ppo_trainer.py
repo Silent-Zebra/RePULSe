@@ -10,6 +10,7 @@ from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss
