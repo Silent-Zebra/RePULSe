@@ -57,7 +57,7 @@ class ActorCustom(nn.Module):
         else:
             raise NotImplementedError
 
-        if use_modulation_head:
+        if self.use_modulation_head:
             # TODO allow also for nn head or not
 
             # When using modulation head, we don't need to modify the base model's head
