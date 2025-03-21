@@ -4,6 +4,7 @@ from abc import ABC
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
+from torch.profiler import profile, record_function, ProfilerActivity
 
 import ray
 import torch
