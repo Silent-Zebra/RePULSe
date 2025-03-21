@@ -378,8 +378,14 @@ class NaiveExperienceMaker(ABC):
         # print(inputs)
         # print(generate_kwargs)
 
-        sequences, attention_mask, action_mask = self.actor.generate(**inputs,
-                                                                     **generate_kwargs)
+        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                     profile_memory=True, record_shapes=True) as prof:
+
+            sequences, attention_mask, action_mask = self.actor.generate(**inputs,
+                                                                         **generate_kwargs)
+        print("PROFILE GENERATE")
+        print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+
 
         print("generate_inspection")
         print(sequences)
