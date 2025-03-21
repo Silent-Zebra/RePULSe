@@ -438,10 +438,12 @@ class ActorCustom(nn.Module):
             # print(base_output.hidden_states[1].shape)
             # print(base_output.hidden_states[2].shape)
             # print(base_output.hidden_states)
-            print("modulation_logits")
-            print(modulation_logits.shape)
-            print(modulation_logits.abs().mean())
-            1/0
+
+
+            # print("modulation_logits")
+            # print(modulation_logits.shape)
+            # print(modulation_logits.abs().mean())
+            # 1/0
             # print(self.initial_model.model.lm_head(last_hidden_state))
             # print(base_output)
             # print((self.initial_model.model.lm_head(last_hidden_state) - base_output.logits).abs().sum())
