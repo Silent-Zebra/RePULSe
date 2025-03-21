@@ -397,43 +397,43 @@ class ActorCustom(nn.Module):
         curr_attention_mask = attention_mask.clone()
         
         while sequences.shape[-1] < max_len:
-            with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                                      profile_memory=True, record_shapes=True) as prof:
-                lm_logits = self.forward(
-                    sequences,
-                    num_actions=max_new_tokens,
-                    # TODO: note this might cause some issues; keeping it simple for now
-                    # attention_mask=attention_mask,
-                    attention_mask=curr_attention_mask,
-                    # condition_twist_on_tokens=condition_twist_on_tokens
-                    use_for_generation=True
-                )
+            # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            #                           profile_memory=True, record_shapes=True) as prof:
+            lm_logits = self.forward(
+                sequences,
+                num_actions=max_new_tokens,
+                # TODO: note this might cause some issues; keeping it simple for now
+                # attention_mask=attention_mask,
+                attention_mask=curr_attention_mask,
+                # condition_twist_on_tokens=condition_twist_on_tokens
+                use_for_generation=True
+            )
 
-                next_token_logits = lm_logits[:, -1, :]
+            next_token_logits = lm_logits[:, -1, :]
 
-                # sample
-                probs = F.softmax(next_token_logits, dim=-1)
-                next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+            # sample
+            probs = F.softmax(next_token_logits, dim=-1)
+            next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
 
-                # finished sequences should have their next token be a padding token
-                next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
+            # finished sequences should have their next token be a padding token
+            next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
-                # update generated ids and model inputs
-                sequences = torch.cat([sequences, next_tokens[:, None]], dim=-1)
+            # update generated ids and model inputs
+            sequences = torch.cat([sequences, next_tokens[:, None]], dim=-1)
 
-                # update attention mask - new token is attended to if sequence is unfinished
-                new_mask = unfinished_sequences[:, None]
-                curr_attention_mask = torch.cat([curr_attention_mask, new_mask], dim=1)
+            # update attention mask - new token is attended to if sequence is unfinished
+            new_mask = unfinished_sequences[:, None]
+            curr_attention_mask = torch.cat([curr_attention_mask, new_mask], dim=1)
 
-                # if eos_token was found in one sentence, set sentence to finished
-                unfinished_sequences = unfinished_sequences.mul((next_tokens != eos_token_id).long())
+            # if eos_token was found in one sentence, set sentence to finished
+            unfinished_sequences = unfinished_sequences.mul((next_tokens != eos_token_id).long())
 
-                # stop when each sentence is finished, or if we exceed the maximum length
-                if unfinished_sequences.max() == 0:
-                    break
+            # stop when each sentence is finished, or if we exceed the maximum length
+            if unfinished_sequences.max() == 0:
+                break
 
-            print("PROFILE")
-            print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+            # print("PROFILE")
+            # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
         # Get final masks using process_sequences only once at the end
         sequences, attention_mask, action_mask = self.process_sequences(
