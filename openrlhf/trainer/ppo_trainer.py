@@ -439,7 +439,7 @@ class PPOTrainer(ABC):
 
                     if not args.no_test_info:
                         if steps == 1: # do some test at the very beginning
-                            self.test_info_multiprompt(args, rand_prompts)
+                            self.test_info_multiprompt(args, rand_prompts, samples_per_prompt=args.duplicate_rollout_batch_by)
 
                     # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     #              profile_memory=True, record_shapes=True) as prof:
@@ -483,7 +483,7 @@ class PPOTrainer(ABC):
 
                         if not args.no_test_info:
                             if steps % args.test_info_every == 0:
-                                self.test_info_multiprompt(args, rand_prompts)
+                                self.test_info_multiprompt(args, rand_prompts, samples_per_prompt=args.duplicate_rollout_batch_by)
 
                     # print("PROFILE2")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
@@ -494,11 +494,13 @@ class PPOTrainer(ABC):
 
         return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
 
-    def test_info_multiprompt(self, args, rand_prompts):
+    def test_info_multiprompt(self, args, rand_prompts, samples_per_prompt: int = 1):
         print("prompts")
         print(rand_prompts)
+        expanded_prompts = tile_prompts(rand_prompts, samples_per_prompt)
+
         f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
-            args, rand_prompts)
+            args, expanded_prompts)
         print("f_qs")
         print(f_qs)
         print(f"Avg F_q: {f_qs.mean()}")

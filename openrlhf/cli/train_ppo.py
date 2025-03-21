@@ -612,7 +612,7 @@ if __name__ == "__main__":
     parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
     parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
     parser.add_argument("--save_info_path", type=str, default="./info")
-    parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q")
+    parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for custom_single_prompt)")
     parser.add_argument("--n_seeds_f_q", type=int, default=4, help="Number of seeds to use for f_q")
 
 
