@@ -77,6 +77,13 @@ class ActorCustom(nn.Module):
                 if self.modulation_head.bias is not None:
                     nn.init.zeros_(self.modulation_head.bias)
 
+            self.packing_samples = packing_samples
+            if packing_samples:
+                assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
+                model_type = getattr(self.model.config, "model_type", None)
+                patch_for_block_diag_attn(model_type)
+                raise NotImplementedError # Not yet tested for the head parameterization
+
         else:
 
             if isinstance(pretrain_or_model, str):
