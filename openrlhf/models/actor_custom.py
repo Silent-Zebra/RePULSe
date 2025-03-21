@@ -118,7 +118,7 @@ class ActorCustom(nn.Module):
                 if init_head_from_base:
                     raise Exception("Cannot init head from base if using an NN head instead of linear head")
 
-                self.modulation_head = NNHead(hidden_size, output_size)
+                self.modulation_head = NNHead(self.initial_model.model.config.hidden_size, self.initial_model.model.config.output_size)
 
 
             self.packing_samples = packing_samples
