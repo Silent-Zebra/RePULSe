@@ -20,6 +20,41 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 
 
+class NNHead(nn.Module):
+    r"""
+    Replace a single linear layer with an NN head for better expressivity
+    """
+
+    def __init__(self, hidden_size, output_size, xavier_init=False, additional_sd_divider=1.):
+        super().__init__()
+        self.linear1 = nn.Linear(hidden_size, hidden_size)
+        self.relu1 = nn.ReLU()
+        self.linear2 = nn.Linear(hidden_size, hidden_size)
+        self.relu2 = nn.ReLU()
+        self.linear3 = nn.Linear(hidden_size, output_size)
+
+        self.linear_layers = [self.linear1, self.linear2, self.linear3]
+        self.layers = [self.linear1, self.relu1, self.linear2, self.relu2,
+                       self.linear3]
+
+        if xavier_init:
+            for linear_layer in self.linear_layers:
+                with torch.no_grad():
+                    torch.nn.init.xavier_uniform_(linear_layer.weight)
+                    if linear_layer.bias is not None:
+                        torch.nn.init.zeros_(linear_layer.bias)
+
+                        linear_layer.weight /= additional_sd_divider
+
+
+    def forward(self, hidden_states):
+        x = hidden_states
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
+
 class ActorCustom(nn.Module):
     """
     Modification of Actor model to also be able to output a modifier to the base model
@@ -62,21 +97,29 @@ class ActorCustom(nn.Module):
 
             self.model = self.initial_model # only needed for things in the main code that reference the model... should not be accessed otherwise
 
-            # When using modulation head, we don't need to modify the base model's head
-            self.modulation_head = nn.Linear(self.initial_model.model.config.hidden_size, self.initial_model.model.config.vocab_size,
-                                             dtype=next(self.initial_model.model.lm_head.parameters()).dtype)
+            if self.parameterization == "modulation_linear_head":
 
-            if init_head_from_base:
+                # When using modulation head, we don't need to modify the base model's head
+                self.modulation_head = nn.Linear(self.initial_model.model.config.hidden_size, self.initial_model.model.config.vocab_size,
+                                                 dtype=next(self.initial_model.model.lm_head.parameters()).dtype)
 
-                self.modulation_head.weight.data = self.initial_model.lm_head.weight.data / additional_sd_divider
-                if self.modulation_head.bias is not None:
-                    self.modulation_head.bias.data = self.initial_model.lm_head.bias.data / additional_sd_divider
+                if init_head_from_base:
 
-            else:
-                nn.init.xavier_normal_(self.modulation_head.weight)
-                self.modulation_head.weight.data /= additional_sd_divider
-                if self.modulation_head.bias is not None:
-                    nn.init.zeros_(self.modulation_head.bias)
+                    self.modulation_head.weight.data = self.initial_model.lm_head.weight.data / additional_sd_divider
+                    if self.modulation_head.bias is not None:
+                        self.modulation_head.bias.data = self.initial_model.lm_head.bias.data / additional_sd_divider
+
+                else:
+                    nn.init.xavier_normal_(self.modulation_head.weight)
+                    self.modulation_head.weight.data /= additional_sd_divider
+                    if self.modulation_head.bias is not None:
+                        nn.init.zeros_(self.modulation_head.bias)
+            else: # self.parameterization == "modulation_nn_head":
+                if init_head_from_base:
+                    raise Exception("Cannot init head from base if using an NN head instead of linear head")
+
+                self.modulation_head = NNHead(hidden_size, output_size)
+
 
             self.packing_samples = packing_samples
             if packing_samples:
@@ -389,22 +432,20 @@ class ActorCustom(nn.Module):
             # Apply modulation head to get logits
             modulation_logits = self.modulation_head(last_hidden_state)
 
-            print("last_hidden_state")
-            print(last_hidden_state.shape)
-            print(base_output.hidden_states[0].shape)
-            print(base_output.hidden_states[1].shape)
-            print(base_output.hidden_states[2].shape)
-            print(base_output.hidden_states)
+            # print("last_hidden_state")
+            # print(last_hidden_state.shape)
+            # print(base_output.hidden_states[0].shape)
+            # print(base_output.hidden_states[1].shape)
+            # print(base_output.hidden_states[2].shape)
+            # print(base_output.hidden_states)
             print("modulation_logits")
             print(modulation_logits.shape)
-            print(modulation_logits)
-            # TODO load the arg and then test this.
-
-            print(self.initial_model.model.lm_head(last_hidden_state))
-            print(base_output)
-            print((self.initial_model.model.lm_head(last_hidden_state) - base_output.logits).abs().sum())
-
+            print(modulation_logits.abs().mean())
             1/0
+            # print(self.initial_model.model.lm_head(last_hidden_state))
+            # print(base_output)
+            # print((self.initial_model.model.lm_head(last_hidden_state) - base_output.logits).abs().sum())
+
 
         else:
             # Use the full modulation model
