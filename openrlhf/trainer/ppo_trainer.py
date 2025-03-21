@@ -440,38 +440,53 @@ class PPOTrainer(ABC):
                         if steps == 1: # do some test at the very beginning
                             self.test_info_multiprompt(args, rand_prompts)
 
-                    experience = self.experience_maker.make_experience(
-                        rand_prompts,
-                        samples_per_prompt=args.duplicate_rollout_batch_by,
-                        **self.generate_kwargs
-                    )
+                    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                                 profile_memory=True, record_shapes=True) as prof:
+
+                        experience = self.experience_maker.make_experience(
+                            rand_prompts,
+                            samples_per_prompt=args.duplicate_rollout_batch_by,
+                            **self.generate_kwargs
+                        )
+
+                    print("PROFILE1")
+                    print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+
+
                     # print prompt/answer in each update step
                     if steps % update_timesteps == 0:
                         output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
                         self.strategy.print(output[0])
                     self.replay_buffer.append(experience)
 
-                    if steps % update_timesteps == 0:
-                        global_steps = steps // update_timesteps
+                    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                                 profile_memory=True, record_shapes=True) as prof:
 
-                        torch.cuda.empty_cache()
-                        self.replay_buffer.normalize("advantages", self.strategy)
-                        assert custom_prompt is None
-                        status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
-                        self.replay_buffer.clear()
-                        torch.cuda.empty_cache()
+                        if steps % update_timesteps == 0:
+                            global_steps = steps // update_timesteps
 
-                        if "kl" in status:
-                            self.kl_ctl.update(status["kl"], args.rollout_batch_size)
-                        pbar.set_postfix(status)
+                            torch.cuda.empty_cache()
+                            self.replay_buffer.normalize("advantages", self.strategy)
+                            assert custom_prompt is None
+                            status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
+                            self.replay_buffer.clear()
+                            torch.cuda.empty_cache()
 
-                        # logs/checkpoints
-                        client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
-                        self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
+                            if "kl" in status:
+                                self.kl_ctl.update(status["kl"], args.rollout_batch_size)
+                            pbar.set_postfix(status)
 
-                        if not args.no_test_info:
-                            if steps % args.test_info_every == 0:
-                                self.test_info_multiprompt(args, rand_prompts)
+                            # logs/checkpoints
+                            client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
+                            self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
+
+                            if not args.no_test_info:
+                                if steps % args.test_info_every == 0:
+                                    self.test_info_multiprompt(args, rand_prompts)
+
+                    print("PROFILE2")
+                    print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+
 
                     pbar.update()
                     steps = steps + 1
