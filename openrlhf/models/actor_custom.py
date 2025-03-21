@@ -25,13 +25,13 @@ class NNHead(nn.Module):
     Replace a single linear layer with an NN head for better expressivity
     """
 
-    def __init__(self, hidden_size, output_size, xavier_init=False, additional_sd_divider=1.):
+    def __init__(self, hidden_size, output_size, dtype, xavier_init=False, additional_sd_divider=1.):
         super().__init__()
-        self.linear1 = nn.Linear(hidden_size, hidden_size)
+        self.linear1 = nn.Linear(hidden_size, hidden_size, dtype=dtype)
         self.relu1 = nn.ReLU()
-        self.linear2 = nn.Linear(hidden_size, hidden_size)
+        self.linear2 = nn.Linear(hidden_size, hidden_size, dtype=dtype)
         self.relu2 = nn.ReLU()
-        self.linear3 = nn.Linear(hidden_size, output_size)
+        self.linear3 = nn.Linear(hidden_size, output_size, dtype=dtype)
 
         self.linear_layers = [self.linear1, self.linear2, self.linear3]
         self.layers = [self.linear1, self.relu1, self.linear2, self.relu2,
@@ -118,7 +118,7 @@ class ActorCustom(nn.Module):
                 if init_head_from_base:
                     raise Exception("Cannot init head from base if using an NN head instead of linear head")
 
-                self.modulation_head = NNHead(self.initial_model.model.config.hidden_size, self.initial_model.model.config.vocab_size)
+                self.modulation_head = NNHead(self.initial_model.model.config.hidden_size, self.initial_model.model.config.vocab_size, dtype=next(self.initial_model.model.lm_head.parameters()).dtype)
 
 
             self.packing_samples = packing_samples
