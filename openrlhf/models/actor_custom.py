@@ -61,7 +61,7 @@ class ActorCustom(nn.Module):
             # TODO allow also for nn head or not
 
             # When using modulation head, we don't need to modify the base model's head
-            self.modulation_head = nn.Linear(self.initial_model.config.hidden_size, self.initial_model.config.vocab_size)
+            self.modulation_head = nn.Linear(self.initial_model.model.config.hidden_size, self.initial_model.model.config.vocab_size)
 
             if init_head_from_base:
 
