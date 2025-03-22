@@ -107,7 +107,9 @@ class ActorCustom(nn.Module):
 
                     self.modulation_head.weight.data = self.initial_model.model.lm_head.weight.data / additional_sd_divider
                     if self.modulation_head.bias is not None:
-                        self.modulation_head.bias.data = self.initial_model.model.lm_head.bias.data / additional_sd_divider
+                        nn.init.zeros_(self.modulation_head.bias)
+                        if self.initial_model.model.lm_head.bias is not None:
+                            self.modulation_head.bias.data = self.initial_model.model.lm_head.bias.data / additional_sd_divider
 
                 else:
                     nn.init.xavier_normal_(self.modulation_head.weight)
