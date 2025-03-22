@@ -1201,8 +1201,8 @@ class PPOTrainer(ABC):
         log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask)
         log_psi = log_p_psi - base_action_log_probs.detach()  # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
         # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
-        print("log_psi values")
-        print(log_psi)
+        # print("log_psi values")
+        # print(log_psi)
         return log_psi
 
     def training_step_critic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
