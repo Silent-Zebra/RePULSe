@@ -661,6 +661,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    args.actor_modulates_base = False
     if args.parameterization != "policy":
         args.actor_modulates_base = True
 
