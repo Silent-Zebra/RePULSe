@@ -94,6 +94,7 @@ class PPOTrainer(ABC):
         actor_loss_type: str = 'ppo',
         critic_loss_type: str = 'mse',
         alpha: float = 0.5,
+        parameterization: str = '',
         **generate_kwargs,
     ) -> None:
         assert (
@@ -127,6 +128,9 @@ class PPOTrainer(ABC):
         self.critic_optim = critic_optim
         self.actor_scheduler = actor_scheduler
         self.critic_scheduler = critic_scheduler
+
+        assert parameterization != ""
+        self.parameterization = parameterization
 
 
         self.actor_loss_type = actor_loss_type
@@ -1067,6 +1071,11 @@ class PPOTrainer(ABC):
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
             log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
+            if self.parameterization == "policy":
+                log_psi -= base_action_log_probs.detach() # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
+                # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
+                print(log_psi)
+                1/0
 
             # print("ACTOR LOSS STUFF")
             # print(experience.action_log_probs.shape)

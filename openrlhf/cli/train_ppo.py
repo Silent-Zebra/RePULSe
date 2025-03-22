@@ -428,7 +428,8 @@ def train(args):
         true_posterior_samples=true_posterior_samples,
         actor_loss_type=args.actor_loss_type,
         critic_loss_type=args.critic_loss_type,
-        alpha=args.alpha
+        alpha=args.alpha,
+        parameterization=args.parameterization
     )
 
 
@@ -693,9 +694,9 @@ if __name__ == "__main__":
         print("[Warning] stuff like clamp reward, and probably some other things changed, and not yet tested without custom_single_prompt. The rm_type stuff might also need to be modified too") # TODO
 
     if args.actor_loss_type != "ppo":
-        assert args.actor_modulates_base # Need the twist formulation with the CustomActor for this
+        # assert args.actor_modulates_base # Need the twist formulation with the CustomActor for this # Now ok; can use policy parameterization directly outputting log(p psi), just need to subtract log_p then to get log_psi
         args.no_critic = True # No (PPO) critic when using the twist formulation
-        args.init_kl_coef = 0
+        args.init_kl_coef = 0 # Do not modify the reward with KL penalty for the twist learning losses
         assert args.kl_target is None
         assert args.duplicate_rollout_batch_by > 1 # NOTE: this is also the "batch" or "number of particles" used in twist learning; for a given prompt, how many particles we use.
 
