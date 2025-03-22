@@ -1071,12 +1071,7 @@ class PPOTrainer(ABC):
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
             if self.parameterization == "policy":
-                log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask)
-                log_psi = log_p_psi - base_action_log_probs.detach() # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
-                # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
-                print(log_psi)
-                # TODO afterwards do this for the SIXO as well.
-                1/0
+                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions)
             else:
                 log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
                                                       return_only_modulation=True)
@@ -1153,14 +1148,22 @@ class PPOTrainer(ABC):
                     experience.attention_mask[:, :-num_actions],
                 )
                 # TODO not yet tested on multiple different prompts (though I expect it should work)
-                num_actions = base_action_mask.size(1)
 
-                log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions, base_attention_mask,
-                                                                      return_only_modulation=True)
-                # log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
+                if self.parameterization == "policy":
+                    base_action_base_sample_log_probs = self.experience_maker.initial_model(base_sequences, base_action_mask.size(1), base_attention_mask)
+                    log_psi_on_base_samples = self.get_log_psi_policy_parameterization(base_action_base_sample_log_probs, experience, num_actions)
+                    raise Exception("Not yet tested")
+                else:
+                    log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions,
+                                                                          base_attention_mask,
+                                                                          return_only_modulation=True)
+                    # log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
 
-
-            log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_only_modulation=True)
+            if self.parameterization == "policy":
+                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs,
+                                                                                   experience, num_actions)
+            else:
+                log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask, return_only_modulation=True)
             # log_psi = log_psi[:, -num_actions:]
 
             # print("ACTOR LOSS STUFF")
@@ -1193,6 +1196,14 @@ class PPOTrainer(ABC):
             raise NotImplementedError
 
         return actor_loss, num_actions
+
+    def get_log_psi_policy_parameterization(self, base_action_log_probs, experience, num_actions):
+        log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask)
+        log_psi = log_p_psi - base_action_log_probs.detach()  # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
+        # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
+        print("log_psi values")
+        print(log_psi)
+        return log_psi
 
     def training_step_critic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
         if self.model_eval:
