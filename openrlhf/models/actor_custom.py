@@ -317,7 +317,8 @@ class ActorCustom(nn.Module):
                 # attention_mask=attention_mask,
                 attention_mask=curr_attention_mask,
                 # condition_twist_on_tokens=condition_twist_on_tokens
-                return_type="all_vocab"
+                return_type="all_vocab",
+                use_for_generation=True
             )
 
             next_token_logits = lm_logits[:, -1, :]
@@ -419,7 +420,8 @@ class ActorCustom(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         return_output=False,
         return_type: str = 'p',
-        return_only_modulation=False
+        return_only_modulation=False,
+        use_for_generation=False,
     ) -> torch.Tensor:
         """Returns action log probs"""
         position_ids = self.get_position_ids(attention_mask)
@@ -457,7 +459,7 @@ class ActorCustom(nn.Module):
             modulation_logits = modulation["logits"]
 
         if return_only_modulation:
-            # assert not use_for_generation
+            assert not use_for_generation
             modulation = modulation_logits[:, :-1, :][:, -num_actions:]
             # labels = sequences[:, 1:]
             labels = sequences[:, -num_actions:]
@@ -474,17 +476,24 @@ class ActorCustom(nn.Module):
 
 
         if return_type == "all_vocab": # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
-            # return_all_vocab = True
-            log_probs = log_probs_from_logits_with_modulation(
-                base_output["logits"][:, :-1, :],
-                modulation_logits[:, :-1, :],
-                sequences[:, 1:],
-                return_type="all_vocab"
-            )
-            # log_probs = log_probs_from_logits_with_modulation(
-            #     base_output["logits"], modulation_logits, sequences,
-            #     return_type="all_vocab"
-            # )
+            if use_for_generation: # In generation, do not shift by one; we need the final logits of the last token
+                log_probs = log_probs_from_logits_with_modulation(
+                    base_output["logits"],
+                    modulation_logits,
+                    return_type="all_vocab"
+                )
+
+            else: # Otherwise, not generating, do the same shift by one; this should only be used by DPG loss
+                # return_all_vocab = True
+                log_probs = log_probs_from_logits_with_modulation(
+                    base_output["logits"][:, :-1, :],
+                    modulation_logits[:, :-1, :],
+                    return_type="all_vocab"
+                )
+                # log_probs = log_probs_from_logits_with_modulation(
+                #     base_output["logits"], modulation_logits, sequences,
+                #     return_type="all_vocab"
+                # )
             return log_probs[:, -num_actions:] # actually only need the very last one of this... [:, -1]
         elif return_type == "p":
             # return_all_vocab = False

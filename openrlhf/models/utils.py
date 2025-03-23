@@ -134,6 +134,7 @@ def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_typ
 def return_or_gather_then_return(labels, log_probs_all_vocab, return_type):
     if return_type == "all_vocab":
         return log_probs_all_vocab
+    assert labels is not None
     # Select logits for the particular next tokens that were generated (are in the sequence/are the 'labels')
     log_probs_labels = log_probs_all_vocab.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
     if return_type == "both":  # produces all_vocab, then just for the specific labels
@@ -141,7 +142,9 @@ def return_or_gather_then_return(labels, log_probs_all_vocab, return_type):
     return log_probs_labels
 
 
-def log_probs_from_logits_with_modulation(logits: torch.Tensor, modulation: torch.Tensor, labels: torch.Tensor, return_type: str = 'p') -> torch.Tensor:
+def log_probs_from_logits_with_modulation(
+    logits: torch.Tensor, modulation: torch.Tensor, labels: Optional[torch.Tensor] = None, return_type: str = 'p'
+) -> torch.Tensor:
 
     log_probs_base = F.log_softmax(logits, dim=-1)
     log_probs_plus_modulation = log_probs_base + modulation
