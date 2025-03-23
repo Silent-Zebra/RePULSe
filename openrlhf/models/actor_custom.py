@@ -11,7 +11,7 @@ from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedMod
 from transformers.deepspeed import HfDeepSpeedConfig
 
 from .packing_utils import patch_for_block_diag_attn
-from .utils import log_probs_from_logits, log_probs_from_logits_with_modulation, reset_position_ids
+from .utils import log_probs_from_logits, log_probs_from_logits_with_modulation, reset_position_ids, return_or_gather_then_return
 from openrlhf.models.actor import Actor
 
 from transformers import LogitsProcessor
