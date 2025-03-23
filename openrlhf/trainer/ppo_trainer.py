@@ -1129,7 +1129,7 @@ class PPOTrainer(ABC):
             )
             if self.parameterization == "policy":
                 # TODO call actor with return_all_vocab=True
-                log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, return_type="both", base_action_log_probs=base_action_log_probs_all_vocab)
+                log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
             else:
                 log_psi_all_vocab, log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
                                                       return_only_modulation=True, return_type="both")
