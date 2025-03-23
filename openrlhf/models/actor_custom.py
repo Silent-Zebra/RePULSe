@@ -317,7 +317,7 @@ class ActorCustom(nn.Module):
                 # attention_mask=attention_mask,
                 attention_mask=curr_attention_mask,
                 # condition_twist_on_tokens=condition_twist_on_tokens
-                return_all_vocab=True
+                return_type="all_vocab"
             )
 
             next_token_logits = lm_logits[:, -1, :]
