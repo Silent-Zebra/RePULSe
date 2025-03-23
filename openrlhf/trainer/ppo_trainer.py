@@ -512,7 +512,7 @@ class PPOTrainer(ABC):
         print(rand_prompts)
         # expanded_prompts = tile_prompts(rand_prompts, samples_per_prompt) # this is done within the f_q estimate...
 
-        total_f_qs, total_rewards, total_kl_vals, total_entropy = None, None, None
+        total_f_qs, total_rewards, total_kl_vals, total_entropy = None, None, None, None
 
         for i in range(self.n_seeds_f_q):
             f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q = self.f_q_estimate(
