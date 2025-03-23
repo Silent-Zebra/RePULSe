@@ -136,15 +136,15 @@ def blending_datasets(
 
 def get_info_name_str(args):
     eval_str = ""
-    extra_str = ""
+    # extra_str = ""
     if args.no_critic:
         critic_loss_str = ""
         lr_str = f"actorlr{args.actor_learning_rate}"
     else:
         critic_loss_str = f"_criticloss{args.critic_loss_type}"
         lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
-    if args.actor_modulates_base:
-        extra_str = "actormodbase"
+    # if args.actor_modulates_base:
+    #     extra_str = "actormodbase"
     if args.shared_actorcritic:
         lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
     if args.model_eval:
@@ -155,5 +155,5 @@ def get_info_name_str(args):
     if args.critic_loss_type == "mixed_ctl_mse":
         lr_str += f"_alpha{args.alpha}"
 
-    info_name_str = f"{args.rm_type}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}{critic_loss_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{extra_str}_seed{args.seed}"
+    info_name_str = f"{args.rm_type}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}{critic_loss_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{args.parameterization}_seed{args.seed}"
     return info_name_str
