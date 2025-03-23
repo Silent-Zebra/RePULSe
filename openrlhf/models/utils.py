@@ -30,8 +30,8 @@ def compute_approx_kl(
     # print(log_ratio.mean())
     # print(log_ratio)
     # print(log_ratio.size())
-
-    log_ratio = log_ratio * action_mask
+    if action_mask is not None:
+        log_ratio = log_ratio * action_mask
 
     # print("--KL LOG RATIO AFTER MASK--")
     # print(log_ratio.mean())

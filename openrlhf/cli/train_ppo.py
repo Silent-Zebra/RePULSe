@@ -432,29 +432,50 @@ def train(args):
         parameterization=args.parameterization
     )
 
-
-    iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = \
+    estimates_list = \
         trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
+    if args.custom_single_prompt:
+        iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = estimates_list
+        print("FINAL RESULTS IWAE LB LIST", flush=True)
+        print(iwae_lbs_list)
+        print("FINAL RESULTS IWAE UB LIST", flush=True)
+        print(iwae_ubs_list)
+        print("FINAL RESULTS F_Q", flush=True)
+        print(f_q_estimates_list)
+        print("FINAL RESULTS G_Q", flush=True)
+        print(g_q_estimates_list)
+
+        print("SAVING RESULTS", flush=True)
+
+        target_to_save = (
+            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
+        )
+        info_name_str = get_info_name_str(args)
+        save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
+        torch.save(target_to_save, save_str)
+
+    else:
+        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
+        print("FINAL RESULTS F_Q", flush=True)
+        print(f_q_estimates_list)
+        print("FINAL RESULTS REWARD", flush=True)
+        print(rewards_list)
+        print("FINAL RESULTS KL TO PRIOR", flush=True)
+        print(kl_vals_list)
+        print("FINAL RESULTS ENTROPY", flush=True)
+        print(entropy_list)
+        print("SAVING RESULTS", flush=True)
+
+        target_to_save = (
+            f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
+        )
+        info_name_str = get_info_name_str(args)
+        save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
+        torch.save(target_to_save, save_str)
 
 
-    print("FINAL RESULTS IWAE LB LIST", flush=True)
-    print(iwae_lbs_list)
-    print("FINAL RESULTS IWAE UB LIST", flush=True)
-    print(iwae_ubs_list)
-    print("FINAL RESULTS F_Q", flush=True)
-    print(f_q_estimates_list)
-    print("FINAL RESULTS G_Q", flush=True)
-    print(g_q_estimates_list)
 
-    print("SAVING RESULTS", flush=True)
 
-    target_to_save = (
-        f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
-    )
-
-    info_name_str = get_info_name_str(args)
-    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
-    torch.save(target_to_save, save_str)
 
     # ppo_trainer will do saving...
     # if args.save_actor:

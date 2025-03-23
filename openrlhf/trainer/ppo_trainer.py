@@ -14,7 +14,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss, DPGLoss
-from openrlhf.models.utils import masked_mean
+from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts
 
@@ -290,12 +290,18 @@ class PPOTrainer(ABC):
         iwae_ubs_list = []
         f_q_estimates_list = []
         g_q_estimates_list = []
+        rewards_list = []
+        kl_vals_list = []
+        entropy_list = []
+
 
         # if true_posterior_samples is not None:
         #     n_seeds_f_q = true_posterior_samples.shape[0] // args.train_batch_size
         #     print(f"n_seeds_f_q: {n_seeds_f_q}")
         # rewards_list = []
         # kl_to_prior_list = []
+
+        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list)
 
         custom_prompt = None
         if args.custom_single_prompt:
@@ -422,7 +428,6 @@ class PPOTrainer(ABC):
                 pbar.update()
 
         else:
-
             for episode in range(start_episode, args.num_episodes):
                 if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                     self.prompts_dataloader.sampler.set_epoch(
@@ -445,7 +450,7 @@ class PPOTrainer(ABC):
 
                     if not args.no_test_info:
                         if steps == 1: # do some test at the very beginning
-                            self.test_info_multiprompt(args, rand_prompts, samples_per_prompt=args.duplicate_rollout_batch_by)
+                            self.test_info_multiprompt(args, rand_prompts, estimates_list)
 
                     # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     #              profile_memory=True, record_shapes=True) as prof:
@@ -489,7 +494,7 @@ class PPOTrainer(ABC):
 
                         if not args.no_test_info:
                             if steps % args.test_info_every == 0:
-                                self.test_info_multiprompt(args, rand_prompts, samples_per_prompt=args.duplicate_rollout_batch_by)
+                                self.test_info_multiprompt(args, rand_prompts, estimates_list)
 
                     # print("PROFILE2")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
@@ -497,30 +502,74 @@ class PPOTrainer(ABC):
 
                     pbar.update()
                     steps = steps + 1
+        if args.custom_single_prompt:
+            return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
+        else:
+            return estimates_list
 
-        return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
-
-    def test_info_multiprompt(self, args, rand_prompts, samples_per_prompt: int = 1):
+    def test_info_multiprompt(self, args, rand_prompts, estimates_lists):
         print("prompts")
         print(rand_prompts)
         # expanded_prompts = tile_prompts(rand_prompts, samples_per_prompt) # this is done within the f_q estimate...
 
-        f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
-            args, rand_prompts)
+        total_f_qs, total_rewards, total_kl_vals, total_entropy = None, None, None
+
+        for i in range(self.n_seeds_f_q):
+            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q = self.f_q_estimate(
+                args, rand_prompts)
+
+            output = self.tokenizer.batch_decode(
+                q_seqs,
+                skip_special_tokens=True)
+            print("seqs")
+            print(output)
+            print("seqs2")
+            self.strategy.print(output[0])
+
+            print("Shapes")
+            print(log_q.shape)
+            print(log_p.shape)
+            print(log_phi.shape)
+            print(f_qs.shape)
+
+            kl_vals = compute_approx_kl(log_q, log_p)
+
+            rewards = log_phi / args.target_dist_beta
+
+            entropy = - log_q
+
+            print(kl_vals.shape)
+            print(rewards.shape)
+            print(entropy.shape)
+
+            if total_f_qs is None:
+                total_f_qs = f_qs
+                total_rewards = rewards
+                total_kl_vals = kl_vals
+                total_entropy = entropy
+            else:
+                total_f_qs = torch.cat((total_f_qs, f_qs), axis=0)
+                total_rewards = torch.cat((total_rewards, rewards), axis=0)
+                total_kl_vals = torch.cat((total_kl_vals, kl_vals), axis=0)
+                total_entropy = torch.cat((total_entropy, entropy), axis=0)
+
+                print("Shapes 2")
+                print(total_f_qs.shape)
+                print(total_rewards.shape)
+                print(total_kl_vals.shape)
+                print(total_entropy.shape)
+
         # print("f_qs")
         # print(f_qs)
-        print(f"Avg F_q: {f_qs.mean()}")
-        output = self.tokenizer.batch_decode(
-            q_seqs,
-            skip_special_tokens=True)
-        print("seqs")
-        print(output)
-        print("seqs2")
-        self.strategy.print(output[0])
-        # self.f_q_g_q_evaluation(args, f_q_estimates_list,
-        #                         g_q_estimates_list, iwae_lbs_list,
-        #                         iwae_ubs_list, prompt_text,
-        #                         true_posterior_samples)
+        print(f"Avg F_q: {total_f_qs.mean()}")
+
+        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_lists
+
+        f_q_estimates_list.append(total_f_qs.cpu())
+        rewards_list.append(total_rewards.cpu())
+        kl_vals_list.append(total_kl_vals.cpu())
+        entropy_list.append(total_entropy.cpu())
+
 
     def f_q_g_q_evaluation(self, args, f_q_estimates_list, g_q_estimates_list,
                            iwae_lbs_list, iwae_ubs_list,
@@ -533,7 +582,7 @@ class PPOTrainer(ABC):
         for i in range(self.n_seeds_f_q):
             custom_prompt_for_f_q = [prompt_text] * args.n_samples_for_f_q
 
-            f_qs, attention_mask, num_actions, q_seqs = self.f_q_estimate(
+            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q = self.f_q_estimate(
                 args, custom_prompt_for_f_q)
             print("Avg F_q Estimate (Learned Model)")
             print(f_qs.mean())
@@ -664,6 +713,7 @@ class PPOTrainer(ABC):
     def f_q_estimate(self, args, batch_prompt):
         self.experience_maker.set_all_eval()
         batch_prompt = tile_prompts(batch_prompt, args.duplicate_rollout_batch_by)
+
         with torch.no_grad():
             if self.shared_actorcritic:
                 action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_logprobs(
@@ -681,10 +731,9 @@ class PPOTrainer(ABC):
             # print(action_log_probs.shape)
             # 1/0
 
-            log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
-                                                           attention_mask,
-                                                           num_actions,
-                                                           sequences)
+            log_tilde_sigma, log_p, log_phi = self.eval_log_p_plus_log_phi(
+                args, action_log_probs, attention_mask, num_actions, sequences, return_extra_info=True
+            )
 
             f_qs = log_tilde_sigma - log_q
             print("f_q estimate details")
@@ -696,10 +745,10 @@ class PPOTrainer(ABC):
             print(f_qs)
             print(f_qs.shape)
 
-        return f_qs, attention_mask, num_actions, sequences
+        return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q
 
     def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask,
-                                num_actions, sequences):
+                                num_actions, sequences, return_extra_info=False):
         # rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
         #                                                            attention_mask, multiply_by_beta=True)
         # print("log p phi eval")
@@ -724,7 +773,10 @@ class PPOTrainer(ABC):
         print(log_p)
         print(log_phi)
         log_tilde_sigma = log_p + log_phi
-        return log_tilde_sigma
+        if return_extra_info:
+            return log_tilde_sigma, log_p, log_phi
+        else:
+            return log_tilde_sigma
 
 
 
