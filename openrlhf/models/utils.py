@@ -122,26 +122,39 @@ def compute_reward(
     return reward, kl
 
 
-def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    log_probs = F.log_softmax(logits, dim=-1)
-    print("log probs full")
-    print(log_probs)
-    print("log probs max")
-    print(log_probs.max(dim=-1))
-    log_probs_labels = log_probs.gather(dim=-1, index=labels.unsqueeze(-1))
-    return log_probs_labels.squeeze(-1)
+def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_type: str = 'p') -> torch.Tensor:
+    log_probs_all_vocab = F.log_softmax(logits, dim=-1)
+    # print("log probs full")
+    # print(log_probs)
+    # print("log probs max")
+    # print(log_probs.max(dim=-1))
+    return return_or_gather_then_return(labels, log_probs_all_vocab, return_type)
 
-def log_probs_from_logits_with_modulation(logits: torch.Tensor, modulation: torch.Tensor, labels: torch.Tensor, return_all_vocab=False) -> torch.Tensor:
-    log_probs = F.log_softmax(logits, dim=-1)
-    log_probs_plus_modulation = log_probs + modulation
+
+def return_or_gather_then_return(labels, log_probs_all_vocab, return_type):
+    if return_type == "all_vocab":
+        return log_probs_all_vocab
+    # Select logits for the particular next tokens that were generated (are in the sequence/are the 'labels')
+    log_probs_labels = log_probs_all_vocab.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+    if return_type == "both":  # produces all_vocab, then just for the specific labels
+        return log_probs_all_vocab, log_probs_labels
+    return log_probs_labels
+
+
+def log_probs_from_logits_with_modulation(logits: torch.Tensor, modulation: torch.Tensor, labels: torch.Tensor, return_type: str = 'p') -> torch.Tensor:
+
+    log_probs_base = F.log_softmax(logits, dim=-1)
+    log_probs_plus_modulation = log_probs_base + modulation
     # print("MODULATION")
     # print(modulation)
-    new_log_probs = F.log_softmax(log_probs_plus_modulation, dim=-1)
-    if return_all_vocab:
-        return new_log_probs
-    else:
-        log_probs_labels = new_log_probs.gather(dim=-1, index=labels.unsqueeze(-1))
-        return log_probs_labels.squeeze(-1)
+    return return_or_gather_then_return(labels, log_probs_plus_modulation, return_type)
+    # log_probs_all_vocab = F.log_softmax(log_probs_plus_modulation, dim=-1)
+    # if return_type == "all_vocab":
+    #     return log_probs_all_vocab
+    # log_probs_labels = log_probs_all_vocab.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+    # if return_type == "both":
+    #     return log_probs_all_vocab, log_probs_labels
+    # return log_probs_labels
 
 def masked_mean(tensor: torch.Tensor, mask: torch.Tensor, dim: int = None) -> torch.Tensor:
     if dim is not None:

@@ -13,7 +13,7 @@ from tqdm import tqdm
 from torch.profiler import profile, record_function, ProfilerActivity
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
-from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss
+from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss, DPGLoss
 from openrlhf.models.utils import masked_mean
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts
@@ -142,6 +142,8 @@ class PPOTrainer(ABC):
             self.actor_loss_fn = SIXOLoss()
         elif self.actor_loss_type == "sixo_approxneg":
             self.actor_loss_fn = SIXOLoss(approx_neg=True)
+        elif self.actor_loss_type == "dpg":
+            self.actor_loss_fn = DPGLoss()
         else:
             raise NotImplementedError
 
@@ -1117,6 +1119,61 @@ class PPOTrainer(ABC):
                 base_action_log_probs,
                 # reduce_mean_per_prompt=True
             )
+        elif self.actor_loss_type == "dpg":
+            base_action_log_probs_all_vocab, base_action_log_probs = self.experience_maker.initial_model(
+                experience.sequences, num_actions,
+                experience.attention_mask, return_type="both")
+            log_phi = self.experience_maker.compute_reward_no_kl(
+                experience.sequences, experience.attention_mask, multiply_by_beta=True
+                # beta multiplied for non-PPO formulations
+            )
+            if self.parameterization == "policy":
+                # TODO call actor with return_all_vocab=True
+                log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, return_type="both")
+            else:
+                log_psi_all_vocab, log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
+                                                      return_only_modulation=True, return_type="both")
+
+            # Reshape tensors to group samples by prompt
+            log_psi = log_psi.view(num_prompts, samples_per_prompt, -1)
+            log_phi = log_phi.view(num_prompts, samples_per_prompt)
+            exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+            exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
+            base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
+
+            log_psi_all_vocab = log_psi_all_vocab.view(num_prompts, samples_per_prompt, log_psi_all_vocab.shape[1], log_psi_all_vocab.shape[2])
+            base_action_log_probs_all_vocab = base_action_log_probs_all_vocab.view(num_prompts, samples_per_prompt, base_action_log_probs_all_vocab.shape[1], base_action_log_probs_all_vocab.shape[2])
+
+            print("DPG INSPECTION")
+            print(experience.sequences.shape)
+            print(experience.sequences)
+            print(experience.attention_mask.shape)
+            print(experience.attention_mask)
+            print(exper_action_mask.shape)
+            print(exper_action_mask)
+            print(exper_action_log_probs.shape)
+            print(exper_action_log_probs)
+
+            print(log_psi.shape)
+            print(log_psi)
+            print(log_phi.shape)
+            print(log_phi)
+
+            print(base_action_log_probs.shape)
+            print(base_action_log_probs)
+
+            # Calculate loss for all groups at once
+            actor_loss = self.actor_loss_fn(
+                log_psi,  # shape: [num_prompts, samples_per_prompt, num_actions]
+                log_phi,  # shape: [num_prompts, samples_per_prompt]
+                exper_action_mask,
+                exper_action_log_probs,
+                base_action_log_probs,
+                # reduce_mean_per_prompt=True
+                log_psi_all_vocab,
+                base_action_log_probs_all_vocab,
+            )
+
 
         elif self.actor_loss_type in ["sixo", "sixo_approxneg"]:
 
@@ -1197,8 +1254,17 @@ class PPOTrainer(ABC):
 
         return actor_loss, num_actions
 
-    def get_log_psi_policy_parameterization(self, base_action_log_probs, experience, num_actions):
-        log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask)
+    def get_log_psi_policy_parameterization(self, base_action_log_probs, experience, num_actions, return_type: str = 'p', base_action_log_probs_all=None):
+        if return_type == "both":
+            assert base_action_log_probs_all is not None
+            log_p_psi_all, log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
+                                                    return_type=return_type)
+            log_psi = log_p_psi - base_action_log_probs.detach()
+            log_psi_all = log_p_psi_all - base_action_log_probs_all.detach()
+            return log_psi_all, log_psi
+
+
+        log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_type=return_type)
         log_psi = log_p_psi - base_action_log_probs.detach()  # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
         # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
         # print("log_psi values")

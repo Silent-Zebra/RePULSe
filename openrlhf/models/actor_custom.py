@@ -317,7 +317,7 @@ class ActorCustom(nn.Module):
                 # attention_mask=attention_mask,
                 attention_mask=curr_attention_mask,
                 # condition_twist_on_tokens=condition_twist_on_tokens
-                use_for_generation=True
+                return_all_vocab=True
             )
 
             next_token_logits = lm_logits[:, -1, :]
@@ -418,7 +418,7 @@ class ActorCustom(nn.Module):
         num_actions: int = None,
         attention_mask: Optional[torch.Tensor] = None,
         return_output=False,
-        use_for_generation=False,
+        return_type: str = 'p',
         return_only_modulation=False
     ) -> torch.Tensor:
         """Returns action log probs"""
@@ -460,26 +460,33 @@ class ActorCustom(nn.Module):
             assert not use_for_generation
             modulation = modulation_logits[:, :-1, :]
             labels = sequences[:, 1:]
-            modulation_on_selected_tokens = modulation.gather(dim=-1, index=labels.unsqueeze(-1))
-            # print(log_probs.shape)
-            # print(sequences.shape)
-            # print(log_probs_labels.shape)
-            return modulation_on_selected_tokens.squeeze(-1)[:, -num_actions:]
+
+
+            return return_or_gather_then_return(labels, modulation, return_type)
+
+            # modulation_on_selected_tokens = modulation.gather(dim=-1, index=labels.unsqueeze(-1))
+            # return modulation_on_selected_tokens.squeeze(-1)[:, -num_actions:]
 
         if base_output is None:
             with torch.no_grad():
                 base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
 
-        if use_for_generation: # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
-            return_all_vocab = True
-            log_probs = log_probs_from_logits_with_modulation(
-                base_output["logits"], modulation_logits, sequences,
-                return_all_vocab=return_all_vocab
-            )
-            return log_probs # actually only need the very last one of this... [:, -1]
 
-        else:
-            return_all_vocab = False
+        if return_type == "all_vocab": # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
+            # return_all_vocab = True
+            log_probs = log_probs_from_logits_with_modulation(
+                base_output["logits"][:, :-1, :],
+                modulation_logits[:, :-1, :],
+                sequences[:, 1:],
+                return_type="all_vocab"
+            )
+            # log_probs = log_probs_from_logits_with_modulation(
+            #     base_output["logits"], modulation_logits, sequences,
+            #     return_type="all_vocab"
+            # )
+            return log_probs[:, -num_actions:] # actually only need the very last one of this... [:, -1]
+        elif return_type == "p":
+            # return_all_vocab = False
             assert not return_output
             # if return_output:
             #     return output if num_actions is None else (log_probs[:, -num_actions:], output)
@@ -488,10 +495,20 @@ class ActorCustom(nn.Module):
                 base_output["logits"][:, :-1, :], 
                 modulation_logits[:, :-1, :], 
                 sequences[:, 1:], 
-                return_all_vocab=return_all_vocab
+                return_type='p'
             )
 
             return log_probs[:, -num_actions:]
+        elif return_type == "both":
+            log_probs_all, log_probs = log_probs_from_logits_with_modulation(
+                base_output["logits"][:, :-1, :],
+                modulation_logits[:, :-1, :],
+                sequences[:, 1:],
+                return_type="both"
+            )
+
+            return log_probs_all[:, -num_actions:], log_probs[:, -num_actions:]
+
 
     def get_position_ids(self, attention_mask):
         if not self.packing_samples:
@@ -729,7 +746,8 @@ class ActorCritic(nn.Module):
         sequences: torch.LongTensor,
         num_actions: int = None,
         attention_mask: Optional[torch.Tensor] = None,
-        return_output=False,
+        return_output: bool = False,
+        return_type: str = 'p',
     ) -> torch.Tensor:
 
         """Returns action log probs"""
@@ -752,7 +770,7 @@ class ActorCritic(nn.Module):
 
 
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :],
-                                          sequences[:, 1:])
+                                          sequences[:, 1:], return_type=return_type)
 
         last_hidden_state = output.hidden_states[-1]
 
