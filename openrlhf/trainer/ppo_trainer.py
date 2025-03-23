@@ -562,6 +562,9 @@ class PPOTrainer(ABC):
         # print("f_qs")
         # print(f_qs)
         print(f"Avg F_q: {total_f_qs.mean()}")
+        print(f"Avg Rew: {total_rewards.mean()}")
+        print(f"Avg KL to Prior: {total_kl_vals.mean()}")
+        print(f"Avg Ent: {total_entropy.mean()}")
 
         f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_lists
 
