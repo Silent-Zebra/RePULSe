@@ -457,7 +457,7 @@ class ActorCustom(nn.Module):
             modulation_logits = modulation["logits"]
 
         if return_only_modulation:
-            assert not use_for_generation
+            # assert not use_for_generation
             modulation = modulation_logits[:, :-1, :]
             labels = sequences[:, 1:]
 
