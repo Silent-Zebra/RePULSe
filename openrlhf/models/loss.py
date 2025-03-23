@@ -459,7 +459,7 @@ class SIXOLoss(nn.Module):
                 base_action_log_probs,
                 curr_log_probs,
                 final_reward,
-                values
+                # values
             )
 
             # Compute positive term with batched weights
@@ -654,7 +654,7 @@ class DPGLoss(nn.Module):
                 base_action_log_probs,
                 curr_log_probs,
                 final_reward,
-                values
+                # values
             )
 
             # # Compute terms using the vectorized weights
