@@ -526,11 +526,11 @@ class PPOTrainer(ABC):
             print("seqs2")
             self.strategy.print(output[0])
 
-            print("Shapes")
-            print(log_q.shape)
-            print(log_p.shape)
-            print(log_phi.shape)
-            print(f_qs.shape)
+            # print("Shapes")
+            # print(log_q.shape)
+            # print(log_p.shape)
+            # print(log_phi.shape)
+            # print(f_qs.shape)
 
             kl_vals = compute_approx_kl(log_q, log_p)
 
@@ -553,11 +553,11 @@ class PPOTrainer(ABC):
                 total_kl_vals = torch.cat((total_kl_vals, kl_vals), axis=0)
                 total_entropy = torch.cat((total_entropy, entropy), axis=0)
 
-                print("Shapes 2")
-                print(total_f_qs.shape)
-                print(total_rewards.shape)
-                print(total_kl_vals.shape)
-                print(total_entropy.shape)
+                # print("Shapes 2")
+                # print(total_f_qs.shape)
+                # print(total_rewards.shape)
+                # print(total_kl_vals.shape)
+                # print(total_entropy.shape)
 
         # print("f_qs")
         # print(f_qs)
