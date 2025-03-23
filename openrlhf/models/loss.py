@@ -677,6 +677,11 @@ class DPGLoss(nn.Module):
 
         log_psi_t_eval_list_proposal_samples = values
 
+        print(normalized_w_t_approx_sigma_samples.shape)
+        print(normalized_w_t_approx_sigma_samples[:, None].shape)
+        print(log_psi_t_eval_list_proposal_samples.shape)
+
+
         positive_samples_term = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
 
         normalized_p_psi_all_vocab = torch.softmax(base_action_log_probs_all_vocab + log_psi_all_vocab, dim=-1)
