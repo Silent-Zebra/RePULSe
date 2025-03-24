@@ -426,6 +426,7 @@ class ActorCustom(nn.Module):
         """Returns action log probs"""
         position_ids = self.get_position_ids(attention_mask)
 
+
         base_output = None
         if self.use_modulation_head:
             with torch.no_grad():
@@ -458,13 +459,12 @@ class ActorCustom(nn.Module):
             modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
             modulation_logits = modulation["logits"]
 
+
         if return_only_modulation:
             assert not use_for_generation
             modulation = modulation_logits[:, :-1, :][:, -num_actions:]
             # labels = sequences[:, 1:]
             labels = sequences[:, -num_actions:]
-
-
             return return_or_gather_then_return(labels, modulation, return_type)
 
             # modulation_on_selected_tokens = modulation.gather(dim=-1, index=labels.unsqueeze(-1))
@@ -473,7 +473,6 @@ class ActorCustom(nn.Module):
         if base_output is None:
             with torch.no_grad():
                 base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
-
 
         if return_type == "all_vocab": # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
             if use_for_generation: # In generation, do not shift by one; we need the final logits of the last token

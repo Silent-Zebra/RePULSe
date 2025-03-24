@@ -41,21 +41,21 @@ def compute_approx_kl(
         print("--LOG PROBS--")
         print(log_probs.mean())
         print(log_probs)
-        print("--LOG PROBS AFTER MASK--")
-        print((log_probs * action_mask).mean())
-        print(log_probs * action_mask)
+        # print("--LOG PROBS AFTER MASK--")
+        # print((log_probs * action_mask).mean())
+        # print(log_probs * action_mask)
         print("--LOG PROBS BASE--")
         print(log_probs_base.mean())
         print(log_probs_base)
-        print("--LOG PROBS BASE AFTER MASK--")
-        print((log_probs_base * action_mask).mean())
-        print(log_probs_base * action_mask)
+        # print("--LOG PROBS BASE AFTER MASK--")
+        # print((log_probs_base * action_mask).mean())
+        # print(log_probs_base * action_mask)
         # for i in range(log_probs.shape[0]):
         for i in range(1):
             print(f"---{i}--")
             print(log_probs[i])
             print(log_probs_base[i])
-            print(action_mask[i])
+            # print(action_mask[i])
 
 
 
@@ -150,7 +150,9 @@ def log_probs_from_logits_with_modulation(
     log_probs_plus_modulation = log_probs_base + modulation
     # print("MODULATION")
     # print(modulation)
-    return return_or_gather_then_return(labels, log_probs_plus_modulation, return_type)
+    new_log_probs = F.log_softmax(log_probs_plus_modulation, dim=-1)
+
+    return return_or_gather_then_return(labels, new_log_probs, return_type)
     # log_probs_all_vocab = F.log_softmax(log_probs_plus_modulation, dim=-1)
     # if return_type == "all_vocab":
     #     return log_probs_all_vocab
