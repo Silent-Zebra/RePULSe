@@ -193,8 +193,9 @@ class CTLLoss(nn.Module):
     CTL Twist learning loss
     """
 
-    def __init__(self) -> None:
+    def __init__(self, no_second_term=False) -> None:
         super().__init__()
+        self.no_second_term = no_second_term
 
     def forward(
         self,
@@ -277,7 +278,10 @@ class CTLLoss(nn.Module):
             # print(normalized_w_t_approx_sigma_samples.shape)
 
 
-            loss = -(positive_samples_term - negative_samples_term)
+            if self.no_second_term:
+                loss = - positive_samples_term
+            else:
+                loss = -(positive_samples_term - negative_samples_term)
             # print(loss.shape)
 
             loss = masked_mean(loss, action_mask, dim=-1).sum()
@@ -356,8 +360,10 @@ class CTLLoss(nn.Module):
         # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
         # print(negative_samples_term) # check, these should match each other
 
-        # This is the first term calculation, but really should do a similar kind of thing here as above
-        loss = -(positive_samples_term_new - negative_samples_term_new)
+        if self.no_second_term:
+            loss = - positive_samples_term_new
+        else:
+            loss = -(positive_samples_term_new - negative_samples_term_new)
 
         # print(loss.shape)
         # print(action_mask.shape)

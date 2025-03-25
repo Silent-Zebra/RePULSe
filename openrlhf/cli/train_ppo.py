@@ -672,7 +672,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--actor_loss_type", type=str, default="ppo",
         choices=[
-            "ppo", "ctl", "sixo", "sixo_approxneg", "dpg"
+            "ppo", "ctl", "ctl_nosecondterm", "sixo", "sixo_approxneg", "dpg"
         ]
     )
 
@@ -721,5 +721,7 @@ if __name__ == "__main__":
         assert args.kl_target is None
         assert args.duplicate_rollout_batch_by > 1 # NOTE: this is also the "batch" or "number of particles" used in twist learning; for a given prompt, how many particles we use.
 
+    if args.actor_loss_type == "ctl_nosecondterm":
+        assert args.parameterization == "policy" # only case when the gradients will work out such that the second term disappears (is this true?)
 
     train(args)
