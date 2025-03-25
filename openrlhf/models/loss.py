@@ -686,7 +686,7 @@ class DPGLoss(nn.Module):
         # print(log_psi_t_eval_list_proposal_samples.shape)
 
 
-        positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * log_psi_t_eval_list_proposal_samples
+        positive_samples_term = log_psi_t_eval_list_proposal_samples
 
 
         normalized_p_psi_all_vocab = torch.softmax(base_action_log_probs_all_vocab + log_psi_all_vocab, dim=-1).detach() # IMPORTANT: need not to propagate through weights
@@ -698,7 +698,7 @@ class DPGLoss(nn.Module):
         # Mean along the time dimension, again we can debate if we want to use sum. Just be consistent, that's the most important.
 
 
-        loss = -(positive_samples_term - negative_samples_term)
+        loss = -normalized_w_t_approx_sigma_samples.unsqueeze(-1) * (positive_samples_term - negative_samples_term)
 
         loss = masked_mean(loss, action_mask, dim=-1).sum()
 
