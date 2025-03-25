@@ -12,6 +12,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.profiler import profile, record_function, ProfilerActivity
 
+import torch.nn.functional as F
+
+
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl
