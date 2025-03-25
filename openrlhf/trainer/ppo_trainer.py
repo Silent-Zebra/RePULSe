@@ -1313,7 +1313,7 @@ class PPOTrainer(ABC):
         if return_type == "both":
             assert base_action_log_probs_all is not None
             log_p_psi_all, log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
-                                                    return_type=return_type)
+                                                    return_type=return_type, return_unnormalized=True)
             log_psi = log_p_psi - base_action_log_probs.detach()
             log_psi_all = log_p_psi_all - base_action_log_probs_all.detach()
             return log_psi_all, log_psi

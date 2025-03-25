@@ -122,7 +122,10 @@ def compute_reward(
     return reward, kl
 
 
-def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_type: str = 'p') -> torch.Tensor:
+def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_type: str = 'p', return_unnormalized=False) -> torch.Tensor:
+    if return_unnormalized:
+        return return_or_gather_then_return(labels, logits, return_type)
+
     log_probs_all_vocab = F.log_softmax(logits, dim=-1)
     # print("log probs full")
     # print(log_probs)

@@ -225,6 +225,7 @@ class Actor(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         return_output: bool = False,
         return_type: str = 'p',
+        return_unnormalized: bool = False,
     ) -> torch.Tensor:
 
         """Returns action log probs"""
@@ -244,10 +245,10 @@ class Actor(nn.Module):
 
         if return_type == "both":
             assert not return_output
-            log_probs_all, log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:], return_type=return_type)
+            log_probs_all, log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:], return_type=return_type, return_unnormalized=return_unnormalized)
             return log_probs_all[:, -num_actions:], log_probs[:, -num_actions:]
 
-        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:], return_type=return_type)
+        log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:], return_type=return_type, return_unnormalized=return_unnormalized)
 
         # print("inspection of log probs - does no attention give 0 or something?")
         # print(log_probs)
