@@ -1320,14 +1320,14 @@ class PPOTrainer(ABC):
             log_psi = log_p_psi - base_action_log_probs.detach()
             log_psi_all = log_p_psi_all - base_action_log_probs_all.detach()
 
-            print("policy param inspection")
-            print(log_psi)
-            print("policy param inspection2")
-            print(log_p_psi_all)
-            print(log_psi_all)
-            print(base_action_log_probs_all)
-            print(F.log_softmax(log_p_psi_all, dim=-1))
-            1/0
+            # print("policy param inspection")
+            # print(log_psi)
+            # print("policy param inspection2")
+            # print(log_p_psi_all)
+            # print(log_psi_all)
+            # print(base_action_log_probs_all)
+            # print(F.log_softmax(log_p_psi_all, dim=-1))
+            # 1/0
 
             return log_psi_all, log_psi
 
