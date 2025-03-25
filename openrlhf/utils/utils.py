@@ -136,6 +136,7 @@ def blending_datasets(
 
 def get_info_name_str(args):
     eval_str = ""
+    init_head_base_str = ""
     # extra_str = ""
     if args.no_critic:
         critic_loss_str = ""
@@ -152,8 +153,11 @@ def get_info_name_str(args):
     if args.bc_coef > 0:
         lr_str += f"_bc{args.bc_coef}"
 
+    if args.init_head_from_base:
+        init_head_base_str = "_initheadbase"
+
     if args.critic_loss_type == "mixed_ctl_mse":
         lr_str += f"_alpha{args.alpha}"
 
-    info_name_str = f"{args.rm_type}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}{critic_loss_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{args.parameterization}_seed{args.seed}"
+    info_name_str = f"{args.rm_type}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}{critic_loss_str}_adambetas{args.adam_betas[0]}_{args.adam_betas[1]}_{args.parameterization}{init_head_base_str}_sddivider{args.additional_sd_divider}_seed{args.seed}"
     return info_name_str
