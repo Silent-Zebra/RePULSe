@@ -117,19 +117,27 @@ load_prefixes_linearhead_initbase = [
 
 load_prefixes_nnhead = [
     [
-        "f_q_rew_kltoprior_ent_toy_rlhf_ctl_epochs1_lrscheduleconstant_actorlr0.0003_adambetas0.9_0.999_modulation_nn_head_seed1",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ctl_epochs1_lrscheduleconstant_actorlr0.001_adambetas0.9_0.999_modulation_nn_head_sddivider1.0_seed1",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ctl_epochs1_lrscheduleconstant_actorlr0.001_adambetas0.9_0.999_modulation_nn_head_sddivider1.0_seed2",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ctl_epochs1_lrscheduleconstant_actorlr0.001_adambetas0.9_0.999_modulation_nn_head_sddivider1.0_seed3",
     ],
     [
         "f_q_rew_kltoprior_ent_toy_rlhf_ppo_epochs1_lrscheduleconstant_actorlr0.0003_criticlr0.0001_criticlossmse_adambetas0.9_0.999_modulation_nn_head_sddivider1.0_seed1",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ppo_epochs1_lrscheduleconstant_actorlr0.0003_criticlr0.0001_criticlossmse_adambetas0.9_0.999_modulation_nn_head_sddivider1.0_seed2",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ppo_epochs1_lrscheduleconstant_actorlr0.0003_criticlr0.0001_criticlossmse_adambetas0.9_0.999_modulation_nn_head_sddivider1.0_seed3"
     ],
 
 ]
 load_prefixes_modulation_model = [
     [
         "f_q_rew_kltoprior_ent_toy_rlhf_ctl_epochs1_lrscheduleconstant_actorlr0.0003_adambetas0.9_0.999_modulation_model_seed1",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ctl_epochs1_lrscheduleconstant_actorlr0.0003_adambetas0.9_0.999_modulation_model_initheadbase_sddivider1.0_seed2",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ctl_epochs1_lrscheduleconstant_actorlr0.0003_adambetas0.9_0.999_modulation_model_initheadbase_sddivider1.0_seed3"
     ],
     [
         "f_q_rew_kltoprior_ent_toy_rlhf_ppo_epochs1_lrscheduleconstant_actorlr0.0001_criticlr1e-05_criticlossmse_adambetas0.9_0.999_modulation_model_seed1",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ppo_epochs1_lrscheduleconstant_actorlr0.0001_criticlr1e-05_criticlossmse_adambetas0.9_0.999_modulation_model_initheadbase_sddivider1.0_seed2",
+        "f_q_rew_kltoprior_ent_toy_rlhf_ppo_epochs1_lrscheduleconstant_actorlr0.0001_criticlr1e-05_criticlossmse_adambetas0.9_0.999_modulation_model_initheadbase_sddivider1.0_seed3",
     ],
 
 ]

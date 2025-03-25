@@ -688,6 +688,12 @@ class DPGLoss(nn.Module):
 
         positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * log_psi_t_eval_list_proposal_samples
 
+        print(log_psi_all_vocab)
+        print(log_psi_all_vocab.sum())
+        print(log_psi_all_vocab.shape)
+        1/0
+
+
         normalized_p_psi_all_vocab = torch.softmax(base_action_log_probs_all_vocab + log_psi_all_vocab, dim=-1)
         # get all logits - a bit annoying since you have to modify the forward calls in both actor and actor_custom to produce all logits, and then do the sum/reduce over them
         negative_samples_term = (
