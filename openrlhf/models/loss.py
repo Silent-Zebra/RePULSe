@@ -261,10 +261,9 @@ class CTLLoss(nn.Module):
             normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=1)
             negative_samples_term = normalized_w_t_approx_pi_samples * values
 
-            print("weight inspection")
-            print(log_w_t_approx_pi_samples)
-            print(normalized_w_t_approx_pi_samples)
-            1/0
+            # print("weight inspection")
+            # print(log_w_t_approx_pi_samples)
+            # print(normalized_w_t_approx_pi_samples)
 
             # print('wgts')
             # print(normalized_w_t_approx_sigma_samples)
