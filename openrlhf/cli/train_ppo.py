@@ -687,7 +687,8 @@ if __name__ == "__main__":
     if args.parameterization != "policy":
         args.actor_modulates_base = True
 
-    args.init_kl_coef = 1 / args.target_dist_beta
+
+    args.init_kl_coef = abs(1 / args.target_dist_beta)
     print(f"Init KL coef set to: {args.init_kl_coef}, based on target_dist_beta {args.target_dist_beta}")
     # Because otherwise you don't have the equivalence between the RL formulation and the probabilistic inference formulation with target dist
 

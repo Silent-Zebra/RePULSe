@@ -361,7 +361,10 @@ class NaiveExperienceMaker(ABC):
         if multiply_by_beta: # Use for twist formulation
             return final_reward * self.target_dist_beta
         else: # Use for PPO formulation
-            return final_reward
+            if self.target_dist_beta < 0:
+                return -final_reward # For PPO, if we have target e^{beta r} where beta is negative, say beta = -b, then e^{-br} = e^{b(-r)} which is equivalent to using PPO on a new reward model r' = -r. So what we'll instead do is keep the KL penalty as 1/beta but now have the reward -r. Twist formulations directly handle multiplying by beta
+            else:
+                return final_reward
 
     def set_all_eval(self):
         self.actor.eval()

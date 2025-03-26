@@ -1383,6 +1383,7 @@ class PPOTrainer(ABC):
                 action_mask=experience.action_mask,
             )
         elif self.critic_loss_type == "ctl":
+            raise NotImplementedError # no longer tested
             num_actions = experience.action_mask.size(1)
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
@@ -1403,6 +1404,8 @@ class PPOTrainer(ABC):
                 base_action_log_probs=base_action_log_probs
             )
         elif self.critic_loss_type == "mixed_ctl_mse":
+            raise NotImplementedError # no longer tested
+
             num_actions = experience.action_mask.size(1)
             final_reward = self.reward_model(experience.sequences, experience.attention_mask)
             base_action_log_probs = self.experience_maker.initial_model(
@@ -1418,6 +1421,8 @@ class PPOTrainer(ABC):
                 final_reward=final_reward
             )
         elif self.critic_loss_type in ["sixo", "sixo_approxneg"]:
+            raise NotImplementedError # no longer tested
+
             num_actions = experience.action_mask.size(1)
             base_action_log_probs = self.experience_maker.initial_model(
                 experience.sequences, num_actions,
