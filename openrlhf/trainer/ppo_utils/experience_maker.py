@@ -301,10 +301,10 @@ class NaiveExperienceMaker(ABC):
             r = self.reward_model(sequences, attention_mask)
 
         if self.save_negdata:
-            print(queries)
+            print(sequences)
             print(r < self.save_negdata_threshold)
-            print(queries[r < self.save_negdata_threshold])
-            self.neg_data.extend(queries[r < self.save_negdata_threshold])
+            print(sequences[r < self.save_negdata_threshold])
+            self.neg_data.extend(sequences[r < self.save_negdata_threshold])
             print(self.neg_data)
             1/0
 
