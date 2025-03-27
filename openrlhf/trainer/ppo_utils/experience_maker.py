@@ -303,7 +303,6 @@ class NaiveExperienceMaker(ABC):
         if self.save_negdata:
 
             print("savenegdata")
-            print(queries)
             print(sequences.shape)
             print(sequences)
             print(r < self.save_negdata_threshold)
