@@ -356,7 +356,7 @@ class NaiveExperienceMaker(ABC):
             final_reward = log_prob_of_class
             # Because remember r_u = 1/beta log phi is the right way to set up the unregularized reward for equivalence between standard RL formulation and our setup
             # BUT remember that phi = p(class | s)^\beta right? So log phi is beta * p(class | s). But anyway, my experiments just use beta = 1 here...
-        elif self.rm_type == "toxicity_threshold":
+        elif self.rm_type == "indicator_below_threshold": # works for any arbitrary indicator function on checking if score is less than threshold
             eps = 1e-16
             score = r
             # print("score")

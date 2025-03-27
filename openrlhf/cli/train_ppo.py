@@ -616,9 +616,9 @@ if __name__ == "__main__":
                         choices=["exp_beta_rew_p_continuation", "exp_beta_rew_p_continuation_divided_by_p",
                                  "p_continuation", "exp_beta_toxicity", "exp_beta_toxicity_class_logprob",
                                  "exp_beta_sentiment_class_logprob",
-                                 "toxicity_threshold", "sentiment_threshold",
+                                 "indicator_below_threshold", "sentiment_threshold",
                                  "p_last_tokens", "toy_test", "toy_rlhf"])
-    parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score")
+    parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score (or whatever score used for indicator_below_threshold)")
     parser.add_argument("--reward_cap", type=float, default=10000, help="Only for use with toy_rlhf rm_type")
     parser.add_argument(
         "--save_negdata", action="store_true", default=False, help="Save a dataset of negative examples"
