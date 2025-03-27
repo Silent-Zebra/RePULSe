@@ -436,6 +436,9 @@ def train(args):
 
     estimates_list = \
         trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
+
+    info_name_str = get_info_name_str(args)
+
     if args.custom_single_prompt:
         iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = estimates_list
         print("FINAL RESULTS IWAE LB LIST", flush=True)
@@ -452,7 +455,6 @@ def train(args):
         target_to_save = (
             f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
         )
-        info_name_str = get_info_name_str(args)
         save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
         torch.save(target_to_save, save_str)
 
@@ -471,7 +473,6 @@ def train(args):
         target_to_save = (
             f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
         )
-        info_name_str = get_info_name_str(args)
         save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
         torch.save(target_to_save, save_str)
 
@@ -479,7 +480,7 @@ def train(args):
     if args.save_negdata:
         import pickle
         # Save to file
-        with open(f"{args.save_path}/neg_data.pkl", "wb") as f:
+        with open(f"{args.save_path}/neg_data_{info_name_str}.pkl", "wb") as f:
             pickle.dump(trainer.experience_maker.neg_data, f)
 
 
