@@ -745,7 +745,7 @@ class PPOTrainer(ABC):
             # 1/0
 
             log_tilde_sigma, log_p, log_phi = self.eval_log_p_plus_log_phi(
-                args, action_log_probs, attention_mask, num_actions, sequences, return_extra_info=True
+                args, action_log_probs, attention_mask, action_mask, num_actions, sequences, return_extra_info=True
             )
 
             f_qs = log_tilde_sigma - log_q
@@ -760,7 +760,7 @@ class PPOTrainer(ABC):
 
         return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
 
-    def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask,
+    def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask, action_mask,
                                 num_actions, sequences, return_extra_info=False):
         # rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
         #                                                            attention_mask, multiply_by_beta=True)
@@ -807,7 +807,7 @@ class PPOTrainer(ABC):
             action_log_probs = action_log_probs.float() # more precision
             log_q = action_log_probs.sum(dim=-1)
             log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
-                                    attention_mask,
+                                    attention_mask, action_mask,
                                     num_actions, sequences)
             log_tilde_sigma = log_tilde_sigma.float() # more precision
 
