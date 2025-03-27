@@ -301,8 +301,7 @@ class NaiveExperienceMaker(ABC):
             r = self.reward_model(sequences, attention_mask)
 
         if self.save_negdata:
-            queries = self.tokenizer.batch_decode(sequences.cpu(),
-                                                  skip_special_tokens=False)
+
             print("savenegdata")
             print(queries)
             print(sequences.shape)
@@ -310,8 +309,11 @@ class NaiveExperienceMaker(ABC):
             print(r < self.save_negdata_threshold)
             print(sequences[r < self.save_negdata_threshold])
             print(sequences[r < self.save_negdata_threshold].shape)
+
+            queries = self.tokenizer.batch_decode(sequences[r < self.save_negdata_threshold].cpu(),
+                                                  skip_special_tokens=False)
             # self.neg_data.extend(sequences[r < self.save_negdata_threshold])
-            self.neg_data.extend(queries[r < self.save_negdata_threshold])
+            self.neg_data.extend(queries)
             print(self.neg_data)
             print(len(self.neg_data))
             1/0
