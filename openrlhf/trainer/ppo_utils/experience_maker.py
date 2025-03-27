@@ -129,7 +129,7 @@ class NaiveExperienceMaker(ABC):
         self.save_negdata = save_negdata
         self.save_negdata_threshold = save_negdata_threshold
         if self.save_negdata:
-            self.neg_data = []
+            self.neg_data = set()
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, device):
@@ -312,7 +312,7 @@ class NaiveExperienceMaker(ABC):
             queries = self.tokenizer.batch_decode(sequences[r < self.save_negdata_threshold].cpu(),
                                                   skip_special_tokens=False)
             # self.neg_data.extend(sequences[r < self.save_negdata_threshold])
-            self.neg_data.extend(queries)
+            self.neg_data.update(queries) # keep only unique samples
             print(self.neg_data)
             print(len(self.neg_data))
             1/0
