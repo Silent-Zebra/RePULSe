@@ -303,19 +303,20 @@ class NaiveExperienceMaker(ABC):
         if self.save_negdata:
 
             print("savenegdata")
+            print(len(self.neg_data))
             print(sequences.shape)
-            print(sequences)
-            print(r < self.save_negdata_threshold)
-            print(sequences[r < self.save_negdata_threshold])
-            print(sequences[r < self.save_negdata_threshold].shape)
+            # print(sequences)
+            # print(r < self.save_negdata_threshold)
+            # print(sequences[r < self.save_negdata_threshold])
+            seqs_below_threshold = sequences[r < self.save_negdata_threshold]
+            print(seqs_below_threshold.shape)
 
-            queries = self.tokenizer.batch_decode(sequences[r < self.save_negdata_threshold].cpu(),
+            queries = self.tokenizer.batch_decode(seqs_below_threshold.cpu(),
                                                   skip_special_tokens=False)
             # self.neg_data.extend(sequences[r < self.save_negdata_threshold])
             self.neg_data.update(queries) # keep only unique samples
-            print(self.neg_data)
+            # print(self.neg_data)
             print(len(self.neg_data))
-            1/0
 
 
 

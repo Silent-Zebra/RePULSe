@@ -476,6 +476,11 @@ def train(args):
         torch.save(target_to_save, save_str)
 
 
+    if args.save_negdata:
+        import pickle
+        # Save to file
+        with open(f"{args.save_path}/neg_data.pkl", "wb") as f:
+            pickle.dump(trainer.experience_maker.neg_data, f)
 
 
 
