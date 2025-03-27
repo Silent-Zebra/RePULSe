@@ -97,6 +97,8 @@ class NaiveExperienceMaker(ABC):
         rm_type=None,
         actor_loss_type=None,
         max_new_tokens=None,
+        save_negdata=False,
+        save_negdata_threshold=-10000,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -123,6 +125,11 @@ class NaiveExperienceMaker(ABC):
             self.multiply_by_beta = False
         else:
             self.multiply_by_beta = True
+
+        self.save_negdata = save_negdata
+        self.save_negdata_threshold = save_negdata_threshold
+        if self.save_negdata:
+            self.neg_data = []
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, device):
@@ -293,6 +300,16 @@ class NaiveExperienceMaker(ABC):
             # local RM
             r = self.reward_model(sequences, attention_mask)
 
+        if self.save_negdata:
+            print(queries)
+            print(r < self.save_negdata_threshold)
+            print(queries[r < self.save_negdata_threshold])
+            self.neg_data.extend(queries[r < self.save_negdata_threshold])
+            print(self.neg_data)
+            1/0
+
+
+
         # if self.rm_type is None:
         #     return r
 
@@ -344,7 +361,7 @@ class NaiveExperienceMaker(ABC):
             score = r
             # print("score")
             # print(score)
-            final_reward =  torch.log((score < self.threshold) + eps)
+            final_reward = torch.log((score < self.threshold) + eps)
         elif self.rm_type == "toy_rlhf":
             score = r
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))

@@ -98,6 +98,8 @@ class PPOTrainer(ABC):
         critic_loss_type: str = 'mse',
         alpha: float = 0.5,
         parameterization: str = '',
+        save_negdata=False,
+        save_negdata_threshold=-10000,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -213,7 +215,9 @@ class PPOTrainer(ABC):
             target_dist_beta,
             rm_type,
             actor_loss_type,
-            self.generate_kwargs['max_new_tokens']
+            self.generate_kwargs['max_new_tokens'],
+            save_negdata=save_negdata,
+            save_negdata_threshold=save_negdata_threshold,
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 
@@ -520,7 +524,7 @@ class PPOTrainer(ABC):
         total_f_qs, total_rewards, total_kl_vals, total_entropy = None, None, None, None
 
         for i in range(self.n_seeds_f_q):
-            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q = self.f_q_estimate(
+            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = self.f_q_estimate(
                 args, rand_prompts)
 
             output = self.tokenizer.batch_decode(
@@ -537,7 +541,8 @@ class PPOTrainer(ABC):
             # print(log_phi.shape)
             # print(f_qs.shape)
 
-            kl_vals = compute_approx_kl(log_q, log_p)
+            kl_vals = log_q - log_p # No action mask here; that needs to be dealt with elsewhere
+            # log_q and log_p here have already been summed over the time dimension, so this is just simply reduce
 
             rewards = log_phi / args.target_dist_beta
 
@@ -590,7 +595,7 @@ class PPOTrainer(ABC):
         for i in range(self.n_seeds_f_q):
             custom_prompt_for_f_q = [prompt_text] * args.n_samples_for_f_q
 
-            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q = self.f_q_estimate(
+            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = self.f_q_estimate(
                 args, custom_prompt_for_f_q)
             print("Avg F_q Estimate (Learned Model)")
             print(f_qs.mean())
@@ -729,7 +734,7 @@ class PPOTrainer(ABC):
             else:
                 action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(
                     batch_prompt, **self.generate_kwargs)
-            action_log_probs = action_log_probs.float() # more precision
+            action_log_probs = action_log_probs.float() * action_mask # more precision
             log_q = action_log_probs.sum(dim=-1)
             # print(log_q.shape)
             # print(action_mask.shape)
@@ -753,7 +758,7 @@ class PPOTrainer(ABC):
             print(f_qs)
             print(f_qs.shape)
 
-        return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q
+        return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
 
     def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask,
                                 num_actions, sequences, return_extra_info=False):
@@ -774,7 +779,7 @@ class PPOTrainer(ABC):
         base_action_log_probs = self.experience_maker.initial_model(sequences,
                                                                     num_actions,
                                                                     attention_mask)
-        base_action_log_probs = base_action_log_probs.float() # more precision
+        base_action_log_probs = base_action_log_probs.float() * action_mask # more precision
 
         log_p = base_action_log_probs.sum(dim=-1)
         print('P PHI INSPECTION')

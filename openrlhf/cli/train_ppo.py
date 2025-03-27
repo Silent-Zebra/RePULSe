@@ -429,7 +429,9 @@ def train(args):
         actor_loss_type=args.actor_loss_type,
         critic_loss_type=args.critic_loss_type,
         alpha=args.alpha,
-        parameterization=args.parameterization
+        parameterization=args.parameterization,
+        save_negdata=args.save_negdata,
+        save_negdata_threshold=args.save_negdata_threshold,
     )
 
     estimates_list = \
@@ -618,6 +620,12 @@ if __name__ == "__main__":
                                  "p_last_tokens", "toy_test", "toy_rlhf"])
     parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score")
     parser.add_argument("--reward_cap", type=float, default=10000, help="Only for use with toy_rlhf rm_type")
+    parser.add_argument(
+        "--save_negdata", action="store_true", default=False, help="Save a dataset of negative examples"
+    )
+    parser.add_argument("--save_negdata_threshold", type=float, default=-10000., help="The threshold below which we save examples for a negative dataset")
+
+
 
 
     # wandb parameters
