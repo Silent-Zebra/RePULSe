@@ -478,6 +478,7 @@ def train(args):
 
 
     if args.save_negdata:
+        print(trainer.experience_maker.neg_data)
         import pickle
         # Save to file
         with open(f"{args.save_path}/neg_data_{info_name_str}.pkl", "wb") as f:
