@@ -1137,8 +1137,8 @@ class PPOTrainer(ABC):
             )
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
-            if self.parameterization == "policy":
-                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions)
+            if "policy" in self.parameterization:
+                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, self.parameterization)
             else:
                 log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
                                                       return_only_modulation=True)
@@ -1192,9 +1192,9 @@ class PPOTrainer(ABC):
                 experience.sequences, experience.attention_mask, multiply_by_beta=True
                 # beta multiplied for non-PPO formulations
             )
-            if self.parameterization == "policy":
+            if "policy" in self.parameterization:
                 # TODO call actor with return_all_vocab=True
-                log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
+                log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, self.parameterization, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
             else:
                 log_psi_all_vocab, log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
                                                       return_only_modulation=True, return_type="both")
@@ -1271,9 +1271,9 @@ class PPOTrainer(ABC):
                 )
                 # TODO not yet tested on multiple different prompts (though I expect it should work)
 
-                if self.parameterization == "policy":
+                if "policy" in self.parameterization:
                     base_action_base_sample_log_probs = self.experience_maker.initial_model(base_sequences, base_action_mask.size(1), base_attention_mask)
-                    log_psi_on_base_samples = self.get_log_psi_policy_parameterization(base_action_base_sample_log_probs, experience, num_actions)
+                    log_psi_on_base_samples = self.get_log_psi_policy_parameterization(base_action_base_sample_log_probs, experience, num_actions, self.parameterization)
                     raise Exception("Not yet tested")
                 else:
                     log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions,
@@ -1281,9 +1281,8 @@ class PPOTrainer(ABC):
                                                                           return_only_modulation=True)
                     # log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
 
-            if self.parameterization == "policy":
-                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs,
-                                                                                   experience, num_actions)
+            if "policy" in self.parameterization:
+                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, self.parameterization)
             else:
                 log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask, return_only_modulation=True)
             # log_psi = log_psi[:, -num_actions:]
@@ -1319,11 +1318,33 @@ class PPOTrainer(ABC):
 
         return actor_loss, num_actions
 
-    def get_log_psi_policy_parameterization(self, base_action_log_probs, experience, num_actions, return_type: str = 'p', base_action_log_probs_all=None):
+    def get_log_psi_policy_parameterization(self, base_action_log_probs, experience, num_actions, parameterization, return_type: str = 'p', base_action_log_probs_all=None):
+
         if return_type == "both":
+
             assert base_action_log_probs_all is not None
-            log_p_psi_all, log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
-                                                    return_type=return_type, return_unnormalized=True)
+
+            if parameterization == "policy_psi_unnorm":
+            # if log_psi_parameterization_type == "unnormalized_q_s_t_logits_minus_log_p_s_t":
+                log_p_psi_all, log_p_psi = self.experience_maker.actor(experience.sequences, num_actions,
+                                                                       experience.attention_mask,
+                                                                       return_type=return_type,
+                                                                       return_unnormalized=True)
+            elif parameterization in ["policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]:
+            # elif log_psi_parameterization_type in ["log_q_s_t_minus_log_p_s_t", "log_q_s_1_to_t_minus_log_p_s_1_to_t"]:
+                log_p_psi_all, log_p_psi = self.experience_maker.actor(experience.sequences, num_actions,
+                                                                       experience.attention_mask,
+                                                                       return_type=return_type)
+            else:
+                raise NotImplementedError
+
+            if parameterization == "policy_psi_q_p_s_1_to_t":
+            # if log_psi_parameterization_type == "log_q_s_1_to_t_minus_log_p_s_1_to_t":
+                log_p_psi_all = torch.cumsum(log_p_psi_all, dim=1)
+                log_p_psi = torch.cumsum(log_p_psi, dim=1)
+                base_action_log_probs = torch.cumsum(base_action_log_probs, dim=1)
+                base_action_log_probs_all = torch.cumsum(base_action_log_probs_all, dim=1)
+
             log_psi = log_p_psi - base_action_log_probs.detach()
             log_psi_all = log_p_psi_all - base_action_log_probs_all.detach()
 
@@ -1338,8 +1359,27 @@ class PPOTrainer(ABC):
 
             return log_psi_all, log_psi
 
+        if parameterization == "policy_psi_unnorm":
+        # if log_psi_parameterization_type == "unnormalized_q_s_t_logits_minus_log_p_s_t":
+            log_p_psi = self.experience_maker.actor(experience.sequences, num_actions,
+                                                                   experience.attention_mask,
+                                                                   return_type=return_type,
+                                                                   return_unnormalized=True)
+        elif parameterization in ["policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]:
+        # elif log_psi_parameterization_type in ["log_q_s_t_minus_log_p_s_t", "log_q_s_1_to_t_minus_log_p_s_1_to_t"]:
+            log_p_psi = self.experience_maker.actor(experience.sequences, num_actions,
+                                                                   experience.attention_mask,
+                                                                   return_type=return_type)
+        else:
+            raise NotImplementedError
 
-        log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_type=return_type)
+        if parameterization == "policy_psi_q_p_s_1_to_t":
+        # if log_psi_parameterization_type == "log_q_s_1_to_t_minus_log_p_s_1_to_t":
+            log_p_psi = torch.cumsum(log_p_psi, dim=1)
+            base_action_log_probs = torch.cumsum(base_action_log_probs, dim=1)
+
+        # log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_type=return_type)
+
         log_psi = log_p_psi - base_action_log_probs.detach()  # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
         # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
         # print("log_psi values")

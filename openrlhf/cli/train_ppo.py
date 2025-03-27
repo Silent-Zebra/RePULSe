@@ -661,7 +661,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--parameterization", type=str, default="policy",
-        choices=["policy", "modulation_model", "modulation_linear_head", "modulation_nn_head"]
+        choices=["policy", "policy_psi_unnorm", "policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t", "modulation_model", "modulation_linear_head", "modulation_nn_head"]
     )
 
     # parser.add_argument("--actor_modulates_base", action="store_true", help="Use parameterization where actor outputs an addition (modulation) to base log prob")
@@ -699,7 +699,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.actor_modulates_base = False
-    if args.parameterization != "policy":
+    if "policy" not in args.parameterization:
         args.actor_modulates_base = True
 
 
@@ -730,14 +730,15 @@ if __name__ == "__main__":
     if not args.custom_single_prompt:
         print("[Warning] stuff like clamp reward, and probably some other things changed, and not yet tested without custom_single_prompt. The rm_type stuff might also need to be modified too") # TODO
 
-    if args.actor_loss_type != "ppo":
+    if args.actor_loss_type == "ppo":
+        assert args.parameterization not in ["policy_psi_unnorm", "policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]
+    else: # Not PPO
         # assert args.actor_modulates_base # Need the twist formulation with the CustomActor for this # Now ok; can use policy parameterization directly outputting log(p psi), just need to subtract log_p then to get log_psi
         args.no_critic = True # No (PPO) critic when using the twist formulation
         args.init_kl_coef = 0 # Do not modify the reward with KL penalty for the twist learning losses
         assert args.kl_target is None
         assert args.duplicate_rollout_batch_by > 1 # NOTE: this is also the "batch" or "number of particles" used in twist learning; for a given prompt, how many particles we use.
+        assert args.parameterization != "policy" # Instead use one of "policy_psi_unnorm", "policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"
 
-    if args.actor_loss_type == "ctl_nosecondterm":
-        assert args.parameterization == "policy" # only case when the gradients will work out such that the second term disappears (is this true?)
 
     train(args)
