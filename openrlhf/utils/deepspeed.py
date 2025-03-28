@@ -132,6 +132,7 @@ class DeepspeedStrategy(ABC):
 
         for name, param in model.named_parameters():
             print(name)
+            print(param.requires_grad)
             print("param_grad")
             print(param.grad)
         1/0
