@@ -1085,6 +1085,7 @@ class PPOTrainer(ABC):
             print(f"Variance of gradients for {name}: {var.mean().item()}")
         for name, ex in gradient_expectations.items():
             print(f"Expectations of gradients for {name}: {ex.mean().item()}")
+        1/0
 
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
         if self.ema_model:
