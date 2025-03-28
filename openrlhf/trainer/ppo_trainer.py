@@ -221,6 +221,9 @@ class PPOTrainer(ABC):
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 
+        from collections import defaultdict
+        self.gradient_history = defaultdict(list)
+
         self._wandb = None
         if self.strategy.args.use_wandb and self.strategy.is_rank_0():
             import wandb
@@ -1071,6 +1074,17 @@ class PPOTrainer(ABC):
                 aux_loss = 0
             loss = ptx_loss + aux_loss * self.args.aux_loss_coef
             self.strategy.backward(self.ptx_coef * loss, self.actor, self.actor_optim)
+
+        for name, param in self.actor.model.named_parameters():
+            if param.grad is not None:
+                self.gradient_history[name].append(param.grad.clone())
+        gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
+        gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
+
+        for name, var in gradient_variances.items():
+            print(f"Variance of gradients for {name}: {var.mean().item()}")
+        for name, ex in gradient_expectations.items():
+            print(f"Expectations of gradients for {name}: {ex.mean().item()}")
 
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
         if self.ema_model:
