@@ -562,6 +562,8 @@ class ActorCritic(nn.Module):
     ) -> None:
         super().__init__()
 
+        raise NotImplementedError # Have not tested this in quite a while, do not use unless checking every line here...
+
         if isinstance(pretrain_or_model, str):
             attn_implementation = "flash_attention_2" if use_flash_attention_2 else "eager"
 
