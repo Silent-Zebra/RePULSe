@@ -266,12 +266,12 @@ class CTLLoss(nn.Module):
             # print(log_w_t_approx_pi_samples)
             # print(normalized_w_t_approx_pi_samples)
 
-            print('wgts')
-            print(normalized_w_t_approx_sigma_samples)
-            print(normalized_w_t_approx_pi_samples)
-
-            print('comparison')
-            print(curr_log_probs - base_action_log_probs)
+            # print('wgts')
+            # print(normalized_w_t_approx_sigma_samples)
+            # print(normalized_w_t_approx_pi_samples)
+            #
+            # print('comparison')
+            # print(torch.exp(curr_log_probs - base_action_log_probs))
             #
             # print('shapes')
             # print(action_mask.shape)
