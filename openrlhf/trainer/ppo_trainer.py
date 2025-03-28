@@ -1075,7 +1075,7 @@ class PPOTrainer(ABC):
             loss = ptx_loss + aux_loss * self.args.aux_loss_coef
             self.strategy.backward(self.ptx_coef * loss, self.actor, self.actor_optim)
 
-        for name, param in self.actor.model.named_parameters():
+        for name, param in self.actor.named_parameters():
             if param.grad is not None:
                 self.gradient_history[name].append(param.grad.clone())
         gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
