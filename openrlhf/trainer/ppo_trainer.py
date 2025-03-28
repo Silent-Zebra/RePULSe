@@ -1078,8 +1078,8 @@ class PPOTrainer(ABC):
         for name, param in self.actor.model.named_parameters():
             if param.grad is not None:
                 self.gradient_history[name].append(param.grad.clone())
-        gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
-        gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
+        gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
+        gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
 
         for name, var in gradient_variances.items():
             print(f"Variance of gradients for {name}: {var.mean().item()}")
