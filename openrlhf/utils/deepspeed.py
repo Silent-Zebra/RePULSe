@@ -130,6 +130,7 @@ class DeepspeedStrategy(ABC):
             model = model.model
         model.backward(loss)
 
+        model.allreduce_grads()
         for name, param in model.named_parameters():
             print(name)
             print(param.requires_grad)
