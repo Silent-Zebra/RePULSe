@@ -741,4 +741,7 @@ if __name__ == "__main__":
         assert args.parameterization != "policy" # Instead use one of "policy_psi_unnorm", "policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"
 
 
+    if args.rm_type == "indicator_below_threshold":
+        assert args.target_dist_beta == 1 # otherwise multiply by beta screws things up
+
     train(args)
