@@ -1077,15 +1077,14 @@ class PPOTrainer(ABC):
 
 
         print("Gradient inspection")
+        # TODO REMOVE AFTER AND RETURN TO ORIGINAL DEEPSPEED SETTINGS
         for name, param in self.actor.model.named_parameters():
             # print(name)
             # print("param_grad")
             # print(param.grad)
             if param.grad is not None:
                 self.gradient_history[name].append(param.grad.clone())
-
         total_variances = []
-
         gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
         # gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
         for name, var in gradient_variances.items():
@@ -1094,9 +1093,11 @@ class PPOTrainer(ABC):
             total_variances.append(var_mean)
         # for name, ex in gradient_expectations.items():
         #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
-
-        print("Average across layers/modules of (mean across parameters) variances over time")
-        print(torch.stack(total_variances).mean())
+        try: # Fails for nan
+            print("Average across layers/modules of (mean across parameters) variances over time")
+            print(torch.stack(total_variances).mean())
+        except:
+            pass
 
 
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
