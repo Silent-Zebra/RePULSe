@@ -145,12 +145,11 @@ class DeepspeedStrategy(ABC):
 
         for name, grad in gradients.items():
             print(f"Gradients for {name}: {grad.shape}")
+            break
         for name, var in gradient_variances.items():
             print(f"Variance of gradients for {name}: {var.mean().item()}")
-        for name, ex in gradient_expectations.items():
-            print(f"Expectations of gradients for {name}: {ex.mean().item()}")
-
-        1/0
+        # for name, ex in gradient_expectations.items():
+        #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
 
     def optimizer_step(
         self,
