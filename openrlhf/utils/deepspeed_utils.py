@@ -28,7 +28,10 @@ def get_train_ds_config(
         #     "device": "cpu" if adam_offload else "none",
         #     "pin_memory": True,
         # }, # TODO RETURN LATER
-        "offload_optimizer": "cpu",
+        "offload_optimizer": {
+            "device": "cpu",
+            "pin_memory": True,
+        }, # TODO RETURN LATER
         "sub_group_size": "auto",
         "stage3_max_live_parameters": "auto",
         "stage3_max_reuse_distance": "auto",
