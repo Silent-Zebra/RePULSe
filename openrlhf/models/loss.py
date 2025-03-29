@@ -24,6 +24,130 @@ class GPTLMLoss(nn.Module):
         # Flatten the tokens
         return self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
+class REINFORCELoss(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(
+        self,
+        log_probs: torch.Tensor,
+        rewards: torch.Tensor,
+        action_mask: Optional[torch.Tensor] = None,
+        baseline_type: Optional[str] = None,
+        hardcoded_baseline: Optional[float] = None,
+    ) -> torch.Tensor:
+
+        print("REINFORCE LOSS INSPECTION")
+        print(rewards.shape)
+        print(log_probs.shape)
+
+        print("REWARDS")
+        print(rewards)
+
+        if baseline_type is not None:
+            if baseline_type == "expectation":
+                assert rewards.shape[1] > 1 # this will do nothing if there is only 1 batch size/sample per prompt
+                rewards_baseline = rewards.mean(dim=1)  # mean along the batch dimension not the prompt dimension
+                print(rewards_baseline.shape)
+                rewards_baseline = rewards_baseline.unsqueeze(1)
+                print(rewards_baseline.shape)
+
+            elif baseline_type == "hardcoded":
+                assert hardcoded_baseline is not None
+                rewards_baseline = hardcoded_baseline
+
+            rewards = rewards - rewards_baseline
+
+        print("REWARDS AFTER BASELINE")
+        print(rewards)
+        print(rewards.shape)
+
+        # TODO calculate the avg reward for each prompt, and use that as the baseline
+        # TODO implement basic REINFORCELoss and test that it works.
+        1/0
+
+        loss = -log_probs * rewards
+        # print("RATIO")
+        # print(ratio)
+        # print("ADVANTAGES")
+        # print(advantages)
+        #
+        # print("ACTOR LOSS DETAILS")
+        # print(surr1)
+        # print(surr2)
+        # print(loss)
+        # print(loss.abs())
+        # print(masked_mean(loss.abs(), action_mask, dim=-1).mean())
+        loss = masked_mean(loss, action_mask, dim=-1).mean()
+        # print(loss)
+        return loss
+
+class NegTrainingLoss(nn.Module):
+    def __init__(self, alpha=0.5) -> None:
+        super().__init__()
+        self.reinforce_loss_fn = REINFORCELoss()
+        self.alpha = alpha
+
+    def forward(
+        self,
+        log_probs: torch.Tensor,
+        log_probs_neg: torch.Tensor,
+        rewards: torch.Tensor,
+        sigma_over_q_importance_wgts: torch.Tensor,
+        action_mask: Optional[torch.Tensor] = None,
+        baseline_type: Optional[str] = None,
+        hardcoded_baseline: Optional[float] = None,
+    ) -> torch.Tensor:
+
+        reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask, baseline_type, hardcoded_baseline)
+
+        print("REWARDS AFTER BASELINE")
+        print(log_probs_neg.shape)
+        print(rewards.shape)
+
+        print("WEIGHTS SHAPE")
+        print(sigma_over_q_importance_wgts.shape)
+
+        loss = log_probs_neg * sigma_over_q_importance_wgts.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
+        # TODO check weighting is correct, also normalize with softmax if necessary
+        1/0 # Ensure that this weighting is properly done
+
+        loss = masked_mean(loss, action_mask, dim=-1).mean()
+
+        return (1 - self.alpha) * reinforce_loss + self.alpha * loss
+
+
+class NegREINFORCELoss(nn.Module):
+    def __init__(self, alpha=0.5) -> None:
+        super().__init__()
+        self.reinforce_loss_fn = REINFORCELoss()
+        self.alpha = alpha
+
+    def forward(
+        self,
+        log_probs: torch.Tensor,
+        log_probs_neg: torch.Tensor,
+        rewards: torch.Tensor,
+        rewards_neg: torch.Tensor,
+        sigma_over_q_importance_wgts: torch.Tensor,
+        action_mask: Optional[torch.Tensor] = None,
+        action_mask_neg: Optional[torch.Tensor] = None,
+        baseline_type: Optional[str] = None,
+        baseline_type_neg: Optional[str] = None,
+        hardcoded_baseline: Optional[float] = None,
+        hardcoded_baseline_neg: Optional[float] = None,
+    ) -> torch.Tensor:
+
+        reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask, baseline_type, hardcoded_baseline)
+
+        rewards_neg *= sigma_over_q_importance_wgts.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
+        # TODO check weighting is correct, also normalize with softmax if necessary
+        1/0 # Ensure that this weighting is properly done
+
+        neg_reinforce_loss = self.reinforce_loss_fn(log_probs_neg, rewards_neg, action_mask_neg, baseline_type_neg, hardcoded_baseline_neg)
+
+        return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
+
 
 class PolicyLoss(nn.Module):
     """

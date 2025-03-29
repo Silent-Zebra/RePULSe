@@ -375,21 +375,6 @@ class PPOTrainer(ABC):
                         else:
                             num_twist_updates_to_do = 2 ** episode
 
-                    # if self.shared_actorcritic:
-                    #     vhead_weight = torch.load(
-                    #         f"/h/zhaostep/twisted-smc-lm/vhead_weight_0.pt",
-                    #         weights_only=True)
-                    #     vhead_bias = torch.load(
-                    #         f"/h/zhaostep/twisted-smc-lm/vhead_bias_0.pt",
-                    #         weights_only=True)
-                    #
-                    #     self.actor.critic_head.weight.data = vhead_weight
-                    #     self.actor.critic_head.bias.data = vhead_bias
-                    #     # TODO REMOVE LATER DEBUG ONLY
-
-                    # print(self.generate_kwargs)
-                    # print(self.generate_kwargs['attention_mask'])
-                    # 1/0
 
                     for update in range(num_twist_updates_to_do):
                         experience = self.experience_maker.make_experience(
@@ -763,6 +748,7 @@ class PPOTrainer(ABC):
 
         return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
 
+    @torch.no_grad()
     def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask, action_mask,
                                 num_actions, sequences, return_extra_info=False):
         # rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
@@ -1076,27 +1062,27 @@ class PPOTrainer(ABC):
             self.strategy.backward(self.ptx_coef * loss, self.actor, self.actor_optim)
 
 
-        print("Gradient inspection")
-        # TODO REMOVE AFTER AND RETURN TO ORIGINAL DEEPSPEED SETTINGS
-        for name, param in self.actor.model.named_parameters():
-            # print(name)
-            # print("param_grad")
-            # print(param.grad)
-            if param.grad is not None:
-                self.gradient_history[name].append(param.grad.clone())
-                if len(self.gradient_history[name]) > 100:
-                    self.gradient_history[name] = self.gradient_history[name][1:]
-        total_variances = []
-        gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
-        # gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
-        for name, var in gradient_variances.items():
-            var_mean = var.mean().item()
-            print(f"Mean variance of gradients for {name}: {var_mean}")
-            total_variances.append(var_mean)
-        # for name, ex in gradient_expectations.items():
-        #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
-        print(total_variances)
-        print(f"Average across layers/modules of (mean across parameters) variances over time: {torch.tensor(total_variances).mean().item()}")
+        # print("Gradient inspection")
+        # # DEBUG/INSPECTION ONLY
+        # for name, param in self.actor.model.named_parameters():
+        #     # print(name)
+        #     # print("param_grad")
+        #     # print(param.grad)
+        #     if param.grad is not None:
+        #         self.gradient_history[name].append(param.grad.clone())
+        #         if len(self.gradient_history[name]) > 100:
+        #             self.gradient_history[name] = self.gradient_history[name][1:]
+        # total_variances = []
+        # gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
+        # # gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
+        # for name, var in gradient_variances.items():
+        #     var_mean = var.mean().item()
+        #     print(f"Mean variance of gradients for {name}: {var_mean}")
+        #     total_variances.append(var_mean)
+        # # for name, ex in gradient_expectations.items():
+        # #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
+        # print(total_variances)
+        # print(f"Average across layers/modules of (mean across parameters) variances over time: {torch.tensor(total_variances).mean().item()}")
 
 
 
@@ -1122,7 +1108,7 @@ class PPOTrainer(ABC):
         # action_log_probs, output = self.actor(
         #     experience.sequences, num_actions, attention_mask=experience.attention_mask, return_output=True
         # )
-        num_actions = experience.action_mask.size(1)
+        # num_actions = experience.action_mask.size(1)
         batch_size = experience.sequences.size(0)
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
@@ -1137,7 +1123,7 @@ class PPOTrainer(ABC):
 
         if self.actor_loss_type == "ppo":
             action_log_probs = self.actor(
-                experience.sequences, num_actions,
+                experience.sequences, experience.action_mask.size(1),
                 attention_mask=experience.attention_mask, return_output=False
             )  # TODO later revert this and fix the above (return_output=True)
 
@@ -1157,18 +1143,20 @@ class PPOTrainer(ABC):
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
 
-            base_action_log_probs = self.experience_maker.initial_model(
-                experience.sequences, num_actions,
-                experience.attention_mask)
-            log_phi = self.experience_maker.compute_reward_no_kl(
-                experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
-            )
+            with torch.no_grad():
+                base_action_log_probs = self.experience_maker.initial_model(
+                    experience.sequences, experience.action_mask.size(1),
+                    experience.attention_mask)
+                log_phi = self.experience_maker.compute_reward_no_kl(
+                    experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
+                )
+
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
             if "policy" in self.parameterization:
-                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, self.parameterization)
+                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, experience.action_mask.size(1), self.parameterization)
             else:
-                log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
+                log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask,
                                                       return_only_modulation=True)
 
             # print("ACTOR LOSS STUFF")
@@ -1213,18 +1201,19 @@ class PPOTrainer(ABC):
                 # reduce_mean_per_prompt=True
             )
         elif self.actor_loss_type == "dpg":
-            base_action_log_probs_all_vocab, base_action_log_probs = self.experience_maker.initial_model(
-                experience.sequences, num_actions,
-                experience.attention_mask, return_type="both")
-            log_phi = self.experience_maker.compute_reward_no_kl(
-                experience.sequences, experience.attention_mask, multiply_by_beta=True
-                # beta multiplied for non-PPO formulations
-            )
+            with torch.no_grad():
+                base_action_log_probs_all_vocab, base_action_log_probs = self.experience_maker.initial_model(
+                    experience.sequences, experience.action_mask.size(1),
+                    experience.attention_mask, return_type="both")
+                log_phi = self.experience_maker.compute_reward_no_kl(
+                    experience.sequences, experience.attention_mask, multiply_by_beta=True
+                    # beta multiplied for non-PPO formulations
+                )
             if "policy" in self.parameterization:
                 # TODO call actor with return_all_vocab=True
-                log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, self.parameterization, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
+                log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, experience.action_mask.size(1), self.parameterization, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
             else:
-                log_psi_all_vocab, log_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask,
+                log_psi_all_vocab, log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask,
                                                       return_only_modulation=True, return_type="both")
 
             # Reshape tensors to group samples by prompt
@@ -1269,16 +1258,16 @@ class PPOTrainer(ABC):
 
 
         elif self.actor_loss_type in ["sixo", "sixo_approxneg"]:
-
+            num_actions = experience.action_mask.size(1)
             log_psi_on_base_samples = None
-
-            base_action_log_probs = self.experience_maker.initial_model(
-                experience.sequences, num_actions,
-                experience.attention_mask)
-            log_phi = self.experience_maker.compute_reward_no_kl(
-                experience.sequences, experience.attention_mask, multiply_by_beta=True
-                # beta multiplied for non-PPO formulations
-            )
+            with torch.no_grad():
+                base_action_log_probs = self.experience_maker.initial_model(
+                    experience.sequences, num_actions,
+                    experience.attention_mask)
+                log_phi = self.experience_maker.compute_reward_no_kl(
+                    experience.sequences, experience.attention_mask, multiply_by_beta=True
+                    # beta multiplied for non-PPO formulations
+                )
 
             # print(experience.sequences)
             # print(experience.sequences.shape)
@@ -1300,11 +1289,12 @@ class PPOTrainer(ABC):
                 # TODO not yet tested on multiple different prompts (though I expect it should work)
 
                 if "policy" in self.parameterization:
-                    base_action_base_sample_log_probs = self.experience_maker.initial_model(base_sequences, base_action_mask.size(1), base_attention_mask)
-                    log_psi_on_base_samples = self.get_log_psi_policy_parameterization(base_action_base_sample_log_probs, experience, num_actions, self.parameterization)
+                    with torch.no_grad():
+                        base_action_base_sample_log_probs = self.experience_maker.initial_model(base_sequences, base_action_mask.size(1), base_attention_mask)
+                    log_psi_on_base_samples = self.get_log_psi_policy_parameterization(base_action_base_sample_log_probs, experience, base_action_mask.size(1), self.parameterization)
                     raise Exception("Not yet tested")
                 else:
-                    log_psi_on_base_samples = self.experience_maker.actor(base_sequences, num_actions,
+                    log_psi_on_base_samples = self.experience_maker.actor(base_sequences, base_action_mask.size(1),
                                                                           base_attention_mask,
                                                                           return_only_modulation=True)
                     # log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
@@ -1458,9 +1448,10 @@ class PPOTrainer(ABC):
         elif self.critic_loss_type == "ctl":
             raise NotImplementedError # no longer tested
             num_actions = experience.action_mask.size(1)
-            base_action_log_probs = self.experience_maker.initial_model(
-                experience.sequences, num_actions,
-                experience.attention_mask)
+            with torch.no_grad():
+                base_action_log_probs = self.experience_maker.initial_model(
+                    experience.sequences, num_actions,
+                    experience.attention_mask)
             final_reward = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
 
             print("FINAL RETURN COMPARISON")
@@ -1481,9 +1472,10 @@ class PPOTrainer(ABC):
 
             num_actions = experience.action_mask.size(1)
             final_reward = self.reward_model(experience.sequences, experience.attention_mask)
-            base_action_log_probs = self.experience_maker.initial_model(
-                experience.sequences, num_actions,
-                experience.attention_mask)
+            with torch.no_grad():
+                base_action_log_probs = self.experience_maker.initial_model(
+                    experience.sequences, num_actions,
+                    experience.attention_mask)
             critic_loss = self.critic_loss_fn(
                 values,
                 experience.values,
@@ -1497,9 +1489,10 @@ class PPOTrainer(ABC):
             raise NotImplementedError # no longer tested
 
             num_actions = experience.action_mask.size(1)
-            base_action_log_probs = self.experience_maker.initial_model(
-                experience.sequences, num_actions,
-                experience.attention_mask) # NOTE: for clarity, these are p(seqs), where seqs are generated according to the (twisted) proposal. This is used in the p phi / q calculation for positive samples
+            with torch.no_grad():
+                base_action_log_probs = self.experience_maker.initial_model(
+                    experience.sequences, num_actions,
+                    experience.attention_mask) # NOTE: for clarity, these are p(seqs), where seqs are generated according to the (twisted) proposal. This is used in the p phi / q calculation for positive samples
             # This is different from p(seqs) where seqs are generated according to p
             final_reward = self.reward_model(experience.sequences, experience.attention_mask)
 
@@ -1573,22 +1566,6 @@ class PPOTrainer(ABC):
             self._save_checkpoint(args, tag, client_states)
 
     def _save_checkpoint(self, args, tag, client_states):
-        # eval_str = ""
-        # extra_str = ""
-        # lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
-        # if args.actor_modulates_base:
-        #     extra_str = "actormodbase"
-        # if args.shared_actorcritic:
-        #     lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
-        # if args.model_eval:
-        #     eval_str = "_eval"
-        #
-        # if args.bc_coef > 0:
-        #     lr_str += f"_bc{args.bc_coef}"
-        #
-        # if args.critic_loss_type == "mixed_ctl_mse":
-        #     lr_str += f"_alpha{args.alpha}"
-
         info_name_str = get_info_name_str(args)
         save_str = f"{info_name_str}"
         # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"

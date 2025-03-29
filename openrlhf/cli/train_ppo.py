@@ -12,6 +12,7 @@ from openrlhf.datasets import PromptDataset, SFTDataset
 from openrlhf.models import Actor, get_llm_for_sequence_regression
 from openrlhf.models.actor_custom import ActorCustom, ActorCritic
 from openrlhf.trainer import PPOTrainer
+from openrlhf.trainer.harmlessness_trainer import HarmlessnessTrainer
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
 from openrlhf.models.model import _get_reward_model_custom
 from openrlhf.utils.utils import get_info_name_str
@@ -23,22 +24,39 @@ def train(args):
     strategy.setup_distributed()
 
     # load weights for reference actor
-    initial_model = Actor(
+    base_model = Actor(
         args.pretrain,
         use_flash_attention_2=args.flash_attn,
         bf16=args.bf16,
         load_in_4bit=args.load_in_4bit,
         ds_config=strategy.get_ds_eval_config(offload=False),
     )
-    # Freeze initial model
-    # This doesn't make a difference normally, but for my CustomActor
-    # where I take this in as an argument, then the optimizer will optimize these
-    # and this has two undesired effects 1) I'm basically adding parameters/capacity to the twist architecture
-    # 2) More problematic is that I would then be modifying the initial model, so things like KL to prior
-    # and F_q and G_q evaluations are all messed up.
-    for param in initial_model.parameters():
-        param.requires_grad = False
-    get_tokenizer(args.pretrain, initial_model.model, "left", strategy)
+    static_initial_model = None
+    if not args.do_harmlessness_training:
+        # Freeze initial model
+        # This doesn't make a difference normally, but for my CustomActor
+        # where I take this in as an argument, then the optimizer will optimize these
+        # and this has two undesired effects 1) I'm basically adding parameters/capacity to the twist architecture
+        # 2) More problematic is that I would then be modifying the initial model, so things like KL to prior
+        # and F_q and G_q evaluations are all messed up.
+        for param in base_model.parameters():
+            param.requires_grad = False
+        # NOTE: now I have with torch.no_grad() on initial model calls for the twist/proposal learning
+        # For harmlessness training, we are going to need to update the initial_model.parameters()
+    else:
+        # Use this model for KL to base for the harmlessness training, if we want to do something like that
+        static_initial_model = Actor(
+            args.pretrain,
+            use_flash_attention_2=args.flash_attn,
+            bf16=args.bf16,
+            load_in_4bit=args.load_in_4bit,
+            ds_config=strategy.get_ds_eval_config(offload=False),
+        )
+        for param in static_initial_model.parameters():
+            param.requires_grad = False
+        get_tokenizer(args.pretrain, static_initial_model.model, "left", strategy)
+
+    get_tokenizer(args.pretrain, base_model.model, "left", strategy)
 
     if args.shared_actorcritic:
 
@@ -56,7 +74,7 @@ def train(args):
         if args.actor_modulates_base:
             actor = ActorCustom(
                 args.pretrain,
-                initial_model=initial_model,
+                initial_model=base_model,
                 use_flash_attention_2=args.flash_attn,
                 bf16=args.bf16,
                 load_in_4bit=args.load_in_4bit,
@@ -164,12 +182,9 @@ def train(args):
                 strip_question_chat_template_fn=strip_question_chat_template_fn
             )
 
-
-
         else:
             if args.custom_single_prompt:
                 raise NotImplementedError # Below does not necessarily work with my custom reward models
-
 
             reward_model = get_llm_for_sequence_regression(
                 args.reward_pretrain,
@@ -227,6 +242,11 @@ def train(args):
     if critic is not None:
         critic_optim = strategy.create_optimizer(
             critic, lr=args.critic_learning_rate, betas=args.adam_betas, weight_decay=args.l2
+        )
+
+    if args.do_harmlessness_training:
+        base_actor_optim = strategy.create_optimizer(
+            base_model, lr=args.base_actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
         )
 
     # prepare datasets
@@ -292,6 +312,14 @@ def train(args):
         num_training_steps=max_steps,
         scheduler_specific_kwargs={"min_lr": args.actor_learning_rate * 0.1},
     )
+    if args.do_harmlessness_training:
+        base_actor_scheduler = get_scheduler(
+            args.lr_scheduler,
+            base_actor_optim,
+            num_warmup_steps=math.ceil(max_steps * 0.03),
+            num_training_steps=max_steps,
+            scheduler_specific_kwargs={"min_lr": args.actor_learning_rate * 0.1},
+        )
 
     critic_scheduler = None
     if critic_optim is not None:
@@ -309,12 +337,12 @@ def train(args):
             (actor, actor_optim, actor_scheduler),
             (critic, critic_optim, critic_scheduler),
             reward_model,
-            initial_model,
+            base_model,
         ) = strategy.prepare(
             (actor, actor_optim, actor_scheduler),
             (critic, critic_optim, critic_scheduler),
             reward_model,
-            initial_model,
+            base_model,
             is_rlhf=True,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
@@ -322,11 +350,11 @@ def train(args):
         (
             (actor, actor_optim, actor_scheduler),
             reward_model,
-            initial_model,
+            base_model,
         ) = strategy.prepare(
             (actor, actor_optim, actor_scheduler),
             reward_model,
-            initial_model,
+            base_model,
             is_rlhf=True,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
@@ -383,7 +411,7 @@ def train(args):
         actor,
         critic,
         reward_model,
-        initial_model,
+        base_model,
         ema_model,
         actor_optim,
         critic_optim,
@@ -434,8 +462,97 @@ def train(args):
         save_negdata_threshold=args.save_negdata_threshold,
     )
 
-    estimates_list = \
-        trainer.fit(args, prompts_dataloader, pretrain_dataloader, consumed_samples, num_update_steps_per_episodes, true_posterior_samples)
+    # TODO: Idea here is: just set up an outer loop over which we can run trainer.fit which basically does the twist learning
+    # or essentially the proposal learning; basically the learning for the sampling method
+    # Then after that, we can run some iterations of the policy learning fro the base/initial model
+    # Need to remove grad on the base/initial model
+    # Then check that the proposal learning does indeed update towards the new/updated base model
+    # Do some inspection to make sure this is the case; for example, can check base model samples and reward under base model samples WITHIN the trainer.fit() loop
+    # and then do some simple optimization on the base model; need to set up an optimizer for that, need to be able to draw samples using the proposal model/modulated base model which should be fine using the actor_custom
+    # But we also need to be able to do simple reinforce or something like that from the base model
+    # This shouldn't be too hard to do...
+
+    if args.do_harmlessness_training:
+        base_tokenizer = get_tokenizer(args.pretrain, base_model.model, "left", strategy,
+                                  use_fast=not args.disable_fast_tokenizer)
+
+        harmlessness_trainer = HarmlessnessTrainer(
+            strategy,
+            actor=base_model,
+            sampling_actor=actor,
+            critic=None,
+            reward_model=reward_model,
+            initial_model=static_initial_model,
+            ema_model=None,
+            actor_optim=base_actor_optim,
+            critic_optim=None,
+            actor_scheduler=base_actor_scheduler,
+            critic_scheduler=None,
+            max_epochs=args.max_epochs,
+            micro_train_batch_size=args.micro_train_batch_size,
+            micro_rollout_batch_size=args.micro_rollout_batch_size,
+            gradient_checkpointing=args.gradient_checkpointing,
+            tokenizer=base_tokenizer,
+            prompt_max_len=args.prompt_max_len,
+            value_clip=args.value_clip,
+            eps_clip=args.eps_clip,
+            gamma=args.gamma,
+            lambd=args.lambd,
+            init_kl_coef=0,
+            kl_target=args.kl_target,
+            target_dist_beta=args.target_dist_beta, # TODO later check to make sure this is desired
+            ema_beta=0.992,
+            ptx_coef=args.ptx_coef,
+            max_norm=args.max_norm,
+            # fro GPT generation
+            do_sample=True,
+            max_new_tokens=args.generate_max_len,
+            max_length=args.max_len,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            top_k=args.top_k,
+            pad_token_id=base_tokenizer.pad_token_id,
+            eos_token_id=base_tokenizer.eos_token_id,
+            # remote reward model
+            remote_rm_url=args.remote_rm_url,
+            shared_actorcritic=args.shared_actorcritic,
+            vf_coef=vf_coef,
+            model_eval=args.model_eval,
+            threshold=args.threshold,
+            reward_cap=args.reward_cap,
+            n_seeds_f_q=args.n_seeds_f_q,
+            rm_type=args.rm_type,
+            bc_coef=args.bc_coef,
+            bc_steps=args.bc_steps,
+            true_posterior_samples=true_posterior_samples,
+            actor_loss_type=args.actor_loss_type,
+            critic_loss_type=args.critic_loss_type,
+            alpha=args.alpha,
+            parameterization=args.parameterization,
+            save_negdata=args.save_negdata,
+            save_negdata_threshold=args.save_negdata_threshold,
+        )
+
+        for i in range(args.harmlessness_training_num_episodes):
+
+            if args.num_episodes > 0:
+                estimates_list = trainer.fit(
+                    args, prompts_dataloader, pretrain_dataloader, consumed_samples,
+                    num_update_steps_per_episodes, true_posterior_samples
+                )
+
+            # TODO Update the initial model, and check that the trainer is now using the updated model version.
+            harmlessness_trainer.fit( # TODO check that these arguments are the right ones
+                args, prompts_dataloader, pretrain_dataloader, consumed_samples,
+                num_update_steps_per_episodes, true_posterior_samples
+            )
+
+
+    else:
+        estimates_list = trainer.fit(
+            args, prompts_dataloader, pretrain_dataloader, consumed_samples,
+            num_update_steps_per_episodes, true_posterior_samples
+        )
 
     info_name_str = get_info_name_str(args)
 
@@ -555,13 +672,15 @@ if __name__ == "__main__":
 
     parser.add_argument("--save_value_network", action="store_true", default=False, help="Save critic model")
     parser.add_argument("--actor_learning_rate", type=float, default=1e-6)
+    parser.add_argument("--base_actor_learning_rate", type=float, default=1e-6, help="Only used with --do_harmlessness_training")
+
     parser.add_argument("--critic_learning_rate", type=float, default=9e-6)
     parser.add_argument("--kl_target", type=float, default=None)
     # parser.add_argument("--init_kl_coef", type=float, default=1., help="KL penalty in PPO") # DO NOT USE: USE THE TARGET_DIST_BETA
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
 
 
-    parser.add_argument("--alpha", type=float, default=0.5, help="Only for use in mixed_ctl_mse loss; choose how much to prioritize ctl")
+    parser.add_argument("--alpha", type=float, default=0.5, help="Only for use in mixed_ctl_mse or harmlessness training loss; choose how much to prioritize ctl (or the harmlessness objective vs. standard RL)")
 
     # DeepSpeed
     parser.add_argument("--seed", type=int, default=42)
@@ -694,6 +813,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--critic_loss_type", type=str, default="mse",
         choices=["mse", "ctl", "mixed_ctl_mse", "sixo", "sixo_approxneg"]
+    )
+
+    parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, and --harmlessness_training_num_episodes for the number of outer loop steps (so total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes base model updates will be done)")
+    parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")
+    parser.add_argument(
+        "--harmlessness_training_loss_type", type=str, default="ppo",
+        choices=[
+            "ppo", "ctl", "ctl_nosecondterm", "sixo", "sixo_approxneg", "dpg"
+        ]
     )
 
     args = parser.parse_args()
