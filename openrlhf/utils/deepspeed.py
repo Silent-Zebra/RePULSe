@@ -131,26 +131,26 @@ class DeepspeedStrategy(ABC):
             model = model.model
         model.backward(loss)
 
-        from collections import defaultdict
-        gradient_history = defaultdict(list)
-        for name, param in model.named_parameters():
-            print(name)
-            print(param.requires_grad)
-            print("param_grad")
-            print(param.grad)
-            if param.grad is not None:
-                gradient_history[name].append(param.grad.clone())
-        gradients = {name: torch.stack(grads) for name, grads in gradient_history.items()}
-        gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
-        gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
-
-        for name, grad in gradients.items():
-            print(f"Gradients for {name}: {grad.shape}")
-            break
-        for name, var in gradient_variances.items():
-            print(f"Variance of gradients for {name}: {var.mean().item()}")
-        # for name, ex in gradient_expectations.items():
-        #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
+        # from collections import defaultdict
+        # gradient_history = defaultdict(list)
+        # for name, param in model.named_parameters():
+        #     print(name)
+        #     print(param.requires_grad)
+        #     print("param_grad")
+        #     print(param.grad)
+        #     if param.grad is not None:
+        #         gradient_history[name].append(param.grad.clone())
+        # gradients = {name: torch.stack(grads) for name, grads in gradient_history.items()}
+        # gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
+        # gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
+        #
+        # for name, grad in gradients.items():
+        #     print(f"Gradients for {name}: {grad.shape}")
+        #     break
+        # for name, var in gradient_variances.items():
+        #     print(f"Variance of gradients for {name}: {var.mean().item()}")
+        # # for name, ex in gradient_expectations.items():
+        # #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
 
     def optimizer_step(
         self,

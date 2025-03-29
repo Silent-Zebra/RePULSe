@@ -1078,18 +1078,26 @@ class PPOTrainer(ABC):
 
         print("Gradient inspection")
         for name, param in self.actor.model.named_parameters():
-            print(name)
-            print("param_grad")
-            print(param.grad)
+            # print(name)
+            # print("param_grad")
+            # print(param.grad)
             if param.grad is not None:
                 self.gradient_history[name].append(param.grad.clone())
-        gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
-        gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
 
+        total_variances = []
+
+        gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
+        # gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
         for name, var in gradient_variances.items():
-            print(f"Variance of gradients for {name}: {var.mean().item()}")
-        for name, ex in gradient_expectations.items():
-            print(f"Expectations of gradients for {name}: {ex.mean().item()}")
+            var_mean = var.mean().item()
+            print(f"Mean variance of gradients for {name}: {var_mean}")
+            total_variances.append(var_mean)
+        # for name, ex in gradient_expectations.items():
+        #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
+
+        print("Average across layers/modules of (mean across parameters) variances over time")
+        print(torch.stack(total_variances).mean())
+
 
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
         if self.ema_model:
