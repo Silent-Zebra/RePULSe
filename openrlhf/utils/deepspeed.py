@@ -129,17 +129,7 @@ class DeepspeedStrategy(ABC):
         if isinstance(model, Actor):
             model = model.model
         model.backward(loss)
-        # loss.backward()
-        for name, param in model.named_parameters():
-            print(name)
-            print(param.requires_grad)
-            print("param_grad")
-            print(param.grad)
-        1/0
-        #     if param.grad is not None:
-        #         self.gradient_history[name].append(param.grad.clone())
-        # gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
-        # gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
+
 
         for name, var in gradient_variances.items():
             print(f"Variance of gradients for {name}: {var.mean().item()}")

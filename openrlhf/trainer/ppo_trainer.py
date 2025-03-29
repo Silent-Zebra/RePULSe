@@ -1075,6 +1075,8 @@ class PPOTrainer(ABC):
             loss = ptx_loss + aux_loss * self.args.aux_loss_coef
             self.strategy.backward(self.ptx_coef * loss, self.actor, self.actor_optim)
 
+
+        print("Gradient inspection")
         for name, param in self.actor.model.named_parameters():
             print(name)
             print("param_grad")
@@ -1088,7 +1090,6 @@ class PPOTrainer(ABC):
             print(f"Variance of gradients for {name}: {var.mean().item()}")
         for name, ex in gradient_expectations.items():
             print(f"Expectations of gradients for {name}: {ex.mean().item()}")
-        1/0
 
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
         if self.ema_model:
