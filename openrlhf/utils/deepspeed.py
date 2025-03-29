@@ -139,9 +139,12 @@ class DeepspeedStrategy(ABC):
             print(param.grad)
             if param.grad is not None:
                 gradient_history[name].append(param.grad.clone())
+        gradients = {name: torch.stack(grads) for name, grads in gradient_history.items()}
         gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
         gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
 
+        for name, grad in gradients.items():
+            print(f"Gradients for {name}: {grad}")
         for name, var in gradient_variances.items():
             print(f"Variance of gradients for {name}: {var.mean().item()}")
         for name, ex in gradient_expectations.items():
