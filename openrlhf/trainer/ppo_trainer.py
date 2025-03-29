@@ -1093,11 +1093,9 @@ class PPOTrainer(ABC):
             total_variances.append(var_mean)
         # for name, ex in gradient_expectations.items():
         #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
-        try: # Fails for nan
-            print("Average across layers/modules of (mean across parameters) variances over time")
-            print(torch.stack(total_variances).mean())
-        except:
-            pass
+        print("Average across layers/modules of (mean across parameters) variances over time")
+        print(torch.stack(total_variances))
+
 
 
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
