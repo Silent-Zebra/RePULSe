@@ -144,7 +144,7 @@ class DeepspeedStrategy(ABC):
         gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
 
         for name, grad in gradients.items():
-            print(f"Gradients for {name}: {grad}")
+            print(f"Gradients for {name}: {grad.shape}")
         for name, var in gradient_variances.items():
             print(f"Variance of gradients for {name}: {var.mean().item()}")
         for name, ex in gradient_expectations.items():
