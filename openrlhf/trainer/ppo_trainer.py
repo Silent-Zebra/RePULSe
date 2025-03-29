@@ -1097,7 +1097,7 @@ class PPOTrainer(ABC):
         #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
         print("Average across layers/modules of (mean across parameters) variances over time")
         print(total_variances)
-        print(torch.stack(total_variances))
+        print(torch.tensor(total_variances).mean())
 
 
 
