@@ -1084,6 +1084,8 @@ class PPOTrainer(ABC):
             # print(param.grad)
             if param.grad is not None:
                 self.gradient_history[name].append(param.grad.clone())
+                if len(self.gradient_history[name]) > 100:
+                    self.gradient_history[name] = self.gradient_history[name][1:]
         total_variances = []
         gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
         # gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in self.gradient_history.items()}
