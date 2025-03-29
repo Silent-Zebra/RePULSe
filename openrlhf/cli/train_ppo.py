@@ -818,9 +818,9 @@ if __name__ == "__main__":
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, and --harmlessness_training_num_episodes for the number of outer loop steps (so total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")
     parser.add_argument(
-        "--harmlessness_training_loss_type", type=str, default="ppo",
+        "--harmlessness_training_loss_type", type=str, default="neg_reinforce",
         choices=[
-            "ppo", "ctl", "ctl_nosecondterm", "sixo", "sixo_approxneg", "dpg"
+            "reinforce", "neg_training", "neg_reinforce"
         ]
     )
 
