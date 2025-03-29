@@ -128,9 +128,8 @@ class DeepspeedStrategy(ABC):
     def backward(self, loss: torch.Tensor, model: nn.Module, optimizer: optim.Optimizer, **kwargs) -> None:
         if isinstance(model, Actor):
             model = model.model
-        model.backward(loss)
-
-        model.allreduce_gradients()
+        # model.backward(loss)
+        loss.backward()
         for name, param in model.named_parameters():
             print(name)
             print(param.requires_grad)
