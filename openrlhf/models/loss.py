@@ -62,8 +62,11 @@ class REINFORCELoss(nn.Module):
                 print(rewards_baseline.shape)
 
             elif self.baseline_type == "hardcoded":
-                assert hardcoded_baseline is not None
-                rewards_baseline = hardcoded_baseline
+                assert self.hardcoded_baseline is not None
+                rewards_baseline = self.hardcoded_baseline
+
+            else:
+                raise NotImplementedError
 
             rewards = rewards - rewards_baseline
 
