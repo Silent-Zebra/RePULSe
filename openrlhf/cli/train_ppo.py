@@ -478,7 +478,7 @@ def train(args):
 
         harmlessness_trainer = HarmlessnessTrainer(
             strategy,
-            actor=base_model,
+            base_actor=base_model,
             sampling_actor=actor,
             critic=None,
             reward_model=reward_model,
