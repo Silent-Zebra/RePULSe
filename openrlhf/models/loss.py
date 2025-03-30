@@ -78,7 +78,7 @@ class REINFORCELoss(nn.Module):
         print((log_probs * action_mask).shape)
         print((log_probs * action_mask).sum(-1).shape)
 
-        loss = - (log_probs * action_mask).sum(-1) * final_reward
+        loss = - (log_probs * action_mask).sum(-1) * final_reward.squeeze(-1) # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
         # print("RATIO")
         # print(ratio)
         # print("ADVANTAGES")
