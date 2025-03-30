@@ -249,6 +249,9 @@ def train(args):
             base_model, lr=args.base_actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
         )
 
+        print("BASE ACTOR OPTIM")
+        print(base_actor_optim)
+
     # prepare datasets
     prompts_data = blending_datasets(
         args.prompt_data,

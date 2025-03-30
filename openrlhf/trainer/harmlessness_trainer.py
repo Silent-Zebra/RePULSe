@@ -659,6 +659,10 @@ class HarmlessnessTrainer(ABC):
             raise NotImpelementedError
             print("DOING BEHAVIOUR CLONING")
 
+        print("BASE ACTOR OPTIM 2")
+        print(self.actor_optim)
+        1/0
+
         self.strategy.backward(loss, self.base_actor, self.actor_optim)
 
         # ptx loss
