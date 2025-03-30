@@ -37,6 +37,14 @@ class REINFORCELoss(nn.Module):
         hardcoded_baseline: Optional[float] = None,
     ) -> torch.Tensor:
 
+        if len(values.shape) == 3:
+            reduce_mean_per_prompt = True
+        elif len(values.shape) == 2:
+            reduce_mean_per_prompt = False
+        else:
+            raise NotImplementedError
+
+
         print("REINFORCE LOSS INSPECTION")
         print(rewards.shape)
         print(log_probs.shape)
@@ -46,6 +54,7 @@ class REINFORCELoss(nn.Module):
 
         if baseline_type is not None:
             if baseline_type == "expectation":
+                assert reduce_mean_per_prompt
                 assert rewards.shape[1] > 1 # this will do nothing if there is only 1 batch size/sample per prompt
                 rewards_baseline = rewards.mean(dim=1)  # mean along the batch dimension not the prompt dimension
                 print(rewards_baseline.shape)
@@ -108,8 +117,8 @@ class NegTrainingLoss(nn.Module):
         print("WEIGHTS SHAPE")
         print(log_sigma_over_q_importance_wgts.shape)
 
-        normalized_w_t_approx_sigma_samples = F.softmax(log_sigma_over_q_importance_wgts,
-                                                        dim=0)
+        normalized_w_t_approx_sigma_samples = log_sigma_over_q_importance_wgts
+
 
         loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
         # TODO check weighting is correct, also normalize with softmax if necessary
@@ -143,8 +152,7 @@ class NegREINFORCELoss(nn.Module):
 
         reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask, baseline_type, hardcoded_baseline)
 
-        normalized_w_t_approx_sigma_samples = F.softmax(log_sigma_over_q_importance_wgts,
-                                                        dim=0)
+        normalized_w_t_approx_sigma_samples = log_sigma_over_q_importance_wgts
 
         rewards_neg *= normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
         # TODO check weighting is correct, also normalize with softmax if necessary
@@ -273,7 +281,17 @@ def get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_r
     log_w_t_approx_sigma_samples = base_action_log_probs.sum(dim=-1) + final_reward - curr_log_probs.sum(
         dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
     log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
+
     return log_w_t_approx_sigma_samples
+
+def get_normalized_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward):
+    log_w_t_approx_sigma_samples = get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward)
+
+    normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples,
+                                                    dim=0)  # do softmax along the batch dimension
+
+    return normalized_w_t_approx_sigma_samples
+
 
 
 def get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
@@ -591,7 +609,7 @@ class SIXOLoss(nn.Module):
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
             # Use vmap to compute weights for all prompts at once
-            batched_get_weights = torch.func.vmap(get_positive_weights_detached, in_dims=0)
+            batched_get_weights = torch.func.vmap(get_normalized_positive_weights_detached, in_dims=0)
             # log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = batched_get_weights(
             #     base_action_log_probs,
             #     curr_log_probs,
@@ -662,7 +680,7 @@ class SIXOLoss(nn.Module):
         log_psi_t_eval_list_proposal_samples = values
         # log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
         #     base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
-        normalized_w_t_approx_sigma_samples = get_positive_weights_detached(
+        normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward)
 
         # _, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
@@ -792,12 +810,13 @@ class DPGLoss(nn.Module):
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
             # Use vmap to compute weights for all prompts at once
-            batched_get_weights = torch.func.vmap(get_positive_weights_detached, in_dims=0)
+            batched_get_weights = torch.func.vmap(get_normalized_positive_weights_detached, in_dims=0)
             normalized_w_t_approx_sigma_samples = batched_get_weights(
                 base_action_log_probs,
                 curr_log_probs,
                 final_reward,
                 # values
+                return_normalized=True
             )
 
             # # Compute terms using the vectorized weights
@@ -815,7 +834,7 @@ class DPGLoss(nn.Module):
             #
             # return loss
         else:
-            normalized_w_t_approx_sigma_samples = get_positive_weights_detached(
+            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
                 base_action_log_probs, curr_log_probs, final_reward)
 
         log_psi_t_eval_list_proposal_samples = values

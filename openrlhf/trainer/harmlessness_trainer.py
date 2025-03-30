@@ -2,7 +2,7 @@ import math
 import os.path
 from abc import ABC
 from typing import Any, Callable, Dict, List, Optional, Union
-from openrlhf.models.loss import get_positive_weights_detached
+from openrlhf.models.loss import get_positive_weights_detached, get_normalized_positive_weights_detached
 
 import ray
 import torch
@@ -723,6 +723,10 @@ class HarmlessnessTrainer(ABC):
                 attention_mask=experience.attention_mask, return_output=False
             )
 
+            action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
+            rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
+            exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+
             # print(action_log_probs)
             # print(experience.action_log_probs)
             # print(experience.advantages)
@@ -730,8 +734,8 @@ class HarmlessnessTrainer(ABC):
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
-                experience.returns,
-                action_mask=experience.action_mask,
+                rewards,
+                action_mask=exper_action_mask,
                 baseline_type="expectation",
             )
 
@@ -746,15 +750,24 @@ class HarmlessnessTrainer(ABC):
                 attention_mask=experience_neg.attention_mask, return_output=False
             )
 
-            log_sigma_over_q_importance_wgts = get_positive_weights_detached(action_log_probs_neg, experience_neg.action_log_probs, experience_neg.returns)
-            1/0 # TODO check that the experience_neg.return is the correct return value
+
+            action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
+            action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
+
+            rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
+            exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+
+            log_sigma_over_q_importance_wgts = get_normalized_positive_weights_detached(action_log_probs_neg,
+                                                                             experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1),
+                                                                             experience_neg.returns.view(num_prompts, samples_per_prompt, -1))
+            1 / 0  # TODO check that the experience_neg.return is the correct return value
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
-                experience.returns,
+                rewards,
                 log_sigma_over_q_importance_wgts=log_sigma_over_q_importance_wgts, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
-                action_mask=experience.action_mask,
+                action_mask=exper_action_mask,
                 baseline_type="expectation",
             )
         elif self.actor_loss_type == "neg_reinforce":
@@ -768,8 +781,12 @@ class HarmlessnessTrainer(ABC):
                 attention_mask=experience_neg.attention_mask, return_output=False
             )
 
-            log_sigma_over_q_importance_wgts = get_positive_weights_detached(action_log_probs_neg, experience_neg.action_log_probs, experience_neg.returns)
+            log_sigma_over_q_importance_wgts = get_normalized_positive_weights_detached(action_log_probs_neg, experience_neg.action_log_probs, experience_neg.returns)
             1/0 # TODO check that the experience_neg.return is the correct return value
+
+            action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
+            rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
+            exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
