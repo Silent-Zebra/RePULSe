@@ -2,6 +2,7 @@ import math
 import os.path
 from abc import ABC
 from typing import Any, Callable, Dict, List, Optional, Union
+from openrlhf.models.loss import get_positive_weights_detached
 
 import ray
 import torch
@@ -31,7 +32,7 @@ class HarmlessnessTrainer(ABC):
     Args:
         TODO THIS DOCUMENTATION NOT UPDATED
         strategy (Strategy): the strategy to use for training
-        actor (Actor): the actor model in ppo algorithm
+        base_actor (Actor): the actor model in ppo algorithm
         critic (nn.Module): the critic model in ppo algorithm
         reward_model (nn.Module): the reward model in rlhf algorithm to make reward of sentences
         initial_model (Actor): the initial model in rlhf algorithm to generate reference logits to limit the update of actor
@@ -56,7 +57,7 @@ class HarmlessnessTrainer(ABC):
     def __init__(
         self,
         strategy,
-        actor: Actor,
+        base_actor: Actor,
         sampling_actor: Actor,
         critic: nn.Module,
         reward_model: nn.Module,
@@ -125,7 +126,7 @@ class HarmlessnessTrainer(ABC):
         self.gradient_checkpointing = gradient_checkpointing
         self.reward_fn = reward_fn
 
-        self.actor = actor
+        self.base_actor = base_actor
         self.critic = critic
         self.reward_model = reward_model
         self.remote_rm_url = remote_rm_url
@@ -185,7 +186,7 @@ class HarmlessnessTrainer(ABC):
         self.shared_actorcritic = shared_actorcritic
 
         self.experience_maker = NaiveExperienceMaker(
-            actor,
+            base_actor,
             None,
             reward_model,
             initial_model,
@@ -632,9 +633,9 @@ class HarmlessnessTrainer(ABC):
 
     def training_step_actor(self, experience: Experience, experience_neg: Experience, custom_prompt=None) -> Dict[str, float]:
         if self.model_eval:
-            self.actor.eval()
+            self.base_actor.eval()
         else:
-            self.actor.train()
+            self.base_actor.train()
 
         actor_loss, num_actions = self.get_actor_loss(experience, experience_neg, custom_prompt)
 
@@ -650,7 +651,7 @@ class HarmlessnessTrainer(ABC):
             raise NotImpelementedError
             print("DOING BEHAVIOUR CLONING")
 
-        self.strategy.backward(loss, self.actor, self.actor_optim)
+        self.strategy.backward(loss, self.base_actor, self.actor_optim)
 
         # ptx loss
         if self.pretrain_dataloader is not None:
@@ -664,7 +665,7 @@ class HarmlessnessTrainer(ABC):
                 self.ptx_loss_fn.IGNORE_INDEX,
             )
 
-            output = self.actor(inputs, attention_mask=attention_mask, return_output=True)
+            output = self.base_actor(inputs, attention_mask=attention_mask, return_output=True)
             ptx_log_probs = output["logits"]
 
             # loss function
@@ -675,12 +676,12 @@ class HarmlessnessTrainer(ABC):
             else:
                 aux_loss = 0
             loss = ptx_loss + aux_loss * self.args.aux_loss_coef
-            self.strategy.backward(self.ptx_coef * loss, self.actor, self.actor_optim)
+            self.strategy.backward(self.ptx_coef * loss, self.base_actor, self.actor_optim)
 
 
-        self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
+        self.strategy.optimizer_step(self.actor_optim, self.base_actor, self.actor_scheduler, name="actor")
         if self.ema_model:
-            self.strategy.moving_average(self.actor, self.ema_model, self.ema_beta, "cpu")
+            self.strategy.moving_average(self.base_actor, self.ema_model, self.ema_beta, "cpu")
 
         # status
         status = {"policy_loss": actor_loss.item(), "actor_lr": self.actor_scheduler.get_last_lr()[0]}
@@ -709,7 +710,7 @@ class HarmlessnessTrainer(ABC):
         print(experience.sequences.shape)
 
         if self.actor_loss_type == "reinforce":
-            action_log_probs = self.actor(
+            action_log_probs = self.base_actor(
                 experience.sequences, experience.action_mask.size(1),
                 attention_mask=experience.attention_mask, return_output=False
             )
@@ -727,41 +728,47 @@ class HarmlessnessTrainer(ABC):
             )
 
         elif self.actor_loss_type == "neg_training":
-            action_log_probs = self.actor(
+            action_log_probs = self.base_actor(
                 experience.sequences, experience.action_mask.size(1),
                 attention_mask=experience.attention_mask, return_output=False
             )
 
-            action_log_probs_neg = self.actor(
+            action_log_probs_neg = self.base_actor(
                 experience_neg.sequences, experience_neg.action_mask.size(1),
                 attention_mask=experience_neg.attention_mask, return_output=False
             )
+
+            log_sigma_over_q_importance_wgts = get_positive_weights_detached(action_log_probs_neg, experience_neg.action_log_probs, experience_neg.returns)
+            1/0 # TODO check that the experience_neg.return is the correct return value
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
                 experience.returns,
-                sigma_over_q_importance_wgts=1/0, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
+                log_sigma_over_q_importance_wgts=log_sigma_over_q_importance_wgts, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=experience.action_mask,
                 baseline_type="expectation",
             )
         elif self.actor_loss_type == "neg_reinforce":
-            action_log_probs = self.actor(
+            action_log_probs = self.base_actor(
                 experience.sequences, experience.action_mask.size(1),
                 attention_mask=experience.attention_mask, return_output=False
             )
 
-            action_log_probs_neg = self.actor(
+            action_log_probs_neg = self.base_actor(
                 experience_neg.sequences, experience_neg.action_mask.size(1),
                 attention_mask=experience_neg.attention_mask, return_output=False
             )
+
+            log_sigma_over_q_importance_wgts = get_positive_weights_detached(action_log_probs_neg, experience_neg.action_log_probs, experience_neg.returns)
+            1/0 # TODO check that the experience_neg.return is the correct return value
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
                 experience.returns,
                 experience_neg.returns,
-                sigma_over_q_importance_wgts=1/0, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
+                log_sigma_over_q_importance_wgts=log_sigma_over_q_importance_wgts, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=experience.action_mask,
                 action_mask_neg=experience_neg.action_mask,
                 baseline_type="expectation",
@@ -956,7 +963,7 @@ class HarmlessnessTrainer(ABC):
         # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
 
         self.strategy.save_ckpt(
-            self.actor.model,
+            self.base_actor.model,
             os.path.join(args.ckpt_path, f"{save_str}_actor"),
             tag,
             args.max_ckpt_num,

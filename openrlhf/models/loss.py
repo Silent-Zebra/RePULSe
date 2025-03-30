@@ -93,7 +93,7 @@ class NegTrainingLoss(nn.Module):
         log_probs: torch.Tensor,
         log_probs_neg: torch.Tensor,
         rewards: torch.Tensor,
-        sigma_over_q_importance_wgts: torch.Tensor,
+        log_sigma_over_q_importance_wgts: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         baseline_type: Optional[str] = None,
         hardcoded_baseline: Optional[float] = None,
@@ -106,9 +106,12 @@ class NegTrainingLoss(nn.Module):
         print(rewards.shape)
 
         print("WEIGHTS SHAPE")
-        print(sigma_over_q_importance_wgts.shape)
+        print(log_sigma_over_q_importance_wgts.shape)
 
-        loss = log_probs_neg * sigma_over_q_importance_wgts.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
+        normalized_w_t_approx_sigma_samples = F.softmax(log_sigma_over_q_importance_wgts,
+                                                        dim=0)
+
+        loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
         # TODO check weighting is correct, also normalize with softmax if necessary
         1/0 # Ensure that this weighting is properly done
 
@@ -129,7 +132,7 @@ class NegREINFORCELoss(nn.Module):
         log_probs_neg: torch.Tensor,
         rewards: torch.Tensor,
         rewards_neg: torch.Tensor,
-        sigma_over_q_importance_wgts: torch.Tensor,
+        log_sigma_over_q_importance_wgts: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         action_mask_neg: Optional[torch.Tensor] = None,
         baseline_type: Optional[str] = None,
@@ -140,7 +143,10 @@ class NegREINFORCELoss(nn.Module):
 
         reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask, baseline_type, hardcoded_baseline)
 
-        rewards_neg *= sigma_over_q_importance_wgts.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
+        normalized_w_t_approx_sigma_samples = F.softmax(log_sigma_over_q_importance_wgts,
+                                                        dim=0)
+
+        rewards_neg *= normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
         # TODO check weighting is correct, also normalize with softmax if necessary
         1/0 # Ensure that this weighting is properly done
 
