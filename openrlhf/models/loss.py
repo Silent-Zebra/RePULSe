@@ -57,7 +57,7 @@ class REINFORCELoss(nn.Module):
                 assert final_reward.shape[1] > 1 # this will do nothing if there is only 1 batch size/sample per prompt
                 rewards_baseline = final_reward.mean(dim=1)  # mean along the batch dimension not the prompt dimension
                 # print(rewards_baseline.shape)
-                rewards_baseline = rewards_baseline #.unsqueeze(1)
+                rewards_baseline = rewards_baseline.unsqueeze(1)
                 # print(rewards_baseline.shape)
 
             elif self.baseline_type == "hardcoded":
@@ -69,13 +69,13 @@ class REINFORCELoss(nn.Module):
 
             final_reward = final_reward - rewards_baseline
 
-        # print("REWARDS AFTER BASELINE")
-        # print(final_reward)
-        # print("SHAPES")
-        # print(final_reward.shape)
-        # print(action_mask.shape)
-        # print((log_probs * action_mask).shape)
-        # print((log_probs * action_mask).sum(-1).shape)
+        print("REWARDS AFTER BASELINE")
+        print(final_reward)
+        print("SHAPES")
+        print(final_reward.shape)
+        print(action_mask.shape)
+        print((log_probs * action_mask).shape)
+        print((log_probs * action_mask).sum(-1).shape)
 
         loss = (masked_mean(- log_probs, action_mask, -1) * final_reward).mean() # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
         # masked sum would be mathematically correct instead of masked mean, but is just a scalar shift for SGD, and for Adam, only affects early parts of training before the moments are learned
@@ -84,7 +84,7 @@ class REINFORCELoss(nn.Module):
         # loss = (- (log_probs * action_mask).mean(-1) * final_reward.squeeze(-1)).mean() # final_reward.squeeze(-1) goes from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
         # loss2 = (masked_mean(- log_probs, action_mask, -1) * final_reward.squeeze(-1)).mean()
         # loss3 = masked_mean(- log_probs * final_reward, action_mask, -1).mean()
-        # print(loss)
+        print(loss)
         # print(loss2)
         # print(loss3)
         # print(loss2 - loss)
