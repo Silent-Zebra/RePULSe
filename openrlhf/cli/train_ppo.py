@@ -533,6 +533,12 @@ def train(args):
             save_negdata_threshold=args.save_negdata_threshold,
         )
 
+        print("device check")
+        print(actor.model.device)
+        print(base_model.model.device)
+        print(static_initial_model.model.device)
+        1/0
+
         for i in range(args.harmlessness_training_num_episodes):
 
             if args.num_episodes > 0:
