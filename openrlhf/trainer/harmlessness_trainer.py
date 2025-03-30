@@ -450,14 +450,14 @@ class HarmlessnessTrainer(ABC):
             #     pbar.update()
 
         else:
-            for episode in range(start_episode, args.num_episodes):
+            for episode in range(start_episode, args.harmlessness_training_num_episodes):
                 if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                     self.prompts_dataloader.sampler.set_epoch(
                         episode, consumed_samples=0 if episode > start_episode else consumed_samples
                     )
                 pbar = tqdm(
                     range(self.prompts_dataloader.__len__()),
-                    desc=f"Episode [{episode + 1}/{args.num_episodes}]",
+                    desc=f"Episode [{episode + 1}/{args.harmlessness_training_num_episodes}]",
                     disable=not self.strategy.is_rank_0(),
                 )
 
