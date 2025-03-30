@@ -909,7 +909,7 @@ class PPOTrainer(ABC):
         else:
             self.actor.train()
 
-        actor_loss, num_actions = self.get_actor_loss(experience, custom_prompt)
+        actor_loss = self.get_actor_loss(experience, custom_prompt)
 
         # action_log_probs, values = self.actor(
         #     experience.sequences, num_actions,
@@ -993,7 +993,7 @@ class PPOTrainer(ABC):
         else:
             self.actor.train()
 
-        actor_loss, num_actions = self.get_actor_loss(experience, custom_prompt)
+        actor_loss = self.get_actor_loss(experience, custom_prompt)
 
         # mixtral
         if self.aux_loss:
@@ -1027,7 +1027,7 @@ class PPOTrainer(ABC):
             # print(next(self.experience_maker.actor.parameters()).device)
 
             action_log_probs = self.experience_maker.actor(self.true_posterior_samples,
-                                                           num_actions,
+                                                           experience.action_mask.size(1),
                                                            attention_mask_sigma_samples)
             action_log_probs = action_log_probs.float()  # more precision
             log_q = action_log_probs.sum(dim=-1)
@@ -1339,7 +1339,7 @@ class PPOTrainer(ABC):
         else:
             raise NotImplementedError
 
-        return actor_loss, num_actions
+        return actor_loss
 
     def get_log_psi_policy_parameterization(self, base_action_log_probs, experience, num_actions, parameterization, return_type: str = 'p', base_action_log_probs_all=None):
 
