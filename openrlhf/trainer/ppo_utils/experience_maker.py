@@ -201,7 +201,6 @@ class NaiveExperienceMaker(ABC):
 
         print("device check")
         print(sequences.device)
-        print(num_actions.device)
         print(attention_mask.device)
         print(self.initial_model.device)
 
