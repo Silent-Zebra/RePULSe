@@ -760,7 +760,7 @@ class HarmlessnessTrainer(ABC):
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
-                rewards,
+                final_reward,
                 action_mask=exper_action_mask,
             )
 
