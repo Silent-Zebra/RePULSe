@@ -79,17 +79,15 @@ class REINFORCELoss(nn.Module):
         print((log_probs * action_mask).sum(-1).shape)
 
         loss = - (log_probs * action_mask).sum(-1) * final_reward.squeeze(-1) # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
-        # print("RATIO")
-        # print(ratio)
-        # print("ADVANTAGES")
-        # print(advantages)
-        #
-        # print("ACTOR LOSS DETAILS")
-        # print(surr1)
-        # print(surr2)
-        # print(loss)
-        # print(loss.abs())
-        # print(masked_mean(loss.abs(), action_mask, dim=-1).mean())
+
+        loss = - (log_probs * action_mask).mean(-1) * final_reward.squeeze(-1) # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
+        loss2 = masked_mean(log_probs, action_mask, -1).mean()
+        print(loss)
+        print(loss2)
+        print(loss2 - loss)
+
+        1/0
+
         loss = loss.mean() # masked_mean(loss, action_mask, dim=-1).mean()
         # print(loss)
         return loss
@@ -104,27 +102,33 @@ class NegTrainingLoss(nn.Module):
         self,
         log_probs: torch.Tensor,
         log_probs_neg: torch.Tensor,
-        rewards: torch.Tensor,
+        final_reward: torch.Tensor,
         normalized_w_t_approx_sigma_samples: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
 
-        reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask)
+        reinforce_loss = self.reinforce_loss_fn(log_probs, final_reward, action_mask)
 
         print("REWARDS AFTER BASELINE")
         print(log_probs_neg.shape)
-        print(rewards.shape)
+        print(final_reward.shape)
 
         print("WEIGHTS SHAPE")
-        print(log_sigma_over_q_importance_wgts.shape)
+        print(normalized_w_t_approx_sigma_samples.shape)
+        print(normalized_w_t_approx_sigma_samples)
 
 
-
-        loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
+        loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1) # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
         # TODO check weighting is correct, also normalize with softmax if necessary
         1/0 # Ensure that this weighting is properly done
 
         loss = masked_mean(loss, action_mask, dim=-1).mean()
+
+        loss2 = ((log_probs_neg * action_mask).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
+
+        print(loss)
+        print(loss2)
+        print(loss2 - loss)
 
         return (1 - self.alpha) * reinforce_loss + self.alpha * loss
 
