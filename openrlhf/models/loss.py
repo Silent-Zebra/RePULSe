@@ -80,8 +80,8 @@ class REINFORCELoss(nn.Module):
 
         loss = - (log_probs * action_mask).sum(-1) * final_reward.squeeze(-1) # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
 
-        loss = - (log_probs * action_mask).mean(-1) * final_reward.squeeze(-1) # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
-        loss2 = masked_mean(log_probs, action_mask, -1).mean()
+        loss = (- (log_probs * action_mask).mean(-1) * final_reward.squeeze(-1)).mean() # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
+        loss2 = (masked_mean(- log_probs, action_mask, -1) * final_reward).mean()
         print(loss)
         print(loss2)
         print(loss2 - loss)
