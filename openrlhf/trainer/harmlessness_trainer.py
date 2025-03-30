@@ -645,7 +645,7 @@ class HarmlessnessTrainer(ABC):
         else:
             self.base_actor.train()
 
-        actor_loss, num_actions = self.get_actor_loss(experience, experience_neg, custom_prompt)
+        actor_loss = self.get_actor_loss(experience, experience_neg, custom_prompt)
 
         # mixtral
         if self.aux_loss:
@@ -822,7 +822,7 @@ class HarmlessnessTrainer(ABC):
         else:
             raise NotImplementedError
 
-        return actor_loss, num_actions
+        return actor_loss
 
 
     def training_step_critic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
