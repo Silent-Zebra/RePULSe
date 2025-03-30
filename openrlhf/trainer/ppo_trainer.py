@@ -1147,16 +1147,11 @@ class PPOTrainer(ABC):
                 base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, experience.action_mask.size(1),
                     experience.attention_mask)
-                log_phi = self.experience_maker.compute_reward_no_kl(
-                    experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
-                )
-                log_phi2 = experience.info["reward"].to(base_action_log_probs.device)
+                # log_phi = self.experience_maker.compute_reward_no_kl(
+                #     experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
+                # )
+                log_phi = experience.info["reward"].to(base_action_log_probs.device)
 
-                print("comparison")
-                print(log_phi)
-                print(log_phi2)
-                print(log_phi2 - log_phi)
-            1/0
 
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
@@ -1212,10 +1207,11 @@ class PPOTrainer(ABC):
                 base_action_log_probs_all_vocab, base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, experience.action_mask.size(1),
                     experience.attention_mask, return_type="both")
-                log_phi = self.experience_maker.compute_reward_no_kl(
-                    experience.sequences, experience.attention_mask, multiply_by_beta=True
-                    # beta multiplied for non-PPO formulations
-                )
+                # log_phi = self.experience_maker.compute_reward_no_kl(
+                #     experience.sequences, experience.attention_mask, multiply_by_beta=True
+                #     # beta multiplied for non-PPO formulations
+                # )
+                log_phi = experience.info["reward"].to(base_action_log_probs.device)
             if "policy" in self.parameterization:
                 # TODO call actor with return_all_vocab=True
                 log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, experience.action_mask.size(1), self.parameterization, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
@@ -1271,10 +1267,12 @@ class PPOTrainer(ABC):
                 base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, num_actions,
                     experience.attention_mask)
-                log_phi = self.experience_maker.compute_reward_no_kl(
-                    experience.sequences, experience.attention_mask, multiply_by_beta=True
-                    # beta multiplied for non-PPO formulations
-                )
+                # log_phi = self.experience_maker.compute_reward_no_kl(
+                #     experience.sequences, experience.attention_mask, multiply_by_beta=True
+                #     # beta multiplied for non-PPO formulations
+                # )
+                log_phi = experience.info["reward"].to(base_action_log_probs.device)
+
 
             # print(experience.sequences)
             # print(experience.sequences.shape)
