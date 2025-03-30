@@ -274,11 +274,11 @@ def get_positive_and_negative_weights_detached(base_action_log_probs, curr_log_p
     #     log_w_t_approx_sigma_samples.detach())
     # log_psi_on_truncated_proposal_samples = values
     # print("Wgt shapes")
-    if len(log_w_t_approx_sigma_samples.shape) > 2:
+    if len(log_w_t_approx_sigma_samples.shape) > 1:
         raise NotImplementedError # dim 0 will be wrong if you use this with batch over diff prompts.
 
     normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples,
-                                                    dim=0)  # do softmax along the batch dimension
+                                                    dim=0)  # do softmax along the batch dimension, which is -1
     # print(normalized_w_t_approx_sigma_samples.shape)
     # EXPECTED: above has shape (batch_size)
 
@@ -293,18 +293,11 @@ def get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_r
 
     return log_w_t_approx_sigma_samples
 
-def get_normalized_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward):
+def get_normalized_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward, batch_dim=0):
     log_w_t_approx_sigma_samples = get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward)
-
-    if len(log_w_t_approx_sigma_samples.shape) == 3:
-        batch_dim = 1
-    elif len(log_w_t_approx_sigma_samples.shape) == 2:
-        batch_dim = 0
-    else:
-        raise NotImplementedError
-
+    assert len(log_w_t_approx_sigma_samples.shape) <= 2 # Covers (batch) and (prompts, batch) shapes, but not others
     normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples,
-                                                    dim=batch_dim)  # do softmax along the batch dimension
+                                                    dim=-1)  # do softmax along the batch dimension
 
     return normalized_w_t_approx_sigma_samples
 
