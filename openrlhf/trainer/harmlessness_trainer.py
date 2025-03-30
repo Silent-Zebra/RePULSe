@@ -774,6 +774,13 @@ class HarmlessnessTrainer(ABC):
             rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
+            print("SHAPES")
+            print(action_log_probs_neg.shape)
+            print(experience_neg.action_log_probs.shape)
+            print(experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1).shape)
+            print(experience_neg.returns.shape)
+            print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1).shape)
+
             normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(action_log_probs_neg,
                                                                              experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1),
                                                                              experience_neg.returns.view(num_prompts, samples_per_prompt, -1))
