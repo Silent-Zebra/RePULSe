@@ -551,6 +551,14 @@ class HarmlessnessTrainer(ABC):
             pin_memory=self.dataloader_pin_memory,
             collate_fn=self.replay_buffer.collate_fn,
         )
+        dataloader_neg = DataLoader(
+            self.replay_buffer_neg_sampling,
+            batch_size=self.replay_buffer_neg_sampling.sample_batch_size,
+            shuffle=self.shuffle_replay_buffer_sample,
+            drop_last=True,
+            pin_memory=self.dataloader_pin_memory,
+            collate_fn=self.replay_buffer_neg_sampling.collate_fn,
+        )
         device = torch.cuda.current_device()
 
         status_list = []
