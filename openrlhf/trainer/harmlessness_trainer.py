@@ -750,7 +750,7 @@ class HarmlessnessTrainer(ABC):
             # print(action_log_probs.shape)
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
-            rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             # print(action_log_probs)
@@ -779,7 +779,7 @@ class HarmlessnessTrainer(ABC):
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
             action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
 
-            rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             print("SHAPES")
@@ -800,7 +800,7 @@ class HarmlessnessTrainer(ABC):
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
-                rewards,
+                final_reward,
                 normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=exper_action_mask,
             )
@@ -819,16 +819,17 @@ class HarmlessnessTrainer(ABC):
             1/0 # TODO check that the experience_neg.return is the correct return value
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
-            rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
+            # TODO fill out all the arguments below correctly, check each one
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
-                experience.returns,
+                final_reward,
                 experience_neg.returns,
                 normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
-                action_mask=experience.action_mask,
+                action_mask=exper_action_mask,
                 action_mask_neg=experience_neg.action_mask,
             )
 

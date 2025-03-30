@@ -33,7 +33,7 @@ class REINFORCELoss(nn.Module):
     def forward(
         self,
         log_probs: torch.Tensor,
-        rewards: torch.Tensor,
+        final_reward: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
 
@@ -46,17 +46,17 @@ class REINFORCELoss(nn.Module):
 
 
         print("REINFORCE LOSS INSPECTION")
-        print(rewards.shape)
+        print(final_reward.shape)
         print(log_probs.shape)
 
         print("REWARDS")
-        print(rewards)
+        print(final_reward)
 
         if self.baseline_type is not None:
             if self.baseline_type == "expectation":
                 assert reduce_mean_per_prompt
-                assert rewards.shape[1] > 1 # this will do nothing if there is only 1 batch size/sample per prompt
-                rewards_baseline = rewards.mean(dim=1)  # mean along the batch dimension not the prompt dimension
+                assert final_reward.shape[1] > 1 # this will do nothing if there is only 1 batch size/sample per prompt
+                rewards_baseline = final_reward.mean(dim=1)  # mean along the batch dimension not the prompt dimension
                 print(rewards_baseline.shape)
                 rewards_baseline = rewards_baseline.unsqueeze(1)
                 print(rewards_baseline.shape)
@@ -68,7 +68,7 @@ class REINFORCELoss(nn.Module):
             else:
                 raise NotImplementedError
 
-            rewards = rewards - rewards_baseline
+            final_reward = final_reward - rewards_baseline
 
         print("REWARDS AFTER BASELINE")
         print(rewards)
@@ -77,7 +77,7 @@ class REINFORCELoss(nn.Module):
         # TODO calculate the avg reward for each prompt, and use that as the baseline
         # TODO implement basic REINFORCELoss and test that it works.
 
-        loss = -log_probs * rewards
+        loss = - (log_probs * action_mask).sum(-1) * final_reward
         # print("RATIO")
         # print(ratio)
         # print("ADVANTAGES")
@@ -89,7 +89,7 @@ class REINFORCELoss(nn.Module):
         # print(loss)
         # print(loss.abs())
         # print(masked_mean(loss.abs(), action_mask, dim=-1).mean())
-        loss = masked_mean(loss, action_mask, dim=-1).mean()
+        loss = loss.mean() # masked_mean(loss, action_mask, dim=-1).mean()
         # print(loss)
         return loss
 
