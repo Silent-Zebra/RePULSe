@@ -162,7 +162,6 @@ class NegREINFORCELoss(nn.Module):
 
         log_probs_neg *= normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1)
         # TODO check weighting is correct, also normalize with softmax if necessary
-        1/0 # Ensure that this weighting is properly done
 
         neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg)
 
@@ -255,6 +254,7 @@ class ValueLoss(nn.Module):
 
 
 def get_positive_and_negative_weights_detached(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
+
     # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
     # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
     log_w_t_approx_sigma_samples = get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward)
@@ -274,6 +274,9 @@ def get_positive_and_negative_weights_detached(base_action_log_probs, curr_log_p
     #     log_w_t_approx_sigma_samples.detach())
     # log_psi_on_truncated_proposal_samples = values
     # print("Wgt shapes")
+    if len(log_w_t_approx_sigma_samples.shape) > 2:
+        raise NotImplementedError # dim 0 will be wrong if you use this with batch over diff prompts.
+
     normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples,
                                                     dim=0)  # do softmax along the batch dimension
     # print(normalized_w_t_approx_sigma_samples.shape)
@@ -293,8 +296,15 @@ def get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_r
 def get_normalized_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward):
     log_w_t_approx_sigma_samples = get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward)
 
+    if len(log_w_t_approx_sigma_samples.shape) == 3:
+        batch_dim = 1
+    elif len(log_w_t_approx_sigma_samples.shape) == 2:
+        batch_dim = 0
+    else:
+        raise NotImplementedError
+
     normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples,
-                                                    dim=0)  # do softmax along the batch dimension
+                                                    dim=batch_dim)  # do softmax along the batch dimension
 
     return normalized_w_t_approx_sigma_samples
 
