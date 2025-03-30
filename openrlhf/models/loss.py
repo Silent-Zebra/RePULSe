@@ -73,7 +73,6 @@ class REINFORCELoss(nn.Module):
 
         # TODO calculate the avg reward for each prompt, and use that as the baseline
         # TODO implement basic REINFORCELoss and test that it works.
-        1/0
 
         loss = -log_probs * rewards
         # print("RATIO")
