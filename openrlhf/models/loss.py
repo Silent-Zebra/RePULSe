@@ -71,8 +71,8 @@ class REINFORCELoss(nn.Module):
             final_reward = final_reward - rewards_baseline
 
         print("REWARDS AFTER BASELINE")
-        print(rewards)
-        print(rewards.shape)
+        print(final_reward)
+        print(final_reward.shape)
 
         # TODO calculate the avg reward for each prompt, and use that as the baseline
         # TODO implement basic REINFORCELoss and test that it works.
