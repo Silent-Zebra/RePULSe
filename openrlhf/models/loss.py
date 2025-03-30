@@ -120,7 +120,6 @@ class NegTrainingLoss(nn.Module):
 
         loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1) # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
         # TODO check weighting is correct, also normalize with softmax if necessary
-        1/0 # Ensure that this weighting is properly done
 
         loss = masked_mean(loss, action_mask, dim=-1).mean()
 
@@ -129,6 +128,9 @@ class NegTrainingLoss(nn.Module):
         print(loss)
         print(loss2)
         print(loss2 - loss)
+
+        1/0 # Ensure that this weighting is properly done
+
 
         return (1 - self.alpha) * reinforce_loss + self.alpha * loss
 
