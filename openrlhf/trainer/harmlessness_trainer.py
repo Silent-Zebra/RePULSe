@@ -661,7 +661,6 @@ class HarmlessnessTrainer(ABC):
 
         print("BASE ACTOR OPTIM 2")
         print(self.actor_optim)
-        1/0
 
         self.strategy.backward(loss, self.base_actor, self.actor_optim)
 
