@@ -750,7 +750,7 @@ class HarmlessnessTrainer(ABC):
             # print(action_log_probs.shape)
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
-            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs.device)
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             # print(action_log_probs)
@@ -779,7 +779,7 @@ class HarmlessnessTrainer(ABC):
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
             action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
 
-            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs.device)
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             print("SHAPES")
@@ -818,8 +818,13 @@ class HarmlessnessTrainer(ABC):
 
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
-            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs.device)
+            action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
+
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
+            final_reward_neg = experience_neg.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs_neg.device)
+
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+            exper_neg_action_mask = experience_neg.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
                 action_log_probs_neg,
@@ -834,25 +839,11 @@ class HarmlessnessTrainer(ABC):
                 action_log_probs,
                 action_log_probs_neg,
                 final_reward,
-                experience_neg.returns,
+                final_reward_neg,
                 normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=exper_action_mask,
-                action_mask_neg=experience_neg.action_mask,
+                action_mask_neg=exper_neg_action_mask,
             )
-
-            # def forward(
-            #     self,
-            #     log_probs: torch.Tensor,
-            #     log_probs_neg: torch.Tensor,
-            #     rewards: torch.Tensor,
-            #     rewards_neg: torch.Tensor,
-            #     action_mask: Optional[torch.Tensor] = None,
-            #     action_mask_neg: Optional[torch.Tensor] = None,
-            #     baseline_type: Optional[str] = None,
-            #     baseline_type_neg: Optional[str] = None,
-            #     hardcoded_baseline: Optional[float] = None,
-            #     hardcoded_baseline_neg: Optional[float] = None,
-            # )
 
         else:
             raise NotImplementedError
