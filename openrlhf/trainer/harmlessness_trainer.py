@@ -780,10 +780,13 @@ class HarmlessnessTrainer(ABC):
             print(experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1).shape)
             print(experience_neg.returns.shape)
             print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1).shape)
+            print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1].shape)
+            print(experience_neg.returns)
+            print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
 
             normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(action_log_probs_neg,
                                                                              experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1),
-                                                                             experience_neg.returns.view(num_prompts, samples_per_prompt, -1))
+                                                                             experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
             1 / 0  # TODO check that the experience_neg.return is the correct return value
 
             actor_loss = self.actor_loss_fn(
