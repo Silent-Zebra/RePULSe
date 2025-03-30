@@ -602,6 +602,15 @@ class HarmlessnessTrainer(ABC):
                         "kl": status["kl"],
                         "act_lr": status["actor_lr"],
                     }
+                else:
+                    short_status = {
+                        "rm": status["reward"],
+                        "ret": status["return"],
+                        "glen": status["response_length"],
+                        "tlen": status["total_length"],
+                        "kl": status["kl"],
+                        "act_lr": status["actor_lr"],
+                    }
 
                 if "critic_loss" in status:
                     short_status["cri"] = status["critic_loss"]
