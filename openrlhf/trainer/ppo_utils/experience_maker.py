@@ -202,7 +202,7 @@ class NaiveExperienceMaker(ABC):
         print("device check")
         print(sequences.device)
         print(attention_mask.device)
-        print(self.initial_model.device)
+        print(self.initial_model.model.device)
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions,
