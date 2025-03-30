@@ -160,7 +160,7 @@ class NegREINFORCELoss(nn.Module):
 
         reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask)
 
-        rewards_neg *= normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
+        log_probs_neg *= normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1)
         # TODO check weighting is correct, also normalize with softmax if necessary
         1/0 # Ensure that this weighting is properly done
 

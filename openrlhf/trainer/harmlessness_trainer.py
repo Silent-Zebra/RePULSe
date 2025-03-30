@@ -792,10 +792,11 @@ class HarmlessnessTrainer(ABC):
             print(experience_neg.returns)
             print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
 
-            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(action_log_probs_neg,
-                                                                             experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1),
-                                                                             experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
-            1 / 0  # TODO check that the experience_neg.return is the correct return value
+            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
+                action_log_probs_neg,
+                experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1),
+                final_reward
+            )
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
@@ -815,12 +816,18 @@ class HarmlessnessTrainer(ABC):
                 attention_mask=experience_neg.attention_mask, return_output=False
             )
 
-            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(action_log_probs_neg, experience_neg.action_log_probs, experience_neg.returns)
-            1/0 # TODO check that the experience_neg.return is the correct return value
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
             final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs.device)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+
+            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
+                action_log_probs_neg,
+                experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1),
+                final_reward
+            )
+            1/0 # TODO check that the experience_neg.return is the correct return value
+
 
             # TODO fill out all the arguments below correctly, check each one
             actor_loss = self.actor_loss_fn(
