@@ -525,7 +525,7 @@ def train(args):
             bc_coef=args.bc_coef,
             bc_steps=args.bc_steps,
             true_posterior_samples=true_posterior_samples,
-            actor_loss_type=args.actor_loss_type,
+            actor_loss_type=args.harmlessness_training_loss_type,
             critic_loss_type=args.critic_loss_type,
             alpha=args.alpha,
             parameterization=args.parameterization,
