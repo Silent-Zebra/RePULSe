@@ -576,6 +576,7 @@ def train(args):
         # print(base_model.model.device)
         # print(static_initial_model.model.device)
 
+        estimates_list = None
         for i in range(args.harmlessness_training_num_episodes):
 
             if args.num_episodes > 0:
@@ -599,42 +600,43 @@ def train(args):
 
     info_name_str = get_info_name_str(args)
 
-    if args.custom_single_prompt:
-        iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = estimates_list
-        print("FINAL RESULTS IWAE LB LIST", flush=True)
-        print(iwae_lbs_list)
-        print("FINAL RESULTS IWAE UB LIST", flush=True)
-        print(iwae_ubs_list)
-        print("FINAL RESULTS F_Q", flush=True)
-        print(f_q_estimates_list)
-        print("FINAL RESULTS G_Q", flush=True)
-        print(g_q_estimates_list)
+    if estimates_list is not None:
+        if args.custom_single_prompt:
+            iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = estimates_list
+            print("FINAL RESULTS IWAE LB LIST", flush=True)
+            print(iwae_lbs_list)
+            print("FINAL RESULTS IWAE UB LIST", flush=True)
+            print(iwae_ubs_list)
+            print("FINAL RESULTS F_Q", flush=True)
+            print(f_q_estimates_list)
+            print("FINAL RESULTS G_Q", flush=True)
+            print(g_q_estimates_list)
 
-        print("SAVING RESULTS", flush=True)
+            print("SAVING RESULTS", flush=True)
 
-        target_to_save = (
-            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
-        )
-        save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
-        torch.save(target_to_save, save_str)
+            target_to_save = (
+                f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
+            )
+            save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
+            torch.save(target_to_save, save_str)
 
-    else:
-        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
-        print("FINAL RESULTS F_Q", flush=True)
-        print(f_q_estimates_list)
-        print("FINAL RESULTS REWARD", flush=True)
-        print(rewards_list)
-        print("FINAL RESULTS KL TO PRIOR", flush=True)
-        print(kl_vals_list)
-        print("FINAL RESULTS ENTROPY", flush=True)
-        print(entropy_list)
-        print("SAVING RESULTS", flush=True)
+        else:
+            f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
+            print("FINAL RESULTS F_Q", flush=True)
+            print(f_q_estimates_list)
+            print("FINAL RESULTS REWARD", flush=True)
+            print(rewards_list)
+            print("FINAL RESULTS KL TO PRIOR", flush=True)
+            print(kl_vals_list)
+            print("FINAL RESULTS ENTROPY", flush=True)
+            print(entropy_list)
+            print("SAVING RESULTS", flush=True)
 
-        target_to_save = (
-            f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
-        )
-        save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
-        torch.save(target_to_save, save_str)
+            target_to_save = (
+                f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
+            )
+            save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
+            torch.save(target_to_save, save_str)
 
 
     if args.save_negdata:
