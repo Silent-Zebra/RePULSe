@@ -444,7 +444,7 @@ class CTLLoss(nn.Module):
                 loss = -(positive_samples_term - negative_samples_term)
             # print(loss.shape)
 
-            loss = masked_mean(loss, action_mask, dim=-1).sum()
+            loss = masked_mean(loss, action_mask, dim=-1).mean()
             # print(loss)
 
             # 1/0
@@ -528,8 +528,8 @@ class CTLLoss(nn.Module):
         # print(loss.shape)
         # print(action_mask.shape)
 
-        # loss = masked_mean(loss, action_mask, dim=-1).mean()
-        loss = masked_mean(loss, action_mask, dim=-1).sum()
+        loss = masked_mean(loss, action_mask, dim=-1).mean()
+        # loss = masked_mean(loss, action_mask, dim=-1).sum()
 
         # print("--masked mean--")
         # print(masked_mean(loss, action_mask, dim=-1))
@@ -674,7 +674,8 @@ class SIXOLoss(nn.Module):
             loss = -(positive_samples_term + negative_samples_term)
             
             # Apply action mask and sum across prompts
-            loss = masked_mean(loss, action_mask, dim=-1).sum()
+            # loss = masked_mean(loss, action_mask, dim=-1).sum()
+            loss = masked_mean(loss, action_mask, dim=-1).mean()
 
             return loss
 
@@ -773,8 +774,8 @@ class SIXOLoss(nn.Module):
         # print(loss.shape)
         # print(action_mask.shape)
 
-        # loss = masked_mean(loss, action_mask, dim=-1).mean()
-        loss = masked_mean(loss, action_mask, dim=-1).sum()
+        loss = masked_mean(loss, action_mask, dim=-1).mean()
+        # loss = masked_mean(loss, action_mask, dim=-1).sum()
 
         return loss.float()
 
@@ -867,7 +868,8 @@ class DPGLoss(nn.Module):
 
         loss = -normalized_w_t_approx_sigma_samples.unsqueeze(-1) * (positive_samples_term - negative_samples_term)
 
-        loss = masked_mean(loss, action_mask, dim=-1).sum()
+        # loss = masked_mean(loss, action_mask, dim=-1).sum()
+        loss = masked_mean(loss, action_mask, dim=-1).mean()
 
         return loss
 
