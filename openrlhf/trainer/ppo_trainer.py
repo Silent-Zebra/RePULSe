@@ -1150,7 +1150,7 @@ class PPOTrainer(ABC):
                 log_phi = self.experience_maker.compute_reward_no_kl(
                     experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
                 )
-                log_phi2 = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
+                log_phi2 = experience.info["reward"].view(num_prompts, samples_per_prompt).to(base_action_log_probs.device)
 
                 print("comparison")
                 print(log_phi)
