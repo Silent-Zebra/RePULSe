@@ -25,16 +25,16 @@ class GPTLMLoss(nn.Module):
         return self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
 class REINFORCELoss(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, baseline_type: Optional[str] = None, hardcoded_baseline: Optional[float] = None) -> None:
         super().__init__()
+        self.baseline_type = baseline_type
+        self.hardcoded_baseline = hardcoded_baseline
 
     def forward(
         self,
         log_probs: torch.Tensor,
         rewards: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
-        baseline_type: Optional[str] = None,
-        hardcoded_baseline: Optional[float] = None,
     ) -> torch.Tensor:
 
         if len(log_probs.shape) == 3:
@@ -52,8 +52,8 @@ class REINFORCELoss(nn.Module):
         print("REWARDS")
         print(rewards)
 
-        if baseline_type is not None:
-            if baseline_type == "expectation":
+        if self.baseline_type is not None:
+            if self.baseline_type == "expectation":
                 assert reduce_mean_per_prompt
                 assert rewards.shape[1] > 1 # this will do nothing if there is only 1 batch size/sample per prompt
                 rewards_baseline = rewards.mean(dim=1)  # mean along the batch dimension not the prompt dimension
@@ -61,7 +61,7 @@ class REINFORCELoss(nn.Module):
                 rewards_baseline = rewards_baseline.unsqueeze(1)
                 print(rewards_baseline.shape)
 
-            elif baseline_type == "hardcoded":
+            elif self.baseline_type == "hardcoded":
                 assert hardcoded_baseline is not None
                 rewards_baseline = hardcoded_baseline
 
@@ -91,9 +91,9 @@ class REINFORCELoss(nn.Module):
         return loss
 
 class NegTrainingLoss(nn.Module):
-    def __init__(self, alpha=0.5) -> None:
+    def __init__(self, alpha=0.5, baseline_type: Optional[str] = None, hardcoded_baseline: Optional[float] = None) -> None:
         super().__init__()
-        self.reinforce_loss_fn = REINFORCELoss()
+        self.reinforce_loss_fn = REINFORCELoss(baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline)
         self.alpha = alpha
 
     def forward(
@@ -103,11 +103,9 @@ class NegTrainingLoss(nn.Module):
         rewards: torch.Tensor,
         normalized_w_t_approx_sigma_samples: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
-        baseline_type: Optional[str] = None,
-        hardcoded_baseline: Optional[float] = None,
     ) -> torch.Tensor:
 
-        reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask, baseline_type, hardcoded_baseline)
+        reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask)
 
         print("REWARDS AFTER BASELINE")
         print(log_probs_neg.shape)
@@ -128,9 +126,14 @@ class NegTrainingLoss(nn.Module):
 
 
 class NegREINFORCELoss(nn.Module):
-    def __init__(self, alpha=0.5) -> None:
+    def __init__(
+        self, alpha=0.5, baseline_type: Optional[str] = None, hardcoded_baseline: Optional[float] = None,
+        baseline_type_neg: Optional[str] = None, hardcoded_baseline_neg: Optional[float] = None
+    ) -> None:
         super().__init__()
-        self.reinforce_loss_fn = REINFORCELoss()
+        self.reinforce_loss_fn = REINFORCELoss(baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline)
+        self.reinforce_loss_fn_neg = REINFORCELoss(baseline_type=baseline_type_neg, hardcoded_baseline=hardcoded_baseline_neg)
+
         self.alpha = alpha
 
     def forward(
@@ -142,19 +145,15 @@ class NegREINFORCELoss(nn.Module):
         normalized_w_t_approx_sigma_samples: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         action_mask_neg: Optional[torch.Tensor] = None,
-        baseline_type: Optional[str] = None,
-        baseline_type_neg: Optional[str] = None,
-        hardcoded_baseline: Optional[float] = None,
-        hardcoded_baseline_neg: Optional[float] = None,
     ) -> torch.Tensor:
 
-        reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask, baseline_type, hardcoded_baseline)
+        reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask)
 
         rewards_neg *= normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
         # TODO check weighting is correct, also normalize with softmax if necessary
         1/0 # Ensure that this weighting is properly done
 
-        neg_reinforce_loss = self.reinforce_loss_fn(log_probs_neg, rewards_neg, action_mask_neg, baseline_type_neg, hardcoded_baseline_neg)
+        neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg)
 
         return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
 

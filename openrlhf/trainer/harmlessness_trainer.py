@@ -103,6 +103,10 @@ class HarmlessnessTrainer(ABC):
         parameterization: str = '',
         save_negdata=False,
         save_negdata_threshold=-10000,
+        baseline_type: Optional[str] = None,
+        hardcoded_baseline: Optional[float] = None,
+        baseline_type_neg: Optional[str] = None,
+        hardcoded_baseline_neg: Optional[float] = None,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -146,11 +150,14 @@ class HarmlessnessTrainer(ABC):
 
         self.actor_loss_type = actor_loss_type
         if self.actor_loss_type == "reinforce":
-            self.actor_loss_fn = REINFORCELoss() # PolicyLoss(eps_clip)
+            self.actor_loss_fn = REINFORCELoss(baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline) # PolicyLoss(eps_clip)
         elif self.actor_loss_type == "neg_training":
-            self.actor_loss_fn = NegTrainingLoss(alpha)
+            self.actor_loss_fn = NegTrainingLoss(alpha=alpha, baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline)
         elif self.actor_loss_type == "neg_reinforce":
-            self.actor_loss_fn = NegREINFORCELoss(alpha)
+            self.actor_loss_fn = NegREINFORCELoss(
+                alpha=alpha, baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline,
+                baseline_type_neg=baseline_type_neg, hardcoded_baseline_neg=hardcoded_baseline_neg,
+            )
         else:
             raise NotImplementedError
 
@@ -797,7 +804,6 @@ class HarmlessnessTrainer(ABC):
                 rewards,
                 normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=exper_action_mask,
-                baseline_type="expectation",
             )
         elif self.actor_loss_type == "neg_reinforce":
             action_log_probs = self.base_actor(
@@ -825,8 +831,6 @@ class HarmlessnessTrainer(ABC):
                 normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=experience.action_mask,
                 action_mask_neg=experience_neg.action_mask,
-                baseline_type="expectation",
-                baseline_type_neg="expectation",
             )
 
             # def forward(

@@ -569,6 +569,10 @@ def train(args):
             parameterization=args.parameterization,
             save_negdata=args.save_negdata,
             save_negdata_threshold=args.save_negdata_threshold,
+            baseline_type=args.reinforce_baseline_type,
+            hardcoded_baseline=args.reinforce_hardcoded_baseline,
+            baseline_type_neg=args.neg_baseline_type,
+            hardcoded_baseline_neg=args.neg_hardcoded_baseline,
         )
 
         # print("device check")
@@ -868,6 +872,10 @@ if __name__ == "__main__":
             "reinforce", "neg_training", "neg_reinforce"
         ]
     )
+    parser.add_argument("--reinforce_baseline_type", type=str, default=None, help="Only for --do_harmlessness_training")
+    parser.add_argument("--neg_baseline_type", type=str, default=None, help="Only for --do_harmlessness_training")
+    parser.add_argument("--reinforce_hardcoded_baseline", type=float, default=None, help="Only for --do_harmlessness_training. Value of hardcoded baseline")
+    parser.add_argument("--neg_hardcoded_baseline", type=float, default=None, help="Only for --do_harmlessness_training. Value of hardcoded baseline")
 
     args = parser.parse_args()
 
