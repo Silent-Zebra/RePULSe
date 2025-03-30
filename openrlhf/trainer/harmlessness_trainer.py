@@ -199,13 +199,15 @@ class HarmlessnessTrainer(ABC):
             shared_actorcritic,
             threshold,
             reward_cap,
-            target_dist_beta,
+            1, # target_dist_beta 1 here, because this is just going to need regular rewards for REINFORCE
             rm_type,
             actor_loss_type,
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
         )
+
+        # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
         self.experience_maker_neg_sampling = NaiveExperienceMaker(
             sampling_actor,
             critic,

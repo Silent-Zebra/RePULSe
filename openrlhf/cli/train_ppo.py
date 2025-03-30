@@ -538,7 +538,7 @@ def train(args):
             lambd=args.lambd,
             init_kl_coef=0,
             kl_target=args.kl_target,
-            target_dist_beta=1., # TODO later check to make sure this is desired
+            target_dist_beta=args.target_dist_beta, # TODO later check to make sure this is desired
             ema_beta=0.992,
             ptx_coef=args.ptx_coef,
             max_norm=args.max_norm,
