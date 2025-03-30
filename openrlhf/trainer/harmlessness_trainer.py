@@ -762,7 +762,6 @@ class HarmlessnessTrainer(ABC):
                 action_log_probs,
                 rewards,
                 action_mask=exper_action_mask,
-                baseline_type="expectation",
             )
 
         elif self.actor_loss_type == "neg_training":
