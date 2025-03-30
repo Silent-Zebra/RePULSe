@@ -338,11 +338,13 @@ def train(args):
             (critic, critic_optim, critic_scheduler),
             reward_model,
             base_model,
+            static_initial_model,
         ) = strategy.prepare(
             (actor, actor_optim, actor_scheduler),
             (critic, critic_optim, critic_scheduler),
             reward_model,
             base_model,
+            static_initial_model,
             is_rlhf=True,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
@@ -351,10 +353,12 @@ def train(args):
             (actor, actor_optim, actor_scheduler),
             reward_model,
             base_model,
+            static_initial_model,
         ) = strategy.prepare(
             (actor, actor_optim, actor_scheduler),
             reward_model,
             base_model,
+            static_initial_model,
             is_rlhf=True,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
