@@ -37,9 +37,9 @@ class REINFORCELoss(nn.Module):
         hardcoded_baseline: Optional[float] = None,
     ) -> torch.Tensor:
 
-        if len(values.shape) == 3:
+        if len(log_probs.shape) == 3:
             reduce_mean_per_prompt = True
-        elif len(values.shape) == 2:
+        elif len(log_probs.shape) == 2:
             reduce_mean_per_prompt = False
         else:
             raise NotImplementedError
@@ -102,7 +102,7 @@ class NegTrainingLoss(nn.Module):
         log_probs: torch.Tensor,
         log_probs_neg: torch.Tensor,
         rewards: torch.Tensor,
-        log_sigma_over_q_importance_wgts: torch.Tensor,
+        normalized_w_t_approx_sigma_samples: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         baseline_type: Optional[str] = None,
         hardcoded_baseline: Optional[float] = None,
@@ -117,7 +117,6 @@ class NegTrainingLoss(nn.Module):
         print("WEIGHTS SHAPE")
         print(log_sigma_over_q_importance_wgts.shape)
 
-        normalized_w_t_approx_sigma_samples = log_sigma_over_q_importance_wgts
 
 
         loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
@@ -141,7 +140,7 @@ class NegREINFORCELoss(nn.Module):
         log_probs_neg: torch.Tensor,
         rewards: torch.Tensor,
         rewards_neg: torch.Tensor,
-        log_sigma_over_q_importance_wgts: torch.Tensor,
+        normalized_w_t_approx_sigma_samples: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         action_mask_neg: Optional[torch.Tensor] = None,
         baseline_type: Optional[str] = None,
@@ -151,8 +150,6 @@ class NegREINFORCELoss(nn.Module):
     ) -> torch.Tensor:
 
         reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask, baseline_type, hardcoded_baseline)
-
-        normalized_w_t_approx_sigma_samples = log_sigma_over_q_importance_wgts
 
         rewards_neg *= normalized_w_t_approx_sigma_samples.detach() # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
         # TODO check weighting is correct, also normalize with softmax if necessary

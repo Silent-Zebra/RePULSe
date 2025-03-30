@@ -757,7 +757,7 @@ class HarmlessnessTrainer(ABC):
             rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
-            log_sigma_over_q_importance_wgts = get_normalized_positive_weights_detached(action_log_probs_neg,
+            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(action_log_probs_neg,
                                                                              experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1),
                                                                              experience_neg.returns.view(num_prompts, samples_per_prompt, -1))
             1 / 0  # TODO check that the experience_neg.return is the correct return value
@@ -766,7 +766,7 @@ class HarmlessnessTrainer(ABC):
                 action_log_probs,
                 action_log_probs_neg,
                 rewards,
-                log_sigma_over_q_importance_wgts=log_sigma_over_q_importance_wgts, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
+                normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=exper_action_mask,
                 baseline_type="expectation",
             )
@@ -781,7 +781,7 @@ class HarmlessnessTrainer(ABC):
                 attention_mask=experience_neg.attention_mask, return_output=False
             )
 
-            log_sigma_over_q_importance_wgts = get_normalized_positive_weights_detached(action_log_probs_neg, experience_neg.action_log_probs, experience_neg.returns)
+            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(action_log_probs_neg, experience_neg.action_log_probs, experience_neg.returns)
             1/0 # TODO check that the experience_neg.return is the correct return value
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
@@ -793,7 +793,7 @@ class HarmlessnessTrainer(ABC):
                 action_log_probs_neg,
                 experience.returns,
                 experience_neg.returns,
-                log_sigma_over_q_importance_wgts=log_sigma_over_q_importance_wgts, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
+                normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=experience.action_mask,
                 action_mask_neg=experience_neg.action_mask,
                 baseline_type="expectation",
