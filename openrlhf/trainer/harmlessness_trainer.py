@@ -97,7 +97,7 @@ class HarmlessnessTrainer(ABC):
         bc_coef: float = 0,
         bc_steps: int = -1,
         true_posterior_samples = None, # would otherwise be torch.Tensor
-        actor_loss_type: str = 'ppo',
+        actor_loss_type: str = 'reinforce',
         critic_loss_type: str = 'mse',
         alpha: float = 0.5,
         parameterization: str = '',
