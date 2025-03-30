@@ -119,18 +119,18 @@ class NegTrainingLoss(nn.Module):
         print(normalized_w_t_approx_sigma_samples)
 
 
-        loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1) # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
-        # TODO check weighting is correct, also normalize with softmax if necessary
+        # loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1) # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
+        # # TODO check weighting is correct, also normalize with softmax if necessary
+        #
+        # loss = masked_mean(loss, action_mask, dim=-1).mean()
+        # loss2 = ((log_probs_neg * action_mask).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
+        # print(loss)
+        # print(loss2)
+        # print(loss2 - loss)
 
-        loss = masked_mean(loss, action_mask, dim=-1).mean()
+        loss = ((log_probs_neg * action_mask).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
 
-        loss2 = ((log_probs_neg * action_mask).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
-
-        print(loss)
-        print(loss2)
-        print(loss2 - loss)
-
-        1/0 # Ensure that this weighting is properly done
+        # 1/0 # Ensure that this weighting is properly done
 
 
         return (1 - self.alpha) * reinforce_loss + self.alpha * loss
