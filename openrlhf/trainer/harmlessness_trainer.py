@@ -723,17 +723,15 @@ class HarmlessnessTrainer(ABC):
                 attention_mask=experience.attention_mask, return_output=False
             )
 
-            print("INSPECT 03-30")
-            print(num_prompts)
-            print(samples_per_prompt)
-            print(action_log_probs.shape)
+            # print("INSPECT 03-30")
+            # print(num_prompts)
+            # print(samples_per_prompt)
+            # print(action_log_probs.shape)
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
             rewards = experience.returns.view(num_prompts, samples_per_prompt, -1)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
-            print(action_log_probs.shape)
-            1/0
             # print(action_log_probs)
             # print(experience.action_log_probs)
             # print(experience.advantages)
