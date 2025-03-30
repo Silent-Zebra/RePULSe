@@ -24,7 +24,7 @@ def train(args):
     strategy.setup_distributed()
 
     # load weights for reference actor
-    base_model = Actor(
+    base_actor = Actor(
         args.pretrain,
         use_flash_attention_2=args.flash_attn,
         bf16=args.bf16,
@@ -39,7 +39,7 @@ def train(args):
         # and this has two undesired effects 1) I'm basically adding parameters/capacity to the twist architecture
         # 2) More problematic is that I would then be modifying the initial model, so things like KL to prior
         # and F_q and G_q evaluations are all messed up.
-        for param in base_model.parameters():
+        for param in base_actor.parameters():
             param.requires_grad = False
         # NOTE: now I have with torch.no_grad() on initial model calls for the twist/proposal learning
         # For harmlessness training, we are going to need to update the initial_model.parameters()
@@ -56,7 +56,7 @@ def train(args):
             param.requires_grad = False
         get_tokenizer(args.pretrain, static_initial_model.model, "left", strategy)
 
-    get_tokenizer(args.pretrain, base_model.model, "left", strategy)
+    get_tokenizer(args.pretrain, base_actor.model, "left", strategy)
 
     if args.shared_actorcritic:
 
@@ -74,7 +74,7 @@ def train(args):
         if args.actor_modulates_base:
             actor = ActorCustom(
                 args.pretrain,
-                initial_model=base_model,
+                initial_model=base_actor,
                 use_flash_attention_2=args.flash_attn,
                 bf16=args.bf16,
                 load_in_4bit=args.load_in_4bit,
@@ -246,7 +246,7 @@ def train(args):
 
     if args.do_harmlessness_training:
         base_actor_optim = strategy.create_optimizer(
-            base_model, lr=args.base_actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
+            base_actor, lr=args.base_actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
         )
 
         print("BASE ACTOR OPTIM")
@@ -334,37 +334,68 @@ def train(args):
             scheduler_specific_kwargs={"min_lr": args.critic_learning_rate * 0.1},
         )
 
-    if critic is not None:
-        # prepare models/optimizers...
-        (
-            (actor, actor_optim, actor_scheduler),
-            (critic, critic_optim, critic_scheduler),
-            reward_model,
-            base_model,
-            static_initial_model,
-        ) = strategy.prepare(
-            (actor, actor_optim, actor_scheduler),
-            (critic, critic_optim, critic_scheduler),
-            reward_model,
-            base_model,
-            static_initial_model,
-            is_rlhf=True,
-            gradient_accumulation_steps=args.gradient_accumulation_steps,
-        )
+    if args.do_harmlessness_training:
+        if critic is not None:
+            # prepare models/optimizers...
+            (
+                (actor, actor_optim, actor_scheduler),
+                (critic, critic_optim, critic_scheduler),
+                (base_actor, base_actor_optim, base_actor_scheduler),
+                reward_model,
+                static_initial_model,
+            ) = strategy.prepare(
+                (actor, actor_optim, actor_scheduler),
+                (critic, critic_optim, critic_scheduler),
+                (base_actor, base_actor_optim, base_actor_scheduler),
+                reward_model,
+                static_initial_model,
+                is_rlhf=True,
+                gradient_accumulation_steps=args.gradient_accumulation_steps,
+            )
+        else:
+            (
+                (actor, actor_optim, actor_scheduler),
+                (base_actor, base_actor_optim, base_actor_scheduler),
+                reward_model,
+                static_initial_model,
+            ) = strategy.prepare(
+                (actor, actor_optim, actor_scheduler),
+                (base_actor, base_actor_optim, base_actor_scheduler),
+                reward_model,
+                static_initial_model,
+                is_rlhf=True,
+                gradient_accumulation_steps=args.gradient_accumulation_steps,
+            )
+
     else:
-        (
-            (actor, actor_optim, actor_scheduler),
-            reward_model,
-            base_model,
-            static_initial_model,
-        ) = strategy.prepare(
-            (actor, actor_optim, actor_scheduler),
-            reward_model,
-            base_model,
-            static_initial_model,
-            is_rlhf=True,
-            gradient_accumulation_steps=args.gradient_accumulation_steps,
-        )
+
+        if critic is not None:
+            # prepare models/optimizers...
+            (
+                (actor, actor_optim, actor_scheduler),
+                (critic, critic_optim, critic_scheduler),
+                reward_model,
+                base_actor,
+            ) = strategy.prepare(
+                (actor, actor_optim, actor_scheduler),
+                (critic, critic_optim, critic_scheduler),
+                reward_model,
+                base_actor,
+                is_rlhf=True,
+                gradient_accumulation_steps=args.gradient_accumulation_steps,
+            )
+        else:
+            (
+                (actor, actor_optim, actor_scheduler),
+                reward_model,
+                base_actor,
+            ) = strategy.prepare(
+                (actor, actor_optim, actor_scheduler),
+                reward_model,
+                base_actor,
+                is_rlhf=True,
+                gradient_accumulation_steps=args.gradient_accumulation_steps,
+            )
 
     if ema_model:
         ema_model._offload = True
@@ -418,7 +449,7 @@ def train(args):
         actor,
         critic,
         reward_model,
-        base_model,
+        base_actor,
         ema_model,
         actor_optim,
         critic_optim,
@@ -480,12 +511,12 @@ def train(args):
     # This shouldn't be too hard to do...
 
     if args.do_harmlessness_training:
-        base_tokenizer = get_tokenizer(args.pretrain, base_model.model, "left", strategy,
+        base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
                                   use_fast=not args.disable_fast_tokenizer)
 
         harmlessness_trainer = HarmlessnessTrainer(
             strategy,
-            base_actor=base_model,
+            base_actor=base_actor,
             sampling_actor=actor,
             critic=None,
             reward_model=reward_model,
