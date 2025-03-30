@@ -750,7 +750,7 @@ class HarmlessnessTrainer(ABC):
             # print(action_log_probs.shape)
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
-            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1)
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs.device)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             # print(action_log_probs)
@@ -779,7 +779,7 @@ class HarmlessnessTrainer(ABC):
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
             action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
 
-            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1)
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs.device)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             print("SHAPES")
@@ -819,7 +819,7 @@ class HarmlessnessTrainer(ABC):
             1/0 # TODO check that the experience_neg.return is the correct return value
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
-            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1)
+            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs.device)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             # TODO fill out all the arguments below correctly, check each one
