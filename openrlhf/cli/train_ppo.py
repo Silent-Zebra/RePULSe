@@ -885,6 +885,8 @@ if __name__ == "__main__":
 
 
     args.init_kl_coef = abs(1 / args.target_dist_beta)
+    if args.target_dist_beta > 1000:
+        args.init_kl_coef = 0
     print(f"Init KL coef set to: {args.init_kl_coef}, based on target_dist_beta {args.target_dist_beta}")
     # Because otherwise you don't have the equivalence between the RL formulation and the probabilistic inference formulation with target dist
 
