@@ -264,6 +264,14 @@ class PPOTrainer(ABC):
                 num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
             )
             update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
+            print(update_timesteps)
+            print(args.rollout_batch_size)
+            print(self.strategy.world_size)
+            print(self.micro_rollout_batch_size)
+            update_timesteps = max(update_timesteps, 1)
+
+            1/0
+
 
         # get eval and save steps
         if args.eval_steps == -1:
