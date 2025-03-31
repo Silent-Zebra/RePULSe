@@ -583,11 +583,17 @@ def train(args):
         estimates_list = None
         for i in range(args.harmlessness_training_num_episodes):
 
+            print(f"OUTER LOOP {i}")
+
+            print("-----TWIST OR PROPOSAL TRAINING-----")
+
             if args.num_episodes > 0:
                 estimates_list = trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
                     num_update_steps_per_episodes, true_posterior_samples
                 )
+
+            print("-----POLICY HARMLESSNESS TRAINING-----")
 
             # TODO Update the initial model, and check that the trainer is now using the updated model version.
             harmlessness_trainer.fit( # TODO check that these arguments are the right ones
