@@ -296,6 +296,8 @@ class PPOTrainer(ABC):
         print(steps)
         print(start_episode)
         print(consumed_samples)
+        if consumed_samples > 0:
+            raise NotImplementedError # Should check that this all works correctly after I modified it.
 
 
         iwae_lbs_list = []
@@ -426,6 +428,8 @@ class PPOTrainer(ABC):
 
         else:
             for episode in range(start_episode, args.num_episodes):
+                print(f"PROPOSAL OR TWIST TRAINING EPISODE {episode}", flush=True)
+
                 if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                     self.prompts_dataloader.sampler.set_epoch(
                         episode, consumed_samples=0 if episode > start_episode else consumed_samples

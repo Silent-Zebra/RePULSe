@@ -325,6 +325,8 @@ class HarmlessnessTrainer(ABC):
         print(start_episode)
         print(consumed_samples)
 
+        if consumed_samples > 0:
+            raise NotImplementedError # Should check that this all works correctly after I modified it.
 
         iwae_lbs_list = []
         iwae_ubs_list = []
@@ -469,7 +471,10 @@ class HarmlessnessTrainer(ABC):
             #     pbar.update()
 
         else:
-            for episode in range(start_episode, args.harmlessness_training_num_episodes):
+            assert start_episode < args.harmlessness_training_episodes_per_loop # Otherwise no updates done; this might be ok depending on setup, but for now this would be unexpected behaviour.
+
+            for episode in range(start_episode, args.harmlessness_training_episodes_per_loop):
+                print(f"HARMLESSNESS TRAINING EPISODE {episode}", flush=True)
                 if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                     self.prompts_dataloader.sampler.set_epoch(
                         episode, consumed_samples=0 if episode > start_episode else consumed_samples
