@@ -283,6 +283,16 @@ class HarmlessnessTrainer(ABC):
             )
             update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
 
+            print(num_update_steps_per_episodes)
+            print(args.train_batch_size)
+            print(args.max_epochs)
+            print(args.rollout_batch_size)
+            print(num_rollouts_per_episodes)
+            print(self.strategy.world_size)
+            print(self.micro_rollout_batch_size)
+            print(update_timesteps)
+            1/0
+
         # get eval and save steps
         if args.eval_steps == -1:
             args.eval_steps = num_rollouts_per_episodes  # Evaluate once per epoch

@@ -306,12 +306,6 @@ def train(args):
     if args.custom_single_prompt:
         num_update_steps_per_episodes = args.max_epochs
 
-    print(len(prompts_dataset))
-    print(args.train_batch_size)
-    print(args.max_epochs)
-    print(len(prompts_dataset) // args.train_batch_size * args.max_epochs)
-    1/0
-
 
     max_steps = math.ceil(args.num_episodes * num_update_steps_per_episodes)
 
