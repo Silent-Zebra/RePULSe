@@ -263,7 +263,8 @@ class PPOTrainer(ABC):
             num_rollouts_per_episodes = (
                 num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
             )
-            # update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
+            update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
+
             # print(update_timesteps)
             # print(args.rollout_batch_size)
             # print(self.strategy.world_size)
