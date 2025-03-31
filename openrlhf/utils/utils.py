@@ -166,4 +166,7 @@ def get_info_name_str(args):
     pretrain_str = args.pretrain.split("/")[-1]
 
     info_name_str = f"{args.rm_type}_{pretrain_str}_{args.reward_pretrain}_beta{args.target_dist_beta}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}{critic_loss_str}_adambetas{(args.adam_betas[0])}_{(args.adam_betas[1])}_{args.parameterization}{init_head_base_str}_sddivider{args.additional_sd_divider}_seed{args.seed}"
+    print(pretrain_str)
+    print(args.pretrain.split)
+    print(info_name_str)
     return info_name_str
