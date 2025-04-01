@@ -946,4 +946,7 @@ if __name__ == "__main__":
         raise NotImplementedErorr # Not tested
         args.no_critic = True
 
+
+    assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
+
     train(args)

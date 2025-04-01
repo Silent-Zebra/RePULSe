@@ -467,6 +467,8 @@ class BasePPOTrainer(ABC):
 
                 for rand_prompts in self.prompts_dataloader:
 
+                    rand_prompts = rand_prompts[0]
+
                     print("rand_prompts")
                     print(rand_prompts, flush=True)
 
