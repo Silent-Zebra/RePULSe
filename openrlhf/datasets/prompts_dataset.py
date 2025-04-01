@@ -73,4 +73,6 @@ class PromptDataset(Dataset):
         # This is fine after a whole pass over the dataset in making experiences... but not what I want for batched CTL/SIXO etc.
         # So for CTL SIXO etc. just use n_samples_per_prompt 1 and use a separate argument
         # return self.prompts[idx // self.n_samples_per_prompt]
-        return self.prompts[idx], self.labels[idx]
+        assert self.n_samples_per_prompt == 1 # otherwise may have some weird behaviour here
+        return self.prompts[idx] # self.labels[idx]
+        # return self.prompts[idx], self.labels[idx]
