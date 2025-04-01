@@ -806,7 +806,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--save_negdata_threshold", type=float, default=-10000., help="The threshold below which we save examples for a negative dataset")
 
-
+    parser.add_argument(
+        "--advantage_estimator",
+        type=str,
+        choices=["gae", "reinforce", "rloo", "reinforce_baseline", "group_norm", "dr_grpo"],
+        default="gae",
+        help="Choose advantage estimation method: gae, reinforce, rloo, reinforce_baseline, group_norm, dr_grpo",
+    )
     # ModelScope parameters
     parser.add_argument("--use_ms", action="store_true", default=False)
 
