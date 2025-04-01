@@ -23,6 +23,7 @@ from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, BaseExperienceMaker, NaiveReplayBuffer
+# from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
 
 
 class HarmlessnessTrainer(ABC):

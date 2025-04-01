@@ -4,6 +4,7 @@ from .replay_buffer import NaiveReplayBuffer
 
 __all__ = [
     "Experience",
+    "BaseExperienceMaker",
     "RemoteExperienceMaker",
     "AdaptiveKLController",
     "FixedKLController",
