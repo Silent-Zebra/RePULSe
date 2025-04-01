@@ -350,12 +350,14 @@ class BaseExperienceMaker(ABC):
         return Experience(
             sequences,
             action_log_probs,
+            base_action_log_probs,
             value,
             returns,
             advantages,
             attention_mask,
             action_mask,
             info,
+            kl
         )
 
 
