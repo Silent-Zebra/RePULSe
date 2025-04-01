@@ -59,7 +59,7 @@ class BasePPOTrainer(ABC):
         remote_rm_url (str, optional): URL for remote reward model API.
         reward_fn (Callable, optional): Custom reward function for computing rewards.
         # save_hf_ckpt (bool): Whether to save huggingface-format model weight.
-        disable_ds_ckpt (bool): Whether not to save deepspeed-format model weight. (Deepspeed model weight is used for training recovery)
+        # disable_ds_ckpt (bool): Whether not to save deepspeed-format model weight. (Deepspeed model weight is used for training recovery)
         **generate_kwargs: Additional arguments for model generation.
     """
 
@@ -121,7 +121,7 @@ class BasePPOTrainer(ABC):
         self.strategy = strategy
         self.args = strategy.args
         # self.save_hf_ckpt = save_hf_ckpt
-        self.disable_ds_ckpt = disable_ds_ckpt
+        # self.disable_ds_ckpt = disable_ds_ckpt
         self.micro_rollout_batch_size = micro_rollout_batch_size
         self.max_epochs = max_epochs
         self.tokenizer = tokenizer
