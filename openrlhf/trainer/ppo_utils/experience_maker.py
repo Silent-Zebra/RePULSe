@@ -480,6 +480,10 @@ class BaseExperienceMaker(ABC):
     def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
         self.set_all_eval()
         # generate seq
+
+        print("prompts")
+        print(prompts)
+
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
 
         # print(inputs)
