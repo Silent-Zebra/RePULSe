@@ -1,19 +1,21 @@
 import logging
 import os
 import socket
-from typing import Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 import ray
 import torch
 from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+from tqdm import tqdm
 
 from openrlhf.models import Actor, get_llm_for_sequence_regression
-from openrlhf.utils import DeepspeedStrategy, get_tokenizer
+from openrlhf.trainer.ray.utils import ray_noset_visible_devices
+from openrlhf.utils.deepspeed import DeepspeedStrategy
 
 
 class DistributedTorchRayActor:
-    def __init__(self, world_size, rank, local_rank, master_addr, master_port):
+    def __init__(self, world_size, rank, master_addr, master_port):
         logging.basicConfig(
             format="%(asctime)s %(levelname)-8s %(message)s",
             level=logging.INFO,
@@ -21,17 +23,17 @@ class DistributedTorchRayActor:
         )
         self._world_size = world_size
         self._rank = rank
-        self._local_rank = local_rank
         self._master_addr = master_addr if master_addr else self._get_current_node_ip()
         self._master_port = master_port if master_port else self._get_free_port()
         os.environ["MASTER_ADDR"] = self._master_addr
         os.environ["MASTER_PORT"] = str(self._master_port)
         os.environ["WORLD_SIZE"] = str(self._world_size)
         os.environ["RANK"] = str(self._rank)
-        # NOTE: Ray will automatically set the CUDA_VISIBLE_DEVICES
-        # environment variable for each actor, so always set device to 0
-        # os.environ["LOCAL_RANK"] = str(self._local_rank)
-        os.environ["LOCAL_RANK"] = "0"
+        # NOTE: Ray will automatically set the *_VISIBLE_DEVICES
+        # environment variable for each actor, unless
+        # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set, so
+        # set local rank to 0 when the flag is not applicable.
+        os.environ["LOCAL_RANK"] = str(ray.get_gpu_ids()[0]) if ray_noset_visible_devices() else "0"
 
     @staticmethod
     def _get_current_node_ip():
@@ -58,6 +60,38 @@ class BasePPORole(DistributedTorchRayActor):
     def init_model_from_pretrained(self, *args, **kwargs):
         raise NotImplementedError()
 
+    def forward_batch(
+        self,
+        **kwargs,
+    ) -> List[Any]:
+        """Process input data by calling forward function for each item in the lists.
+
+        Args:
+            **kwargs: Input parameters in list format. Each parameter should be a list with same length.
+                     The first parameter's length determines the number of forward calls.
+
+        Returns:
+            List[Any]: List of results from forward function
+        """
+        # Get the first parameter to determine list length
+        first_param = next(iter(kwargs.values()))
+        list_length = len(first_param)
+
+        # Verify all parameters have same length
+        for param_name, param_value in kwargs.items():
+            if len(param_value) != list_length:
+                raise ValueError(f"Parameter {param_name} has length {len(param_value)}, expected {list_length}")
+
+        results = []
+        for i in tqdm(range(list_length), desc="Inference", disable=not self.strategy.is_rank_0()):
+            # Create kwargs for single item
+            sample_kwargs = {param_name: param_value[i] for param_name, param_value in kwargs.items()}
+
+            result = self.forward(**sample_kwargs)
+            results.append(result)
+
+        return results
+
 
 @ray.remote(num_gpus=1)
 class ReferenceModelRayActor(BasePPORole):
@@ -69,6 +103,9 @@ class ReferenceModelRayActor(BasePPORole):
             bf16=strategy.args.bf16,
             load_in_4bit=strategy.args.load_in_4bit,
             ds_config=strategy.get_ds_eval_config(offload=strategy.args.ref_reward_offload),
+            packing_samples=strategy.args.packing_samples,
+            temperature=strategy.args.temperature,
+            use_liger_kernel=strategy.args.use_liger_kernel,
         )
         strategy.print(model)
 
@@ -84,13 +121,24 @@ class ReferenceModelRayActor(BasePPORole):
         num_actions: int = None,
         attention_mask: Optional[torch.Tensor] = None,
         return_output=False,
+        logps_allgather=False,
+        packed_seq_lens: Optional[list[int]] = None,
     ) -> torch.Tensor:
         device = torch.cuda.current_device()
         with torch.no_grad():
-            log_probs = self.model(sequences.to(device), num_actions, attention_mask.to(device), return_output)
+            log_probs = self.model(
+                sequences.to(device),
+                num_actions,
+                attention_mask.to(device),
+                return_output=return_output,
+                ring_attn_group=self.strategy.ring_attn_group,
+                logps_allgather=logps_allgather,
+                packed_seq_lens=packed_seq_lens,
+            )
         return log_probs.to("cpu")
 
     def empty_cache(self) -> None:
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
 
@@ -107,6 +155,7 @@ class RewardModelRayActor(BasePPORole):
             load_in_4bit=strategy.args.load_in_4bit,
             ds_config=strategy.get_ds_eval_config(offload=strategy.args.ref_reward_offload),
             value_head_prefix=strategy.args.value_head_prefix,
+            packing_samples=strategy.args.packing_samples,
         )
         strategy.print(model)
         strategy.print("reward normalization status: {}".format(strategy.args.normalize_reward))
@@ -118,13 +167,26 @@ class RewardModelRayActor(BasePPORole):
         self.model = self.strategy.prepare(model, is_rlhf=True)
         self.model.eval()
 
-    def forward(self, sequences: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self,
+        sequences: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        packed_seq_lens=None,
+        pad_sequence=False,
+    ) -> torch.Tensor:
         device = torch.cuda.current_device()
         with torch.no_grad():
-            reward = self.model(sequences.to(device), attention_mask.to(device))
+            reward = self.model(
+                sequences.to(device),
+                attention_mask.to(device),
+                ring_attn_group=self.strategy.ring_attn_group,
+                pad_sequence=True,
+                packed_seq_lens=packed_seq_lens,
+            )
         return reward.to("cpu")
 
     def empty_cache(self) -> None:
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
 
@@ -168,15 +230,13 @@ class PPORayActorGroup:
 
         # Use placement group to lock resources for models of same type
         if self._num_gpus_per_node > 1 and pg is None:
-            bundles = [
-                {"GPU": self._num_gpus_per_node, "CPU": self._num_gpus_per_node} for _ in range(self._num_nodes)
-            ]
+            bundles = [{"GPU": 1, "CPU": 1} for _ in range(self._num_nodes * self._num_gpus_per_node)]
             if self._resources:
                 resources_name = list(self._resources.keys())[0]
                 for i in range(len(bundles)):
                     bundles[i][resources_name] = self._num_resources_per_node
 
-            pg = placement_group(bundles, strategy="STRICT_SPREAD")
+            pg = placement_group(bundles, strategy="PACK")
             ray.get(pg.ready())
         if pg:
             master_actor = self.ray_actor_type.options(
@@ -186,20 +246,19 @@ class PPORayActorGroup:
                 scheduling_strategy=PlacementGroupSchedulingStrategy(
                     placement_group=pg, placement_group_bundle_index=0
                 ),
-            ).remote(world_size, 0, 0, None, None)
+            ).remote(world_size, 0, None, None)
         else:
             master_actor = self.ray_actor_type.options(
                 num_cpus=num_gpus_per_actor,
                 num_gpus=num_gpus_per_actor,
                 resources=self._resources,
-            ).remote(world_size, 0, 0, None, None)
+            ).remote(world_size, 0, None, None)
         self._actor_handlers = [master_actor]
 
         # Create worker actors
         if world_size > 1:
             master_addr, master_port = ray.get(master_actor.get_master_addr_port.remote())
             for rank in range(1, world_size):
-                local_rank = rank % self._num_gpus_per_node
                 if pg:
                     worker_actor = self.ray_actor_type.options(
                         num_cpus=num_gpus_per_actor,
@@ -207,15 +266,15 @@ class PPORayActorGroup:
                         resources=self._resources,
                         scheduling_strategy=PlacementGroupSchedulingStrategy(
                             placement_group=pg,
-                            placement_group_bundle_index=rank // self._num_gpus_per_node,
+                            placement_group_bundle_index=rank,
                         ),
-                    ).remote(world_size, rank, local_rank, master_addr, master_port)
+                    ).remote(world_size, rank, master_addr, master_port)
                 else:
                     worker_actor = self.ray_actor_type.options(
                         num_cpus=num_gpus_per_actor,
                         num_gpus=num_gpus_per_actor,
                         resources=self._resources,
-                    ).remote(world_size, rank, local_rank, master_addr, master_port)
+                    ).remote(world_size, rank, master_addr, master_port)
                 self._actor_handlers.append(worker_actor)
 
     def async_init_model_from_pretrained(
@@ -258,15 +317,15 @@ class PPORayActorGroup:
             or reward_fn is not None
         ), "reward_fn must be specified if using multiple reward models"
 
-        critic_actors = critic_model_group._actor_handlers
-        initial_actors = initial_model_group._actor_handlers
+        critic_actors = critic_model_group._actor_handlers if critic_model_group else None
+        initial_actors = initial_model_group._actor_handlers if initial_model_group else None
 
         refs = []
         # TODO(wuxibin): actor model choose critic/reward/initial model in a
         # round robin fashion, implement more efficient dispatching strategy.
         for i, actor in enumerate(self._actor_handlers):
-            critic_actor = critic_actors[i % len(critic_actors)]
-            initial_actor = initial_actors[i % len(initial_actors)]
+            critic_actor = critic_actors[i % len(critic_actors)] if critic_actors else None
+            initial_actor = initial_actors[i % len(initial_actors)] if initial_actors else None
 
             reward_actors = []
             if not remote_rm_urls:
@@ -283,7 +342,7 @@ class PPORayActorGroup:
                     reward_fn=reward_fn,
                     vllm_engines=vllm_engines,
                     # whether this actor should triger corresponding critic model training
-                    critic_train_remote=(i < len(critic_actors)),
+                    critic_train_remote=(i < len(critic_actors)) if critic_actor else None,
                 )
             )
 

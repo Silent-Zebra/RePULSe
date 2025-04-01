@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from datasets import Dataset, interleave_datasets, load_dataset, load_from_disk
+from datasets import interleave_datasets, load_dataset, load_from_disk
 from transformers import AutoTokenizer
 
 from openrlhf.utils import DeepspeedStrategy
@@ -38,8 +38,11 @@ def get_tokenizer(pretrain, model, padding_side="left", strategy=None, use_fast=
 
 
 def get_strategy(args):
+    from openrlhf.utils.deepspeed import DeepspeedStrategy
+
     strategy = DeepspeedStrategy(
         seed=getattr(args, "seed", 42),
+        full_determinism=getattr(args, "full_determinism", False),
         max_norm=getattr(args, "max_norm", 1.0),
         micro_train_batch_size=getattr(args, "micro_train_batch_size", 1),
         train_batch_size=getattr(args, "train_batch_size", 128),
@@ -83,7 +86,7 @@ def blending_datasets(
             data = load_dataset(dataset, trust_remote_code=True)
             strategy.print(f"loaded {dataset} with python script")
         # local text file
-        elif ext in [".json", ".jsonl", ".csv"]:
+        elif ext in [".json", ".jsonl", ".csv", ".parquet"]:
             ext = ext.lower().strip(".")
             if ext == "jsonl":
                 ext = "json"
@@ -91,9 +94,19 @@ def blending_datasets(
             strategy.print(f"loaded {dataset} with data_files={dataset}")
         # local dataset saved with `datasets.Dataset.save_to_disk`
         elif os.path.isdir(dataset):
-            data = load_from_disk(dataset)
-            strategy.print(f"loaded {dataset} from disk")
+            try:
+                data = load_from_disk(dataset)
+                strategy.print(f"loaded {dataset} from disk")
+            except Exception as e:
+                strategy.print(f"failed to load {dataset} from disk: {e}")
+                data = load_dataset(dataset, data_dir=data_dir)
+                strategy.print(f"loaded {dataset} from files")
         # remote/local folder or common file
+        elif strategy.args.use_ms:
+            from modelscope.msdatasets import MsDataset
+
+            namespace, dataset = dataset.split("/")
+            data = MsDataset.load(dataset, namespace=namespace)
         else:
             data = load_dataset(dataset, data_dir=data_dir)
             strategy.print(f"loaded {dataset} from files")
@@ -132,6 +145,15 @@ def blending_datasets(
         return train_dataset, eval_dataset
     else:
         return train_dataset
+
+def convert_token_to_id(token, tokenizer):
+    if isinstance(token, str):
+        token = tokenizer.encode(token, add_special_tokens=False)
+        assert len(token) == 1
+        return token[0]
+    else:
+        raise ValueError("token should be int or str")
+
 
 
 def get_info_name_str(args):

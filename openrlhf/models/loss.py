@@ -13,16 +13,44 @@ class GPTLMLoss(nn.Module):
     GPT Language Model Loss
     """
 
-    def __init__(self):
+    def __init__(self, ring_attn_group=None):
         super().__init__()
         self.IGNORE_INDEX = -100
         self.loss = nn.CrossEntropyLoss(ignore_index=self.IGNORE_INDEX)
 
+        self.ring_attn_group = ring_attn_group
+        if self.ring_attn_group:
+            self.ring_attn_rank = dist.get_rank(self.ring_attn_group)
+            self.ring_attn_world_size = dist.get_world_size(self.ring_attn_group)
+
     def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        # Flatten the tokens
-        return self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        # RingAttention
+        if self.ring_attn_group is not None:
+            total_seq_len = labels.size(-1)
+            seq_len_per_process = total_seq_len // self.ring_attn_world_size
+            start_idx = self.ring_attn_rank * seq_len_per_process
+            end_idx = min(start_idx + seq_len_per_process, total_seq_len)
+            labels = labels[..., start_idx:end_idx]
+
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+
+            # if labels are all IGNORE_INDEX, then nn.CrossEntropyLoss will be nan
+            if torch.all(shift_labels == self.IGNORE_INDEX):
+                # Use mean of logits multiplied by 0 to maintain gradient flow
+                loss = shift_logits.mean() * 0
+            else:
+                loss = self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+            dist.all_reduce(loss, op=dist.ReduceOp.SUM, group=self.ring_attn_group)
+            loss = loss / self.ring_attn_world_size
+        else:
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+
+            loss = self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+        return loss
 
 class REINFORCELoss(nn.Module):
     def __init__(self, baseline_type: Optional[str] = None, hardcoded_baseline: Optional[float] = None) -> None:
@@ -1053,3 +1081,45 @@ class KDLoss(nn.Module):
         distil_loss = -torch.sum(x * mask.view(-1), dim=0) / torch.sum(mask.view(-1), dim=0)
 
         return distil_loss
+
+
+class PRMLoss(nn.Module):
+    """
+    Process Reward Model Loss
+    """
+
+    def __init__(self, placeholder_token_id: int, reward_token_ids: Optional[list[int]] = None):
+        super().__init__()
+        self.IGNORE_INDEX = -100
+        self.loss = nn.CrossEntropyLoss(ignore_index=self.IGNORE_INDEX)
+        self.placeholder_token_id = placeholder_token_id
+        self.reward_token_ids = reward_token_ids
+
+    def forward(self, inputs: torch.Tensor, logits: torch.Tensor, labels: torch.Tensor, *, return_acc: bool = False):
+        placeholder_mask = inputs == self.placeholder_token_id
+        logits = logits[placeholder_mask]
+        labels = labels[placeholder_mask]
+
+        if labels.dtype == torch.float:
+            # soft label
+            assert len(self.reward_token_ids) == 2, "reward_token_ids should have 2 tokens for soft labels"
+            logits = logits[..., self.reward_token_ids]
+            positive_labels = labels.to(logits.dtype)
+            negative_labels = 1 - positive_labels
+            negative_labels[positive_labels != -100] = 1 - positive_labels[positive_labels != -100]
+            labels = torch.stack([positive_labels, negative_labels], dim=-1)
+        elif self.reward_token_ids is not None:
+            # hard label with reward_token_ids set. (otherwise the whole vocab will be trained together.)
+            logits = logits[..., self.reward_token_ids]
+            # this is slow....
+            for i, token in enumerate(self.reward_token_ids):
+                labels = torch.where(labels == token, i, labels)
+
+        loss = self.loss(logits, labels)
+        if not return_acc:
+            return loss
+
+        if labels.dtype == logits.dtype:
+            labels = labels.argmax(dim=-1)
+        acc = (logits.argmax(dim=-1) == labels).float().mean()
+        return loss, acc

@@ -1,27 +1,39 @@
 from typing import Optional, Tuple, Union
 
-import deepspeed
 import torch
+import torch.distributed as dist
 import torch.nn as nn
-import torch.nn.functional as F
-
+from flash_attn.utils.distributed import all_gather
 from peft import LoraConfig, TaskType, get_peft_model
 from peft.tuners.lora import LoraLayer
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedModel
-from transformers.deepspeed import HfDeepSpeedConfig
+from torch.nn import functional as F
+from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+from transformers.integrations.deepspeed import HfDeepSpeedConfig
 
-from .packing_utils import patch_for_block_diag_attn
+from .ring_attn_utils import convert_ring_attn_params
 from .utils import log_probs_from_logits, reset_position_ids
 
 
 class Actor(nn.Module):
     """
-    Actor model base class.
+    Base class for Actor models in reinforcement learning.
+
+    This class serves as a foundation for implementing various actor models, which are responsible for selecting actions based on the policy learned from the environment.
 
     Args:
-        model (nn.Module): Actor Model.
-        lora_rank (int): LoRA rank.
-        lora_train_bias (str): LoRA bias training mode.
+        pretrain_or_model (nn.Module): A pretrained model or a new model instance to be used as the actor.
+        use_flash_attention_2 (bool, optional): Whether to utilize Flash Attention 2.0 for improved performance. Defaults to False.
+        bf16 (bool, optional): Enable bfloat16 precision for model computations. Defaults to True.
+        load_in_4bit (bool, optional): Load the model in 4-bit precision. Defaults to False.
+        lora_rank (int, optional): Rank for LoRA adaptation. Defaults to 0.
+        lora_alpha (int, optional): Alpha parameter for LoRA. Defaults to 16.
+        lora_dropout (float, optional): Dropout rate for LoRA layers. Defaults to 0.
+        target_modules (list, optional): List of target modules for applying LoRA. Defaults to None.
+        ds_config (dict, optional): Configuration for DeepSpeed, enabling model partitioning across multiple GPUs. Defaults to None.
+        device_map (dict, optional): Device mapping for loading the model onto specific devices. Defaults to None.
+        packing_samples (bool, optional): Whether to pack samples during training. Defaults to False.
+        temperature (float, optional): Temperature for action selection. Defaults to 1.0.
+        use_liger_kernel (bool, optional): Whether to use Liger Kernel for the model. Defaults to False.
     """
 
     def __init__(
@@ -37,9 +49,12 @@ class Actor(nn.Module):
         ds_config=None,
         device_map=None,
         packing_samples=False,
+        temperature=1.0,
+        use_liger_kernel=False,
         **kwargs,
     ) -> None:
         super().__init__()
+        self.temperature = temperature
 
         if isinstance(pretrain_or_model, str):
             attn_implementation = "flash_attention_2" if use_flash_attention_2 else "eager"
@@ -62,7 +77,14 @@ class Actor(nn.Module):
             else:
                 nf4_config = None
 
-            self.model = AutoModelForCausalLM.from_pretrained(
+            if use_liger_kernel:
+                from liger_kernel.transformers import AutoLigerKernelForCausalLM
+
+                model_class = AutoLigerKernelForCausalLM
+            else:
+                model_class = AutoModelForCausalLM
+
+            self.model = model_class.from_pretrained(
                 pretrain_or_model,
                 trust_remote_code=True,
                 attn_implementation=attn_implementation,
@@ -107,10 +129,10 @@ class Actor(nn.Module):
 
             # packing samples using Flash Attention 2
             self.packing_samples = packing_samples
-            if packing_samples:
-                assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
-                model_type = getattr(self.model.config, "model_type", None)
-                patch_for_block_diag_attn(model_type)
+            # if packing_samples:
+            #     assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
+            #     model_type = getattr(self.model.config, "model_type", None)
+            #     patch_for_block_diag_attn(model_type)
         else:
             self.model = pretrain_or_model
 
@@ -119,13 +141,12 @@ class Actor(nn.Module):
         Tuple[torch.LongTensor, torch.LongTensor],
         Tuple[torch.LongTensor, torch.LongTensor, torch.BoolTensor],
     ]:
-
         generate_args = {
             "input_ids": input_ids,
             "top_k": kwargs.get("top_k", None),
             "top_p": kwargs.get("top_p", None),
             "do_sample": kwargs.get("do_sample", True),
-            "early_stopping": True,
+            "early_stopping": kwargs.get("num_beams", 1) > 1,
             "temperature": kwargs.get("temperature", 1),
             "use_cache": True,
             "num_beams": kwargs.get("num_beams", 1),
@@ -147,21 +168,11 @@ class Actor(nn.Module):
         eos_token_id = generate_args["eos_token_id"]
         pad_token_id = generate_args["pad_token_id"]
 
-        # print(eos_token_id)
-        # print(pad_token_id)
-
         return self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
     def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
-        # attention_mask = sequences.ne(pad_token_id).to(dtype=torch.long) # Why this is needed; because otherwise you don't attend to the EOS token after the chat templating, which can cause issues
-        # Still mask out all padding tokens though
-        # NO BUT WAIT, EOS TOKEN IS PAD TOKEN. So what should be the right way to deal with this?
-
         seq_length = attention_mask.size(1)
-
-        # print("--Sequences before modification--")
-        # print(sequences)
 
         # The following code is equivalent to:
         #
@@ -172,7 +183,6 @@ class Actor(nn.Module):
         #             sequences[i][min(t + 1, seq_length - 1)] = eos_token_id
         #             break
         #
-
         eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
         # print("eos_indices")
         # print(eos_indices)
@@ -203,18 +213,10 @@ class Actor(nn.Module):
         mask = torch.arange(seq_length).unsqueeze(0).expand(sequences.size(0), -1).to(device=sequences.device)
         attention_mask = (mask >= first_token_indices) & (mask <= eos_indices).to(dtype=torch.long)
 
-        # print("AFTER")
-        # print(attention_mask)
-
         # in RL, state_i (current token) + action_i (next token) -> state_i+1 (next token)
         state_seq = sequences[:, input_len - 1 : -1]
         action_mask = state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id)
         action_mask[:, 0] = 1
-
-        # print("processed sequences")
-        # print(sequences)
-        # print(attention_mask)
-        # print(action_mask)
 
         return sequences, attention_mask, action_mask
 
@@ -227,21 +229,25 @@ class Actor(nn.Module):
         return_type: str = 'p',
         return_unnormalized: bool = False,
     ) -> torch.Tensor:
-
         """Returns action log probs"""
         if not self.packing_samples:
             # https://github.com/OpenRLHF/OpenRLHF/issues/217
             position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 1)
         else:
-            # reset the positions for packed samples
-            position_ids = reset_position_ids(attention_mask)
-        position_ids.masked_fill_(attention_mask == 0, 1)
-
-        # print("forward_inspection - sequences")
-        # print(sequences.shape)
-        # print(sequences)
+            # convert attention_mask to position_ids
+            if ring_attn_group is not None:
+                labels = sequences
+                sequences, attention_mask, position_ids = convert_ring_attn_params(
+                    sequences, attention_mask, packed_seq_lens, ring_attn_group
+                )
+            else:
+                position_ids = reset_position_ids(attention_mask)
+            # explicitly ignore attention_mask for packing_samples
+            attention_mask = None
 
         output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+        output["logits"] = output["logits"].to(torch.float32)
 
         if return_type == "both":
             assert not return_output

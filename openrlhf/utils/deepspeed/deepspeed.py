@@ -11,6 +11,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import transformers
+import transformers.modeling_flash_attention_utils
 from deepspeed.ops.adam import DeepSpeedCPUAdam, FusedAdam
 from peft import PeftModel, get_peft_model_state_dict
 from torch import distributed as dist
@@ -18,6 +20,7 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 from openrlhf.models import Actor
+from openrlhf.models.ring_attn_utils import get_ring_attn_group, set_ring_attn_group
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
 from .deepspeed_utils import (
@@ -26,9 +29,6 @@ from .deepspeed_utils import (
     get_optimizer_grouped_parameters,
     get_train_ds_config,
 )
-
-import socket
-import time
 
 ModelOptimPair = Tuple[nn.Module, Optimizer]
 ModelOrModelOptimPair = Union[nn.Module, ModelOptimPair]
@@ -42,6 +42,7 @@ class DeepspeedStrategy(ABC):
     def __init__(
         self,
         seed: int = 42,
+        full_determinism: bool = False,
         max_norm: float = 0.0,
         micro_train_batch_size=1,
         train_batch_size=1,
@@ -57,57 +58,73 @@ class DeepspeedStrategy(ABC):
         self.micro_train_batch_size = micro_train_batch_size
         self.bf16 = bf16
         self.seed = seed
+        self.full_determinism = full_determinism
         self.max_norm = max_norm
         self.adam_offload = getattr(args, "adam_offload", False)
         self.zpg = getattr(args, "zpg", 1)
-        self.grad_accum_dtype = getattr(args, "grad_accum_dtype", "fp32")
-        # disable_trace_cache
-        self.disable_trace_cache = getattr(args, "disable_trace_cache", False)
+        self.grad_accum_dtype = getattr(args, "grad_accum_dtype", None)
+        # overlap_comm
+        self.overlap_comm = getattr(args, "overlap_comm", False)
+        self.torch_compile = getattr(args, "torch_compile", False)
+        self.use_ds_universal_ckpt = getattr(args, "use_ds_universal_ckpt", False)
 
         self.is_rlhf = False
         self.time_steps = defaultdict(int)
 
-    def set_seed(self, seed: int) -> None:
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-
-    def setup_distributed(self, timeout=timedelta(minutes=30)) -> None:
-        self.set_seed(self.seed)
+    def setup_distributed(self, timeout=timedelta(minutes=60)) -> None:
+        if self.full_determinism:
+            transformers.enable_full_determinism(self.seed)
+            # Use deterministic backward in flash attention as, by default, flash attention uses atomic adds
+            # https://github.com/Dao-AILab/flash-attention/commit/732654583c2e640adc012ecb60e460bf19dcd9e3
+            transformers.modeling_flash_attention_utils.deterministic_g = True
+        else:
+            transformers.set_seed(self.seed)
 
         if self.args.local_rank == -1 and "LOCAL_RANK" in os.environ:  # for slurm
             self.args.local_rank = int(os.environ["LOCAL_RANK"])
 
         if self.args.local_rank != -1:
-            torch.cuda.set_device(self.args.local_rank)
+            os.environ["LOCAL_RANK"] = str(self.args.local_rank)
+
+        local_rank = int(os.environ.get("LOCAL_RANK", "-1"))
+        if local_rank != -1:
+            torch.cuda.set_device(local_rank)
+
         # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         deepspeed.init_distributed(timeout=timeout)
-
-        # Below doesn't actually do anything
-        # max_attempts = 10
-        # attempts = 0
-        # while attempts < max_attempts:
-        #     try:
-        #         # s = socket.socket()
-        #         # s.bind(("", 0))  # get a socket that's available
-        #         # port = s.getsockname()[1]
-        #         # print(f"Got port: {port}")
-        #         port = random.randint(30000, 60000)
-        #         print(f"Previous attempts: {attempts}. Trying deepspeed init_distributed with port {port}")
-        #         deepspeed.init_distributed(timeout=timeout, distributed_port=port)
-        #         attempts = max_attempts # Finish, if we got it set up
-        #         # s.close()
-        #     except Exception as e:
-        #         print(f"An error occurred: {e}")
-        #         attempts += 1
-        #         # s.close()
-        #         if attempts < max_attempts:
-        #             # time.sleep(random.uniform(0.5, 1))
-        #             time.sleep(random.uniform(0.5 * (2 ** attempts), 1 * (2 ** attempts)))
-
+        self.setup_ring_attn()
         self.world_size = dist.get_world_size()
-        self.accumulated_gradient = self.train_batch_size // self.micro_train_batch_size // self.world_size
+        self.accumulated_gradient = (
+            self.train_batch_size * self.ring_attn_size // self.micro_train_batch_size // self.world_size
+        )
+
+    def setup_ring_attn(self):
+        self.ring_attn_size = getattr(self.args, "ring_attn_size", 1)
+        if self.ring_attn_size == 1:
+            self.ring_attn_rank = 0
+            return
+
+        ring_head_stride = getattr(self.args, "ring_head_stride", 1)
+        for i in range(dist.get_world_size() // self.ring_attn_size):
+            ring_attn_ranks = list(
+                range(
+                    i * self.ring_attn_size,
+                    (i + 1) * self.ring_attn_size,
+                )
+            )
+            group = dist.new_group(ranks=ring_attn_ranks, backend="nccl")
+            if dist.get_rank() in ring_attn_ranks:
+                set_ring_attn_group(group)
+                self.ring_attn_rank = dist.get_rank(group=group)
+                self.ring_attn_ranks = ring_attn_ranks
+
+        from ring_flash_attn import substitute_hf_flash_attn
+
+        substitute_hf_flash_attn(self.ring_attn_group, ring_head_stride)
+
+    @property
+    def ring_attn_group(self):
+        return get_ring_attn_group()
 
     def create_optimizer(self, model, **kwargs) -> Optimizer:
         if isinstance(model, Actor):
@@ -116,13 +133,6 @@ class DeepspeedStrategy(ABC):
         # AdamOptimizer = DeepSpeedCPUAdam if self.adam_offload else FusedAdam # TODO this FusedAdam doesn't seem to work for me
         AdamOptimizer = DeepSpeedCPUAdam if self.adam_offload else torch.optim.Adam
         optim_params = get_optimizer_grouped_parameters(model, kwargs["weight_decay"])
-
-        # print("--OPTIM PARAMS--")
-        # print(optim_params)
-        # for n, p in model.named_parameters():
-        #     print(f"param name: {n}")
-        #     print(p.requires_grad)
-        #     print(p)
         optim = AdamOptimizer(optim_params, **kwargs)
         return optim
 
@@ -130,27 +140,6 @@ class DeepspeedStrategy(ABC):
         if isinstance(model, Actor):
             model = model.model
         model.backward(loss)
-
-        # from collections import defaultdict
-        # gradient_history = defaultdict(list)
-        # for name, param in model.named_parameters():
-        #     print(name)
-        #     print(param.requires_grad)
-        #     print("param_grad")
-        #     print(param.grad)
-        #     if param.grad is not None:
-        #         gradient_history[name].append(param.grad.clone())
-        # gradients = {name: torch.stack(grads) for name, grads in gradient_history.items()}
-        # gradient_variances = {name: torch.var(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
-        # gradient_expectations = {name: torch.mean(torch.stack(grads), dim=0) for name, grads in gradient_history.items()}
-        #
-        # for name, grad in gradients.items():
-        #     print(f"Gradients for {name}: {grad.shape}")
-        #     break
-        # for name, var in gradient_variances.items():
-        #     print(f"Variance of gradients for {name}: {var.mean().item()}")
-        # # for name, ex in gradient_expectations.items():
-        # #     print(f"Expectations of gradients for {name}: {ex.mean().item()}")
 
     def optimizer_step(
         self,
@@ -177,10 +166,12 @@ class DeepspeedStrategy(ABC):
     ):
         # DDP only mode, replay buffers on each rank are different.
         if sampler is None:
+            num_replicas = dist.get_world_size() // self.ring_attn_size
+            rank = dist.get_rank() // self.ring_attn_size
             sampler = DistributedSampler(
                 replay_buffer,
-                num_replicas=dist.get_world_size(),
-                rank=dist.get_rank(),
+                num_replicas=num_replicas,
+                rank=rank,
                 shuffle=shuffle,
                 seed=self.seed,
                 drop_last=drop_last,
@@ -233,6 +224,8 @@ class DeepspeedStrategy(ABC):
             args={"local_rank": self.args.local_rank},
             dist_init_required=True,
         )
+        if self.torch_compile:
+            engine.compile()
         if is_actor:
             model.model = engine
         else:
@@ -250,7 +243,8 @@ class DeepspeedStrategy(ABC):
             max_norm=self.max_norm,
             zpg=self.zpg,
             grad_accum_dtype=self.grad_accum_dtype,
-            disable_trace_cache=self.disable_trace_cache,
+            overlap_comm=self.overlap_comm,
+            use_ds_universal_ckpt=self.use_ds_universal_ckpt,
         )
 
         ds_config["train_micro_batch_size_per_gpu"] = self.micro_train_batch_size
@@ -258,7 +252,7 @@ class DeepspeedStrategy(ABC):
         # corner case for ptx loss (backward twice)
         if self.is_rlhf and is_actor and self.args.pretrain_data is not None:
             train_batch_size *= 2
-        ds_config["train_batch_size"] = train_batch_size
+        ds_config["train_batch_size"] = train_batch_size * self.ring_attn_size
 
         return ds_config
 
@@ -274,6 +268,8 @@ class DeepspeedStrategy(ABC):
             config=ds_config,
             dist_init_required=True,
         )
+        if self.torch_compile:
+            engine.compile()
         if is_actor:
             model.model = engine
         else:
@@ -284,7 +280,7 @@ class DeepspeedStrategy(ABC):
         # DS Config
         ds_config = get_eval_ds_config(offload=offload, stage=self.stage if self.stage == 3 else 0, bf16=self.bf16)
         ds_config["train_micro_batch_size_per_gpu"] = self.micro_train_batch_size
-        ds_config["train_batch_size"] = self.train_batch_size
+        ds_config["train_batch_size"] = self.train_batch_size * self.ring_attn_size
 
         return ds_config
 
@@ -349,7 +345,7 @@ class DeepspeedStrategy(ABC):
             output_state_dict_keys = set(output_state_dict.keys())
 
             # corner case for tie_word_embeddings, such as Qwen2-0.5B
-            if getattr(model_to_save.config, "tie_word_embeddings", False):
+            if getattr(model_to_save.config, "tie_word_embeddings", False) and "lm_head.weight" in state_dict_keys:
                 state_dict_keys.remove("lm_head.weight")
 
             assert state_dict_keys.issubset(
@@ -364,6 +360,9 @@ class DeepspeedStrategy(ABC):
                         get_peft_model_state_dict(model_to_save, output_state_dict),
                         os.path.join(output_dir, "adapter_model.bin"),
                     )
+                    filename = os.path.join(output_dir, "adapter_model.safetensors")
+                    if os.path.exists(filename):
+                        os.remove(filename)
             else:
                 # save model
                 model_to_save.save_pretrained(output_dir, state_dict=output_state_dict, **kwargs)
@@ -380,6 +379,8 @@ class DeepspeedStrategy(ABC):
                 for filename in os.listdir(train_from_model_path):
                     if filename.endswith(".py"):
                         shutil.copy(os.path.join(train_from_model_path, filename), os.path.join(output_dir, filename))
+        dist.barrier()
+        torch.cuda.synchronize()
 
     def all_reduce(self, data, op="mean"):
         assert op in ("mean", "max", "sum")

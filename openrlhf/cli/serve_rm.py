@@ -17,10 +17,10 @@ def strip_sequence(text, pad_token, eos_token):
     pad_token_escaped = re.escape(pad_token)
     eos_token_escaped = re.escape(eos_token)
 
-    pattern = f"({eos_token_escaped}|{pad_token_escaped})+$"
+    pattern = f"^({eos_token_escaped}|{pad_token_escaped})+"
     text = re.sub(pattern, "", text)
 
-    pattern = f"^({eos_token_escaped}|{pad_token_escaped})+"
+    pattern = f"({eos_token_escaped}|{pad_token_escaped})+$"
     text = re.sub(pattern, "", text)
     return text
 
@@ -45,7 +45,7 @@ class RewardModelProxy:
         self.max_length = args.max_len
         self.batch_size = args.batch_size
 
-    def get_reward(self, queries):
+    def get_reward(self, queries, prompts):
         if self.batch_size is None:
             batch_size = len(queries)
         else:
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     # Reward Model
     parser.add_argument("--reward_pretrain", type=str, default=None, help="HF model name or path")
     parser.add_argument("--normalize_reward", action="store_true", default=False, help="Enable Reward Normazation")
-    parser.add_argument("--value_head_prefix", type=str, default="value_head")
+    parser.add_argument("--value_head_prefix", type=str, default="score")
     parser.add_argument("--max_len", type=int, default="2048")
 
     parser.add_argument("--port", type=int, default=5000, help="Port number for the server")
@@ -102,7 +102,16 @@ if __name__ == "__main__":
     parser.add_argument("--disable_fast_tokenizer", action="store_true", default=False)
     parser.add_argument("--batch_size", type=int, default=None)
 
+    # ModelScope parameters
+    parser.add_argument("--use_ms", action="store_true", default=False)
+
     args = parser.parse_args()
+
+    if args.use_ms:
+        from modelscope.utils.hf_util import patch_hub
+
+        # Patch hub to download models from modelscope to speed up.
+        patch_hub()
 
     # server
     reward_model = RewardModelProxy(args)
@@ -112,7 +121,8 @@ if __name__ == "__main__":
     async def get_reward(request: Request):
         data = await request.json()
         queries = data.get("query")
-        rewards = reward_model.get_reward(queries)
+        prompts = data.get("prompts")
+        rewards = reward_model.get_reward(queries, prompts)
         result = {"rewards": rewards}
         logger.info(f"Sent JSON: {result}")
         return JSONResponse(result)

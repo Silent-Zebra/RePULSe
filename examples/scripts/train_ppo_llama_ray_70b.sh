@@ -5,14 +5,14 @@ ray job submit --address="http://127.0.0.1:8265" \
     --no-wait \
     -- python3 -m openrlhf.cli.train_ppo_ray \
     --ref_num_nodes 1 \
-    --ref_num_gpus_per_node 2 \
+    --ref_num_gpus_per_node 4 \
     --reward_num_nodes 1 \
-    --reward_num_gpus_per_node 2 \
+    --reward_num_gpus_per_node 4 \
     --critic_num_nodes 1 \
-    --critic_num_gpus_per_node 4 \
+    --critic_num_gpus_per_node 8 \
     --actor_num_nodes 1 \
-    --actor_num_gpus_per_node 4 \
-    --vllm_num_engines 2 \
+    --actor_num_gpus_per_node 8 \
+    --vllm_num_engines 4 \
     --vllm_tensor_parallel_size 2 \
     --pretrain meta-llama/Meta-Llama-3-70B-Instruct \
     --reward_pretrain meta-llama/Meta-Llama-3-70B-Instruct \
@@ -32,9 +32,10 @@ ray job submit --address="http://127.0.0.1:8265" \
     --prompt_data OpenRLHF/prompt-collection-v0.1 \
     --input_key context_messages \
     --apply_chat_template \
-    --max_samples 10000 \
+    --max_samples 100000 \
+    --packing_samples \
     --normalize_reward \
     --adam_offload \
     --flash_attn \
+    --vllm_sync_backend nccl \
     --gradient_checkpointing
-

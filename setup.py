@@ -1,6 +1,5 @@
 import os
 import sys
-import subprocess
 import platform
 
 from datetime import datetime
@@ -60,6 +59,7 @@ class bdist_wheel(_bdist_wheel):
 
 # Setup configuration
 setup(
+    author="OpenRLHF Team",
     name=_fetch_package_name(),
     version=_fetch_version(),
     packages=find_packages(
@@ -74,8 +74,8 @@ setup(
     long_description_content_type="text/markdown",
     install_requires=_fetch_requirements("requirements.txt"),
     extras_require={
-        "vllm": ["vllm==0.4.2"],
-        "vllm_latest": ["vllm>0.4.2"],
+        "vllm": ["vllm==0.8.2"],
+        "vllm_latest": ["vllm>0.8.2"],
     },
     python_requires=">=3.10",
     classifiers=[

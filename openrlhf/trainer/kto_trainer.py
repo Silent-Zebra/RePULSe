@@ -1,28 +1,31 @@
+import os
 from abc import ABC
 
 import torch
-import torch.distributed as dist
 from torch.optim import Optimizer
 from tqdm import tqdm
 
 from openrlhf.models import KTOLoss
+from openrlhf.models.utils import log_probs_from_logits
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
 
 class KTOTrainer(ABC):
     """
-        Trainer for KTO algorithms
+    Trainer for KTO training.
 
     Args:
-        model (torch.nn.Module): the model to train
-        ref_model (torch.nn.Module): the reference model to provide reference logits
-        strategy (Strategy): the strategy to use for training
-        optim(Optimizer): the optimizer to use for training
-        train_dataset (RewardDataset): the dataset to use for training
-        eval_dataset (RewardDataset): the dataset to use for evaluation
-        batch_size (int, defaults to 1): the batch size while training
-        max_epochs (int, defaults to 2): the number of epochs to train
-        optim_kwargs (dict, defaults to {'lr':1e-4}): the kwargs to use while initializing optimizer
+        model (torch.nn.Module): The primary model to be trained.
+        ref_model (torch.nn.Module): The reference model for comparing and guiding preference.
+        strategy (Strategy): The strategy to use for training.
+        tokenizer (Tokenizer): The tokenizer for processing input data.
+        optim (Optimizer): The optimizer for training the model.
+        train_dataloader (DataLoader): The dataloader for the training dataset.
+        eval_dataloader (DataLoader): The dataloader for the evaluation dataset.
+        scheduler (Scheduler): The learning rate scheduler to control learning rate during training.
+        max_norm (float, defaults to 0.5): Maximum gradient norm for gradient clipping.
+        beta (float, defaults to 0.01): Coefficient for regularizing the preference loss.
+        max_epochs (int, defaults to 2): Maximum number of training epochs.
     """
 
     def __init__(
@@ -53,12 +56,20 @@ class KTOTrainer(ABC):
         self.args = strategy.args
 
         self.beta = beta
-        self.loss_fn = KTOLoss(self.beta, 1.0, 1.0, self.strategy.world_size, torch.cuda.current_device())
+        self.loss_fn = KTOLoss(
+            self.beta,
+            self.args.desirable_loss_weight,
+            self.args.undesirable_loss_weight,
+            self.strategy.world_size,
+            torch.cuda.current_device(),
+        )
 
         # Mixtral 8*7b
         self.aux_loss = self.args.aux_loss_coef > 1e-8
 
+        # wandb/tensorboard setting
         self._wandb = None
+        self._tensorboard = None
         if self.strategy.args.use_wandb and self.strategy.is_rank_0():
             import wandb
 
@@ -79,6 +90,14 @@ class KTOTrainer(ABC):
             wandb.define_metric("eval/global_step")
             wandb.define_metric("eval/*", step_metric="eval/global_step", step_sync=True)
 
+        # Initialize TensorBoard writer if wandb is not available
+        if self.strategy.args.use_tensorboard and self._wandb is None and self.strategy.is_rank_0():
+            from torch.utils.tensorboard import SummaryWriter
+
+            os.makedirs(self.strategy.args.use_tensorboard, exist_ok=True)
+            log_dir = os.path.join(self.strategy.args.use_tensorboard, strategy.args.wandb_run_name)
+            self._tensorboard = SummaryWriter(log_dir=log_dir)
+
     def fit(self, args, consumed_samples=0, num_update_steps_per_epoch=None):
         # get eval and save steps
         if args.eval_steps == -1:
@@ -92,6 +111,7 @@ class KTOTrainer(ABC):
         consumed_samples = consumed_samples % (num_update_steps_per_epoch * args.train_batch_size)
 
         epoch_bar = tqdm(range(start_epoch, self.epochs), desc="Train epoch", disable=not self.strategy.is_rank_0())
+        loss_sum = 0
         for epoch in range(start_epoch, self.epochs):
             if isinstance(self.train_dataloader.sampler, DistributedSampler):
                 self.train_dataloader.sampler.set_epoch(
@@ -106,7 +126,6 @@ class KTOTrainer(ABC):
 
             self.model.train()
             self.ref_model.eval()
-            loss_mean = 0
 
             # train
             for input_ids, attention_mask, labels, prompt_ids_lens in self.train_dataloader:
@@ -141,13 +160,11 @@ class KTOTrainer(ABC):
                 self.strategy.backward(loss, self.model, self.optimizer)
                 self.strategy.optimizer_step(self.optimizer, self.model, self.scheduler)
 
-                loss_mean = loss_mean * 0.9 + 0.1 * loss.item()
-
+                loss_sum += loss.item()
                 logs_dict = {
                     "kto_loss": loss.item(),
                     "chosen_reward": chosen_rewards.mean().item() if len(chosen_rewards) != 0 else 0,
                     "reject_reward": rejected_rewards.mean().item() if len(rejected_rewards) != 0 else 0,
-                    "loss_mean": loss_mean,
                     "lr": self.scheduler.get_last_lr()[0],
                 }
                 logs_dict["kl"] = KL.item()
@@ -157,6 +174,8 @@ class KTOTrainer(ABC):
 
                 # logs/checkpoints/evaluation
                 if step % self.strategy.accumulated_gradient == 0:
+                    logs_dict["loss_mean"] = loss_sum / self.strategy.accumulated_gradient
+                    loss_sum = 0
                     global_step = step // self.strategy.accumulated_gradient
                     client_states = {"consumed_samples": global_step * args.train_batch_size}
                     self.save_logs_and_checkpoints(args, global_step, step_bar, logs_dict, client_states)
@@ -166,6 +185,8 @@ class KTOTrainer(ABC):
 
         if self._wandb is not None and self.strategy.is_rank_0():
             self._wandb.finish()
+        if self._tensorboard is not None and self.strategy.is_rank_0():
+            self._tensorboard.close()
 
     # logs/checkpoints/evaluate
     def save_logs_and_checkpoints(self, args, global_step, step_bar, logs_dict={}, client_states={}):
@@ -175,10 +196,16 @@ class KTOTrainer(ABC):
             if self._wandb is not None and self.strategy.is_rank_0():
                 logs = {"train/%s" % k: v for k, v in {**logs_dict, "global_step": global_step}.items()}
                 self._wandb.log(logs)
+            # TensorBoard
+            elif self._tensorboard is not None and self.strategy.is_rank_0():
+                for k, v in logs_dict.items():
+                    self._tensorboard.add_scalar(f"train/{k}", v, global_step)
 
         # eval
         if global_step % args.eval_steps == 0:
-            self.evaluate(global_step)
+            # do eval when len(dataloader) > 0, avoid zero division in eval.
+            if len(self.eval_dataloader) > 0:
+                self.evaluate(global_step)
         # save ckpt
         # TODO: save best model on dev, use loss/perplexity on whole dev dataset as metric
         if global_step % args.save_steps == 0:
@@ -234,9 +261,14 @@ class KTOTrainer(ABC):
             logs = {"eval_loss": loss_mean, "chosen_reward": chosen_reward, "reject_reward": reject_reward}
             logs = self.strategy.all_reduce(logs)
             step_bar.set_postfix(logs)
-            if self._wandb is not None and self.strategy.is_rank_0():
-                logs = {"eval/%s" % k: v for k, v in {**logs, "global_step": steps}.items()}
-                self._wandb.log(logs)
+
+            if self.strategy.is_rank_0():
+                if self._wandb is not None:
+                    logs = {"eval/%s" % k: v for k, v in {**logs, "global_step": steps}.items()}
+                    self._wandb.log(logs)
+                elif self._tensorboard is not None:
+                    for k, v in logs.items():
+                        self._tensorboard.add_scalar(f"eval/{k}", v, steps)
         self.model.train()
 
     def compute_model_logps_with_KL(self, model, input_ids, attention_mask, labels, prompt_id_lens):
@@ -304,7 +336,7 @@ class KTOTrainer(ABC):
 
         # dummy token; we'll ignore the losses on these tokens later
         labels[~loss_masks] = 0
-        per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
+        per_token_logps = log_probs_from_logits(logits, labels)
 
         if average_log_prob:
             return (per_token_logps * loss_masks).sum(-1) / loss_masks.sum(-1)

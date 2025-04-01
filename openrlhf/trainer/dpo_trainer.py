@@ -1,29 +1,35 @@
-import math
+import os
 from abc import ABC
-from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from torch import nn
+from flash_attn.utils.distributed import all_gather
+from torch.nn import functional as F
 from torch.optim import Optimizer
 from tqdm import tqdm
 
 from openrlhf.models import DPOLoss
+from openrlhf.models.utils import log_probs_from_logits
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
 
 class DPOTrainer(ABC):
     """
-        Trainer to use while training reward model.
+    Trainer for Direct Preference Optimization (DPO) training.
 
     Args:
-        model (torch.nn.Module): the model to train
-        strategy (Strategy): the strategy to use for training
-        optim(Optimizer): the optimizer to use for training
-        train_dataset (RewardDataset): the dataset to use for training
-        eval_dataset (RewardDataset): the dataset to use for evaluation
-        batch_size (int, defaults to 1): the batch size while training
-        max_epochs (int, defaults to 2): the number of epochs to train
-        optim_kwargs (dict, defaults to {'lr':1e-4}): the kwargs to use while initializing optimizer
+        model (torch.nn.Module): The primary model to be trained.
+        ref_model (torch.nn.Module): The reference model for comparing and guiding preference.
+        strategy (Strategy): The strategy to use for training.
+        tokenizer (Tokenizer): The tokenizer for processing input data.
+        optim (Optimizer): The optimizer for training the model.
+        train_dataloader (DataLoader): The dataloader for the training dataset.
+        eval_dataloader (DataLoader): The dataloader for the evaluation dataset.
+        scheduler (Scheduler): The learning rate scheduler to control learning rate during training.
+        max_norm (float, defaults to 0.5): Maximum gradient norm for gradient clipping.
+        beta (float, defaults to 0.01): Coefficient for regularizing the preference loss.
+        max_epochs (int, defaults to 2): Maximum number of training epochs.
+        save_hf_ckpt (bool): Whether to save huggingface-format model weight.
+        disable_ds_ckpt (bool): Whether not to save deepspeed-format model weight. (Deepspeed model weight is used for training recovery)
     """
 
     def __init__(
@@ -39,6 +45,8 @@ class DPOTrainer(ABC):
         max_norm=0.5,
         beta=0.01,
         max_epochs: int = 2,
+        save_hf_ckpt: bool = False,
+        disable_ds_ckpt: bool = False,
     ) -> None:
         super().__init__()
         self.strategy = strategy
@@ -52,6 +60,8 @@ class DPOTrainer(ABC):
         self.optimizer = optim
         self.tokenizer = tokenizer
         self.args = strategy.args
+        self.save_hf_ckpt = save_hf_ckpt
+        self.disable_ds_ckpt = disable_ds_ckpt
 
         self.beta = beta
         self.loss_fn = DPOLoss(self.beta, self.args.label_smoothing, self.args.ipo)
@@ -65,7 +75,9 @@ class DPOTrainer(ABC):
         # packing samples
         self.packing_samples = strategy.args.packing_samples
 
+        # wandb/tensorboard setting
         self._wandb = None
+        self._tensorboard = None
         if self.strategy.args.use_wandb and self.strategy.is_rank_0():
             import wandb
 
@@ -86,6 +98,14 @@ class DPOTrainer(ABC):
             wandb.define_metric("eval/global_step")
             wandb.define_metric("eval/*", step_metric="eval/global_step", step_sync=True)
 
+        # Initialize TensorBoard writer if wandb is not available
+        if self.strategy.args.use_tensorboard and self._wandb is None and self.strategy.is_rank_0():
+            from torch.utils.tensorboard import SummaryWriter
+
+            os.makedirs(self.strategy.args.use_tensorboard, exist_ok=True)
+            log_dir = os.path.join(self.strategy.args.use_tensorboard, strategy.args.wandb_run_name)
+            self._tensorboard = SummaryWriter(log_dir=log_dir)
+
     def fit(self, args, consumed_samples=0, num_update_steps_per_epoch=None):
         # get eval and save steps
         if args.eval_steps == -1:
@@ -103,6 +123,8 @@ class DPOTrainer(ABC):
             desc="Train epoch",
             disable=not self.strategy.is_rank_0(),
         )
+        acc_sum = 0
+        loss_sum = 0
         for epoch in range(start_epoch, self.epochs):
             if isinstance(self.train_dataloader.sampler, DistributedSampler):
                 self.train_dataloader.sampler.set_epoch(
@@ -117,8 +139,6 @@ class DPOTrainer(ABC):
 
             self.model.train()
             self.ref_model.eval()
-            acc_mean = 0
-            loss_mean = 0
             # train
             for data in self.train_dataloader:
                 if not self.packing_samples:
@@ -164,16 +184,14 @@ class DPOTrainer(ABC):
                 self.strategy.optimizer_step(self.optimizer, self.model, self.scheduler)
 
                 acc = (chosen_reward > reject_reward).float().mean().item()
-                acc_mean = acc_mean * 0.9 + 0.1 * acc
-                loss_mean = loss_mean * 0.9 + 0.1 * preference_loss.item()
+                acc_sum += acc
+                loss_sum += preference_loss.item()
                 # dpo logs
                 logs_dict = {
                     "loss": preference_loss.item(),
                     "acc": acc,
                     "chosen_reward": chosen_reward.mean().item(),
                     "reject_reward": reject_reward.mean().item(),
-                    "loss_mean": loss_mean,
-                    "acc_mean": acc_mean,
                     "lr": self.scheduler.get_last_lr()[0],
                 }
                 if self.nll_loss:
@@ -185,15 +203,22 @@ class DPOTrainer(ABC):
 
                 # logs/checkpoints/evaluation
                 if step % self.strategy.accumulated_gradient == 0:
+                    logs_dict["loss_mean"] = loss_sum / self.strategy.accumulated_gradient
+                    logs_dict["acc_mean"] = acc_sum / self.strategy.accumulated_gradient
+                    loss_sum = 0
+                    acc_sum = 0
                     global_step = step // self.strategy.accumulated_gradient
                     client_states = {"consumed_samples": global_step * args.train_batch_size}
                     self.save_logs_and_checkpoints(args, global_step, step_bar, logs_dict, client_states)
 
                 step += 1
+
             epoch_bar.update()
 
         if self._wandb is not None and self.strategy.is_rank_0():
             self._wandb.finish()
+        if self._tensorboard is not None and self.strategy.is_rank_0():
+            self._tensorboard.close()
 
     # logs/checkpoints/evaluate
     def save_logs_and_checkpoints(self, args, global_step, step_bar, logs_dict={}, client_states={}):
@@ -203,17 +228,28 @@ class DPOTrainer(ABC):
             if self._wandb is not None and self.strategy.is_rank_0():
                 logs = {"train/%s" % k: v for k, v in {**logs_dict, "global_step": global_step}.items()}
                 self._wandb.log(logs)
+            # TensorBoard
+            elif self._tensorboard is not None and self.strategy.is_rank_0():
+                for k, v in logs_dict.items():
+                    self._tensorboard.add_scalar(f"train/{k}", v, global_step)
 
         # eval
         if global_step % args.eval_steps == 0:
-            self.evaluate(self.eval_dataloader, global_step)
+            # do eval when len(dataloader) > 0, avoid zero division in eval.
+            if len(self.eval_dataloader) > 0:
+                self.evaluate(self.eval_dataloader, global_step)
+
         # save ckpt
         # TODO: save best model on dev, use loss/perplexity on whole dev dataset as metric
         if global_step % args.save_steps == 0:
             tag = f"global_step{global_step}"
-            self.strategy.save_ckpt(
-                self.model.model, args.ckpt_path, tag, args.max_ckpt_num, args.max_ckpt_mem, client_states
-            )
+            if not self.disable_ds_ckpt:
+                self.strategy.save_ckpt(
+                    self.model.model, args.ckpt_path, tag, args.max_ckpt_num, args.max_ckpt_mem, client_states
+                )
+            if self.save_hf_ckpt:
+                save_path = os.path.join(args.ckpt_path, f"{tag}_hf")
+                self.strategy.save_model(self.model, self.tokenizer, save_path)
 
     def evaluate(self, eval_dataloader, steps=0):
         self.model.eval()
@@ -268,9 +304,14 @@ class DPOTrainer(ABC):
             }
             logs = self.strategy.all_reduce(logs)
             step_bar.set_postfix(logs)
-            if self._wandb is not None and self.strategy.is_rank_0():
-                logs = {"eval/%s" % k: v for k, v in {**logs, "global_step": steps}.items()}
-                self._wandb.log(logs)
+
+            if self.strategy.is_rank_0():
+                if self._wandb is not None:
+                    logs = {"eval/%s" % k: v for k, v in {**logs, "global_step": steps}.items()}
+                    self._wandb.log(logs)
+                elif self._tensorboard is not None:
+                    for k, v in logs.items():
+                        self._tensorboard.add_scalar(f"eval/{k}", v, steps)
         self.model.train()  # reset model state
 
     def concatenated_forward(self, model, chosen_ids, c_mask, reject_ids, r_mask, prompt_id_lens):
@@ -355,14 +396,20 @@ class DPOTrainer(ABC):
 
         # dummy token; we'll ignore the losses on these tokens later
         labels[loss_masks == False] = 0
-        per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
+        per_token_logps = log_probs_from_logits(logits, labels)
 
         logprobs_sums = (per_token_logps * loss_masks).sum(-1)
         logprobs_means = (per_token_logps * loss_masks).sum(-1) / loss_masks.sum(-1)
         return logprobs_sums, logprobs_means
 
     def packed_samples_forward(self, model, packed_input_ids, packed_attention_masks, packed_seq_lens, prompt_id_lens):
-        output = model(packed_input_ids, attention_mask=packed_attention_masks, return_output=True)
+        output = model(
+            packed_input_ids,
+            attention_mask=packed_attention_masks,
+            return_output=True,
+            ring_attn_group=self.strategy.ring_attn_group,
+            packed_seq_lens=packed_seq_lens,
+        )
         all_logits = output["logits"]
         all_logps_sum, all_logps_mean = self._packed_get_batch_logps(
             all_logits,
@@ -387,10 +434,28 @@ class DPOTrainer(ABC):
         average_log_prob: bool = False,
     ) -> torch.FloatTensor:
         assert average_log_prob == False
-        assert logits.shape[:-1] == labels.shape
 
-        labels = labels[:, 1:].clone()
-        logits = logits[:, :-1, :]
+        if self.strategy.ring_attn_group is None:
+            assert logits.shape[:-1] == labels.shape
+            labels = labels[:, 1:]
+            logits = logits[:, :-1, :]
+            per_token_logps = log_probs_from_logits(logits, labels)
+        else:
+            rank = self.strategy.ring_attn_rank
+            total_seq_len = labels.numel()
+            local_seq_len = total_seq_len // self.strategy.ring_attn_size
+            local_slice = slice(rank * local_seq_len + 1, (rank + 1) * local_seq_len + 1)
+            local_label = labels[:, local_slice]
+            if rank == self.strategy.ring_attn_size - 1:
+                # add a dummy label to the last logit
+                local_label = F.pad(local_label, (0, 1), value=0)
+
+            local_per_token_logps = log_probs_from_logits(logits, local_label)
+            # we may not need to all_gather the entire tensor, but it's easier to implement.
+            # use the flash_attn all_gather so that the all_gather has correct backward.
+            per_token_logps = all_gather(local_per_token_logps, self.strategy.ring_attn_group).reshape((1, -1))
+            per_token_logps = per_token_logps[:, :-1]
+
         loss_masks = attention_mask.clone().bool()
 
         index = 0
@@ -399,9 +464,6 @@ class DPOTrainer(ABC):
             index = index + seq_len
 
         loss_masks = loss_masks[:, 1:]
-        labels[loss_masks == False] = 0
-
-        per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
         logprobs_sums = []
         logprobs_means = []

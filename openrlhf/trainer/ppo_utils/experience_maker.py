@@ -3,21 +3,35 @@ import time
 from abc import ABC
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import List, Optional, Tuple, Union
 from torch.profiler import profile, record_function, ProfilerActivity
 
 import ray
 import torch
+import torch.distributed as dist
 import torch.nn as nn
-from tqdm import tqdm
 
 from openrlhf.models.actor import Actor
-from openrlhf.models.utils import compute_reward, masked_mean
+from openrlhf.models.ring_attn_utils import pad_sequences, unpad_sequences
+from openrlhf.models.utils import compute_approx_kl, compute_reward, masked_mean, unpacking_samples
 from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
 from openrlhf.utils.utils import tile_prompts
 
 logger = init_logger(__name__)
+
+
+def to(tensor: Union[torch.Tensor, list[torch.Tensor]], device):
+    if isinstance(tensor, list):
+        return [to(t, device) for t in tensor]
+    return tensor.to(device) if isinstance(tensor, torch.Tensor) else tensor
+
+
+def pin_memory(tensor: Union[torch.Tensor, list[torch.Tensor]]):
+    if isinstance(tensor, list):
+        return [pin_memory(t) for t in tensor]
+    return tensor.pin_memory() if isinstance(tensor, torch.Tensor) else tensor
 
 
 @dataclass
@@ -29,28 +43,33 @@ class Experience:
     Shapes of each tensor:
     sequences: (B, S)
     action_log_probs: (B, A)
+    base_action_log_probs: (B, A)
     values: (B, A)
     returns: (B, A)
-    advatanges: (B, A)
+    advantages: (B, A)
     attention_mask: (B, S)
     action_mask: (B, A)
+    kl: (B, A)
 
     "A" is the number of actions.
     """
 
     sequences: torch.Tensor
     action_log_probs: torch.Tensor
+    base_action_log_probs: torch.Tensor
     values: torch.Tensor
-    returns: torch.Tensor
-    advantages: torch.Tensor
+    returns: Optional[torch.Tensor]
+    advantages: Optional[torch.Tensor]
     attention_mask: Optional[torch.LongTensor]
     action_mask: Optional[torch.BoolTensor]
     info: Optional[dict]
+    kl: Optional[torch.Tensor] = None
 
     @torch.no_grad()
     def to_device(self, device: torch.device) -> None:
         self.sequences = self.sequences.to(device)
         self.action_log_probs = self.action_log_probs.to(device)
+        self.base_action_log_probs = to(self.base_action_log_probs, device)
         self.values = self.values.to(device)
         self.returns = self.returns.to(device)
         if self.advantages is not None:
@@ -59,23 +78,63 @@ class Experience:
             self.attention_mask = self.attention_mask.to(device)
         if self.action_mask is not None:
             self.action_mask = self.action_mask.to(device)
+        self.kl = to(self.kl, device)
+        self.info = {key: to(value, device) for key, value in self.info.items()}
 
     def pin_memory(self):
-        self.sequences = self.sequences.pin_memory()
-        self.action_log_probs = self.action_log_probs.pin_memory()
-        self.values = self.values.pin_memory()
-        self.returns = self.returns.pin_memory()
-        self.advantages = self.advantages.pin_memory()
+        self.sequences = pin_memory(self.sequences)
+        self.action_log_probs = pin_memory(self.action_log_probs)
+        self.base_action_log_probs = pin_memory(self.base_action_log_probs)
+        self.returns = pin_memory(self.returns)
+        self.advantages = pin_memory(self.advantages)
+        self.values = pin_memory(self.values)
         if self.attention_mask is not None:
             self.attention_mask = self.attention_mask.pin_memory()
         if self.action_mask is not None:
             self.action_mask = self.action_mask.pin_memory()
+        self.kl = pin_memory(self.kl)
+        self.info = {key: pin_memory(value) for key, value in self.info.items()}
         return self
 
 
-class NaiveExperienceMaker(ABC):
+@dataclass
+class Samples:
+    """Samples is a batch of data.
+    There can be 2 formats to store the samples, batched or packed.
+    The batched format means padding is applied to the sequences, while the packed format
+    will concatenate the prompt and response without padding.
+
+    Shapes of each tensor, when 2 shapes are shown, the first one is for batched format
+        and the second one is for packed format:
+    sequences: (B, S) or (1, total_length), the tokens of both prompt and response.
+    attention_mask: (B, S) or (1, total_length), the attention mask for sequences.
+    action_mask: (B, A) or None, the action (response) mask to show which part of the
+        sequence is the response. When the samples are packed, this is None.
+    num_actions: int or (B,), the number of actions (tokens) in the response.
+        When the samples are not packed, we will use action_mask, so this is an int to
+        show the size of action_mask. Otherwise, this is a tensor to show the number of
+        actions for each sample.
+    packed_seq_lens: None or (B,), the length of each sample in the packed samples.
+    response_length: (B,), the number of tokens in the response.
+    total_length: (B,), the total number of tokens in the sequences.
+    prompts: the prompts used to generate responses
     """
-    Naive experience maker.
+
+    sequences: torch.Tensor
+    attention_mask: Optional[torch.LongTensor]
+    action_mask: Optional[torch.BoolTensor]
+    num_actions: Union[int, torch.Tensor]
+    packed_seq_lens: Optional[torch.Tensor]
+    response_length: torch.Tensor
+    total_length: torch.Tensor
+    prompts: list[str]
+    labels: list[str]
+    pad_len: Optional[int]
+
+
+class BaseExperienceMaker(ABC):
+    """
+    Base experience maker that only handles initialization.
     """
 
     def __init__(
@@ -88,7 +147,7 @@ class NaiveExperienceMaker(ABC):
         prompt_max_len: int,
         kl_controller,
         strategy=None,
-        remote_rm_url: str = None,
+        remote_rm_url: Union[list[str], str] = None,
         reward_fn=None,
         shared_actorcritic=False,
         threshold=-5.,
@@ -119,6 +178,10 @@ class NaiveExperienceMaker(ABC):
         self.actor_loss_type = actor_loss_type
         self.max_new_tokens = max_new_tokens
 
+        self.perf_stats = {}
+        self.advantage_estimator = strategy.args.advantage_estimator
+        self.ring_rank0_group = None
+
         assert actor_loss_type is not None
 
         if self.actor_loss_type == "ppo":
@@ -132,7 +195,15 @@ class NaiveExperienceMaker(ABC):
             self.neg_data = set()
 
     # tokenizer
-    def tokenize_fn(self, texts, max_length, device):
+    def tokenize_fn(self, texts, max_length, padding=True, device=None):
+        if not padding:
+            # when padding is False, return tokenized texts as list
+            return self.tokenizer(
+                texts,
+                add_special_tokens=False,
+                max_length=max_length,
+                truncation=True,
+            )
         batch = self.tokenizer(
             texts,
             return_tensors="pt",
@@ -511,13 +582,25 @@ class NaiveExperienceMaker(ABC):
         - advantages: Tensor of shape (batch_size, response_size)
         - returns: Tensor of shape (batch_size, response_size)
         """
+        if isinstance(values, list):
+            # packing samples
+            # TODO: this is slow...
+            advantages = []
+            returns = []
+            for v, r in zip(values, rewards):
+                adv, ret = self.get_advantages_and_returns(v.unsqueeze(0), r.unsqueeze(0), action_mask, gamma, lambd)
+                advantages.append(adv.squeeze(0))
+                returns.append(ret.squeeze(0))
+            return advantages, returns
+
         lastgaelam = 0
         advantages_reversed = []
         response_length = rewards.size(1)
 
         # Mask invalid responses
-        values = action_mask * values
-        rewards = action_mask * rewards
+        if action_mask is not None:
+            values = action_mask * values
+            rewards = action_mask * rewards
 
         for t in reversed(range(response_length)):
             nextvalues = values[:, t + 1] if t < response_length - 1 else 0.0
@@ -526,20 +609,17 @@ class NaiveExperienceMaker(ABC):
             advantages_reversed.append(lastgaelam)
         advantages = torch.stack(advantages_reversed[::-1], dim=1)
         returns = advantages + values
-        # print("ADV-RETURNS")
-        # print(returns)
-        # print("ADV-VALUES")
-        # print(values)
-        # print("ADV-ADV")
-        # print(advantages)
-
         return advantages.detach(), returns
+
+
 
 
 class RemoteExperienceMaker(NaiveExperienceMaker):
     def __init__(self, *args, vllm_engines: List = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.vllm_engines = vllm_engines
+        raise NotImplementedError # Check the latest version of OpenRLHF repo
+
 
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], **generate_kwargs) -> Experience:
@@ -731,3 +811,4 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         "Ensure all experience has been send to critic"
         ray.get(self._ref)
         self._ref = None
+

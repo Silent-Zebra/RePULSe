@@ -1,7 +1,6 @@
 from typing import Optional, Tuple, Union
 
 import bitsandbytes as bnb
-import deepspeed
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,6 +10,7 @@ def compute_approx_kl(
     log_probs: torch.Tensor,
     log_probs_base: torch.Tensor,
     action_mask: Optional[torch.Tensor] = None,
+    kl_estimator: str = "k1",
 ) -> torch.Tensor:
     """
     Compute the approximate KL divergence between two distributions.
@@ -22,23 +22,37 @@ def compute_approx_kl(
         action_mask: Mask for actions.
     """
 
-    log_ratio = log_probs - log_probs_base
-    # print("--ACTION MASK--")
-    # print(action_mask.size())
-    # print(action_mask)
-    # print("--KL LOG RATIO--")
-    # print(log_ratio.mean())
-    # print(log_ratio)
-    # print(log_ratio.size())
-    if action_mask is not None:
-        log_ratio = log_ratio * action_mask
+    if kl_estimator == "k1":
+        log_ratio = log_probs.float() - log_probs_base.float()
+        if action_mask is not None:
+            log_ratio = log_ratio * action_mask
 
-    # print("--KL LOG RATIO AFTER MASK--")
-    # print(log_ratio.mean())
-    # print(log_ratio)
+    # The k2 estimator is the non negative kl approximation in
+    # http://joschu.net/blog/kl-approx.html
+    # The k2_loss is approximately equivalent to the
+    # one-step KL divergence penalty with the k1 estimator
+    # used in https://arxiv.org/pdf/2310.10505.
+    if kl_estimator == "k2":
+        log_ratio = log_probs.float() - log_probs_base.float()
+        if action_mask is not None:
+            log_ratio = log_ratio * action_mask
+        log_ratio = log_ratio**2 / 2.0
 
-    if log_ratio.mean() < 0: # Diagnostic
-        print("--LOG PROBS--")
+    # The k3 estimator is the non negative kl approximation in
+    # http://joschu.net/blog/kl-approx.html
+    if kl_estimator == "k3":
+        log_ratio = log_probs.float() - log_probs_base.float()
+        if action_mask is not None:
+            log_ratio = log_ratio * action_mask
+        log_ratio = -log_ratio
+        log_ratio = log_ratio.exp() - 1 - log_ratio
+
+        # print("--KL LOG RATIO AFTER MASK--")
+        # print(log_ratio.mean())
+        # print(log_ratio)
+
+    if log_ratio.mean() < 0:  # Diagnostic
+        print("--LOG PROBS DIAGNOSTIC--")
         print(log_probs.mean())
         print(log_probs)
         # print("--LOG PROBS AFTER MASK--")
@@ -56,9 +70,6 @@ def compute_approx_kl(
             print(log_probs[i])
             print(log_probs_base[i])
             # print(action_mask[i])
-
-
-
 
     return log_ratio
 
@@ -193,3 +204,13 @@ def reset_position_ids(attention_mask):
             sample_length = sample_mask.sum().item()
             position_ids[i, sample_mask] = torch.arange(sample_length, device=mask.device)
     return position_ids
+
+
+def unpacking_samples(values: torch.Tensor, packed_seqlens: list[int]):
+    values = values.squeeze(0)
+    unpacked_values = []
+    offset = 0
+    for seqlen in packed_seqlens:
+        unpacked_values.append(values[offset : offset + seqlen])
+        offset += seqlen
+    return unpacked_values

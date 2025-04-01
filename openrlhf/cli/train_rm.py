@@ -1,7 +1,6 @@
 import argparse
 import math
 import os
-from collections import OrderedDict
 from datetime import datetime
 
 from transformers.trainer import get_scheduler
@@ -56,8 +55,22 @@ def train(args):
     )
     train_data = train_data.select(range(min(args.max_samples, len(train_data))))
     eval_data = eval_data.select(range(min(args.max_samples, len(eval_data))))
-    train_dataset = RewardDataset(train_data, tokenizer, args.max_len, strategy, input_template=args.input_template)
-    eval_dataset = RewardDataset(eval_data, tokenizer, args.max_len, strategy, input_template=args.input_template)
+    train_dataset = RewardDataset(
+        train_data,
+        tokenizer,
+        args.max_len,
+        strategy,
+        input_template=args.input_template,
+        multiple_of=args.ring_attn_size,
+    )
+    eval_dataset = RewardDataset(
+        eval_data,
+        tokenizer,
+        args.max_len,
+        strategy,
+        input_template=args.input_template,
+        multiple_of=args.ring_attn_size,
+    )
 
     train_dataloader = strategy.setup_dataloader(
         train_dataset,
@@ -81,7 +94,7 @@ def train(args):
     scheduler = get_scheduler(
         "cosine_with_min_lr",
         optim,
-        num_warmup_steps=math.ceil(max_steps * 0.03),
+        num_warmup_steps=math.ceil(max_steps * args.lr_warmup_ratio),
         num_training_steps=max_steps,
         scheduler_specific_kwargs={"min_lr": args.learning_rate * 0.1},
     )
@@ -121,6 +134,11 @@ def train(args):
 
     trainer.fit(args, consumed_samples, num_update_steps_per_epoch)
 
+    # Save value_head_prefix
+    strategy.print("Save value_head_prefix in config")
+    unwrap_model = strategy._unwrap_model(model)
+    unwrap_model.config.value_head_prefix = args.value_head_prefix
+
     # save model checkpoint after fitting on only rank0
     strategy.save_model(model, tokenizer, args.save_path)
 
@@ -137,11 +155,19 @@ if __name__ == "__main__":
     parser.add_argument("--max_ckpt_num", type=int, default=3)
     parser.add_argument("--max_ckpt_mem", type=int, default=1e8)
     parser.add_argument("--load_checkpoint", action="store_true", default=False)
+    parser.add_argument("--use_ds_universal_ckpt", action="store_true", default=False)
 
     # DeepSpeed
     parser.add_argument("--max_norm", type=float, default=1.0, help="Gradient clipping")
     parser.add_argument("--gradient_checkpointing", action="store_true", default=False)
+    parser.add_argument("--torch_compile", action="store_true", default=False)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--full_determinism",
+        action="store_true",
+        default=False,
+        help="Enable reproducible behavior during distributed training",
+    )
     parser.add_argument("--local_rank", type=int, default=-1, help="local_rank for deepspeed")
     parser.add_argument("--zero_stage", type=int, default=2, help="DeepSpeed ZeRO stage")
     parser.add_argument("--bf16", action="store_true", default=False, help="Enable bfloat16")
@@ -149,13 +175,24 @@ if __name__ == "__main__":
     parser.add_argument("--adam_offload", action="store_true", default=False, help="Offload Adam Optimizer")
     parser.add_argument("--flash_attn", action="store_true", default=False, help="Enable FlashAttention2")
     parser.add_argument("--grad_accum_dtype", type=str, default=None, help="Adam grad accum data type")
-    parser.add_argument("--disable_trace_cache", action="store_true", default=False)
+    parser.add_argument("--overlap_comm", action="store_true", default=False)
     parser.add_argument("--gradient_checkpointing_use_reentrant", action="store_true", default=False)
     parser.add_argument("--disable_fast_tokenizer", action="store_true", default=False)
 
     # Models
     parser.add_argument("--pretrain", type=str, default=None)
-    parser.add_argument("--value_head_prefix", type=str, default="value_head")
+    parser.add_argument("--value_head_prefix", type=str, default="score")
+
+    # Context Parallel
+    parser.add_argument("--ring_attn_size", type=int, default=1, help="Ring attention group size")
+    parser.add_argument(
+        "--ring_head_stride",
+        type=int,
+        default=1,
+        help="the number of heads to do ring attention each time. "
+        "It should be a divisor of the number of heads. "
+        "A larger value may results in faster training but will consume more memory.",
+    )
 
     # LoRA
     parser.add_argument("--load_in_4bit", action="store_true", default=False)
@@ -170,6 +207,7 @@ if __name__ == "__main__":
     parser.add_argument("--compute_fp32_loss", action="store_true", default=False)
     parser.add_argument("--margin_loss", action="store_true", default=False)
     parser.add_argument("--learning_rate", type=float, default=9e-6)
+    parser.add_argument("--lr_warmup_ratio", type=float, default=0.03)
     parser.add_argument("--micro_train_batch_size", type=int, default=1)
     parser.add_argument("--train_batch_size", type=int, default=128, help="Global training batch size")
     parser.add_argument("--loss", type=str, default="sigmoid")
@@ -206,9 +244,35 @@ if __name__ == "__main__":
         default="rm_%s" % datetime.now().strftime("%m%dT%H:%M"),
     )
 
+    # TensorBoard parameters
+    parser.add_argument("--use_tensorboard", type=str, default=None, help="TensorBoard logging path")
+
+    # ModelScope parameters
+    parser.add_argument("--use_ms", action="store_true", default=False)
+
     args = parser.parse_args()
 
-    if args.input_template and not "{}" in args.input_template:
+    if args.input_template and "{}" not in args.input_template:
         print("[Warning] {} not in args.input_template, set to None")
         args.input_template = None
+
+    if args.input_template and "\\n" in args.input_template:
+        print(
+            "[Warning] input_template contains \\n chracters instead of newline. "
+            "You likely want to pass $'\\n' in Bash or \"`n\" in PowerShell."
+        )
+
+    if args.packing_samples and not args.flash_attn:
+        print("[Warning] Please --flash_attn to accelerate when --packing_samples is enabled.")
+        args.flash_attn = True
+
+    if args.ring_attn_size > 1:
+        assert args.packing_samples, "packing_samples must be enabled when using ring attention"
+
+    if args.use_ms:
+        from modelscope.utils.hf_util import patch_hub
+
+        # Patch hub to download models from modelscope to speed up.
+        patch_hub()
+
     train(args)

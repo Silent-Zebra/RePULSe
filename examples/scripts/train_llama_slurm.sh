@@ -12,12 +12,12 @@
 #SBATCH --overcommit               # needed for pytorch
 #SBATCH --output=out.log
 
-# should be modified to train_sft_llama.sh, train_rm_llama.sh, train_ppo_llama, etc.
-readonly training_script="train_ppo_llama.sh" 
+# should be modified to train_sft_llama.sh, train_rm_llama.sh, train_dpo_llama, etc.
+readonly training_script="train_dpo_llama.sh" 
 readonly GPUS_PER_NODE=8
 
 readonly PROJECT_PATH=$(cd ../../; pwd)
-readonly IMAGE_NAME="nvcr.io/nvidia/pytorch:24.02-py3"
+readonly IMAGE_NAME="nvcr.io/nvidia/pytorch:24.07-py3"
 readonly JOBLOG="$(pwd)/logs/$training_script-$SLURM_JOB_ID.log"
 mkdir logs
 
