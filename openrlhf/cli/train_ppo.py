@@ -807,7 +807,8 @@ if __name__ == "__main__":
     parser.add_argument("--save_negdata_threshold", type=float, default=-10000., help="The threshold below which we save examples for a negative dataset")
 
 
-
+    # ModelScope parameters
+    parser.add_argument("--use_ms", action="store_true", default=False)
 
     # wandb parameters
     parser.add_argument("--use_wandb", type=str, default=None)
