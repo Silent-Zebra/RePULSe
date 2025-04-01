@@ -21,8 +21,8 @@ from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts
 
-from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, BaseExperienceMaker, NaiveReplayBuffer
-
+from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
+from openrlhf.trainer.ppo_utils import BaseExperienceMaker
 
 class PPOTrainer(ABC):
     """
