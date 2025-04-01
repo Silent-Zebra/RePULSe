@@ -942,4 +942,8 @@ if __name__ == "__main__":
     if args.rm_type == "indicator_below_threshold":
         assert args.target_dist_beta == 1 # otherwise multiply by beta screws things up
 
+    if args.advantage_estimator not in ["gae"]:
+        raise NotImplementedErorr # Not tested
+        args.no_critic = True
+
     train(args)
