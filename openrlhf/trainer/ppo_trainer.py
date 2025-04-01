@@ -467,16 +467,14 @@ class BasePPOTrainer(ABC):
 
                 for rand_prompts in self.prompts_dataloader:
 
-
                     print("rand_prompts")
                     print(rand_prompts, flush=True)
-
-                    1/0
-
 
                     if not args.no_test_info:
                         if steps == 1: # do some test at the very beginning
                             self.test_info_multiprompt(args, rand_prompts, estimates_list)
+
+                    1/0
 
                     # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     #              profile_memory=True, record_shapes=True) as prof:
