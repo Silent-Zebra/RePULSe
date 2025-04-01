@@ -39,8 +39,22 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--adam_betas") adam_beta2 = "_adambeta2_"$(i+2)
         if($i == "--rm_type") rm_type = $(i+1)
         if($i == "--duplicate_rollout_batch_by") dup_rollout = "_"$(i+1)
-        if($i == "--pretrain") pretrain = gensub(".*/", "", "g", $(i+1))
-        if($i == "--reward_pretrain") reward_pretrain = gensub(".*/", "", "g", $(i+1))
+        if($i == "--pretrain") {
+            abbrev = ""
+            n = split(gensub(".*/", "", "g", $(i+1)), arr, "-")
+            for (i = 1; i <= n; i++) {
+                abbrev = abbrev substr(arr[i], 1, 2)  # Append first 2 characters of each word
+            }
+            pretrain = abbrev
+        }
+        if($i == "--reward_pretrain") {
+            abbrev = ""
+            n = split(gensub(".*/", "", "g", $(i+1)), arr, "-")
+            for (i = 1; i <= n; i++) {
+                abbrev = abbrev substr(arr[i], 1, 2)  # Append first 2 characters of each word
+            }
+            reward_pretrain = abbrev
+        }
         if($i == "--prompt_data") prompt_data = gensub("_.*", "", "g", gensub(".*/", "", "g", $(i+1)))
         if($i == "--init_head_from_base") init_head_from_base = "_initheadbase"
         if($i == "--additional_sd_divider") sd_divider = "_sddivider"$(i+1)
