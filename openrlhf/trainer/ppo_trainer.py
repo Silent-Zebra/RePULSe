@@ -417,7 +417,7 @@ class BasePPOTrainer(ABC):
                         torch.cuda.empty_cache()
                         # print("REPLAY BUFFER BEFORE NORMALIZATION")
                         # print(self.replay_buffer.items)
-                        self.replay_buffer.normalize("advantages", self.strategy)
+                        self.replay_buffer.normalize(self.strategy, "advantages")
                         # print("REPLAY BUFFER AFTER NORMALIZATION")
                         # print(self.replay_buffer.items)
 
@@ -502,7 +502,7 @@ class BasePPOTrainer(ABC):
                         global_steps = steps // update_timesteps
 
                         torch.cuda.empty_cache()
-                        self.replay_buffer.normalize("advantages", self.strategy)
+                        self.replay_buffer.normalize(self.strategy, "advantages")
                         assert custom_prompt is None
                         status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
                         self.replay_buffer.clear()

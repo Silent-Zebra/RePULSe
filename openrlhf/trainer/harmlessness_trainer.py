@@ -531,8 +531,8 @@ class HarmlessnessTrainer(ABC):
                         global_steps = steps // update_timesteps
 
                         torch.cuda.empty_cache()
-                        self.replay_buffer.normalize("advantages", self.strategy)
-                        self.replay_buffer_neg_sampling.normalize("advantages", self.strategy)
+                        self.replay_buffer.normalize(self.strategy, "advantages")
+                        self.replay_buffer_neg_sampling.normalize(self.strategy, "advantages")
 
                         assert custom_prompt is None
                         status = self.train(global_steps, custom_prompt=custom_prompt)
