@@ -9,7 +9,7 @@ from transformers import AutoConfig, AutoModel, BitsAndBytesConfig
 from transformers.deepspeed import HfDeepSpeedConfig
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
-from .packing_utils import patch_for_block_diag_attn
+# from .packing_utils import patch_for_block_diag_attn
 from .utils import reset_position_ids
 from openrlhf.utils.logging_utils import init_logger
 
@@ -156,9 +156,10 @@ def get_llm_for_sequence_regression(
 
     # packing samples using Flash Attention 2
     if packing_samples:
-        assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
-        model_type = getattr(model.config, "model_type", None)
-        patch_for_block_diag_attn(model_type)
+        raise NotImplementedError # check the latest OpenRLHF repo
+        # assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
+        # model_type = getattr(model.config, "model_type", None)
+        # patch_for_block_diag_attn(model_type)
 
     # NOTE: For reward model training only, intialize value_head manually
     # because deepspeed.zero.Init() will not intialize them.

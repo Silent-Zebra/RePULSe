@@ -10,7 +10,7 @@ from peft.tuners.lora import LoraLayer
 from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedModel
 from transformers.deepspeed import HfDeepSpeedConfig
 
-from .packing_utils import patch_for_block_diag_attn
+# from .packing_utils import patch_for_block_diag_attn
 from .utils import log_probs_from_logits, log_probs_from_logits_with_modulation, reset_position_ids, return_or_gather_then_return
 from openrlhf.models.actor import Actor
 
@@ -125,9 +125,9 @@ class ActorCustom(nn.Module):
 
             self.packing_samples = packing_samples
             if packing_samples:
-                assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
-                model_type = getattr(self.model.config, "model_type", None)
-                patch_for_block_diag_attn(model_type)
+                # assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
+                # model_type = getattr(self.model.config, "model_type", None)
+                # patch_for_block_diag_attn(model_type)
                 raise NotImplementedError # Not yet tested for the head parameterization
 
         else:
@@ -200,9 +200,10 @@ class ActorCustom(nn.Module):
                 # packing samples using Flash Attention 2
                 self.packing_samples = packing_samples
                 if packing_samples:
-                    assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
-                    model_type = getattr(self.model.config, "model_type", None)
-                    patch_for_block_diag_attn(model_type)
+                    raise NotImplementedError # Check the latest OpenRLHF repo
+                    # assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
+                    # model_type = getattr(self.model.config, "model_type", None)
+                    # patch_for_block_diag_attn(model_type)
             else:
                 self.model = pretrain_or_model
 
@@ -632,9 +633,10 @@ class ActorCritic(nn.Module):
             # packing samples using Flash Attention 2
             self.packing_samples = packing_samples
             if packing_samples:
-                assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
-                model_type = getattr(self.model.config, "model_type", None)
-                patch_for_block_diag_attn(model_type)
+                raise NotImplementedError # check the latest OpenRLHF repo version
+                # assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
+                # model_type = getattr(self.model.config, "model_type", None)
+                # patch_for_block_diag_attn(model_type)
         else:
             self.model = pretrain_or_model
 
