@@ -22,7 +22,7 @@ from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts
 
-from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveExperienceMaker, NaiveReplayBuffer
+from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, BaseExperienceMaker, NaiveReplayBuffer
 
 
 class HarmlessnessTrainer(ABC):
@@ -192,7 +192,7 @@ class HarmlessnessTrainer(ABC):
 
         self.shared_actorcritic = shared_actorcritic
 
-        self.experience_maker = NaiveExperienceMaker(
+        self.experience_maker = BaseExperienceMaker(
             base_actor,
             None,
             reward_model,
@@ -215,7 +215,7 @@ class HarmlessnessTrainer(ABC):
         )
 
         # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
-        self.experience_maker_neg_sampling = NaiveExperienceMaker(
+        self.experience_maker_neg_sampling = BaseExperienceMaker(
             sampling_actor,
             critic,
             reward_model,

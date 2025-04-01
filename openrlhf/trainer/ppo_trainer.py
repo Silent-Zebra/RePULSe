@@ -21,7 +21,7 @@ from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts
 
-from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveExperienceMaker, NaiveReplayBuffer
+from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, BaseExperienceMaker, NaiveReplayBuffer
 
 
 class PPOTrainer(ABC):
@@ -211,7 +211,7 @@ class PPOTrainer(ABC):
 
         self.shared_actorcritic = shared_actorcritic
 
-        self.experience_maker = NaiveExperienceMaker(
+        self.experience_maker = BaseExperienceMaker(
             actor,
             critic,
             reward_model,

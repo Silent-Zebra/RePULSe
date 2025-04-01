@@ -614,7 +614,7 @@ class BaseExperienceMaker(ABC):
 
 
 
-class RemoteExperienceMaker(NaiveExperienceMaker):
+class RemoteExperienceMaker(BaseExperienceMaker):
     def __init__(self, *args, vllm_engines: List = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.vllm_engines = vllm_engines
