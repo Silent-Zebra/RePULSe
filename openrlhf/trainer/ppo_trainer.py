@@ -474,8 +474,6 @@ class BasePPOTrainer(ABC):
                         if steps == 1: # do some test at the very beginning
                             self.test_info_multiprompt(args, rand_prompts, estimates_list)
 
-                    1/0
-
                     # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     #              profile_memory=True, record_shapes=True) as prof:
 
