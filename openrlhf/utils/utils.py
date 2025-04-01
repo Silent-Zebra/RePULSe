@@ -20,8 +20,8 @@ def tile_prompts(prompts, samples_per_prompt):
     expanded_prompts = []
     for prompt in prompts:
         expanded_prompts.extend([prompt] * samples_per_prompt)
-    print("expanded prompts")
-    print(expanded_prompts)
+    # print("expanded prompts")
+    # print(expanded_prompts)
     return expanded_prompts
 
 def get_tokenizer(pretrain, model, padding_side="left", strategy=None, use_fast=True):

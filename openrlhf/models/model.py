@@ -292,7 +292,7 @@ def _get_reward_model_custom(
 
                 text = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
 
-                print(text)
+                # print(text)
 
                 qa_list = list(map(strip_question_chat_template_fn, text))
 
@@ -304,8 +304,8 @@ def _get_reward_model_custom(
                 # text_questions = list(map(lambda x: x[0], qa_list))
                 # text_answers = list(map(lambda x: x[1], qa_list))
 
-                print("attention_mask")
-                print(attention_mask)
+                # print("attention_mask")
+                # print(attention_mask)
 
                 # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
                 print("text questions and answers")
@@ -319,8 +319,8 @@ def _get_reward_model_custom(
                                       padding=True
                                       )
 
-                print("inputs to rm")
-                print(inputs)
+                # print("inputs to rm")
+                # print(inputs)
 
                 # output_len = answer_seq.shape[-1]
                 # print(output_len)
@@ -334,8 +334,8 @@ def _get_reward_model_custom(
                           key, value in
                           inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
 
-                print("inputs to rm 2")
-                print(inputs)
+                # print("inputs to rm 2")
+                # print(inputs)
 
                 with torch.no_grad():
                     r = self.rm(**inputs).logits.squeeze(

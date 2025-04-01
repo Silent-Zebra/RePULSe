@@ -164,10 +164,10 @@ class NaiveExperienceMaker(ABC):
             else:
                 value = None
 
-        print("MAKE EXPERIENCE INSPECTION")
-        print(sequences)
-        print(attention_mask)
-        print(action_mask)
+        # print("MAKE EXPERIENCE INSPECTION")
+        # print(sequences)
+        # print(attention_mask)
+        # print(action_mask)
 
 
 
@@ -225,9 +225,9 @@ class NaiveExperienceMaker(ABC):
             base_action_log_probs,
             action_mask=action_mask,
         )
-        print("--Rewards--")
-        print(rewards)
-        print(rewards.sum(-1))
+        # print("--Rewards--")
+        # print(rewards)
+        # print(rewards.sum(-1))
         # print("--End Rewards--")
 
         if value is None:
@@ -423,10 +423,12 @@ class NaiveExperienceMaker(ABC):
         # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
 
-        print("generate_inspection")
-        print(sequences)
-        print(attention_mask)
-        print(action_mask)
+        # print("generate_inspection")
+        # print(sequences)
+        # print(attention_mask)
+        # print(action_mask)
+
+
         # print(prompts)
         # print(prompts[0])
         # # print(prompts[1])
