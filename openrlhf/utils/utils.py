@@ -4,6 +4,8 @@ from pathlib import Path
 from datasets import interleave_datasets, load_dataset, load_from_disk
 from transformers import AutoTokenizer
 
+import re
+
 DEFAULT_PAD_TOKEN = "[PAD]"
 DEFAULT_EOS_TOKEN = "</s>"
 DEFAULT_BOS_TOKEN = "<s>"
@@ -160,14 +162,14 @@ def get_info_name_str(args):
     # extra_str = ""
     if args.no_critic:
         critic_loss_str = ""
-        lr_str = f"actorlr{args.actor_learning_rate}"
+        lr_str = f"alr{args.actor_learning_rate}"
     else:
-        critic_loss_str = f"_criticloss{args.critic_loss_type}"
-        lr_str = f"actorlr{args.actor_learning_rate}_criticlr{args.critic_learning_rate}"
+        critic_loss_str = f"_closs{args.critic_loss_type}"
+        lr_str = f"alr{args.actor_learning_rate}_clr{args.critic_learning_rate}"
     # if args.actor_modulates_base:
     #     extra_str = "actormodbase"
     if args.shared_actorcritic:
-        lr_str = f"sharedactorcritic_lr{args.actor_learning_rate}"
+        lr_str = f"sharedac_lr{args.actor_learning_rate}"
     if args.model_eval:
         eval_str = "_eval"
     if args.bc_coef > 0:
@@ -181,11 +183,16 @@ def get_info_name_str(args):
 
     harmlessness_train_str = ""
     if args.do_harmlessness_training:
-        harmlessness_train_str = f"_harmloss_{args.harmlessness_training_loss_type}"
+        harmlessness_train_str = f"_harml_{args.harmlessness_training_loss_type}"
 
-    pretrain_str = args.pretrain.split("/")[-1]
-    reward_pretrain_str = args.reward_pretrain.split("/")[-1]
+    # pretrain_str = args.pretrain.split("/")[-1]
+    pretrain_str = "".join([x[:2] for x in re.split(r"[-_]", args.pretrain.split("/")[-1])])
 
-    info_name_str = f"{args.rm_type}_{pretrain_str}_{reward_pretrain_str}_beta{args.target_dist_beta}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}{critic_loss_str}_adambetas{(args.adam_betas[0])}_{(args.adam_betas[1])}_{args.parameterization}{init_head_base_str}_sddivider{args.additional_sd_divider}_seed{args.seed}"
+    # reward_pretrain_str = args.reward_pretrain.split("/")[-1]
+    reward_pretrain_str = "".join([x[:2] for x in re.split(r"[-_]", args.reward_pretrain.split("/")[-1])])
+
+    prompt_data_str = "".join([x[:2] for x in re.split(r"[-_]", args.prompt_data.split("/")[-1])])
+
+    info_name_str = f"{args.rm_type}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_beta{args.target_dist_beta}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_sched{args.lr_scheduler}_{lr_str}{critic_loss_str}_adambetas{(args.adam_betas[0])}_{(args.adam_betas[1])}_{args.parameterization}{init_head_base_str}_sddiv{args.additional_sd_divider}_s{args.seed}"
 
     return info_name_str
