@@ -264,6 +264,8 @@ class HarmlessnessTrainer(ABC):
             wandb.define_metric("eval/epoch")
             wandb.define_metric("eval/*", step_metric="eval/epoch", step_sync=True)
 
+        self.total_steps = 0
+
     def fit(
         self,
         args,
@@ -296,8 +298,8 @@ class HarmlessnessTrainer(ABC):
         # get eval and save steps
         if args.eval_steps == -1:
             args.eval_steps = num_rollouts_per_episodes  # Evaluate once per epoch
-        if args.save_steps == -1:
-            args.save_steps = float("inf")  # do not save ckpt
+        if args.save_steps_harmless == -1:
+            args.save_steps_harmless = float("inf")  # do not save ckpt
 
         self.prompts_dataloader = prompts_dataloader
         self.pretrain_dataloader = pretrain_dataloader
@@ -558,6 +560,7 @@ class HarmlessnessTrainer(ABC):
 
                     pbar.update()
                     steps = steps + 1
+                    self.global_steps += 1
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
         else:
@@ -1021,11 +1024,12 @@ class HarmlessnessTrainer(ABC):
         # save ckpt
         # TODO: save best model on dev, use loss/perplexity/others on whole dev dataset as metric
 
-
-
-        if global_step % args.save_steps == 0:
-            tag = f"global_step{global_step}"
+        if self.total_steps > 0 and self.total_steps % args.save_steps_harmless == 0:
+        # if global_step % args.save_steps == 0:
+            print(f"SAVING CHECKPOINT AT TOTAL POLICY HARMLESSNESS TRAINING STEPs {self.total_steps}", flush=True)
+            tag = f"total_step{self.total_steps}"
             self._save_checkpoint(args, tag, client_states)
+
 
     def _save_checkpoint(self, args, tag, client_states):
 
@@ -1035,7 +1039,7 @@ class HarmlessnessTrainer(ABC):
 
         self.strategy.save_ckpt(
             self.base_actor.model,
-            os.path.join(args.ckpt_path, f"{save_str}_actor"),
+            os.path.join(args.ckpt_path, f"{save_str}_harml_actor"),
             tag,
             args.max_ckpt_num,
             args.max_ckpt_mem,
@@ -1043,5 +1047,5 @@ class HarmlessnessTrainer(ABC):
         )
         if self.critic is not None:
             self.strategy.save_ckpt(
-                self.critic, os.path.join(args.ckpt_path, f"{save_str}_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+                self.critic, os.path.join(args.ckpt_path, f"{save_str}_harml_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
             )

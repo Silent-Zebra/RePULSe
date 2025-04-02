@@ -147,6 +147,8 @@ class BasePPOTrainer(ABC):
         self.actor_scheduler = actor_scheduler
         self.critic_scheduler = critic_scheduler
 
+        self.total_steps = 0
+
         assert parameterization != ""
         self.parameterization = parameterization
 
@@ -524,6 +526,7 @@ class BasePPOTrainer(ABC):
 
                     pbar.update()
                     steps = steps + 1
+                    self.total_steps += 1
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
         else:
@@ -1591,9 +1594,11 @@ class BasePPOTrainer(ABC):
 
 
 
-        if global_step % args.save_steps == 0:
-            print(f"SAVING CHECKPOINT AT GLOBAL STEP {global_step}", flush=True)
-            tag = f"global_step{global_step}"
+        if self.total_steps > 0 and self.total_steps % args.save_steps == 0:
+        # if global_step % args.save_steps == 0:
+        #     print(f"SAVING CHECKPOINT AT GLOBAL STEP {global_step}", flush=True)
+            print(f"SAVING CHECKPOINT AT TOTAL PROPOSAL/TWIST LEARNING STEPs {self.total_steps}", flush=True)
+            tag = f"total_step{self.total_steps}"
             self._save_checkpoint(args, tag, client_states)
 
     def _save_checkpoint(self, args, tag, client_states):
