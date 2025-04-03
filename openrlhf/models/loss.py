@@ -194,6 +194,7 @@ class NegREINFORCELoss(nn.Module):
         print(log_probs_neg.shape)
         print(normalized_w_t_approx_sigma_samples.shape)
         print(normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1).shape)
+        print(normalized_w_t_approx_sigma_samples)
         1/0
 
         # TODO check weighting is correct, also normalize with softmax if necessary
