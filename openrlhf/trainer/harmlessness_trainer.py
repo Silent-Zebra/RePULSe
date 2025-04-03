@@ -798,6 +798,8 @@ class HarmlessnessTrainer(ABC):
             action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
 
             final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
+            final_reward_neg = experience_neg.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg.action_mask.view(num_prompts, samples_per_prompt, -1)
 
@@ -814,7 +816,7 @@ class HarmlessnessTrainer(ABC):
             normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
                 action_log_probs_neg,
                 experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1),
-                final_reward
+                final_reward_neg
             )
 
             actor_loss = self.actor_loss_fn(
@@ -841,7 +843,7 @@ class HarmlessnessTrainer(ABC):
             action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
 
             final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
-            final_reward_neg = experience_neg.info["reward"].view(num_prompts, samples_per_prompt, -1).to(action_log_probs_neg.device)
+            final_reward_neg = experience_neg.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
 
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg.action_mask.view(num_prompts, samples_per_prompt, -1)
