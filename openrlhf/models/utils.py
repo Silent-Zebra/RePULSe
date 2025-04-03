@@ -54,21 +54,13 @@ def compute_approx_kl(
     if log_ratio.mean() < 0:  # Diagnostic
         print("--LOG PROBS DIAGNOSTIC--")
         print(log_probs.mean())
-        print(log_probs)
-        # print("--LOG PROBS AFTER MASK--")
-        # print((log_probs * action_mask).mean())
-        # print(log_probs * action_mask)
+        # print(log_probs)
         print("--LOG PROBS BASE--")
         print(log_probs_base.mean())
-        print(log_probs_base)
-        # print("--LOG PROBS BASE AFTER MASK--")
-        # print((log_probs_base * action_mask).mean())
-        # print(log_probs_base * action_mask)
-        # for i in range(log_probs.shape[0]):
-        for i in range(1):
-            print(f"---{i}--")
-            print(log_probs[i])
-            print(log_probs_base[i])
+        # for i in range(1):
+        #     print(f"---{i}--")
+        #     print(log_probs[i])
+        #     print(log_probs_base[i])
             # print(action_mask[i])
 
     return log_ratio

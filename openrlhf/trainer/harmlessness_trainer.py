@@ -749,12 +749,12 @@ class HarmlessnessTrainer(ABC):
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
 
-        print("inspection 03-29")
-        print(experience.action_mask)
-        print(experience.action_mask.shape)
+        # print("inspection 03-29")
+        # print(experience.action_mask)
+        # print(experience.action_mask.shape)
         # print(experience.action_mask.size(1))
-        print(experience.sequences)
-        print(experience.sequences.shape)
+        # print(experience.sequences)
+        # print(experience.sequences.shape)
 
         if self.actor_loss_type == "reinforce":
             action_log_probs = self.base_actor(
@@ -801,15 +801,15 @@ class HarmlessnessTrainer(ABC):
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg.action_mask.view(num_prompts, samples_per_prompt, -1)
 
-            print("SHAPES")
-            print(action_log_probs_neg.shape)
-            print(experience_neg.action_log_probs.shape)
-            print(experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1).shape)
-            print(experience_neg.returns.shape)
-            print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1).shape)
-            print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1].shape)
-            print(experience_neg.returns)
-            print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
+            # print("SHAPES")
+            # print(action_log_probs_neg.shape)
+            # print(experience_neg.action_log_probs.shape)
+            # print(experience_neg.action_log_probs.view(num_prompts, samples_per_prompt, -1).shape)
+            # print(experience_neg.returns.shape)
+            # print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1).shape)
+            # print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1].shape)
+            # print(experience_neg.returns)
+            # print(experience_neg.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
 
             normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
                 action_log_probs_neg,

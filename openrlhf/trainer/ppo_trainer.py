@@ -765,14 +765,14 @@ class BasePPOTrainer(ABC):
             )
 
             f_qs = log_tilde_sigma - log_q
-            print("f_q estimate details")
-            print("log q")
-            print(log_q)
-            print("log tilde sigma")
-            print(log_tilde_sigma)
-            print("f_qs")
-            print(f_qs)
-            print(f_qs.shape)
+            # print("f_q estimate details")
+            # print("log q")
+            # print(log_q)
+            # print("log tilde sigma")
+            # print(log_tilde_sigma)
+            # print("f_qs")
+            # print(f_qs)
+            # print(f_qs.shape)
 
         return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
 
@@ -799,9 +799,9 @@ class BasePPOTrainer(ABC):
         base_action_log_probs = base_action_log_probs.float() * action_mask # more precision
 
         log_p = base_action_log_probs.sum(dim=-1)
-        print('P PHI INSPECTION')
-        print(log_p)
-        print(log_phi)
+        # print('P PHI INSPECTION')
+        # print(log_p)
+        # print(log_phi)
         log_tilde_sigma = log_p + log_phi
         if return_extra_info:
             return log_tilde_sigma, log_p, log_phi
@@ -1203,23 +1203,23 @@ class BasePPOTrainer(ABC):
             exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
             base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
 
-            print("CTL INSPECTION")
-            print(experience.sequences.shape)
-            print(experience.sequences)
-            print(experience.attention_mask.shape)
-            print(experience.attention_mask)
-            print(exper_action_mask.shape)
-            print(exper_action_mask)
-            print(exper_action_log_probs.shape)
-            print(exper_action_log_probs)
+            # print("CTL INSPECTION")
+            # print(experience.sequences.shape)
+            # print(experience.sequences)
+            # print(experience.attention_mask.shape)
+            # print(experience.attention_mask)
+            # print(exper_action_mask.shape)
+            # print(exper_action_mask)
+            # print(exper_action_log_probs.shape)
+            # print(exper_action_log_probs)
 
-            print(log_psi.shape)
-            print(log_psi)
-            print(log_phi.shape)
-            print(log_phi)
+            # print(log_psi.shape)
+            # print(log_psi)
+            # print(log_phi.shape)
+            # print(log_phi)
 
-            print(base_action_log_probs.shape)
-            print(base_action_log_probs)
+            # print(base_action_log_probs.shape)
+            # print(base_action_log_probs)
 
             # Calculate loss for all groups at once
             actor_loss = self.actor_loss_fn(
