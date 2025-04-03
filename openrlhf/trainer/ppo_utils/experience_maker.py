@@ -235,45 +235,6 @@ class BaseExperienceMaker(ABC):
             else:
                 value = None
 
-        # print("MAKE EXPERIENCE INSPECTION")
-        # print(sequences)
-        # print(attention_mask)
-        # print(action_mask)
-
-
-
-        # print("action log probs check")
-        # print(action_log_probs)
-        #
-        # action_log_probs2 = self.actor(sequences, num_actions, attention_mask)
-        #
-        # print(action_log_probs2)
-
-        # print("base action inspection")
-        # print(sequences)
-        # print(sequences[0])
-        # print(sequences[1])
-        # print(sequences[10])
-        # print(sequences[11])
-
-        # output = self.tokenizer.batch_decode(
-        #     sequences,
-        #     skip_special_tokens=True)
-
-        # print("text output")
-        # print(output)
-        #
-        # print(num_actions)
-        # print(attention_mask)
-        # print(attention_mask[0])
-        # print(attention_mask[1])
-        # print(attention_mask[10])
-        # print(attention_mask[11])
-
-        # print("device check")
-        # print(sequences.device)
-        # print(attention_mask.device)
-        # print(self.initial_model.model.device)
 
         # init log probs
         base_action_log_probs = self.initial_model(sequences, num_actions,
@@ -333,6 +294,11 @@ class BaseExperienceMaker(ABC):
         # print(torch.abs(returns2 - returns).sum())
         # 1/0
 
+        log_q = (action_log_probs.float() * action_mask).sum(dim=-1)
+        log_phi = r
+        log_p = (base_action_log_probs.float() * action_mask).sum(dim=-1)
+        log_tilde_sigma = log_p + log_phi
+        f_q = log_tilde_sigma - log_q
 
 
         info = {
@@ -341,6 +307,8 @@ class BaseExperienceMaker(ABC):
             "return": rewards.sum(dim=-1),
             "response_length": action_mask.float().sum(dim=-1),
             "total_length": attention_mask.float().sum(dim=-1),
+            "f_q": f_q,
+            "entropy": -log_q,
         }
         # reset model state
         self.actor.train()

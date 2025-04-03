@@ -1057,7 +1057,7 @@ class BasePPOTrainer(ABC):
             action_log_probs = self.experience_maker.actor(self.true_posterior_samples,
                                                            experience.action_mask.size(1),
                                                            attention_mask_sigma_samples)
-            action_log_probs = action_log_probs.float()  # more precision
+            action_log_probs = action_log_probs.float() * action_mask  # more precision
             log_q = action_log_probs.sum(dim=-1)
 
             loss = loss + self.bc_coef * (- log_q.sum()) # loss is - log prob, so decrease loss is increase log p
@@ -1117,6 +1117,8 @@ class BasePPOTrainer(ABC):
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
         if self.ema_model:
             self.strategy.moving_average(self.actor, self.ema_model, self.ema_beta, "cpu")
+
+
 
         # status
         status = {"policy_loss": actor_loss.item(), "actor_lr": self.actor_scheduler.get_last_lr()[0]}
