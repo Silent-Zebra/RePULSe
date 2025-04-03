@@ -469,8 +469,8 @@ class BasePPOTrainer(ABC):
 
                 for rand_prompts in self.prompts_dataloader:
 
-                    print("rand_prompts")
-                    print(rand_prompts, flush=True)
+                    # print("rand_prompts")
+                    # print(rand_prompts, flush=True)
 
                     if not args.no_test_info:
                         if steps == 1: # do some test at the very beginning
@@ -533,8 +533,8 @@ class BasePPOTrainer(ABC):
             return estimates_list
 
     def test_info_multiprompt(self, args, rand_prompts, estimates_lists):
-        print("prompts")
-        print(rand_prompts)
+        # print("prompts")
+        # print(rand_prompts)
         # expanded_prompts = tile_prompts(rand_prompts, samples_per_prompt) # this is done within the f_q estimate...
 
         total_f_qs, total_rewards, total_kl_vals, total_entropy = None, None, None, None

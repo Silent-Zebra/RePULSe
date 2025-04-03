@@ -483,8 +483,8 @@ class BaseExperienceMaker(ABC):
         self.set_all_eval()
         # generate seq
 
-        print("prompts")
-        print(prompts)
+        # print("prompts")
+        # print(prompts)
 
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
 
