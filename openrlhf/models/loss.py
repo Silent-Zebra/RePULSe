@@ -134,6 +134,7 @@ class NegTrainingLoss(nn.Module):
         final_reward: torch.Tensor,
         normalized_w_t_approx_sigma_samples: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
+        action_mask_neg: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
 
         reinforce_loss = self.reinforce_loss_fn(log_probs, final_reward, action_mask)
@@ -156,7 +157,7 @@ class NegTrainingLoss(nn.Module):
         # print(loss2)
         # print(loss2 - loss)
 
-        loss = ((log_probs_neg * action_mask).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
+        loss = ((log_probs_neg * action_mask_neg).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
 
         # 1/0 # Ensure that this weighting is properly done
 
