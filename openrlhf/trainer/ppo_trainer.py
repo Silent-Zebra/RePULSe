@@ -900,6 +900,11 @@ class BasePPOTrainer(ABC):
                 if "ptx_loss" in status:
                     short_status["ptx"] = status["ptx_loss"]
 
+                if "f_q" in status:
+                    short_status["f_q"] = status["f_q"]
+                if "entropy" in status:
+                    short_status["ent"] = status["entropy"]
+
                 status_list.append(status)
                 pbar.set_postfix(short_status)
 

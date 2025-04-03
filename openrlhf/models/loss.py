@@ -190,9 +190,16 @@ class NegREINFORCELoss(nn.Module):
         reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask)
 
         log_probs_neg *= normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1)
+
+        print(log_probs_neg.shape)
+        print(normalized_w_t_approx_sigma_samples.shape)
+        print(normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1).shape)
+
         # TODO check weighting is correct, also normalize with softmax if necessary
 
         neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg)
+
+        1/0
 
         return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
 
