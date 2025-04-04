@@ -257,10 +257,24 @@ def train(args):
                 gradient_checkpointing_kwargs={"use_reentrant": args.gradient_checkpointing_use_reentrant}
             )
 
-    # configure optimizer
-    actor_optim = strategy.create_optimizer(
-        actor, lr=args.actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
-    )
+    if args.actor_modulates_base:
+        if args.parameterization == "modulation_model":
+            actor_optim = strategy.create_optimizer(
+                actor.model, lr=args.actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
+            )
+        else:
+            actor_optim = strategy.create_optimizer(
+                actor.modulation_head, lr=args.actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
+            )
+    else:
+        # configure optimizer
+        actor_optim = strategy.create_optimizer(
+            actor, lr=args.actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
+        )
+    # Try deepseek suggestions: try creating optimizer only for the modulation component. It's possible this is causing issues with resetting stuff.
+    # TODO anyway, still check every step along the way to figure out the issues
+    # Can try the deepcopy approach after if this one doesn't work. CHECK EVERYTHING WORKS AS EXPECTED EVEN IN THE OTHER POLICY CASE. ENSURE CORRECTNESS.
+
     critic_optim = None
     if critic is not None:
         critic_optim = strategy.create_optimizer(
