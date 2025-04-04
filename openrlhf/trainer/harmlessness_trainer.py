@@ -1,7 +1,7 @@
 import math
 import os.path
 from abc import ABC
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, Set
 from openrlhf.models.loss import get_positive_weights_detached, get_normalized_positive_weights_detached
 
 import ray
@@ -104,6 +104,7 @@ class HarmlessnessTrainer(ABC):
         parameterization: str = '',
         save_negdata=False,
         save_negdata_threshold=-10000,
+        neg_data: Optional[Set[str]] = None,
         baseline_type: Optional[str] = None,
         hardcoded_baseline: Optional[float] = None,
         baseline_type_neg: Optional[str] = None,
@@ -130,6 +131,8 @@ class HarmlessnessTrainer(ABC):
         self.ema_beta = ema_beta
         self.gradient_checkpointing = gradient_checkpointing
         self.reward_fn = reward_fn
+
+        self.neg_data = neg_data
 
         self.base_actor = base_actor
         self.critic = critic
@@ -213,6 +216,7 @@ class HarmlessnessTrainer(ABC):
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
+            neg_data=self.neg_data,
         )
 
         # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
@@ -236,6 +240,7 @@ class HarmlessnessTrainer(ABC):
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
+            neg_data=self.neg_data,
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
         self.replay_buffer_neg_sampling = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)

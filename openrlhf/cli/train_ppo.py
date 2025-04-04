@@ -23,10 +23,9 @@ def train(args):
     strategy = get_strategy(args)
     strategy.setup_distributed()
 
-
-
-
-
+    neg_data = None
+    if args.save_negdata:
+        neg_data = set()
 
     static_initial_model = None
     if not args.do_harmlessness_training:
@@ -524,6 +523,7 @@ def train(args):
         parameterization=args.parameterization,
         save_negdata=args.save_negdata,
         save_negdata_threshold=args.save_negdata_threshold,
+        neg_data=neg_data,
     )
 
     # TODO: Idea here is: just set up an outer loop over which we can run trainer.fit which basically does the twist learning
@@ -599,6 +599,7 @@ def train(args):
             hardcoded_baseline=args.reinforce_hardcoded_baseline,
             baseline_type_neg=args.neg_baseline_type,
             hardcoded_baseline_neg=args.neg_hardcoded_baseline,
+            neg_data=neg_data,
         )
 
         # print("device check")
@@ -675,11 +676,11 @@ def train(args):
 
 
     if args.save_negdata:
-        print(trainer.experience_maker.neg_data)
+        print(len(neg_data))
         import pickle
         # Save to file
         with open(f"{args.save_path}/neg_data_{info_name_str}.pkl", "wb") as f:
-            pickle.dump(trainer.experience_maker.neg_data, f)
+            pickle.dump(neg_data, f)
 
 
 

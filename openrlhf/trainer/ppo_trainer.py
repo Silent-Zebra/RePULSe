@@ -1,7 +1,7 @@
 import math
 import os.path
 from abc import ABC
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, Set
 
 import ray
 import torch
@@ -111,6 +111,7 @@ class BasePPOTrainer(ABC):
         parameterization: str = '',
         save_negdata=False,
         save_negdata_threshold=-10000,
+        neg_data: Optional[Set[str]] = None,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -135,6 +136,8 @@ class BasePPOTrainer(ABC):
         self.ema_beta = ema_beta
         self.gradient_checkpointing = gradient_checkpointing
         self.reward_fn = reward_fn
+
+        self.neg_data = neg_data
 
         self.actor = actor
         self.critic = critic
@@ -233,6 +236,7 @@ class BasePPOTrainer(ABC):
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
+            neg_data=self.neg_data,
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 

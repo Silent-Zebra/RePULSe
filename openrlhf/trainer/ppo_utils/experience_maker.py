@@ -4,7 +4,7 @@ from abc import ABC
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Set
 from torch.profiler import profile, record_function, ProfilerActivity
 
 import ray
@@ -158,6 +158,7 @@ class BaseExperienceMaker(ABC):
         max_new_tokens=None,
         save_negdata=False,
         save_negdata_threshold=-10000,
+        neg_data: Optional[Set[str]] = None
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -192,7 +193,8 @@ class BaseExperienceMaker(ABC):
         self.save_negdata = save_negdata
         self.save_negdata_threshold = save_negdata_threshold
         if self.save_negdata:
-            self.neg_data = set()
+            assert neg_data is not None
+        self.neg_data = neg_data
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, padding=True, device=None):
