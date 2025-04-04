@@ -966,6 +966,8 @@ if __name__ == "__main__":
         assert args.duplicate_rollout_batch_by > 1 # NOTE: this is also the "batch" or "number of particles" used in twist learning; for a given prompt, how many particles we use.
         assert args.parameterization != "policy" # Instead use one of "policy_psi_unnorm", "policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"
 
+    if args.actor_loss_type == "ctl_nosecondterm":
+        assert args.parameterization in ["policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]
 
     if args.rm_type == "indicator_below_threshold":
         assert args.target_dist_beta == 1 # otherwise multiply by beta screws things up
