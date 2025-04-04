@@ -146,9 +146,9 @@ class ActorCustom(Actor):
                 # patch_for_block_diag_attn(model_type)
                 raise NotImplementedError # Not yet tested for the head parameterization
 
-            print(self.initial_model.model.device)
-            self.modulation_head = self.modulation_head.to(self.initial_model.model.device)
-            1/0
+            # print(self.initial_model.model.device)
+            # self.modulation_head = self.modulation_head.to(self.initial_model.model.device)
+            self.modulation_head = self.modulation_head.to(torch.cuda.current_device())
         else:
 
             if isinstance(pretrain_or_model, str):
@@ -457,11 +457,6 @@ class ActorCustom(Actor):
             last_hidden_state = base_output.hidden_states[-1]
             # Apply modulation head to get logits
 
-            print(last_hidden_state.device)
-            print(self.modulation_head.weight.device)
-            print(self.modulation_head.bias.device)
-            print(self.initial_model.model.device)
-            1/0
 
             modulation_logits = self.modulation_head(last_hidden_state)
 
