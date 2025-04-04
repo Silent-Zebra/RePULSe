@@ -79,7 +79,7 @@ class ActorCustom(Actor):
         init_head_from_base=False,
         **kwargs,
     ) -> None:
-        super().__init__()
+        # super().__init__()
 
         self.initial_model = initial_model
 
