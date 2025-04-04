@@ -157,11 +157,19 @@ class NegTrainingLoss(nn.Module):
         # print(loss2)
         # print(loss2 - loss)
 
-        loss = ((log_probs_neg * action_mask_neg).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
 
-        # 1/0 # Ensure that this weighting is properly done
+        # Just reduce log probs on all of the negative samples (approximate sigma samples)
+        # The multiplication by normalized_w_t_approx_sigma_samples is because we have approximate sigma samples
+        # And since I didn't do resampling, just doing reweighting, then normalized_w_t_approx_sigma_samples are the weights
+        # So we need to multiply by those weights to get the approximate sigma samples
 
 
+        loss_old = ((log_probs_neg * action_mask_neg).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
+        loss = masked_mean(log_probs_neg, action_mask, dim=-1).mean() * normalized_w_t_approx_sigma_samples.detach().mean()
+        print(loss - loss_old)
+        1/0
+
+        # Weighting here controls how much to emphasize the negative training (reduce probability on negative samples) loss vs. the standard REINFORCE/RL loss
         return (1 - self.alpha) * reinforce_loss + self.alpha * loss
 
 

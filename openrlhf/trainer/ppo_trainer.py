@@ -744,6 +744,9 @@ class BasePPOTrainer(ABC):
         # return f_q_estimates_list, g_q_estimates_list
 
     def f_q_estimate(self, args, batch_prompt):
+        """
+        Calculate E_q [log sigma(s) - log q(s)]
+        """
         self.experience_maker.set_all_eval()
         batch_prompt = tile_prompts(batch_prompt, args.duplicate_rollout_batch_by)
 

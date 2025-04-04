@@ -433,9 +433,9 @@ class BaseExperienceMaker(ABC):
         else:
             raise NotImplementedError
 
-        if multiply_by_beta: # Use for twist formulation
+        if multiply_by_beta: # Use for twist formulation # For twists: target potential phi is e^{beta r}, so log potential is beta r
             return final_reward * self.target_dist_beta
-        else: # Use for PPO formulation
+        else: # Use for PPO formulation # For PPO, e.g. see the RL with KL penalties is better viewed as Bayesian inference paper, we have that reward - 1/beta (KL to prior) is equivalent to targeting base e^{beta r}
             if self.target_dist_beta < 0:
                 return -final_reward # For PPO, if we have target e^{beta r} where beta is negative, say beta = -b, then e^{-br} = e^{b(-r)} which is equivalent to using PPO on a new reward model r' = -r. So what we'll instead do is keep the KL penalty as 1/beta but now have the reward -r. Twist formulations directly handle multiplying by beta
             else:

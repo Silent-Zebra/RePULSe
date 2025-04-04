@@ -627,6 +627,7 @@ def train(args):
             print(f"OUTER LOOP {i}", flush=True)
             print("-----TWIST OR PROPOSAL TRAINING-----", flush=True)
 
+            # Do the training for the actor/sampling_actor which is trying to generate approximate samples from sigma = p * phi = p e^{beta r} for the RLHF formulation (or -beta for harmlessness)
             if args.num_episodes > 0:
                 estimates_list = trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
@@ -634,7 +635,7 @@ def train(args):
                 )
 
             print("-----POLICY HARMLESSNESS TRAINING-----", flush=True)
-
+            # Do the harmlessness training: use samples from the actor/sampling_actor trained by the PPOTrainer above to generate approximate sigma samples, and then reduce probability on those samples
             # TODO Update the initial model, and check that the trainer is now using the updated model version.
             harmlessness_trainer.fit( # TODO check that these arguments are the right ones
                 args, prompts_dataloader, pretrain_dataloader, consumed_samples,
