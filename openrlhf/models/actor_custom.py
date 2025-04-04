@@ -79,7 +79,23 @@ class ActorCustom(Actor):
         init_head_from_base=False,
         **kwargs,
     ) -> None:
-        # super().__init__()
+        super().__init__(
+            pretrain_or_model,
+            use_flash_attention_2,
+            bf16,
+            load_in_4bit,
+            lora_rank,
+            lora_alpha,
+            lora_dropout,
+            target_modules,
+            ds_config,
+            device_map,
+            packing_samples,
+            # additional_sd_divider,
+            # parameterization,
+            # init_head_from_base=False,
+            **kwargs,
+        )
 
         self.initial_model = initial_model
 
