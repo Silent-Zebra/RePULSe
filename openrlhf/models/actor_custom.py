@@ -55,7 +55,7 @@ class NNHead(nn.Module):
 
 
 
-class ActorCustom(nn.Module):
+class ActorCustom(Actor):
     """
     Modification of Actor model to also be able to output a modifier to the base model
     """
