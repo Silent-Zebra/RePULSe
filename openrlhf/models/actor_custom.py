@@ -145,6 +145,7 @@ class ActorCustom(Actor):
                 # model_type = getattr(self.model.config, "model_type", None)
                 # patch_for_block_diag_attn(model_type)
                 raise NotImplementedError # Not yet tested for the head parameterization
+
             self.modulation_head = self.modulation_head.to(self.initial_model.model.device)
         else:
 
@@ -453,6 +454,13 @@ class ActorCustom(Actor):
             # Get the final hidden states from the base model
             last_hidden_state = base_output.hidden_states[-1]
             # Apply modulation head to get logits
+
+            print(last_hidden_state.device)
+            print(self.modulation_head.device)
+            print(self.modulation_head.weight.device)
+            print(self.modulation_head.bias.device)
+            1/0
+
             modulation_logits = self.modulation_head(last_hidden_state)
 
             # print("last_hidden_state")
