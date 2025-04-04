@@ -145,7 +145,7 @@ class ActorCustom(Actor):
                 # model_type = getattr(self.model.config, "model_type", None)
                 # patch_for_block_diag_attn(model_type)
                 raise NotImplementedError # Not yet tested for the head parameterization
-            self.modulation_head = self.modulation_head.to(self.initial_model.device)
+            self.modulation_head = self.modulation_head.to(self.initial_model.model.device)
         else:
 
             if isinstance(pretrain_or_model, str):
