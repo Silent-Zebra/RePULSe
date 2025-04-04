@@ -11,13 +11,13 @@ from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedMod
 from transformers.deepspeed import HfDeepSpeedConfig
 
 # from .packing_utils import patch_for_block_diag_attn
-from .utils import log_probs_from_logits, log_probs_from_logits_with_modulation, reset_position_ids, return_or_gather_then_return
+from .utils import log_probs_from_logits, log_probs_from_logits_with_modulation, reset_position_ids, \
+    return_or_gather_then_return
 from openrlhf.models.actor import Actor
 
 from transformers import LogitsProcessor
 
 from torch.profiler import profile, record_function, ProfilerActivity
-
 
 
 class NNHead(nn.Module):
@@ -46,7 +46,6 @@ class NNHead(nn.Module):
 
                         linear_layer.weight /= additional_sd_divider
 
-
     def forward(self, hidden_states):
         x = hidden_states
         for layer in self.layers:
@@ -54,8 +53,7 @@ class NNHead(nn.Module):
         return x
 
 
-
-class ActorCustom(Actor):
+class ActorCustom(nn.Module):
     """
     Modification of Actor model to also be able to output a modifier to the base model
     """
@@ -79,23 +77,7 @@ class ActorCustom(Actor):
         init_head_from_base=False,
         **kwargs,
     ) -> None:
-        super().__init__(
-            pretrain_or_model,
-            use_flash_attention_2,
-            bf16,
-            load_in_4bit,
-            lora_rank,
-            lora_alpha,
-            lora_dropout,
-            target_modules,
-            ds_config,
-            device_map,
-            packing_samples,
-            # additional_sd_divider,
-            # parameterization,
-            # init_head_from_base=False,
-            **kwargs,
-        )
+        super().__init__()
 
         self.initial_model = initial_model
 
@@ -111,12 +93,13 @@ class ActorCustom(Actor):
         if self.use_modulation_head:
             # TODO allow also for nn head or not
 
-            self.model = self.initial_model # only needed for things in the main code that reference the model... should not be accessed otherwise
+            self.model = self.initial_model  # only needed for things in the main code that reference the model... should not be accessed otherwise
 
             if self.parameterization == "modulation_linear_head":
 
                 # When using modulation head, we don't need to modify the base model's head
-                self.modulation_head = nn.Linear(self.initial_model.model.config.hidden_size, self.initial_model.model.config.vocab_size,
+                self.modulation_head = nn.Linear(self.initial_model.model.config.hidden_size,
+                                                 self.initial_model.model.config.vocab_size,
                                                  dtype=next(self.initial_model.model.lm_head.parameters()).dtype)
 
                 if init_head_from_base:
@@ -132,23 +115,21 @@ class ActorCustom(Actor):
                     self.modulation_head.weight.data /= additional_sd_divider
                     if self.modulation_head.bias is not None:
                         nn.init.zeros_(self.modulation_head.bias)
-            else: # self.parameterization == "modulation_nn_head":
+            else:  # self.parameterization == "modulation_nn_head":
                 if init_head_from_base:
                     raise Exception("Cannot init head from base if using an NN head instead of linear head")
 
-                self.modulation_head = NNHead(self.initial_model.model.config.hidden_size, self.initial_model.model.config.vocab_size, dtype=next(self.initial_model.model.lm_head.parameters()).dtype)
-
+                self.modulation_head = NNHead(self.initial_model.model.config.hidden_size,
+                                              self.initial_model.model.config.vocab_size,
+                                              dtype=next(self.initial_model.model.lm_head.parameters()).dtype)
 
             self.packing_samples = packing_samples
             if packing_samples:
                 # assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
                 # model_type = getattr(self.model.config, "model_type", None)
                 # patch_for_block_diag_attn(model_type)
-                raise NotImplementedError # Not yet tested for the head parameterization
+                raise NotImplementedError  # Not yet tested for the head parameterization
 
-            # print(self.initial_model.model.device)
-            # self.modulation_head = self.modulation_head.to(self.initial_model.model.device)
-            self.modulation_head = self.modulation_head.to(torch.cuda.current_device())
         else:
 
             if isinstance(pretrain_or_model, str):
@@ -219,7 +200,7 @@ class ActorCustom(Actor):
                 # packing samples using Flash Attention 2
                 self.packing_samples = packing_samples
                 if packing_samples:
-                    raise NotImplementedError # Check the latest OpenRLHF repo
+                    raise NotImplementedError  # Check the latest OpenRLHF repo
                     # assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
                     # model_type = getattr(self.model.config, "model_type", None)
                     # patch_for_block_diag_attn(model_type)
@@ -244,7 +225,8 @@ class ActorCustom(Actor):
                 print(new_layer.weight.mean())
                 print(new_layer.weight)
 
-                nn.init.xavier_normal_(new_layer.weight) # Lower variance initialization, also consistent with my previous work
+                nn.init.xavier_normal_(
+                    new_layer.weight)  # Lower variance initialization, also consistent with my previous work
 
                 print("NEW LAYER WEIGHT 2")
                 print(new_layer.weight.mean())
@@ -260,8 +242,6 @@ class ActorCustom(Actor):
                     nn.init.zeros_(new_layer.bias)
 
                 self.model.lm_head = new_layer
-
-
 
     @torch.no_grad()
     # def generate(self, input_ids: torch.Tensor, **kwargs) -> Union[
@@ -298,7 +278,6 @@ class ActorCustom(Actor):
         # )
         # sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
 
-
         action_mask, attention_mask, sequences = self.custom_generate(
             attention_mask, generate_args, input_ids, **kwargs)
 
@@ -311,7 +290,6 @@ class ActorCustom(Actor):
 
         return sequences, attention_mask, action_mask
 
-    @torch.no_grad() # should not be needed if only called from generate, but can add this to be explicit
     def custom_generate(self, attention_mask, generate_args, input_ids, **kwargs):
         max_new_tokens = kwargs.get("max_new_tokens")
         max_len = max_new_tokens + input_ids.shape[-1]
@@ -319,15 +297,15 @@ class ActorCustom(Actor):
         sequences = input_ids.clone()
         eos_token_id = generate_args["eos_token_id"]
         pad_token_id = generate_args["pad_token_id"]
-        
+
         # Initialize unfinished_sequences - a mask indicating which sequences are not finished
         unfinished_sequences = torch.ones(sequences.shape[0], dtype=torch.long, device=sequences.device)
-        
+
         # Initialize attention mask for the full sequence length
         if attention_mask is None:
             attention_mask = torch.ones_like(sequences, dtype=torch.long, device=sequences.device)
         curr_attention_mask = attention_mask.clone()
-        
+
         while sequences.shape[-1] < max_len:
             # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
             #                           profile_memory=True, record_shapes=True) as prof:
@@ -371,7 +349,7 @@ class ActorCustom(Actor):
         # Get final masks using process_sequences only once at the end
         sequences, attention_mask, action_mask = self.process_sequences(
             sequences, input_ids.size(1), eos_token_id, pad_token_id)
-            
+
         return action_mask, attention_mask, sequences
 
     @torch.no_grad()
@@ -427,12 +405,11 @@ class ActorCustom(Actor):
         attention_mask = (mask >= first_token_indices) & (mask <= eos_indices).to(dtype=torch.long)
 
         # in RL, state_i (current token) + action_i (next token) -> state_i+1 (next token)
-        state_seq = sequences[:, input_len - 1 : -1]
+        state_seq = sequences[:, input_len - 1: -1]
         action_mask = state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id)
         action_mask[:, 0] = 1
 
         return sequences, attention_mask, action_mask
-
 
     def forward(
         self,
@@ -447,7 +424,6 @@ class ActorCustom(Actor):
         """Returns action log probs"""
         position_ids = self.get_position_ids(attention_mask)
 
-
         base_output = None
         if self.use_modulation_head:
             with torch.no_grad():
@@ -456,8 +432,6 @@ class ActorCustom(Actor):
             # Get the final hidden states from the base model
             last_hidden_state = base_output.hidden_states[-1]
             # Apply modulation head to get logits
-
-
             modulation_logits = self.modulation_head(last_hidden_state)
 
             # print("last_hidden_state")
@@ -466,7 +440,6 @@ class ActorCustom(Actor):
             # print(base_output.hidden_states[1].shape)
             # print(base_output.hidden_states[2].shape)
             # print(base_output.hidden_states)
-
 
             # print("modulation_logits")
             # print(modulation_logits.shape)
@@ -482,7 +455,6 @@ class ActorCustom(Actor):
             modulation = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
             modulation_logits = modulation["logits"]
 
-
         if return_only_modulation:
             assert not use_for_generation
             modulation = modulation_logits[:, :-1, :][:, -num_actions:]
@@ -495,17 +467,18 @@ class ActorCustom(Actor):
 
         if base_output is None:
             with torch.no_grad():
-                base_output = self.initial_model.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
+                base_output = self.initial_model.model(sequences, attention_mask=attention_mask,
+                                                       position_ids=position_ids)
 
-        if return_type == "all_vocab": # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
-            if use_for_generation: # In generation, do not shift by one; we need the final logits of the last token
+        if return_type == "all_vocab":  # In the generation loop, need all logits for all vocab. Otherwise just need evaluation of the particular log_p
+            if use_for_generation:  # In generation, do not shift by one; we need the final logits of the last token
                 log_probs = log_probs_from_logits_with_modulation(
                     base_output["logits"],
                     modulation_logits,
                     return_type="all_vocab"
                 )
 
-            else: # Otherwise, not generating, do the same shift by one; this should only be used by DPG loss
+            else:  # Otherwise, not generating, do the same shift by one; this should only be used by DPG loss
                 # return_all_vocab = True
                 log_probs = log_probs_from_logits_with_modulation(
                     base_output["logits"][:, :-1, :],
@@ -516,7 +489,7 @@ class ActorCustom(Actor):
                 #     base_output["logits"], modulation_logits, sequences,
                 #     return_type="all_vocab"
                 # )
-            return log_probs[:, -num_actions:] # actually only need the very last one of this... [:, -1]
+            return log_probs[:, -num_actions:]  # actually only need the very last one of this... [:, -1]
         elif return_type == "p":
             # return_all_vocab = False
             assert not return_output
@@ -524,9 +497,9 @@ class ActorCustom(Actor):
             #     return output if num_actions is None else (log_probs[:, -num_actions:], output)
             # else:
             log_probs = log_probs_from_logits_with_modulation(
-                base_output["logits"][:, :-1, :], 
-                modulation_logits[:, :-1, :], 
-                sequences[:, 1:], 
+                base_output["logits"][:, :-1, :],
+                modulation_logits[:, :-1, :],
+                sequences[:, 1:],
                 return_type='p'
             )
 
@@ -540,7 +513,6 @@ class ActorCustom(Actor):
             )
 
             return log_probs_all[:, -num_actions:], log_probs[:, -num_actions:]
-
 
     def get_position_ids(self, attention_mask):
         if not self.packing_samples:
@@ -585,7 +557,7 @@ class ActorCritic(nn.Module):
     ) -> None:
         super().__init__()
 
-        raise NotImplementedError # Have not tested this in quite a while, do not use unless checking every line here...
+        raise NotImplementedError  # Have not tested this in quite a while, do not use unless checking every line here...
 
         if isinstance(pretrain_or_model, str):
             attn_implementation = "flash_attention_2" if use_flash_attention_2 else "eager"
@@ -619,7 +591,7 @@ class ActorCritic(nn.Module):
 
             # LoRA
             if lora_rank > 0:
-                raise NotImplementedError # TODO: Make sure that the value head works properly here too
+                raise NotImplementedError  # TODO: Make sure that the value head works properly here too
                 # https://github.com/huggingface/peft/issues/137
                 self.model.enable_input_require_grads()
                 lora_config = LoraConfig(
@@ -655,7 +627,7 @@ class ActorCritic(nn.Module):
             # packing samples using Flash Attention 2
             self.packing_samples = packing_samples
             if packing_samples:
-                raise NotImplementedError # check the latest OpenRLHF repo version
+                raise NotImplementedError  # check the latest OpenRLHF repo version
                 # assert use_flash_attention_2, "Only support `--packing_samples` with Flash Attention 2."
                 # model_type = getattr(self.model.config, "model_type", None)
                 # patch_for_block_diag_attn(model_type)
@@ -673,8 +645,6 @@ class ActorCritic(nn.Module):
             nn.init.zeros_(new_layer.bias)
 
         self.critic_head = new_layer
-
-
 
     @torch.no_grad()
     # def generate(self, input_ids: torch.Tensor, **kwargs) -> Union[
@@ -716,7 +686,8 @@ class ActorCritic(nn.Module):
         # Call generate
         sequences = self.model.generate(**generate_args)
 
-        sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id, pad_token_id)
+        sequences, attention_mask, action_mask = self.process_sequences(sequences, input_ids.size(1), eos_token_id,
+                                                                        pad_token_id)
 
         # print("LM LOGITS SHAPE")
         # print(lm_logits.shape)
@@ -768,13 +739,11 @@ class ActorCritic(nn.Module):
         attention_mask = (mask >= first_token_indices) & (mask <= eos_indices).to(dtype=torch.long)
 
         # in RL, state_i (current token) + action_i (next token) -> state_i+1 (next token)
-        state_seq = sequences[:, input_len - 1 : -1]
+        state_seq = sequences[:, input_len - 1: -1]
         action_mask = state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id)
         action_mask[:, 0] = 1
 
         return sequences, attention_mask, action_mask
-
-
 
     def forward(
         self,
@@ -803,7 +772,6 @@ class ActorCritic(nn.Module):
         output = self.model(sequences, attention_mask=attention_mask,
                             position_ids=position_ids, output_hidden_states=True)
 
-
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :],
                                           sequences[:, 1:], return_type=return_type)
 
@@ -815,7 +783,7 @@ class ActorCritic(nn.Module):
 
         # value = self.critic_head(last_hidden_state).squeeze(-1)
 
-        value = self.critic_head(last_hidden_state).squeeze(-1)[:,:-1]
+        value = self.critic_head(last_hidden_state).squeeze(-1)[:, :-1]
         # print(value.shape)
         # print(log_probs.shape)
         # print(log_probs[:, -num_actions:].shape)
@@ -829,11 +797,10 @@ class ActorCritic(nn.Module):
 
         if return_output:
             return output if num_actions is None else (
-            log_probs[:, -num_actions:], output, value[:, -num_actions:])
+                log_probs[:, -num_actions:], output, value[:, -num_actions:])
             # Right, reason why we do this: in the last token state, where you have the full generation: you are no longer taking any actions. You don't need the value in that state, to compare against rewards or whatever, because there are no further actions to be taken. Once all the 8 or whatever initial prompt tokens are given, your model outputs a value. This is the value for the initial state, which you then take an action corresponding to a token generation, then for that generated token, you do r + next val - curr val, and the curr value is the one based on the 8 prompt tokens you generated, ie in the 8th position (index 7 via 0 indexing). So yeah, the 7 index (8th value counting from 1) should already be used.
         else:
             return log_probs[:, -num_actions:], value[:, -num_actions:]
-
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
         self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
