@@ -872,6 +872,7 @@ class HarmlessnessTrainer(ABC):
 
 
     def training_step_critic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
+        raise NotImplementedError # Not yet tested
         if self.model_eval:
             self.critic.eval()
         else:
@@ -905,6 +906,7 @@ class HarmlessnessTrainer(ABC):
         return status
 
     def get_critic_loss(self, experience, values, custom_prompt=None):
+        raise NotImplementedError # not yet tested
         if self.critic_loss_type == "mse":
             critic_loss = self.critic_loss_fn(
                 values,
@@ -988,23 +990,6 @@ class HarmlessnessTrainer(ABC):
             raise NotImplementedError
         return critic_loss
 
-    def generate_base_seqs_from_str_prompt(self, custom_prompt):
-        self.initial_model.eval()
-        inputs = self.experience_maker.tokenize_fn(custom_prompt, self.prompt_max_len,
-                                                   device="cuda")
-
-        base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
-            **inputs,
-            **self.generate_kwargs)
-        return base_action_mask, base_attention_mask, base_sequences
-
-    def generate_base_seqs_from_torch_prompt(self, input_ids, attention_mask):
-        self.initial_model.eval()
-
-        base_sequences, base_attention_mask, base_action_mask = self.initial_model.generate(
-            input_ids=input_ids, attention_mask=attention_mask,
-            **self.generate_kwargs)
-        return base_action_mask, base_attention_mask, base_sequences
 
     def save_logs_and_checkpoints(self, args, global_step, step_bar, logs_dict={}, client_states={}):
         if global_step % args.logging_steps == 0:

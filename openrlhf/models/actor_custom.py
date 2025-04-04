@@ -292,6 +292,7 @@ class ActorCustom(nn.Module):
 
         return sequences, attention_mask, action_mask
 
+    @torch.no_grad() # should not be needed if only called from generate, but can add this to be explicit
     def custom_generate(self, attention_mask, generate_args, input_ids, **kwargs):
         max_new_tokens = kwargs.get("max_new_tokens")
         max_len = max_new_tokens + input_ids.shape[-1]

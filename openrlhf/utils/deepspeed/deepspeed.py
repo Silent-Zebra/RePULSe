@@ -19,7 +19,7 @@ from torch import distributed as dist
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
-from openrlhf.models import Actor
+from openrlhf.models import Actor, ActorCustom
 from openrlhf.models.ring_attn_utils import get_ring_attn_group, set_ring_attn_group
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
@@ -210,7 +210,7 @@ class DeepspeedStrategy(ABC):
         return ret[0] if len(ret) == 1 else ret
 
     def _ds_init_train_model(self, model, optim, scheduler, gradient_accumulation_steps=1):
-        is_actor = isinstance(model, Actor)
+        is_actor = isinstance(model, Actor) # or isinstance(model, ActorCustom)
         ds_config = self.get_ds_train_config(is_actor)
 
         ds_config['gradient_accumulation_steps'] = gradient_accumulation_steps

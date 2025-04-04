@@ -23,16 +23,21 @@ def train(args):
     strategy = get_strategy(args)
     strategy.setup_distributed()
 
-    # load weights for reference actor
-    base_actor = Actor(
-        args.pretrain,
-        use_flash_attention_2=args.flash_attn,
-        bf16=args.bf16,
-        load_in_4bit=args.load_in_4bit,
-        ds_config=strategy.get_ds_eval_config(offload=False),
-    )
+
+
+
+
+
     static_initial_model = None
     if not args.do_harmlessness_training:
+        # load weights for reference actor
+        base_actor = Actor(
+            args.pretrain,
+            use_flash_attention_2=args.flash_attn,
+            bf16=args.bf16,
+            load_in_4bit=args.load_in_4bit,
+            ds_config=strategy.get_ds_eval_config(offload=False),
+        )
         # Freeze initial model
         # This doesn't make a difference normally, but for my CustomActor
         # where I take this in as an argument, then the optimizer will optimize these
@@ -44,7 +49,26 @@ def train(args):
         # NOTE: now I have with torch.no_grad() on initial model calls for the twist/proposal learning
         # For harmlessness training, we are going to need to update the initial_model.parameters()
     else:
-        # Use this model for KL to base for the harmlessness training, if we want to do something like that
+        # base_actor = Actor(
+        #     args.pretrain,
+        #     use_flash_attention_2=args.flash_attn,
+        #     bf16=args.bf16,
+        #     load_in_4bit=args.load_in_4bit,
+        #     ds_config=strategy.get_ds_eval_config(offload=False),
+        # )
+        base_actor = Actor(
+            args.pretrain,
+            use_flash_attention_2=args.flash_attn,
+            bf16=args.bf16,
+            load_in_4bit=args.load_in_4bit,
+            lora_rank=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            target_modules=args.target_modules,
+            lora_dropout=args.lora_dropout,
+            ds_config=strategy.get_ds_train_config(is_actor=True),
+        )
+
+        # This model is used for KL to base (if not used in training, then used in evaluation) for the harmlessness training
         static_initial_model = Actor(
             args.pretrain,
             use_flash_attention_2=args.flash_attn,
@@ -336,6 +360,7 @@ def train(args):
         )
 
     if args.do_harmlessness_training:
+        # Seems like the strategy.prepare handles None gracefully, so no need for the explicit critic check
         if critic is not None:
             # prepare models/optimizers...
             (
