@@ -453,12 +453,13 @@ class BaseExperienceMaker(ABC):
         self.set_all_eval()
         # generate seq
 
-        # print("prompts")
-        # print(prompts)
+        print("prompts")
+        print(prompts)
 
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
 
-        # print(inputs)
+        print(inputs)
+        1/0
         # print(generate_kwargs)
 
         # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
