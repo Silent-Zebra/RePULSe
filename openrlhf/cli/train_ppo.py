@@ -265,7 +265,11 @@ def train(args):
             print(inputs)
 
             with torch.no_grad():
-                log_probs = actor(**inputs)
+                log_probs = actor(
+                    sequences=inputs.input_ids,
+                    num_actions=args.generate_max_len,
+                    attention_mask=inputs.attention_mask,
+                )
 
             print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
             print(inputs.attention_mask)
