@@ -273,9 +273,9 @@ def train(args):
                 )
 
             print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
-            print(inputs.attention_mask)
+            print(inputs["attention_mask"])
             print(log_probs.shape)
-            print(inputs.attention_mask.shape)
+            print(inputs["attention_mask"].shape)
             1/0
 
             results.append(output)
