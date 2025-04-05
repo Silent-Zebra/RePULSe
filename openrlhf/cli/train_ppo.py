@@ -158,7 +158,7 @@ def train(args):
                 tokenizer.pad_token = tokenizer.eos_token
                 return tokenizer
 
-            tokenizer = get_tokenizer_custom(args.pretrain)
+            tokenizer_rm = get_tokenizer_custom(args.pretrain)
 
             rm_name = args.reward_pretrain
             config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
@@ -167,7 +167,7 @@ def train(args):
             base_class = AutoModel._model_mapping[type(config)]
             base_pretrained_class = base_class.__base__
             reward_model = _get_reward_model_custom(base_pretrained_class, rm_name,
-                                             tokenizer=tokenizer, config=config)
+                                             tokenizer=tokenizer_rm, config=config)
 
         elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base", "OpenAssistant/reward-model-deberta-v3-large-v2"]:
             print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
@@ -178,7 +178,7 @@ def train(args):
                 tokenizer.pad_token = tokenizer.eos_token
                 return tokenizer
 
-            tokenizer = get_tokenizer_custom(args.pretrain)
+            tokenizer_rm = get_tokenizer_custom(args.pretrain)
 
             rm_name = args.reward_pretrain
             config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
@@ -198,7 +198,7 @@ def train(args):
                     raise NotImplementedError
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
-                tokenizer=tokenizer,
+                tokenizer=tokenizer_rm,
                 config=config,
                 separatequeryanswer=True,
                 max_new_tokens=args.generate_max_len,
@@ -550,6 +550,43 @@ def train(args):
     # But we also need to be able to do simple reinforce or something like that from the base model
     # This shouldn't be too hard to do...
 
+    if args.only_evaluate_on_neg_data:
+
+        with open(args.neg_data_load_path, "rb") as f:
+            neg_data = pickle.load(f)
+
+        actor.eval()
+        neg_dataloader = DataLoader(neg_data, batch_size=args.train_batch_size)
+        results = []
+
+        def tokenize_fn(texts):
+            batch = tokenizer(
+                texts,
+                return_tensors="pt",
+                add_special_tokens=False,
+                max_length=args.prompt_max_len,
+                padding=True,
+                truncation=True,
+            )
+            return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
+
+        for batch in neg_dataloader:
+            inputs = tokenize_fn(batch)
+            print("BATCH")
+            print(inputs)
+
+            with torch.no_grad():
+                log_probs = actor(**inputs)
+
+            print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
+            print(batch.attention_mask)
+            1/0
+
+            results.append(output)
+
+        raise SystemExit(0)  # Finished
+
+
     if args.do_harmlessness_training:
         base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
                                   use_fast=not args.disable_fast_tokenizer)
@@ -628,6 +665,7 @@ def train(args):
             print("-----TWIST OR PROPOSAL TRAINING-----", flush=True)
 
             # Do the training for the actor/sampling_actor which is trying to generate approximate samples from sigma = p * phi = p e^{beta r} for the RLHF formulation (or -beta for harmlessness)
+            # This trains actor/sampling_actor, does not train base_actor, but should use the updated base_actor from harmlessness training below
             if args.num_episodes > 0:
                 estimates_list = trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
@@ -636,6 +674,7 @@ def train(args):
 
             print("-----POLICY HARMLESSNESS TRAINING-----", flush=True)
             # Do the harmlessness training: use samples from the actor/sampling_actor trained by the PPOTrainer above to generate approximate sigma samples, and then reduce probability on those samples
+            # This trains base_actor, does not train actor, but should use the updated actor from the training above.
             # TODO Update the initial model, and check that the trainer is now using the updated model version.
             harmlessness_trainer.fit( # TODO check that these arguments are the right ones
                 args, prompts_dataloader, pretrain_dataloader, consumed_samples,
@@ -923,6 +962,10 @@ if __name__ == "__main__":
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, --harmlessness_training_num_episodes for the number of outer loop steps, and --harmlessness_training_episodes_per_loop for the number of harmlessness training steps in each loop iteration. So total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes * harmlessness_training_episodes_per_loop base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")
     parser.add_argument("--harmlessness_training_episodes_per_loop", type=int, default=1, help="Number of harmlessness training steps to do for each outer loop step")
+
+    parser.add_argument("--only_evaluate_on_neg_data", action="store_true", help="Only evaluate on neg_data")
+    parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")
+
 
     parser.add_argument(
         "--harmlessness_training_loss_type", type=str, default="neg_reinforce",
