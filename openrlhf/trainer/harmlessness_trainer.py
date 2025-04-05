@@ -311,23 +311,23 @@ class HarmlessnessTrainer(ABC):
 
         # Restore step and start_epoch
 
-        for param in self.base_actor.model.parameters():
-            print("PARAM CHECK HARML")
-            print(param)
-            break
-
-        for param in self.experience_maker_neg_sampling.actor.model.parameters():
-            print("PARAM CHECK HARML SAMPLING ACTOR")
-            print(param)
-            break
-
-        try:
-            for param in self.experience_maker_neg_sampling.actor.modulation_head.parameters():
-                print("PARAM CHECK HARML SAMPLING ACTORCUSTOM")
-                print(param)
-                break
-        except:
-            print("error")
+        # for param in self.base_actor.model.parameters():
+        #     print("PARAM CHECK HARML")
+        #     print(param)
+        #     break
+        #
+        # for param in self.experience_maker_neg_sampling.actor.model.parameters():
+        #     print("PARAM CHECK HARML SAMPLING ACTOR")
+        #     print(param)
+        #     break
+        #
+        # try:
+        #     for param in self.experience_maker_neg_sampling.actor.modulation_head.parameters():
+        #         print("PARAM CHECK HARML SAMPLING ACTORCUSTOM")
+        #         print(param)
+        #         break
+        # except:
+        #     print("error")
 
 
         print("INSPECT_HARMLESS")
@@ -724,10 +724,10 @@ class HarmlessnessTrainer(ABC):
         print("BASE ACTOR OPTIM 2")
         print(self.actor_optim)
 
-        for param in self.base_actor.model.parameters():
-            print("PARAM CHECK HARML before loss")
-            print(param)
-            break
+        # for param in self.base_actor.model.parameters():
+        #     print("PARAM CHECK HARML before loss")
+        #     print(param)
+        #     break
 
         self.strategy.backward(loss, self.base_actor, self.actor_optim)
 

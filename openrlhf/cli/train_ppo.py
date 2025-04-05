@@ -628,10 +628,10 @@ def train(args):
     # But we also need to be able to do simple reinforce or something like that from the base model
     # This shouldn't be too hard to do...
 
-    for param in base_actor.model.parameters():
-        print("PARAM CHECK 1")
-        print(param)
-        break
+    # for param in base_actor.model.parameters():
+    #     print("PARAM CHECK 1")
+    #     print(param)
+    #     break
 
     if args.do_harmlessness_training:
         base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
@@ -734,10 +734,10 @@ def train(args):
             num_update_steps_per_episodes, true_posterior_samples
         )
 
-    for param in base_actor.model.parameters():
-        print("PARAM CHECK 3")
-        print(param)
-        break
+    # for param in base_actor.model.parameters():
+    #     print("PARAM CHECK 3")
+    #     print(param)
+    #     break
 
     info_name_str = get_info_name_str(args)
 
