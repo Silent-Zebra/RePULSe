@@ -5,6 +5,8 @@ import os
 from copy import deepcopy
 from datetime import datetime
 
+import pickle
+
 import torch
 from transformers.trainer import get_scheduler
 
@@ -231,6 +233,46 @@ def train(args):
     tokenizer = get_tokenizer(args.pretrain, actor.model, "left", strategy, use_fast=not args.disable_fast_tokenizer)
     if critic is not None:
         get_tokenizer(args.critic_pretrain, critic, "left", strategy, use_fast=not args.disable_fast_tokenizer)
+
+
+
+    if args.only_evaluate_on_neg_data:
+
+        with open(args.neg_data_load_path, "rb") as f:
+            neg_data = pickle.load(f)
+
+        actor.eval()
+        neg_dataloader = DataLoader(neg_data, batch_size=args.train_batch_size)
+        results = []
+
+        def tokenize_fn(texts):
+            batch = tokenizer(
+                texts,
+                return_tensors="pt",
+                add_special_tokens=False,
+                max_length=args.prompt_max_len,
+                padding=True,
+                truncation=True,
+            )
+            return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
+
+        for batch in neg_dataloader:
+            inputs = tokenize_fn(batch)
+            print("BATCH")
+            print(inputs)
+
+            with torch.no_grad():
+                log_probs = actor(**inputs)
+
+            print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
+            print(batch.attention_mask)
+            1/0
+
+            results.append(output)
+
+        raise SystemExit(0)  # Finished
+
+
 
     strategy.print(actor)
     if critic is not None:
@@ -550,42 +592,6 @@ def train(args):
     # But we also need to be able to do simple reinforce or something like that from the base model
     # This shouldn't be too hard to do...
 
-    if args.only_evaluate_on_neg_data:
-
-        with open(args.neg_data_load_path, "rb") as f:
-            neg_data = pickle.load(f)
-
-        actor.eval()
-        neg_dataloader = DataLoader(neg_data, batch_size=args.train_batch_size)
-        results = []
-
-        def tokenize_fn(texts):
-            batch = tokenizer(
-                texts,
-                return_tensors="pt",
-                add_special_tokens=False,
-                max_length=args.prompt_max_len,
-                padding=True,
-                truncation=True,
-            )
-            return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
-
-        for batch in neg_dataloader:
-            inputs = tokenize_fn(batch)
-            print("BATCH")
-            print(inputs)
-
-            with torch.no_grad():
-                log_probs = actor(**inputs)
-
-            print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
-            print(batch.attention_mask)
-            1/0
-
-            results.append(output)
-
-        raise SystemExit(0)  # Finished
-
 
     if args.do_harmlessness_training:
         base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
@@ -731,7 +737,6 @@ def train(args):
 
     if args.save_negdata:
         print(len(neg_data))
-        import pickle
         # Save to file
         with open(f"{args.save_path}/neg_data_{info_name_str}.pkl", "wb") as f:
             pickle.dump(neg_data, f)
@@ -1034,6 +1039,9 @@ if __name__ == "__main__":
         raise NotImplementedErorr # Not tested
         args.no_critic = True
 
+
+    if args.only_evaluate_on_neg_data:
+        assert args.parameterization == "policy"
 
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
