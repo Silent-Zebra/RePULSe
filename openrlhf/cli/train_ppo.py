@@ -269,8 +269,8 @@ def train(args):
             # print(batch)
             # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
             cleaned_batch = list(map(strip_leading_im_end, batch))
-            print("BATCH CLEANED")
-            print(cleaned_batch)
+            # print("BATCH CLEANED")
+            # print(cleaned_batch)
 
             inputs = tokenize_fn(cleaned_batch)
             # print("INPUTS")
@@ -281,8 +281,8 @@ def train(args):
             # print(sequences.shape)
             sequences, attention_mask, action_mask = actor.process_sequences(sequences, sequences.size(1) - args.generate_max_len, tokenizer.eos_token_id, tokenizer.pad_token_id)
 
-            print("ATTENTION MASK CHECK")
-            print(attention_mask)
+            # print("ATTENTION MASK CHECK")
+            # print(attention_mask)
             # print((inputs["attention_mask"] - attention_mask).abs().sum())
 
             with torch.no_grad():
@@ -297,8 +297,8 @@ def train(args):
             # print(log_probs.shape)
             # print(inputs["attention_mask"].shape)
 
-            print("ACTION MASK")
-            print(action_mask)
+            # print("ACTION MASK")
+            # print(action_mask)
 
             total_log_prob = (log_probs * action_mask).sum(-1)
 
@@ -306,7 +306,7 @@ def train(args):
 
         result_stack = torch.cat(results, dim=0)
         print(result_stack.shape)
-        print(result_stack)
+        # print(result_stack)
         print("Mean log prob on dataset")
         print(result_stack.mean())
 
