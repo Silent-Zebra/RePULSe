@@ -1634,8 +1634,9 @@ class BasePPOTrainer(ABC):
 
             print(self.actor.modulation_head)
             print(type(self.actor.modulation_head))
+            print(self.actor.modulation_head.state_dict())
 
-            torch.save(self.actor.modulation_head, save_path)
+            torch.save(self.actor.modulation_head.state_dict(), save_path)
 
 
         else:
