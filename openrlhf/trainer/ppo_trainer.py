@@ -16,6 +16,7 @@ import torch.nn.functional as F
 
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
+from openrlhf.models.actor_custom import ActorCustom
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
@@ -1623,15 +1624,20 @@ class BasePPOTrainer(ABC):
         save_str = f"{info_name_str}"
         # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
 
-        self.strategy.save_ckpt(
-            self.actor.model,
-            os.path.join(args.ckpt_path, f"{save_str}_actor"),
-            tag,
-            args.max_ckpt_num,
-            args.max_ckpt_mem,
-            client_states,
-        )
-        if self.critic is not None:
+        if isinstance(self.actor, ActorCustom):
+            save_path = os.path.join(args.ckpt_path, f"{save_str}_actor")
+            torch.save(self.Actor, save_path)
+
+        else:
             self.strategy.save_ckpt(
-                self.critic, os.path.join(args.ckpt_path, f"{save_str}_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+                self.actor.model,
+                os.path.join(args.ckpt_path, f"{save_str}_actor"),
+                tag,
+                args.max_ckpt_num,
+                args.max_ckpt_mem,
+                client_states,
             )
+            if self.critic is not None:
+                self.strategy.save_ckpt(
+                    self.critic, os.path.join(args.ckpt_path, f"{save_str}_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+                )
