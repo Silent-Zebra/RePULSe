@@ -236,85 +236,6 @@ def train(args):
 
 
 
-    if args.only_evaluate_on_neg_data:
-
-        _ = do_load_checkpoints(args, actor, critic, strategy)
-
-        with open(args.neg_data_load_path, "rb") as f:
-            neg_data = pickle.load(f)
-        neg_data = list(neg_data)
-
-        actor.eval()
-        actor = actor.to(torch.cuda.current_device())
-        results = []
-
-        def tokenize_fn(texts):
-            batch = tokenizer(
-                texts,
-                return_tensors="pt",
-                add_special_tokens=False,
-                max_length=args.prompt_max_len,
-                padding=True,
-                truncation=True,
-            )
-            return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
-
-        print(len(neg_data))
-
-        import re
-        def strip_leading_im_end(s):
-            return re.sub(r'^(<\|im_end\|>)+', '', s)
-
-        for i in range(len(neg_data) // args.train_batch_size + 1):
-            batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
-            # print("BATCH")
-            # print(batch)
-            # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
-            cleaned_batch = list(map(strip_leading_im_end, batch))
-            # print("BATCH CLEANED")
-            # print(cleaned_batch)
-
-            inputs = tokenize_fn(cleaned_batch)
-            # print("INPUTS")
-            # print(inputs)
-            sequences = inputs["input_ids"]
-            # print("Shapes")
-            # print(sequences.size(1) - args.generate_max_len)
-            # print(sequences.shape)
-            sequences, attention_mask, action_mask = actor.process_sequences(sequences, sequences.size(1) - args.generate_max_len, tokenizer.eos_token_id, tokenizer.pad_token_id)
-
-            # print("ATTENTION MASK CHECK")
-            # print(attention_mask)
-            # print((inputs["attention_mask"] - attention_mask).abs().sum())
-
-            with torch.no_grad():
-                log_probs = actor(
-                    sequences=sequences,
-                    num_actions=args.generate_max_len,
-                    attention_mask=attention_mask,
-                )
-
-            # print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
-            # print(inputs["attention_mask"])
-            # print(log_probs.shape)
-            # print(inputs["attention_mask"].shape)
-
-            # print("ACTION MASK")
-            # print(action_mask)
-
-            total_log_prob = (log_probs * action_mask).sum(-1)
-
-            results.append(total_log_prob)
-
-        result_stack = torch.cat(results, dim=0)
-        print(result_stack.shape)
-        # print(result_stack)
-        print("Mean log prob on dataset")
-        print(result_stack.mean())
-
-        raise SystemExit(0)  # Finished
-
-
 
     strategy.print(actor)
     if critic is not None:
@@ -404,22 +325,24 @@ def train(args):
             pretrain_mode=True,
         )
 
-    # prepare dataloader
-    prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
-    if args.pretrain_data:
-        pretrain_dataloader = itertools.cycle(
-            iter(
-                strategy.setup_dataloader(
-                    pretrain_dataset,
-                    args.micro_train_batch_size,
-                    True,
-                    True,
-                    pretrain_dataset.collate_fn,
+    if not args.only_evaluate_on_neg_data:
+
+        # prepare dataloader
+        prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
+        if args.pretrain_data:
+            pretrain_dataloader = itertools.cycle(
+                iter(
+                    strategy.setup_dataloader(
+                        pretrain_dataset,
+                        args.micro_train_batch_size,
+                        True,
+                        True,
+                        pretrain_dataset.collate_fn,
+                    )
                 )
             )
-        )
-    else:
-        pretrain_dataloader = None
+        else:
+            pretrain_dataloader = None
 
     # configure scheduler
     num_update_steps_per_episodes = len(prompts_dataset) // args.train_batch_size * args.max_epochs
@@ -530,6 +453,87 @@ def train(args):
     consumed_samples = do_load_checkpoints(args, actor, critic, strategy)
 
     os.makedirs(args.save_path, exist_ok=True)
+
+
+    if args.only_evaluate_on_neg_data:
+
+        _ = do_load_checkpoints(args, actor, critic, strategy)
+
+        with open(args.neg_data_load_path, "rb") as f:
+            neg_data = pickle.load(f)
+        neg_data = list(neg_data)
+
+        actor.eval()
+        actor = actor.to(torch.cuda.current_device())
+        results = []
+
+        def tokenize_fn(texts):
+            batch = tokenizer(
+                texts,
+                return_tensors="pt",
+                add_special_tokens=False,
+                max_length=args.prompt_max_len,
+                padding=True,
+                truncation=True,
+            )
+            return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
+
+        print(len(neg_data))
+
+        import re
+        def strip_leading_im_end(s):
+            return re.sub(r'^(<\|im_end\|>)+', '', s)
+
+        for i in range(len(neg_data) // args.train_batch_size + 1):
+            batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
+            # print("BATCH")
+            # print(batch)
+            # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
+            cleaned_batch = list(map(strip_leading_im_end, batch))
+            # print("BATCH CLEANED")
+            # print(cleaned_batch)
+
+            inputs = tokenize_fn(cleaned_batch)
+            # print("INPUTS")
+            # print(inputs)
+            sequences = inputs["input_ids"]
+            # print("Shapes")
+            # print(sequences.size(1) - args.generate_max_len)
+            # print(sequences.shape)
+            sequences, attention_mask, action_mask = actor.process_sequences(sequences, sequences.size(1) - args.generate_max_len, tokenizer.eos_token_id, tokenizer.pad_token_id)
+
+            # print("ATTENTION MASK CHECK")
+            # print(attention_mask)
+            # print((inputs["attention_mask"] - attention_mask).abs().sum())
+
+            with torch.no_grad():
+                log_probs = actor(
+                    sequences=sequences,
+                    num_actions=args.generate_max_len,
+                    attention_mask=attention_mask,
+                )
+
+            # print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
+            # print(inputs["attention_mask"])
+            # print(log_probs.shape)
+            # print(inputs["attention_mask"].shape)
+
+            # print("ACTION MASK")
+            # print(action_mask)
+
+            total_log_prob = (log_probs * action_mask).sum(-1)
+
+            results.append(total_log_prob)
+
+        result_stack = torch.cat(results, dim=0)
+        print(result_stack.shape)
+        # print(result_stack)
+        print("Mean log prob on dataset")
+        print(result_stack.mean())
+
+        raise SystemExit(0)  # Finished
+
+
 
     if args.actor_learning_rate == 0:
         assert not args.shared_actorcritic # Should not do this with shared actor critic
@@ -1081,12 +1085,14 @@ if __name__ == "__main__":
         assert args.target_dist_beta == 1 # otherwise multiply by beta screws things up
 
     if args.advantage_estimator not in ["gae"]:
-        raise NotImplementedErorr # Not tested
+        raise NotImplementedError # Not tested
         args.no_critic = True
 
 
     if args.only_evaluate_on_neg_data:
         assert args.parameterization == "policy"
+        args.no_critic = True
+
 
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
