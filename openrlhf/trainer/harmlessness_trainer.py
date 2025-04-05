@@ -314,6 +314,7 @@ class HarmlessnessTrainer(ABC):
         for param in self.base_actor.model.parameters():
             print("PARAM CHECK HARML")
             print(param)
+            break
 
 
         print("INSPECT_HARMLESS")
@@ -713,12 +714,10 @@ class HarmlessnessTrainer(ABC):
         for param in self.base_actor.model.parameters():
             print("PARAM CHECK HARML before loss")
             print(param)
+            break
 
         self.strategy.backward(loss, self.base_actor, self.actor_optim)
 
-        for param in self.base_actor.model.parameters():
-            print("PARAM CHECK HARML after loss")
-            print(param)
 
         # ptx loss
         if self.pretrain_dataloader is not None:
@@ -749,6 +748,11 @@ class HarmlessnessTrainer(ABC):
         self.strategy.optimizer_step(self.actor_optim, self.base_actor, self.actor_scheduler, name="actor")
         if self.ema_model:
             self.strategy.moving_average(self.base_actor, self.ema_model, self.ema_beta, "cpu")
+
+        for param in self.base_actor.model.parameters():
+            print("PARAM CHECK HARML after loss")
+            print(param)
+            break
 
         # status
         status = {"policy_loss": actor_loss.item(), "actor_lr": self.actor_scheduler.get_last_lr()[0]}
