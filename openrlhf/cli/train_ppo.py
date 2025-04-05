@@ -243,6 +243,7 @@ def train(args):
         neg_data = list(neg_data)
 
         actor.eval()
+        actor = actor.to(torch.cuda.current_device())
         results = []
 
         def tokenize_fn(texts):
