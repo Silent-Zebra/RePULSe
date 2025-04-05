@@ -321,6 +321,14 @@ class HarmlessnessTrainer(ABC):
             print(param)
             break
 
+        try:
+            for param in self.experience_maker_neg_sampling.actor.modulation_head.parameters():
+                print("PARAM CHECK HARML SAMPLING ACTORCUSTOM")
+                print(param)
+                break
+        except:
+            print("error")
+
 
         print("INSPECT_HARMLESS")
         print(num_update_steps_per_episodes)
