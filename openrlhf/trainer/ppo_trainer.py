@@ -1624,6 +1624,9 @@ class BasePPOTrainer(ABC):
         save_str = f"{info_name_str}"
         # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
 
+        print(self.actor)
+        print(type(self.actor))
+
         if isinstance(self.actor, ActorCustom):
             save_path = os.path.join(args.ckpt_path, f"{save_str}_actor")
             torch.save(self.Actor, save_path)
