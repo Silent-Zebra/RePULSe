@@ -274,21 +274,32 @@ def train(args):
             inputs = tokenize_fn(cleaned_batch)
             print("INPUTS")
             print(inputs)
+            sequences = inputs["input_ids"]
+            sequences, attention_mask, action_mask = actor.process_sequences(sequences, input_ids.size(1), tokenizer.eos_token_id, tokenizer.pad_token_id)
+
+            print("ATTENTION MASK CHECK")
+            print((inputs["attention_mask"] - attention_mask).abs().sum())
 
             with torch.no_grad():
                 log_probs = actor(
-                    sequences=inputs["input_ids"],
+                    sequences=sequences,
                     num_actions=args.generate_max_len,
-                    attention_mask=inputs["attention_mask"],
+                    attention_mask=attention_mask,
                 )
 
             print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
             print(inputs["attention_mask"])
             print(log_probs.shape)
             print(inputs["attention_mask"].shape)
-            1/0
 
-            results.append(output)
+            total_log_prob = (log_probs * action_mask).sum(-1)
+
+            results.append(total_log_prob)
+
+        result_stack = torch.cat(results, dim=0)
+        print(result_stack.shape)
+        print("Mean log prob on dataset")
+        print(result_stack.mean())
 
         raise SystemExit(0)  # Finished
 
