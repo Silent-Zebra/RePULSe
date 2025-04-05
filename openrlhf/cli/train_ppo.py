@@ -238,6 +238,8 @@ def train(args):
 
     if args.only_evaluate_on_neg_data:
 
+        _ = do_load_checkpoints(args, actor, critic, strategy)
+
         with open(args.neg_data_load_path, "rb") as f:
             neg_data = pickle.load(f)
         neg_data = list(neg_data)
@@ -523,19 +525,9 @@ def train(args):
         ema_model = strategy.prepare(ema_model, is_rlhf=True,
                                      gradient_accumulation_steps=args.gradient_accumulation_steps)
 
-    # load checkpoint
-    consumed_samples = 0
 
-    # if args.load_checkpoint and os.path.exists(os.path.join(args.ckpt_path, "_actor")):
-    if args.load_checkpoint and os.path.exists(f"{args.ckpt_path}_actor"):
-        # _, states = strategy.load_ckpt(actor.model, os.path.join(args.ckpt_path, "_actor"))
-        _, states = strategy.load_ckpt(actor.model, f"{args.ckpt_path}_actor")
-        if critic is not None:
-            # strategy.load_ckpt(critic, os.path.join(args.ckpt_path, "_critic"))
 
-            strategy.load_ckpt(critic, f"{args.ckpt_path}_critic")
-        consumed_samples = states["consumed_samples"]
-        strategy.print(f"Loaded the checkpoint: {args.ckpt_path}, consumed_samples: {consumed_samples}")
+    consumed_samples = do_load_checkpoints(args, actor, critic, strategy)
 
     os.makedirs(args.save_path, exist_ok=True)
 
@@ -800,7 +792,20 @@ def train(args):
     #     )
 
 
+def do_load_checkpoints(args, actor, critic, strategy):
+    # load checkpoint
+    consumed_samples = 0
+    # if args.load_checkpoint and os.path.exists(os.path.join(args.ckpt_path, "_actor")):
+    if args.load_checkpoint and os.path.exists(f"{args.ckpt_path}_actor"):
+        # _, states = strategy.load_ckpt(actor.model, os.path.join(args.ckpt_path, "_actor"))
+        _, states = strategy.load_ckpt(actor.model, f"{args.ckpt_path}_actor")
+        if critic is not None:
+            # strategy.load_ckpt(critic, os.path.join(args.ckpt_path, "_critic"))
 
+            strategy.load_ckpt(critic, f"{args.ckpt_path}_critic")
+        consumed_samples = states["consumed_samples"]
+        strategy.print(f"Loaded the checkpoint: {args.ckpt_path}, consumed_samples: {consumed_samples}")
+    return consumed_samples
 
 
 if __name__ == "__main__":
