@@ -183,6 +183,7 @@ def get_info_name_str(args):
 
     harmlessness_train_str = ""
     if args.do_harmlessness_training:
+        lr_str += f"_blr{args.base_actor_learning_rate}"
         harmlessness_train_str = f"_harml_{args.harmlessness_training_loss_type}"
 
     # pretrain_str = args.pretrain.split("/")[-1]
