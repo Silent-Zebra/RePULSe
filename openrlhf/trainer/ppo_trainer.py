@@ -1624,26 +1624,24 @@ class BasePPOTrainer(ABC):
         save_str = f"{info_name_str}"
         # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
 
-        print(self.actor)
-        print(type(self.actor))
+        # print(self.actor)
+        # print(type(self.actor))
 
-        if isinstance(self.actor, ActorCustom):
-            save_path = os.path.join(args.ckpt_path, f"{save_str}_actor")
-            torch.save(self.Actor, save_path)
-
-        actor_to_save = self.actor.model
         if args.parameterization in ["modulation_linear_head", "modulation_nn_head"]:
-            actor_to_save = self.actor.modulation_head
+            # actor_to_save = self.actor.modulation_head
+            save_path = os.path.join(args.ckpt_path, f"{save_str}_actor")
+            torch.save(self.actor.modulation_head, save_path)
 
-        self.strategy.save_ckpt(
-            actor_to_save,
-            os.path.join(args.ckpt_path, f"{save_str}_actor"),
-            tag,
-            args.max_ckpt_num,
-            args.max_ckpt_mem,
-            client_states,
-        )
-        if self.critic is not None:
+        else:
             self.strategy.save_ckpt(
-                self.critic, os.path.join(args.ckpt_path, f"{save_str}_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+                actor_to_save,
+                os.path.join(args.ckpt_path, f"{save_str}_actor"),
+                tag,
+                args.max_ckpt_num,
+                args.max_ckpt_mem,
+                client_states,
             )
+            if self.critic is not None:
+                self.strategy.save_ckpt(
+                    self.critic, os.path.join(args.ckpt_path, f"{save_str}_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+                )
