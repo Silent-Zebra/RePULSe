@@ -259,10 +259,16 @@ def train(args):
 
         print(len(neg_data))
 
+        import re
+        def strip_leading_im_end(s):
+            return re.sub(r'^(<\|im_end\|>)+', '', s)
+
         for i in range(len(neg_data) // args.train_batch_size + 1):
             batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
             print("BATCH")
             print(batch)
+            # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
+            cleaned_batch = list(map(strip_leading_im_end, batch))
             inputs = tokenize_fn(batch)
             print("INPUTS")
             print(inputs)
