@@ -710,7 +710,17 @@ class HarmlessnessTrainer(ABC):
         print("BASE ACTOR OPTIM 2")
         print(self.actor_optim)
 
+        for param in self.base_actor.model.parameters():
+            print("PARAM CHECK HARML before loss")
+            print(param)
+            break
+
         self.strategy.backward(loss, self.base_actor, self.actor_optim)
+
+        for param in self.base_actor.model.parameters():
+            print("PARAM CHECK HARML after loss")
+            print(param)
+            break
 
         # ptx loss
         if self.pretrain_dataloader is not None:
