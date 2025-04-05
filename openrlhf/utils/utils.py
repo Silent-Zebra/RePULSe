@@ -197,6 +197,9 @@ def get_info_name_str(args):
     # adam_betas_str = f"_adambetas{(args.adam_betas[0])}_{(args.adam_betas[1])}"
     adam_betas_str = ""
 
-    info_name_str = f"{args.rm_type}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_beta{args.target_dist_beta}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_sched{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}_sddiv{args.additional_sd_divider}_s{args.seed}"
+    # sddiv_str = f"_sddiv{args.additional_sd_divider}"
+    sddiv_str = ""
+
+    info_name_str = f"{args.rm_type}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_beta{args.target_dist_beta}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_sched{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}_s{args.seed}"
 
     return info_name_str
