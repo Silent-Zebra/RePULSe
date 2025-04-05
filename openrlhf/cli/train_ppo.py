@@ -269,7 +269,9 @@ def train(args):
             print(batch)
             # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
             cleaned_batch = list(map(strip_leading_im_end, batch))
-            inputs = tokenize_fn(batch)
+            print("BATCH CLEANED")
+            print(cleaned_batch)
+            inputs = tokenize_fn(cleaned_batch)
             print("INPUTS")
             print(inputs)
 
