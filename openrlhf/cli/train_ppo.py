@@ -240,6 +240,7 @@ def train(args):
 
         with open(args.neg_data_load_path, "rb") as f:
             neg_data = pickle.load(f)
+        neg_data = list(neg_data)
 
         actor.eval()
         results = []
