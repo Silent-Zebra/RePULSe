@@ -275,6 +275,11 @@ class BasePPOTrainer(ABC):
         true_posterior_samples=None,
     ) -> (List, List, List, List):
 
+        for param in self.actor.model.parameters():
+            print("PARAM CHECK PPO")
+            print(param)
+            break
+
         if args.custom_single_prompt:
             update_timesteps = 1
             num_rollouts_per_episodes = 1

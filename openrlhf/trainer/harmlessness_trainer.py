@@ -311,6 +311,11 @@ class HarmlessnessTrainer(ABC):
 
         # Restore step and start_epoch
 
+        for param in self.base_actor.model.parameters():
+            print("PARAM CHECK HARML")
+            print(param)
+            break
+
         print("INSPECT_HARMLESS")
         print(num_update_steps_per_episodes)
         print(args.train_batch_size)
