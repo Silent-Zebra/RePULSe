@@ -276,9 +276,15 @@ class BasePPOTrainer(ABC):
     ) -> (List, List, List, List):
 
         for param in self.initial_model.model.parameters():
-            print("PARAM CHECK PPO")
+            print("PARAM CHECK PPO BASE")
             print(param)
             break
+
+        for param in self.actor.model.parameters():
+            print("PARAM CHECK PPO ACTOR")
+            print(param)
+            break
+
 
         if args.custom_single_prompt:
             update_timesteps = 1
