@@ -281,7 +281,8 @@ def train(args):
             # print(sequences.shape)
             sequences, attention_mask, action_mask = actor.process_sequences(sequences, sequences.size(1) - args.generate_max_len, tokenizer.eos_token_id, tokenizer.pad_token_id)
 
-            # print("ATTENTION MASK CHECK")
+            print("ATTENTION MASK CHECK")
+            print(attention_mask)
             # print((inputs["attention_mask"] - attention_mask).abs().sum())
 
             with torch.no_grad():
@@ -813,7 +814,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--logging_steps", type=int, default=1)
     parser.add_argument("--eval_steps", type=int, default=-1)
-    parser.add_argument("--ckpt_path", type=str, default="./ckpt/checkpoints_ppo", help="")
+    parser.add_argument("--ckpt_path", type=str, default="./ckpt/checkpoints_ppo", help="For loading, include the full path name including all the info_name_str but excluding '_actor'. For saving, the info_name_str and '_actor' will be auto-genereated, just include only the folder path")
     parser.add_argument("--max_ckpt_num", type=int, default=3)
     parser.add_argument("--max_ckpt_mem", type=int, default=1e8)
     parser.add_argument("--load_checkpoint", action="store_true", default=False)
