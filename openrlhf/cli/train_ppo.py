@@ -631,7 +631,7 @@ def train(args):
     for param in base_actor.model.parameters():
         print("PARAM CHECK 1")
         print(param)
-        break
+
 
     if args.do_harmlessness_training:
         base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
@@ -737,7 +737,7 @@ def train(args):
     for param in base_actor.model.parameters():
         print("PARAM CHECK 3")
         print(param)
-        break
+
 
     info_name_str = get_info_name_str(args)
 

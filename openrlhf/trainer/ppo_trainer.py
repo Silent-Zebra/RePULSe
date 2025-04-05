@@ -278,7 +278,6 @@ class BasePPOTrainer(ABC):
         for param in self.actor.model.parameters():
             print("PARAM CHECK PPO")
             print(param)
-            break
 
         if args.custom_single_prompt:
             update_timesteps = 1
