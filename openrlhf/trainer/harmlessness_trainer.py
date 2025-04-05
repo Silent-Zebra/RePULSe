@@ -534,6 +534,9 @@ class HarmlessnessTrainer(ABC):
                     # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     #              profile_memory=True, record_shapes=True) as prof:
 
+                    self.total_steps += 1  # do this update before the save_steps, so that saving does happen e.g. if you do 4 save_steps, then on the 4th step, saving will actually happen
+                    # so far I modified self.save_logs_and_checkpoints, this should be the only place using self.total_steps
+
                     if steps % update_timesteps == 0:
                         global_steps = steps // update_timesteps
 
@@ -562,10 +565,9 @@ class HarmlessnessTrainer(ABC):
                     # print("PROFILE2")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
-
                     pbar.update()
                     steps = steps + 1
-                    self.total_steps += 1
+
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
         else:
