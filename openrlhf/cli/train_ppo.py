@@ -275,7 +275,10 @@ def train(args):
             print("INPUTS")
             print(inputs)
             sequences = inputs["input_ids"]
-            sequences, attention_mask, action_mask = actor.process_sequences(sequences, input_ids.size(1), tokenizer.eos_token_id, tokenizer.pad_token_id)
+            print("Shapes")
+            print(sequences.size(1) - args.generate_max_len)
+            print(sequences.shape)
+            sequences, attention_mask, action_mask = actor.process_sequences(sequences, sequences.size(1) - args.generate_max_len, tokenizer.eos_token_id, tokenizer.pad_token_id)
 
             print("ATTENTION MASK CHECK")
             print((inputs["attention_mask"] - attention_mask).abs().sum())
