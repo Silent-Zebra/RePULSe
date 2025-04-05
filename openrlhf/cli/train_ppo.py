@@ -265,23 +265,23 @@ def train(args):
 
         for i in range(len(neg_data) // args.train_batch_size + 1):
             batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
-            print("BATCH")
-            print(batch)
+            # print("BATCH")
+            # print(batch)
             # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
             cleaned_batch = list(map(strip_leading_im_end, batch))
-            print("BATCH CLEANED")
-            print(cleaned_batch)
+            # print("BATCH CLEANED")
+            # print(cleaned_batch)
             inputs = tokenize_fn(cleaned_batch)
-            print("INPUTS")
-            print(inputs)
+            # print("INPUTS")
+            # print(inputs)
             sequences = inputs["input_ids"]
-            print("Shapes")
-            print(sequences.size(1) - args.generate_max_len)
-            print(sequences.shape)
+            # print("Shapes")
+            # print(sequences.size(1) - args.generate_max_len)
+            # print(sequences.shape)
             sequences, attention_mask, action_mask = actor.process_sequences(sequences, sequences.size(1) - args.generate_max_len, tokenizer.eos_token_id, tokenizer.pad_token_id)
 
-            print("ATTENTION MASK CHECK")
-            print((inputs["attention_mask"] - attention_mask).abs().sum())
+            # print("ATTENTION MASK CHECK")
+            # print((inputs["attention_mask"] - attention_mask).abs().sum())
 
             with torch.no_grad():
                 log_probs = actor(
@@ -290,10 +290,13 @@ def train(args):
                     attention_mask=attention_mask,
                 )
 
-            print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
-            print(inputs["attention_mask"])
-            print(log_probs.shape)
-            print(inputs["attention_mask"].shape)
+            # print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
+            # print(inputs["attention_mask"])
+            # print(log_probs.shape)
+            # print(inputs["attention_mask"].shape)
+
+            print("ACTION MASK")
+            print(action_mask)
 
             total_log_prob = (log_probs * action_mask).sum(-1)
 
@@ -301,6 +304,7 @@ def train(args):
 
         result_stack = torch.cat(results, dim=0)
         print(result_stack.shape)
+        print(result_stack)
         print("Mean log prob on dataset")
         print(result_stack.mean())
 
