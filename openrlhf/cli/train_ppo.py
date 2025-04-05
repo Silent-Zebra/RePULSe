@@ -242,7 +242,6 @@ def train(args):
             neg_data = pickle.load(f)
 
         actor.eval()
-        neg_dataloader = DataLoader(neg_data, batch_size=args.train_batch_size)
         results = []
 
         def tokenize_fn(texts):
@@ -256,7 +255,10 @@ def train(args):
             )
             return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
 
-        for batch in neg_dataloader:
+        print(len(neg_data))
+
+        for i in range(len(neg_data) // args.train_batch_size + 1):
+            batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
             inputs = tokenize_fn(batch)
             print("BATCH")
             print(inputs)
@@ -265,7 +267,9 @@ def train(args):
                 log_probs = actor(**inputs)
 
             print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
-            print(batch.attention_mask)
+            print(inputs.attention_mask)
+            print(log_probs.shape)
+            print(inputs.attention_mask.shape)
             1/0
 
             results.append(output)
