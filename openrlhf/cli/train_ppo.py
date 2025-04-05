@@ -263,8 +263,10 @@ def train(args):
 
         for i in range(len(neg_data) // args.train_batch_size + 1):
             batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
-            inputs = tokenize_fn(batch)
             print("BATCH")
+            print(batch)
+            inputs = tokenize_fn(batch)
+            print("INPUTS")
             print(inputs)
 
             with torch.no_grad():
