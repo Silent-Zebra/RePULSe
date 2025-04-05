@@ -458,9 +458,6 @@ class BaseExperienceMaker(ABC):
 
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
 
-        print(inputs)
-        1/0
-
         # print(inputs)
         # print(generate_kwargs)
 
