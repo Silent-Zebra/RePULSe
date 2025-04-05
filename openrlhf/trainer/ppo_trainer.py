@@ -1631,11 +1631,9 @@ class BasePPOTrainer(ABC):
         if args.parameterization in ["modulation_linear_head", "modulation_nn_head"]:
             # actor_to_save = self.actor.modulation_head
             save_path = os.path.join(args.ckpt_path, f"{save_str}_actor")
-
-            print(self.actor.modulation_head)
-            print(type(self.actor.modulation_head))
-            print(self.actor.modulation_head.state_dict())
-
+            # print(self.actor.modulation_head)
+            # print(type(self.actor.modulation_head))
+            # print(self.actor.modulation_head.state_dict())
             torch.save(self.actor.modulation_head.state_dict(), save_path)
 
 

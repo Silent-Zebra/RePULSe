@@ -628,6 +628,9 @@ def train(args):
     # But we also need to be able to do simple reinforce or something like that from the base model
     # This shouldn't be too hard to do...
 
+    for param in base_actor.model.parameters():
+        print(param)
+        1/0
 
     if args.do_harmlessness_training:
         base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
