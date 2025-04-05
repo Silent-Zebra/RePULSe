@@ -275,7 +275,7 @@ class BasePPOTrainer(ABC):
         true_posterior_samples=None,
     ) -> (List, List, List, List):
 
-        for param in self.actor.model.parameters():
+        for param in self.initial_model.model.parameters():
             print("PARAM CHECK PPO")
             print(param)
             break
