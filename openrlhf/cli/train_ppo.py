@@ -556,7 +556,7 @@ def train(args):
             print(f"Prompt: {prompt}")
             print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
             print(f"Average log prob on bad sequences: {detailed_dict[prompt].mean()}")
-            print(f"Total log prob of bad sequences (logsumexp): {torch.logsumexp(detailed_dict[prompt])}")
+            print(f"Total log prob of bad sequences (logsumexp): {torch.logsumexp(detailed_dict[prompt], dim=0)}")
 
         raise SystemExit(0)  # Finished
 
