@@ -165,7 +165,7 @@ class NegTrainingLoss(nn.Module):
 
 
         # loss_old = ((log_probs_neg * action_mask_neg).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean() # mean instead of masked mean has issues - problems with reweighting on the masked things
-        loss = (masked_mean(log_probs_neg, action_mask, dim=-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
+        loss = (masked_mean(log_probs_neg, action_mask_neg, dim=-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
         # print(loss - loss_old)
 
 
