@@ -551,7 +551,7 @@ def train(args):
             detailed_dict[prompt].append(log_prob)
 
         for prompt in detailed_dict.keys():
-            print(detailed_dict[prompt])
+            # print(detailed_dict[prompt])
             detailed_dict[prompt] = torch.tensor(detailed_dict[prompt])
             print(f"Prompt: {prompt}")
             print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
