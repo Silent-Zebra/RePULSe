@@ -552,7 +552,7 @@ def train(args):
 
         for prompt in detailed_dict.keys():
             print(detailed_dict[prompt])
-            detailed_dict[prompt] = torch.tensor(detailed_dict[prompt], dim=0)
+            detailed_dict[prompt] = torch.tensor(detailed_dict[prompt])
             print(f"Prompt: {prompt}")
             print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
             print(f"Average log prob on bad sequences: {detailed_dict[prompt].mean()}")
