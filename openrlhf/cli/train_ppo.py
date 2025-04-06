@@ -546,12 +546,13 @@ def train(args):
 
         detailed_dict = {}
         for prompt, log_prob in zip(prompts, result_stack):
-            if prompt not in detailed_dict:
+            if prompt not in detailed_dict.keys():
                 detailed_dict[prompt] = []
             detailed_dict[prompt].append(log_prob)
 
         for prompt in detailed_dict.keys():
-            detailed_dict[prompt] = torch.cat(detailed_dict[prompt], dim=0)
+            print(detailed_dict[prompt])
+            detailed_dict[prompt] = torch.tensor(detailed_dict[prompt], dim=0)
             print(f"Prompt: {prompt}")
             print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
             print(f"Average log prob on bad sequences: {detailed_dict[prompt].mean()}")
