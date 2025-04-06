@@ -191,10 +191,14 @@ def train(args):
             strip_question_chat_template_fn = None
             if args.apply_chat_template:
                 if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct", "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct", "meta-llama/Llama-3.2-3B-Instruct" ]:
-                    def strip_question_chat_template_fn(text):
+                    def strip_question_chat_template_fn(text, additional_split=False):
                         question, answer = text.split('assistant\n', maxsplit=1) # in case 'assistant\n' shows up in the output, only split on the first occurrence
                         question = question.split('user\n')[-1].strip('\n')
                         # return text.removeprefix('user\n').removesuffix('\nassistant\n')
+
+                        if additional_split: # Used for the neg_data right now, kind of hacky
+                            question = question.split('<|im_end|>')[0]
+
                         return question, answer
                 else:
                     raise NotImplementedError
@@ -484,7 +488,7 @@ def train(args):
         import re
         def strip_leading_im_end(s):
             return re.sub(r'^(<\|im_end\|>)+', '', s)
-
+        from functools import partial
 
         for i in range(len(neg_data) // args.train_batch_size + 1):
             batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
@@ -495,8 +499,9 @@ def train(args):
             # print("BATCH CLEANED")
             # print(cleaned_batch)
 
+            strip_question_chat_template_fn_for_neg_data = partial(strip_question_chat_template_fn, additional_split=True)
 
-            qa_list = list(map(strip_question_chat_template_fn, cleaned_batch))
+            qa_list = list(map(strip_question_chat_template_fn_for_neg_data, cleaned_batch))
             text_question, text_answer = map(list, zip(*qa_list))
 
             print(text_question)
@@ -533,6 +538,8 @@ def train(args):
             total_log_prob = (log_probs * action_mask).sum(-1)
 
             results.append(total_log_prob)
+
+            prompts.extend(text_question)
 
         result_stack = torch.cat(results, dim=0)
         print(result_stack.shape)
