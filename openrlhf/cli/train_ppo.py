@@ -466,6 +466,7 @@ def train(args):
         actor.eval()
         actor = actor.to(torch.cuda.current_device())
         results = []
+        prompts = []
 
         def tokenize_fn(texts):
             batch = tokenizer(
@@ -484,6 +485,7 @@ def train(args):
         def strip_leading_im_end(s):
             return re.sub(r'^(<\|im_end\|>)+', '', s)
 
+
         for i in range(len(neg_data) // args.train_batch_size + 1):
             batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
             # print("BATCH")
@@ -492,6 +494,13 @@ def train(args):
             cleaned_batch = list(map(strip_leading_im_end, batch))
             # print("BATCH CLEANED")
             # print(cleaned_batch)
+
+
+            qa_list = list(map(strip_question_chat_template_fn, cleaned_batch))
+            text_question, text_answer = map(list, zip(*qa_list))
+
+            print(text_question)
+            1/0
 
             inputs = tokenize_fn(cleaned_batch)
             # print("INPUTS")
