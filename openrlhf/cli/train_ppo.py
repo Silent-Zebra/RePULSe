@@ -504,9 +504,6 @@ def train(args):
             qa_list = list(map(strip_question_chat_template_fn_for_neg_data, cleaned_batch))
             text_question, text_answer = map(list, zip(*qa_list))
 
-            print(text_question)
-            1/0
-
             inputs = tokenize_fn(cleaned_batch)
             # print("INPUTS")
             # print(inputs)
@@ -546,6 +543,19 @@ def train(args):
         # print(result_stack)
         print("Mean log prob on dataset")
         print(result_stack.mean())
+
+        detailed_dict = {}
+        for prompt, log_prob in zip(result_stack, prompts):
+            if prompt not in detailed_dict:
+                detailed_dict[prompt] = []
+            detailed_dict[prompt].append(log_prob)
+
+        for prompt in detailed_dict.keys():
+            detailed_dict[prompt] = torch.cat(detailed_dict[prompt], dim=0)
+            print(f"Prompt: {prompt}")
+            print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
+            print(f"Average log prob on bad sequences: {detailed_dict[prompt].mean()}")
+            print(f"Total log prob of bad sequences (logsumexp): {torch.logsumexp(detailed_dict[prompt])}")
 
         raise SystemExit(0)  # Finished
 
