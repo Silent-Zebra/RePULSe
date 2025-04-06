@@ -565,11 +565,11 @@ def train(args):
             total_log_prob_by_prompt.append(total_log_prob)
 
         print("Mean log prob on dataset")
-        print(result_stack.mean())
+        print(result_stack.mean().item())
         print("Averaging the mean log prob for each prompt over prompts")
-        print(torch.tensor(mean_log_prob_by_prompt).mean())
+        print(torch.tensor(mean_log_prob_by_prompt).mean().item())
         print("Averaging the total log prob for each prompt over prompts")
-        print(torch.tensor(total_log_prob_by_prompt).mean())
+        print(torch.tensor(total_log_prob_by_prompt).mean().item())
 
         raise SystemExit(0)  # Finished
 
