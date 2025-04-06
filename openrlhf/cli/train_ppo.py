@@ -541,8 +541,7 @@ def train(args):
         result_stack = torch.cat(results, dim=0)
         print(result_stack.shape)
         # print(result_stack)
-        print("Mean log prob on dataset")
-        print(result_stack.mean())
+
 
         detailed_dict = {}
         for prompt, log_prob in zip(prompts, result_stack):
@@ -550,13 +549,27 @@ def train(args):
                 detailed_dict[prompt] = []
             detailed_dict[prompt].append(log_prob)
 
+        mean_log_prob_by_prompt = []
+        total_log_prob_by_prompt = []
+
         for prompt in detailed_dict.keys():
             # print(detailed_dict[prompt])
             detailed_dict[prompt] = torch.tensor(detailed_dict[prompt])
             print(f"Prompt: {prompt}")
             print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
-            print(f"Average log prob on bad sequences: {detailed_dict[prompt].mean()}")
-            print(f"Total log prob of bad sequences (logsumexp): {torch.logsumexp(detailed_dict[prompt], dim=0)}")
+            avg_log_prob = detailed_dict[prompt].mean()
+            print(f"Average log prob on bad sequences: {avg_log_prob}")
+            mean_log_prob_by_prompt.append(avg_log_prob)
+            total_log_prob = torch.logsumexp(detailed_dict[prompt], dim=0)
+            print(f"Total log prob of bad sequences (logsumexp): {total_log_prob}")
+            total_log_prob_by_prompt.append(total_log_prob)
+
+        print("Mean log prob on dataset")
+        print(result_stack.mean())
+        print("Averaging the mean log prob for each prompt over prompts")
+        print(torch.tensor(mean_log_prob_by_prompt).mean())
+        print("Averaging the total log prob for each prompt over prompts")
+        print(torch.tensor(total_log_prob_by_prompt).mean())
 
         raise SystemExit(0)  # Finished
 
