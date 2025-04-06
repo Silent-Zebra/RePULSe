@@ -545,7 +545,7 @@ def train(args):
         print(result_stack.mean())
 
         detailed_dict = {}
-        for prompt, log_prob in zip(result_stack, prompts):
+        for prompt, log_prob in zip(prompts, result_stack):
             if prompt not in detailed_dict:
                 detailed_dict[prompt] = []
             detailed_dict[prompt].append(log_prob)
