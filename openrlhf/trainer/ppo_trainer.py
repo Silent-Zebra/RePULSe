@@ -1650,7 +1650,7 @@ class BasePPOTrainer(ABC):
 
         else:
             self.strategy.save_ckpt(
-                self.actor,
+                self.actor.model,
                 os.path.join(args.ckpt_path, f"{save_str}_actor"),
                 tag,
                 args.max_ckpt_num,
