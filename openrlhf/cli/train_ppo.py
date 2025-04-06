@@ -783,7 +783,7 @@ def train(args):
     if args.save_negdata:
         print(len(neg_data))
         # Save to file
-        with open(f"{args.save_path}/neg_data_{info_name_str}.pkl", "wb") as f:
+        with open(f"{args.save_path}/neg_data_{info_name_str}_thr{args.save_negdata_threshold}.pkl", "wb") as f:
             pickle.dump(neg_data, f)
 
 
