@@ -299,7 +299,8 @@ class BaseExperienceMaker(ABC):
         log_q = (action_log_probs.float() * action_mask).sum(dim=-1)
         log_phi = r
         if not self.multiply_by_beta: # If didn't already multiply by beta, need to do it for log_phi
-            log_phi *= self.target_dist_beta # Otherwise log phi will be wrong. Log phi needs to have beta in it. In the PPO formulation, yes, the reward should not be modified, KL should be (although you could also keep KL penalty coef at 1 and just do beta times reward), but for the calculation of the target/potential you need this beta. Assumes of course that we have potential of the form of e^{beta r} which in log space is beta r
+            log_phi = r * self.target_dist_beta # Otherwise log phi will be wrong. Log phi needs to have beta in it. In the PPO formulation, yes, the reward should not be modified, KL should be (although you could also keep KL penalty coef at 1 and just do beta times reward), but for the calculation of the target/potential you need this beta. Assumes of course that we have potential of the form of e^{beta r} which in log space is beta r
+            # Avoid *=, otherwise that would modify r as well
         log_p = (base_action_log_probs.float() * action_mask).sum(dim=-1)
         log_tilde_sigma = log_p + log_phi
         f_q = log_tilde_sigma - log_q
