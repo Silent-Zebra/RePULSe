@@ -578,6 +578,9 @@ def train(args):
 
 
 
+
+
+
     if args.actor_learning_rate == 0:
         assert not args.shared_actorcritic # Should not do this with shared actor critic
         vf_coef = 100000 # Dummy value
@@ -660,6 +663,33 @@ def train(args):
         save_negdata_threshold=args.save_negdata_threshold,
         neg_data=neg_data,
     )
+
+
+    if args.only_evaluate_do_sampling:
+        rewards = []
+        for _ in range(args.sampling_iters):
+            for rand_prompts in trainer.prompts_dataloader:
+                experience = trainer.experience_maker.make_experience(
+                    rand_prompts,
+                    samples_per_prompt=args.duplicate_rollout_batch_by,
+                    **trainer.generate_kwargs
+                )
+
+                rewards.append(experience.info["reward"])
+                print(experience.info["reward"])
+
+        print(rewards)
+        print(len(rewards))
+        rewards = torch.cat(rewards)
+        print(rewards)
+        print(rewards.shape)
+
+        print(rewards.mean())
+        print((rewards < args.save_negdata_threshold).sum())
+
+        raise SystemExit(0) # Finished
+
+
 
     # TODO: Idea here is: just set up an outer loop over which we can run trainer.fit which basically does the twist learning
     # or essentially the proposal learning; basically the learning for the sampling method
@@ -1071,6 +1101,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--only_evaluate_on_neg_data", action="store_true", help="Only evaluate on neg_data")
     parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")
+
+    parser.add_argument("--only_evaluate_do_sampling", action="store_true", help="Only evaluate by doing sampling on prompts")
+    parser.add_argument("--sampling_iters", type=int, default=1, help="Do this many iterations of sampling over the whole dataset (only for only_evaluate_do_sampling)")
 
 
     parser.add_argument(
