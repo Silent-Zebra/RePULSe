@@ -676,16 +676,16 @@ def train(args):
                 )
 
                 rewards.append(experience.info["reward"])
-                print(experience.info["reward"])
+                # print(experience.info["reward"])
 
-        print(rewards)
-        print(len(rewards))
+        # print(rewards)
+        # print(len(rewards))
         rewards = torch.cat(rewards)
-        print(rewards)
-        print(rewards.shape)
+        # print(rewards)
+        # print(rewards.shape)
 
-        print(rewards.mean())
-        print((rewards < args.save_negdata_threshold).sum())
+        print(f"Average reward: {rewards.mean().item()}")
+        print(f"Number of outputs below threshold {args.save_negdata_threshold}: {(rewards < args.save_negdata_threshold).sum().item()}")
 
         raise SystemExit(0) # Finished
 
