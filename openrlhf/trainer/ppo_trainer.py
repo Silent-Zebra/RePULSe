@@ -1639,10 +1639,8 @@ class BasePPOTrainer(ABC):
         # print(type(self.actor))
 
         if args.parameterization == "modulation_model":
-            print(type(self.actor))
-            print(type(self.actor.model))
             self.strategy.save_ckpt(
-                self.actor.model.model,
+                self.actor,
                 os.path.join(args.ckpt_path, f"{save_str}_actor"),
                 tag,
                 args.max_ckpt_num,
