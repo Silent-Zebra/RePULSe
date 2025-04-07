@@ -4,6 +4,7 @@ neg_data = set()
 
 base_dir = "/h/zhaostep/OpenRLHF/checkpoint/toyrlhfmulti"
 
+# ls checkpoint/toyrlhfmulti  | grep -v pkl |  grep -v sddiv | grep mipr | grep neg_train | grep harml_ac
 # for x in $(ls | grep pkl | grep mipr); do echo \"$x\",; done
 neg_data_load_paths = [
 "neg_data_aggregated_2025-04-06.pkl",

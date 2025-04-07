@@ -491,7 +491,8 @@ def train(args):
         from functools import partial
 
         for i in range(len(neg_data) // args.train_batch_size + 1):
-            print(f"BATCH {i}, flush=True")
+            if (i + 1) % 10 == 0:
+                print(f"BATCH {i + 1}", flush=True)
 
             batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
             # print("BATCH")
