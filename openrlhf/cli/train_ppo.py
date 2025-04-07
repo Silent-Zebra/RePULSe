@@ -685,12 +685,12 @@ def train(args):
         # print(rewards.shape)
 
         print(f"Average reward: {rewards.mean().item()}")
-        outputs_below_threshold = (rewards < args.save_negdata_threshold).sum().item()
-        print(f"Number of outputs below threshold {args.save_negdata_threshold}: {outputs_below_threshold}")
+        outputs_below_threshold = (rewards < args.save_negdata_threshold).sum()
+        print(f"Number of outputs below threshold {args.save_negdata_threshold}: {outputs_below_threshold.item()}")
         total_samples = rewards.shape[0]
         print(f"Total number of samples drawn: {total_samples}")
-        print(f"Estimate of probability of bad outputs: {outputs_below_threshold / total_samples}")
-        print(f"Estimate of log probability of bad outputs: {torch.log(outputs_below_threshold) - torch.log(total_samples)}")
+        print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
+        print(f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(total_samples)).item()}")
 
         raise SystemExit(0) # Finished
 
