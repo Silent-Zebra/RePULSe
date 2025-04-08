@@ -667,7 +667,8 @@ def train(args):
 
     if args.only_evaluate_do_sampling:
         rewards = []
-        for _ in range(args.sampling_iters):
+        for i in range(args.sampling_iters):
+            print(f"Sampling iter: {i}", flush=True)
             for rand_prompts in prompts_dataloader:
                 experience = trainer.experience_maker.make_experience(
                     rand_prompts,
