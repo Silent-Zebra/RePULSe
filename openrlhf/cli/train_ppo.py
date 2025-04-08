@@ -1179,7 +1179,7 @@ if __name__ == "__main__":
         args.no_critic = True
 
 
-    if args.only_evaluate_on_neg_data:
+    if args.only_evaluate_on_neg_data or args.only_evaluate_do_sampling:
         assert args.parameterization == "policy"
         args.no_critic = True
 
