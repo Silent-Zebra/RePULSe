@@ -690,7 +690,7 @@ def train(args):
 
         for threshold in range(-6, -1):
             outputs_below_threshold = (rewards < threshold).sum()
-            print(f"Number of outputs below threshold {args.threshold}: {outputs_below_threshold.item()}")
+            print(f"Number of outputs below threshold {threshold}: {outputs_below_threshold.item()}")
             print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
             print(f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
 
