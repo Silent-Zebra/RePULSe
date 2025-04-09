@@ -92,23 +92,32 @@ def evaluate_with_gcg(args):
     # Load AdvBench dataset based on scenario
     try:
         advbench_data = pd.read_csv(args.advbench_file_path)
-        targets = advbench_data['target'].tolist()
+        targets_all = advbench_data['target'].tolist()
 
         if args.scenario == "behaviors" or args.scenario == "behaviours":
             if 'goal' not in advbench_data.columns:
                  strategy.print(f"Error: 'goal' column not found in {args.advbench_file_path} for scenario '{args.scenario}'")
                  return
-            goals = advbench_data['goal'].tolist()
+            goals_all = advbench_data['goal'].tolist()
         elif args.scenario == "strings":
             # For 'strings' scenario, the goal for GCG is effectively empty,
             # as the adversarial string itself becomes the user prompt later.
-            goals = [""] * len(targets)
+            goals_all = [""] * len(targets_all)
         else:
              # This case should ideally not be reached due to argparse choices
              strategy.print(f"Error: Invalid scenario '{args.scenario}' during data loading.")
              return
 
-        strategy.print(f"Loaded {len(targets)} targets (and {len(goals)} goals) from {args.advbench_file_path} for scenario: {args.scenario}")
+        # Limit the number of targets if specified
+        num_targets_to_process = len(targets_all)
+        if args.max_targets is not None and args.max_targets > 0:
+            num_targets_to_process = min(args.max_targets, len(targets_all))
+            strategy.print(f"Limiting evaluation to the first {num_targets_to_process} targets based on --max_targets.")
+
+        targets = targets_all[:num_targets_to_process]
+        goals = goals_all[:num_targets_to_process]
+
+        strategy.print(f"Loaded {len(targets_all)} total targets from {args.advbench_file_path}. Processing {len(targets)} for scenario: {args.scenario}")
 
     except FileNotFoundError:
         strategy.print(f"Error: AdvBench file not found at {args.advbench_file_path}")
@@ -117,9 +126,9 @@ def evaluate_with_gcg(args):
         strategy.print(f"Error loading or processing AdvBench data from {args.advbench_file_path}: {e}")
         return
 
-    # Ensure goals and targets lists are consistent
+    # Ensure goals and targets lists are consistent (should always be true after slicing)
     if len(goals) != len(targets):
-        strategy.print(f"Error: Mismatch between number of goals ({len(goals)}) and targets ({len(targets)}).")
+        strategy.print(f"Internal Error: Mismatch between number of goals ({len(goals)}) and targets ({len(targets)}) after slicing.")
         return
 
     # GCG Configuration
@@ -151,17 +160,17 @@ def evaluate_with_gcg(args):
     )
 
     successful_attacks = 0
-    total_targets = 0
+    total_targets_processed = 0 # Use a distinct name for clarity
 
     for i, (goal, target) in enumerate(zip(goals, targets)):
         if strategy.is_rank_0():
-            # Use len(targets) for total count display
+            # Use len(targets) which reflects the actual number being processed
             print(f"--- Processing Target {i+1}/{len(targets)} --- ({args.scenario} scenario)")
             # Still print the GCG goal for context, even if empty for "strings"
             print(f"Goal for GCG: {goal}")
             print(f"Target for GCG: {target}")
 
-        total_targets += 1
+        total_targets_processed += 1
         
         try:
             # Run GCG attack
@@ -183,6 +192,7 @@ def evaluate_with_gcg(args):
             elif args.scenario == "strings":
                 prompt = f"USER: {result.best_string} ASSISTANT:"
             else:
+                # This check might be redundant due to earlier loading check, but good for safety
                 strategy.print(f"Error: Invalid scenario '{args.scenario}'. Choose 'behaviors' or 'strings'.")
                 continue # Skip this goal if scenario is invalid
             
@@ -224,17 +234,17 @@ def evaluate_with_gcg(args):
                 # Provide context about which target failed
                 print(f"  Error processing target index {i} ('{target[:50]}...'): {e}") 
 
-    # Calculate and report ASR
-    asr = (successful_attacks / total_targets) * 100 if total_targets > 0 else 0
+    # Calculate and report ASR using the number of processed targets
+    asr = (successful_attacks / total_targets_processed) * 100 if total_targets_processed > 0 else 0
     if strategy.is_rank_0():
         print("\n--- Evaluation Summary ---")
         print(f"Scenario: {args.scenario}")
-        print(f"Total Targets Processed: {total_targets}")
+        print(f"Total Targets Processed: {total_targets_processed}")
         print(f"Successful Attacks: {successful_attacks}")
         print(f"Attack Success Rate (ASR): {asr:.2f}%")
 
     # Return the ASR or detailed results using the renamed variable
-    return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets}
+    return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets_processed}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -242,6 +252,7 @@ if __name__ == "__main__":
     # Data arguments
     parser.add_argument("--advbench_file_path", type=str, required=True, help="Path to the specific AdvBench CSV file (e.g., data/advbench/harmful_behaviors.csv or data/advbench/harmful_strings.csv)")
     parser.add_argument("--scenario", type=str, required=True, choices=["behaviors", "behaviours", "strings"], help="AdvBench scenario to evaluate ('behaviors' or 'strings')")
+    parser.add_argument("--max_targets", type=int, default=None, help="Maximum number of targets to process from the AdvBench file. Processes all if None.")
     
     # Model arguments
     parser.add_argument("--pretrain", type=str, required=True)

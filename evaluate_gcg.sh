@@ -3,7 +3,6 @@
 #SBATCH --ntasks=1
 #SBATCH --mem=64G
 #SBATCH -c 4
-#SBATCH --time=4:00:00
 #SBATCH --partition=ml
 #SBATCH --qos=ml
 #SBATCH --account=ml
@@ -11,7 +10,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --nodelist=overture,concerto1,concerto2,concerto3
 #SBATCH --export=ALL
-#SBATCH --output=result_2025-04-08-03-27_Sm13In_remodev3lav2_curated_toy_rlhf_beta-10_len20_policy_psi_q_p_s_t_batch400_400_40_40_10_ep1_harmlneg_training_expectation_ctl_alr1e-4_clr0_constant_s1.txt
+#SBATCH --output=behaviors_gcg_results_100prompts.txt
 
 # Load the environment
 . /mfs1/u/$USER/envs/openrlhf
@@ -30,11 +29,13 @@ deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
     --gradient_checkpointing \
     --adam_offload \
     --parameterization policy_psi_q_p_s_t \
+    --max_targets 100 \
     --scenario behaviors \
     --advbench_file_path "/h/319/aidanl/OpenRLHF/advbench-data/advbench/harmful_behaviors.csv"
 
 # the scenario argument can be "behaviors" or "strings"
 # the advbench_file_path argument can be the path to a csv file containing the harmful behaviors or strings
+# Optional: the max_targets argument can be used to limit the number of targets processed from the advbench file instead of all 520 prompts.
 
 # Optional: you can add these to the deepspeed command to change the GCG adversarial attack parameters
     # --gcg_steps 500 \
