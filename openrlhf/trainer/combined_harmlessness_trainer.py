@@ -405,7 +405,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 )
             pbar = tqdm(
                 range(self.prompts_dataloader.__len__()),
-                desc=f"Episode [{episode + 1}/{args.harmlessness_training_episodes_per_loop}]",
+                desc=f"Episode [{episode + 1}/{args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop}]",
                 disable=not self.strategy.is_rank_0(),
             )
 
