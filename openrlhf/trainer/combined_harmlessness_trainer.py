@@ -607,11 +607,22 @@ class CombinedHarmlessnessTrainer(ABC):
                     status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
                 else:
                     # Do the twist/proposal learning based on sigma which is based on the base model before its update
+                    for param in self.base_actor.model.parameters():
+                        print("PARAM CHECK HARML before")
+                        print(param)
+                        break
                     status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
+                    for param in self.base_actor.model.parameters():
+                        print("PARAM CHECK HARML before2")
+                        print(param)
+                        break
                     status = self.training_step_base_actor(experience, experience_neg_sampling, custom_prompt=custom_prompt)
+                    for param in self.base_actor.model.parameters():
+                        print("PARAM CHECK HARML after")
+                        print(param)
+                        break
                 # Note that the updates to the sampling actor don't affect anything; they won't change the experience_maker_neg_sampling log probs that were already stored there
                 # So the only direction of effect is that changing the base model can change the sampling actor target.
-
                 status.update(status_sampling)
 
             if self.base_critic is not None:
