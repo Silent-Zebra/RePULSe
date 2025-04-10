@@ -717,7 +717,7 @@ def train(args):
     #     break
 
     if args.do_harmlessness_training:
-
+        estimates_list = None
         # # old setup below
         # base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
         #                           use_fast=not args.disable_fast_tokenizer)
@@ -789,7 +789,6 @@ def train(args):
         # # print(base_model.model.device)
         # # print(static_initial_model.model.device)
         #
-        # estimates_list = None
         # for i in range(args.harmlessness_training_num_episodes):
         #
         #     print(f"OUTER LOOP {i}", flush=True)
