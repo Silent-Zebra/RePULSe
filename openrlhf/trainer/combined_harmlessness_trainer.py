@@ -539,7 +539,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 print("EXPERIENCE NEG INFO")
                 print(experience_neg_sampling.sequences)
                 print(experience_neg_sampling.info["reward"])
-                print(experience_neg_sampling.action_log_probs)
+                print((experience_neg_sampling.action_log_probs * experience_neg_sampling.action_mask).sum(-1))
                 print(experience_neg_sampling.info)
 
                 status = self.training_step(experience, experience_neg_sampling, global_steps, custom_prompt=custom_prompt)
