@@ -885,6 +885,11 @@ class CombinedHarmlessnessTrainer(ABC):
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
 
+            for param in self.base_actor.model.parameters():
+                print("PARAM CHECK HARML CTL LOSS")
+                print(param)
+                break
+
             with torch.no_grad():
                 base_action_log_probs = self.base_actor(
                     experience.sequences, experience.action_mask.size(1),
@@ -894,6 +899,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 # )
                 log_phi = experience.info["reward"].to(base_action_log_probs.device)
 
+            print("BASE ACTION LOG PROBS INSPECTION")
+            print(base_action_log_probs)
 
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
