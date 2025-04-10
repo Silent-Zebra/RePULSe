@@ -15,9 +15,8 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 import torch.nn.functional as F
 
-
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
-from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss
+from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss, CTLLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts
