@@ -46,6 +46,7 @@ class CombinedHarmlessnessTrainer(ABC):
         base_actor: Actor,
         sampling_actor: Actor,
         base_critic: nn.Module,
+        sampling_critic: nn.Module,
         reward_model: nn.Module,
         static_initial_model: Actor,
         ema_model: Actor,

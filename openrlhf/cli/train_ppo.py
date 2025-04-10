@@ -817,6 +817,7 @@ def train(args):
             base_actor=base_actor,
             sampling_actor=actor,
             base_critic=None,
+            sampling_critic=None,
             reward_model=reward_model,
             static_initial_model=static_initial_model,
             ema_model=None,
