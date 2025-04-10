@@ -185,7 +185,7 @@ class BaseExperienceMaker(ABC):
 
         assert actor_loss_type is not None
 
-        if self.actor_loss_type == "ppo":
+        if self.actor_loss_type == "ppo" or "reinforce" in actor_loss_type:
             self.multiply_by_beta = False
         else:
             self.multiply_by_beta = True
@@ -239,8 +239,9 @@ class BaseExperienceMaker(ABC):
 
 
         # init log probs
-        base_action_log_probs = self.initial_model(sequences, num_actions,
-                                                   attention_mask)
+        with torch.no_grad():
+            base_action_log_probs = self.initial_model(sequences, num_actions,
+                                                       attention_mask)
         # print("--BASE ACTION LOG PROBS--")
         # print(base_action_log_probs.mean())
         # print(base_action_log_probs)

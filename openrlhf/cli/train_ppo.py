@@ -15,6 +15,8 @@ from openrlhf.models import Actor, get_llm_for_sequence_regression
 from openrlhf.models.actor_custom import ActorCustom, ActorCritic
 from openrlhf.trainer import BasePPOTrainer
 from openrlhf.trainer.harmlessness_trainer import HarmlessnessTrainer
+from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessTrainer
+
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
 from openrlhf.models.model import _get_reward_model_custom
 from openrlhf.utils.utils import get_info_name_str
@@ -715,21 +717,117 @@ def train(args):
     #     break
 
     if args.do_harmlessness_training:
-        base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
-                                  use_fast=not args.disable_fast_tokenizer)
 
-        harmlessness_trainer = HarmlessnessTrainer(
-            strategy,
+        # # old setup below
+        # base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
+        #                           use_fast=not args.disable_fast_tokenizer)
+        #
+        # harmlessness_trainer = HarmlessnessTrainer(
+        #     strategy,
+        #     base_actor=base_actor,
+        #     sampling_actor=actor,
+        #     critic=None,
+        #     reward_model=reward_model,
+        #     initial_model=static_initial_model,
+        #     ema_model=None,
+        #     actor_optim=base_actor_optim,
+        #     critic_optim=None,
+        #     actor_scheduler=base_actor_scheduler,
+        #     critic_scheduler=None,
+        #     max_epochs=args.max_epochs,
+        #     micro_train_batch_size=args.micro_train_batch_size,
+        #     micro_rollout_batch_size=args.micro_rollout_batch_size,
+        #     gradient_checkpointing=args.gradient_checkpointing,
+        #     tokenizer=base_tokenizer,
+        #     prompt_max_len=args.prompt_max_len,
+        #     value_clip=args.value_clip,
+        #     eps_clip=args.eps_clip,
+        #     gamma=args.gamma,
+        #     lambd=args.lambd,
+        #     init_kl_coef=0,
+        #     kl_target=args.kl_target,
+        #     target_dist_beta=args.target_dist_beta, # TODO later check to make sure this is desired
+        #     ema_beta=0.992,
+        #     ptx_coef=args.ptx_coef,
+        #     max_norm=args.max_norm,
+        #     # fro GPT generation
+        #     do_sample=True,
+        #     max_new_tokens=args.generate_max_len,
+        #     max_length=args.max_len,
+        #     temperature=args.temperature,
+        #     top_p=args.top_p,
+        #     top_k=args.top_k,
+        #     pad_token_id=base_tokenizer.pad_token_id,
+        #     eos_token_id=base_tokenizer.eos_token_id,
+        #     # remote reward model
+        #     remote_rm_url=args.remote_rm_url,
+        #     shared_actorcritic=args.shared_actorcritic,
+        #     vf_coef=vf_coef,
+        #     model_eval=args.model_eval,
+        #     threshold=args.threshold,
+        #     reward_cap=args.reward_cap,
+        #     n_seeds_f_q=args.n_seeds_f_q,
+        #     rm_type=args.rm_type,
+        #     bc_coef=args.bc_coef,
+        #     bc_steps=args.bc_steps,
+        #     true_posterior_samples=true_posterior_samples,
+        #     actor_loss_type=args.harmlessness_training_loss_type,
+        #     critic_loss_type=args.critic_loss_type,
+        #     alpha=args.alpha,
+        #     parameterization=args.parameterization,
+        #     save_negdata=args.save_negdata,
+        #     save_negdata_threshold=args.save_negdata_threshold,
+        #     baseline_type=args.reinforce_baseline_type,
+        #     hardcoded_baseline=args.reinforce_hardcoded_baseline,
+        #     baseline_type_neg=args.neg_baseline_type,
+        #     hardcoded_baseline_neg=args.neg_hardcoded_baseline,
+        #     neg_data=neg_data,
+        # )
+        #
+        # # print("device check")
+        # # print(actor.model.device)
+        # # print(base_model.model.device)
+        # # print(static_initial_model.model.device)
+        #
+        # estimates_list = None
+        # for i in range(args.harmlessness_training_num_episodes):
+        #
+        #     print(f"OUTER LOOP {i}", flush=True)
+        #     print("-----TWIST OR PROPOSAL TRAINING-----", flush=True)
+        #
+        #     # Do the training for the actor/sampling_actor which is trying to generate approximate samples from sigma = p * phi = p e^{beta r} for the RLHF formulation (or -beta for harmlessness)
+        #     # This trains actor/sampling_actor, does not train base_actor, but should use the updated base_actor from harmlessness training below
+        #     if args.num_episodes > 0:
+        #         estimates_list = trainer.fit(
+        #             args, prompts_dataloader, pretrain_dataloader, consumed_samples,
+        #             num_update_steps_per_episodes, true_posterior_samples
+        #         )
+        #
+        #     print("-----POLICY HARMLESSNESS TRAINING-----", flush=True)
+        #     # Do the harmlessness training: use samples from the actor/sampling_actor trained by the PPOTrainer above to generate approximate sigma samples, and then reduce probability on those samples
+        #     # This trains base_actor, does not train actor, but should use the updated actor from the training above.
+        #     # TODO Update the initial model, and check that the trainer is now using the updated model version.
+        #     harmlessness_trainer.fit( # TODO check that these arguments are the right ones
+        #         args, prompts_dataloader, pretrain_dataloader, consumed_samples,
+        #         num_update_steps_per_episodes, true_posterior_samples
+        #     )
+        harmlessness_trainer = CombinedHarmlessnessTrainer(
+            sampling_target_updated_base=args.sampling_target_updated_base,
+            strategy=strategy,
             base_actor=base_actor,
             sampling_actor=actor,
-            critic=None,
+            base_critic=None,
             reward_model=reward_model,
-            initial_model=static_initial_model,
+            static_initial_model=static_initial_model,
             ema_model=None,
-            actor_optim=base_actor_optim,
-            critic_optim=None,
-            actor_scheduler=base_actor_scheduler,
-            critic_scheduler=None,
+            base_actor_optim=base_actor_optim,
+            base_critic_optim=None,
+            base_actor_scheduler=base_actor_scheduler,
+            base_critic_scheduler=None,
+            sampling_actor_optim=actor_optim,
+            sampling_critic_optim=None,
+            sampling_actor_scheduler=actor_scheduler,
+            sampling_critic_scheduler=None, # TODO later setup if using PPO for this
             max_epochs=args.max_epochs,
             micro_train_batch_size=args.micro_train_batch_size,
             micro_rollout_batch_size=args.micro_rollout_batch_size,
@@ -779,35 +877,13 @@ def train(args):
             hardcoded_baseline_neg=args.neg_hardcoded_baseline,
             neg_data=neg_data,
         )
-
-        # print("device check")
-        # print(actor.model.device)
-        # print(base_model.model.device)
-        # print(static_initial_model.model.device)
-
-        estimates_list = None
-        for i in range(args.harmlessness_training_num_episodes):
-
-            print(f"OUTER LOOP {i}", flush=True)
-            print("-----TWIST OR PROPOSAL TRAINING-----", flush=True)
-
-            # Do the training for the actor/sampling_actor which is trying to generate approximate samples from sigma = p * phi = p e^{beta r} for the RLHF formulation (or -beta for harmlessness)
-            # This trains actor/sampling_actor, does not train base_actor, but should use the updated base_actor from harmlessness training below
-            if args.num_episodes > 0:
-                estimates_list = trainer.fit(
-                    args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-                    num_update_steps_per_episodes, true_posterior_samples
-                )
-
-            print("-----POLICY HARMLESSNESS TRAINING-----", flush=True)
-            # Do the harmlessness training: use samples from the actor/sampling_actor trained by the PPOTrainer above to generate approximate sigma samples, and then reduce probability on those samples
-            # This trains base_actor, does not train actor, but should use the updated actor from the training above.
-            # TODO Update the initial model, and check that the trainer is now using the updated model version.
-            harmlessness_trainer.fit( # TODO check that these arguments are the right ones
-                args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-                num_update_steps_per_episodes, true_posterior_samples
-            )
-
+        print("-----HARMLESSNESS TRAINING-----", flush=True)
+        # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
+        assert args.num_episodes == 1 # Right now only supports 1 twist/proposal update per base_actor update
+        harmlessness_trainer.fit(
+            args, prompts_dataloader, pretrain_dataloader, consumed_samples,
+            num_update_steps_per_episodes, true_posterior_samples
+        )
 
     else:
         estimates_list = trainer.fit(
@@ -1106,6 +1182,8 @@ if __name__ == "__main__":
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, --harmlessness_training_num_episodes for the number of outer loop steps, and --harmlessness_training_episodes_per_loop for the number of harmlessness training steps in each loop iteration. So total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes * harmlessness_training_episodes_per_loop base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")
     parser.add_argument("--harmlessness_training_episodes_per_loop", type=int, default=1, help="Number of harmlessness training steps to do for each outer loop step")
+
+    parser.add_argument("--sampling_target_updated_base", action="store_true", help="Only for the combined_harmlessness_trainer; if set, then the sampling_actor/twisted proposal tries to target the new, updated base model after base_actor has taken a gradient step. Otherwise, twisted proposal updates before the base_actor learns")
 
     parser.add_argument("--only_evaluate_on_neg_data", action="store_true", help="Only evaluate on neg_data")
     parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")

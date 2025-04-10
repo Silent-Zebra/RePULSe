@@ -721,8 +721,8 @@ class HarmlessnessTrainer(ABC):
             raise NotImpelementedError
             print("DOING BEHAVIOUR CLONING")
 
-        print("BASE ACTOR OPTIM 2")
-        print(self.actor_optim)
+        # print("BASE ACTOR OPTIM 2")
+        # print(self.actor_optim)
 
         # for param in self.base_actor.model.parameters():
         #     print("PARAM CHECK HARML before loss")
