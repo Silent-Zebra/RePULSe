@@ -560,7 +560,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 if "sampling_policy_loss" in status:
                     short_status["spg"] = status["sampling_policy_loss"]
                     short_status["bpg"] = status["base_policy_loss"]
-
+                if "sampling_f_q" in status:
+                    short_status["sf_q"] = status["sampling_f_q"]
 
                 if "critic_loss" in status:
                     raise NotImplementedError
