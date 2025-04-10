@@ -536,11 +536,11 @@ class CombinedHarmlessnessTrainer(ABC):
                 experience.to_device(device)
                 experience_neg_sampling.to_device(device)
 
-                print("EXPERIENCE NEG INFO")
-                print(experience_neg_sampling.sequences)
-                print(experience_neg_sampling.info["reward"])
-                print((experience_neg_sampling.action_log_probs * experience_neg_sampling.action_mask).sum(-1))
-                print(experience_neg_sampling.info)
+                # print("EXPERIENCE NEG INFO")
+                # print(experience_neg_sampling.sequences)
+                # print(experience_neg_sampling.info["reward"])
+                # print((experience_neg_sampling.action_log_probs * experience_neg_sampling.action_mask).sum(-1))
+                # print(experience_neg_sampling.info)
 
                 status = self.training_step(experience, experience_neg_sampling, global_steps, custom_prompt=custom_prompt)
 
@@ -605,32 +605,12 @@ class CombinedHarmlessnessTrainer(ABC):
             if global_steps > self.freezing_actor_steps:
                 if self.sampling_target_updated_base:
                     # Do the base model update first, and do the twist/proposal learning based on sigma which is based on the updated base model
-                    for param in self.base_actor.model.parameters():
-                        print("PARAM CHECK HARML before")
-                        print(param)
-                        break
                     status = self.training_step_base_actor(experience, experience_neg_sampling, custom_prompt=custom_prompt)
-                    for param in self.base_actor.model.parameters():
-                        print("PARAM CHECK HARML after")
-                        print(param)
-                        break
                     status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
                 else:
                     # Do the twist/proposal learning based on sigma which is based on the base model before its update
-                    for param in self.base_actor.model.parameters():
-                        print("PARAM CHECK HARML before")
-                        print(param)
-                        break
                     status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
-                    for param in self.base_actor.model.parameters():
-                        print("PARAM CHECK HARML before2")
-                        print(param)
-                        break
                     status = self.training_step_base_actor(experience, experience_neg_sampling, custom_prompt=custom_prompt)
-                    for param in self.base_actor.model.parameters():
-                        print("PARAM CHECK HARML after")
-                        print(param)
-                        break
                 # Note that the updates to the sampling actor don't change the experience_maker_neg_sampling log probs that were already stored there
                 # So the only direction of effect is that changing the base model can change the sampling actor target.
                 # But in later iterations, the sampling actor should be different, which means the neg train loss should be different...
@@ -669,10 +649,10 @@ class CombinedHarmlessnessTrainer(ABC):
         # print("BASE ACTOR OPTIM 2")
         # print(self.base_actor_optim)
 
-        for param in self.base_actor.model.parameters():
-            print("PARAM CHECK HARML before loss")
-            print(param)
-            break
+        # for param in self.base_actor.model.parameters():
+        #     print("PARAM CHECK HARML before loss")
+        #     print(param)
+        #     break
 
         self.strategy.backward(loss, self.base_actor, self.base_actor_optim)
 
@@ -707,10 +687,10 @@ class CombinedHarmlessnessTrainer(ABC):
             raise NotImplementedError # not tested
             self.strategy.moving_average(self.base_actor, self.ema_model, self.ema_beta, "cpu")
 
-        for param in self.base_actor.model.parameters():
-            print("PARAM CHECK HARML after loss")
-            print(param)
-            break
+        # for param in self.base_actor.model.parameters():
+        #     print("PARAM CHECK HARML after loss")
+        #     print(param)
+        #     break
 
         # status
         status = {"base_policy_loss": actor_loss.item(), "base_actor_lr": self.base_actor_scheduler.get_last_lr()[0]}
@@ -907,10 +887,10 @@ class CombinedHarmlessnessTrainer(ABC):
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
 
-            for param in self.base_actor.model.parameters():
-                print("PARAM CHECK HARML CTL LOSS")
-                print(param)
-                break
+            # for param in self.base_actor.model.parameters():
+            #     print("PARAM CHECK HARML CTL LOSS")
+            #     print(param)
+            #     break
 
             with torch.no_grad():
                 base_action_log_probs = self.base_actor(
@@ -921,8 +901,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 # )
                 log_phi = experience.info["reward"].to(base_action_log_probs.device)
 
-            print("BASE ACTION LOG PROBS INSPECTION")
-            print(base_action_log_probs)
+            # print("BASE ACTION LOG PROBS INSPECTION")
+            # print(base_action_log_probs)
 
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
