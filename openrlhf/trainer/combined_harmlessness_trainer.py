@@ -321,6 +321,8 @@ class CombinedHarmlessnessTrainer(ABC):
             args.eval_steps = num_rollouts_per_episodes  # Evaluate once per epoch
         if args.save_steps_harmless == -1:
             args.save_steps_harmless = float("inf")  # do not save ckpt
+        if args.save_steps == -1:
+            args.save_steps = float("inf")  # do not save ckpt
 
         self.prompts_dataloader = prompts_dataloader
         self.pretrain_dataloader = pretrain_dataloader
@@ -1193,7 +1195,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 args.max_ckpt_mem,
                 client_states,
             )
-            if self.critic is not None:
+            if self.sampling_critic is not None:
                 self.strategy.save_ckpt(
-                    self.critic, os.path.join(args.ckpt_path, f"{save_str}_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+                    self.sampling_critic, os.path.join(args.ckpt_path, f"{save_str}_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
                 )
