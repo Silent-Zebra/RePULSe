@@ -595,7 +595,15 @@ class CombinedHarmlessnessTrainer(ABC):
             if global_steps > self.freezing_actor_steps:
                 if self.sampling_target_updated_base:
                     # Do the base model update first, and do the twist/proposal learning based on sigma which is based on the updated base model
+                    for param in self.base_actor.model.parameters():
+                        print("PARAM CHECK HARML before")
+                        print(param)
+                        break
                     status = self.training_step_base_actor(experience, experience_neg_sampling, custom_prompt=custom_prompt)
+                    for param in self.base_actor.model.parameters():
+                        print("PARAM CHECK HARML after")
+                        print(param)
+                        break
                     status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
                 else:
                     # Do the twist/proposal learning based on sigma which is based on the base model before its update
@@ -639,10 +647,10 @@ class CombinedHarmlessnessTrainer(ABC):
         # print("BASE ACTOR OPTIM 2")
         # print(self.base_actor_optim)
 
-        # for param in self.base_actor.model.parameters():
-        #     print("PARAM CHECK HARML before loss")
-        #     print(param)
-        #     break
+        for param in self.base_actor.model.parameters():
+            print("PARAM CHECK HARML before loss")
+            print(param)
+            break
 
         self.strategy.backward(loss, self.base_actor, self.base_actor_optim)
 
