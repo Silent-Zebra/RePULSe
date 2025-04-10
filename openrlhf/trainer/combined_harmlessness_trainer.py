@@ -316,6 +316,9 @@ class CombinedHarmlessnessTrainer(ABC):
             # print(self.micro_rollout_batch_size)
             # print(update_timesteps)
 
+        print("UPDATE TIMESTEPS")
+        print(update_timesteps)
+
         # get eval and save steps
         if args.eval_steps == -1:
             args.eval_steps = num_rollouts_per_episodes  # Evaluate once per epoch
@@ -532,6 +535,13 @@ class CombinedHarmlessnessTrainer(ABC):
             for experience, experience_neg_sampling in pbar:
                 experience.to_device(device)
                 experience_neg_sampling.to_device(device)
+
+                print("EXPERIENCE NEG INFO")
+                print(experience_neg_sampling.sequences)
+                print(experience_neg_sampling.info["reward"])
+                print(experience_neg_sampling.action_log_probs)
+                print(experience_neg_sampling.info)
+
                 status = self.training_step(experience, experience_neg_sampling, global_steps, custom_prompt=custom_prompt)
 
                 # for DP
@@ -621,8 +631,9 @@ class CombinedHarmlessnessTrainer(ABC):
                         print("PARAM CHECK HARML after")
                         print(param)
                         break
-                # Note that the updates to the sampling actor don't affect anything; they won't change the experience_maker_neg_sampling log probs that were already stored there
+                # Note that the updates to the sampling actor don't change the experience_maker_neg_sampling log probs that were already stored there
                 # So the only direction of effect is that changing the base model can change the sampling actor target.
+                # But in later iterations, the sampling actor should be different, which means the neg train loss should be different...
                 status.update(status_sampling)
 
             if self.base_critic is not None:
