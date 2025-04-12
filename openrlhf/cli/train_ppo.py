@@ -943,6 +943,11 @@ def train(args):
             print(rewards_tensor.shape)
             print(rewards_tensor[-100:].mean())
 
+            print("Last 50 reward average")
+            print("Last 10 reward average")
+            print("Last 5 reward average")
+
+
 
     if args.save_negdata:
         print(len(neg_data))
