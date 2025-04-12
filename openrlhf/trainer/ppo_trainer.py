@@ -544,7 +544,7 @@ class BasePPOTrainer(ABC):
                     # print("PROFILE2")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
-                    rewards_list.append(experience.info["reward"])
+                    rewards_list.append(experience.info["reward"].mean().item())
 
                     pbar.update()
                     steps = steps + 1

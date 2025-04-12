@@ -489,7 +489,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 steps = steps + 1
 
                 # print(experience.info["reward"])
-                rewards_list.append(experience.info["reward"])
+                rewards_list.append(experience.info["reward"].mean().item())
                 # print(rewards_list)
                 # print(estimates_list)
                 # 1 / 0

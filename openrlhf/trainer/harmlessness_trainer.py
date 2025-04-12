@@ -587,7 +587,7 @@ class HarmlessnessTrainer(ABC):
                     pbar.update()
                     steps = steps + 1
 
-                    rewards_list.append(experience.info["reward"])
+                    rewards_list.append(experience.info["reward"].mean().item())
 
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
