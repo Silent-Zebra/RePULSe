@@ -937,8 +937,9 @@ def train(args):
             save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
             torch.save(target_to_save, save_str)
 
-            print(rewards_list)
+            # print(rewards_list)
             rewards_tensor = torch.tensor(rewards_list)
+            print("Rewards record shape")
             print(rewards_tensor.shape)
 
             lasts = [100, 50, 10, 5]
