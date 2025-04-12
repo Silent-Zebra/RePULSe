@@ -212,6 +212,46 @@ def train(args):
                 max_new_tokens=args.generate_max_len,
                 strip_question_chat_template_fn=strip_question_chat_template_fn
             )
+        elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
+            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
+            from transformers import AutoTokenizer, AutoConfig, AutoModel
+
+            def get_tokenizer_custom(model_config):
+                tokenizer = AutoTokenizer.from_pretrained(model_config)
+                tokenizer.pad_token = tokenizer.eos_token
+                return tokenizer
+
+            tokenizer_rm = get_tokenizer_custom(args.reward_pretrain)
+
+            rm_name = args.reward_pretrain
+
+            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
+            config.normalize_reward = False
+            assert not args.normalize_reward  # Not yet implemented
+            base_class = AutoModel._model_mapping[type(config)]
+            base_pretrained_class = base_class.__base__
+            strip_question_chat_template_fn = None
+            if args.apply_chat_template:
+                if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct", "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct", "meta-llama/Llama-3.2-3B-Instruct" ]:
+                    def strip_question_chat_template_fn(text, additional_split=False):
+                        question, answer = text.split('assistant\n', maxsplit=1) # in case 'assistant\n' shows up in the output, only split on the first occurrence
+                        question = question.split('user\n')[-1].strip('\n')
+                        # return text.removeprefix('user\n').removesuffix('\nassistant\n')
+
+                        if additional_split: # Used for the neg_data right now, kind of hacky
+                            question = question.split('<|im_end|>')[0]
+
+                        return question, answer
+                else:
+                    raise NotImplementedError
+            reward_model = _get_reward_model_custom(
+                base_pretrained_class, rm_name,
+                tokenizer=tokenizer_rm,
+                config=config,
+                separatequeryanswer=True,
+                max_new_tokens=args.generate_max_len,
+                strip_question_chat_template_fn=strip_question_chat_template_fn
+            )
 
         else:
             if args.custom_single_prompt:
@@ -941,6 +981,11 @@ def train(args):
             rewards_tensor = torch.tensor(rewards_list)
             print("Rewards record shape")
             print(rewards_tensor.shape)
+
+            firsts = [5, 10, 50]
+            for first in firsts:
+                print(f"First {first} reward average")
+                print(rewards_tensor[:first].mean())
 
             lasts = [100, 50, 10, 5]
             for last in lasts:

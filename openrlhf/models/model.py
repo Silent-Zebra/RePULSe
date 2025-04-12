@@ -313,34 +313,52 @@ def _get_reward_model_custom(
                 print(text_question)
                 print(text_answer)
 
-                # 1 / 0
-
-                inputs = self.tokenizer_RM(text_question, text_answer,
-                                      return_tensors="pt",
-                                      padding=True
-                                      )
-
-                # print("inputs to rm")
-                # print(inputs)
-
-                # output_len = answer_seq.shape[-1]
-                # print(output_len)
-
                 device = self.rm.device
-                # print("device")
-                # print(device)
-                # print(question_seq.device)
 
-                inputs = {key: value[:, :self.max_new_tokens * 2].to(device) for
-                          key, value in
-                          inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
+                if rm_name == "Ray2333/GRM-Llama3.2-3B-rewardmodel-ft":
+                    messages = []
+                    for q, a in zip(text_question, text_answer):
+                        message = [
+                            {'role': 'user', 'content': q},
+                            {'role': 'assistant', 'content': a}
+                        ]
+                        messages.append(tokenizer.apply_chat_template(message, tokenize=False))
 
-                # print("inputs to rm 2")
-                # print(inputs)
+                    kwargs = {"padding": 'longest', "truncation": True, "return_tensors": "pt"}
+                    tokens = tokenizer(messages, **kwargs)
 
-                with torch.no_grad():
-                    r = self.rm(**inputs).logits.squeeze(
-                        -1).detach()
+                    input_ids = tokens["input_ids"].to(device)
+                    attention_mask = tokens["attention_mask"].to(device)
+
+                    with torch.no_grad():
+                        rewards_tensor = reward_model(input_ids=input_ids, attention_mask=attention_mask)[0]
+                        r = rewards_tensor.detach().squeeze(-1)  # squeeze last dim if needed
+
+                else:
+                    inputs = self.tokenizer_RM(text_question, text_answer,
+                                          return_tensors="pt",
+                                          padding=True
+                                          )
+
+                    # print("inputs to rm")
+                    # print(inputs)
+
+                    # output_len = answer_seq.shape[-1]
+                    # print(output_len)
+
+                    # print("device")
+                    # print(device)
+                    # print(question_seq.device)
+
+                    inputs = {key: value[:, :self.max_new_tokens * 2].to(device) for
+                              key, value in
+                              inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
+
+                    # print("inputs to rm 2")
+                    # print(inputs)
+
+                    with torch.no_grad():
+                        r = self.rm(**inputs).logits.squeeze(-1).detach()
 
                 print("reward")
                 print(r)
