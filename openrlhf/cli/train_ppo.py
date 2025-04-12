@@ -937,17 +937,14 @@ def train(args):
             save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
             torch.save(target_to_save, save_str)
 
-            print("Last 100 reward average")
             print(rewards_list)
             rewards_tensor = torch.tensor(rewards_list)
             print(rewards_tensor.shape)
-            print(rewards_tensor[-100:].mean())
 
-            print("Last 50 reward average")
-            print("Last 10 reward average")
-            print("Last 5 reward average")
-
-
+            lasts = [100, 50, 10, 5]
+            for last in lasts:
+                print(f"Last {last} reward average")
+                print(rewards_tensor[-last:].mean())
 
     if args.save_negdata:
         print(len(neg_data))
