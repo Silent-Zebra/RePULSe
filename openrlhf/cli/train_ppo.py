@@ -938,6 +938,7 @@ def train(args):
             torch.save(target_to_save, save_str)
 
             print("Last 100 reward average")
+            print(rewards_list)
             rewards_tensor = torch.tensor(rewards_list)
             print(rewards_tensor.shape)
             print(rewards_tensor[-100:].mean())
