@@ -444,7 +444,7 @@ class CTLLoss(nn.Module):
         # print(values)
 
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
-        # curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
+        curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
         base_action_log_probs *= action_mask
         values *= action_mask # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
         # But I'm leaving the above just to be safe; TODO later can test to ensure this is the case.
@@ -468,8 +468,7 @@ class CTLLoss(nn.Module):
 
             # Compute terms using the vectorized weights
             positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * values
-            normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=1)
-            negative_samples_term = normalized_w_t_approx_pi_samples * values
+
 
             # print("weight inspection")
             # print(log_w_t_approx_pi_samples)
@@ -493,6 +492,8 @@ class CTLLoss(nn.Module):
             if self.no_second_term:
                 loss = - positive_samples_term
             else:
+                normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=1)
+                negative_samples_term = normalized_w_t_approx_pi_samples * values
                 loss = -(positive_samples_term - negative_samples_term)
             # print(loss.shape)
 
