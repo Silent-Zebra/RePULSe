@@ -881,7 +881,7 @@ def train(args):
         print("-----HARMLESSNESS TRAINING-----", flush=True)
         # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
         assert args.num_episodes == 1 # Right now only supports 1 twist/proposal update per base_actor update
-        harmlessness_trainer.fit(
+        estimates_list = harmlessness_trainer.fit(
             args, prompts_dataloader, pretrain_dataloader, consumed_samples,
             num_update_steps_per_episodes, true_posterior_samples
         )
@@ -936,6 +936,11 @@ def train(args):
             )
             save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
             torch.save(target_to_save, save_str)
+
+            print("Last 100 reward average")
+            rewards_tensor = torch.tensor(rewards_list)
+            print(rewards_tensor.shape)
+            print(rewards_tensor[-100:].mean())
 
 
     if args.save_negdata:

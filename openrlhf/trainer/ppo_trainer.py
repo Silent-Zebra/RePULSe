@@ -448,6 +448,8 @@ class BasePPOTrainer(ABC):
                                                args.rollout_batch_size)
                         pbar.set_postfix(status)
 
+                        rewards_list.append(experience.info["reward"])
+
                     steps = steps + 1
                     global_steps = steps // update_timesteps
 
