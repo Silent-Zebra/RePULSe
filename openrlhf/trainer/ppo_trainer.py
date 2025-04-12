@@ -448,7 +448,6 @@ class BasePPOTrainer(ABC):
                                                args.rollout_batch_size)
                         pbar.set_postfix(status)
 
-                        rewards_list.append(experience.info["reward"])
 
                     steps = steps + 1
                     global_steps = steps // update_timesteps
@@ -545,6 +544,7 @@ class BasePPOTrainer(ABC):
                     # print("PROFILE2")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
+                    rewards_list.append(experience.info["reward"])
 
                     pbar.update()
                     steps = steps + 1
