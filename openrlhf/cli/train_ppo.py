@@ -162,7 +162,7 @@ def train(args):
                 tokenizer.pad_token = tokenizer.eos_token
                 return tokenizer
 
-            tokenizer_rm = get_tokenizer_custom(args.pretrain)
+            tokenizer_base = get_tokenizer_custom(args.pretrain)
 
             rm_name = args.reward_pretrain
             config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
@@ -171,7 +171,7 @@ def train(args):
             base_class = AutoModel._model_mapping[type(config)]
             base_pretrained_class = base_class.__base__
             reward_model = _get_reward_model_custom(base_pretrained_class, rm_name,
-                                             tokenizer=tokenizer_rm, config=config)
+                                             tokenizer_base=tokenizer_base, config=config)
 
         elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base", "OpenAssistant/reward-model-deberta-v3-large-v2"]:
             print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
@@ -182,7 +182,7 @@ def train(args):
                 tokenizer.pad_token = tokenizer.eos_token
                 return tokenizer
 
-            tokenizer_rm = get_tokenizer_custom(args.pretrain)
+            tokenizer_base = get_tokenizer_custom(args.pretrain)
 
             rm_name = args.reward_pretrain
             config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
@@ -206,7 +206,7 @@ def train(args):
                     raise NotImplementedError
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
-                tokenizer=tokenizer_rm,
+                tokenizer_base=tokenizer_base,
                 config=config,
                 separatequeryanswer=True,
                 max_new_tokens=args.generate_max_len,
@@ -221,7 +221,7 @@ def train(args):
                 tokenizer.pad_token = tokenizer.eos_token
                 return tokenizer
 
-            tokenizer_rm = get_tokenizer_custom(args.reward_pretrain)
+            tokenizer_base = get_tokenizer_custom(args.reward_pretrain)
 
             rm_name = args.reward_pretrain
 
@@ -246,7 +246,7 @@ def train(args):
                     raise NotImplementedError
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
-                tokenizer=tokenizer_rm,
+                tokenizer_base=tokenizer_base,
                 config=config,
                 separatequeryanswer=True,
                 max_new_tokens=args.generate_max_len,

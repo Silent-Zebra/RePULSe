@@ -237,7 +237,7 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
 
 
 def _get_reward_model_custom(
-    base_pretrained_class, rm_name, tokenizer, config, separatequeryanswer=False, max_new_tokens=None,
+    base_pretrained_class, rm_name, tokenizer_base, config, separatequeryanswer=False, max_new_tokens=None,
     strip_question_chat_template_fn=None
 ):
     class RewardModel(base_pretrained_class):
@@ -252,7 +252,7 @@ def _get_reward_model_custom(
             self.rm = AutoModelForSequenceClassification.from_pretrained(
                 rm_name)
             self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
-            self.tokenizer = tokenizer  # TODO ensure this works
+            self.tokenizer_base = tokenizer_base  # TODO ensure this works
             self.max_new_tokens = max_new_tokens
             if max_new_tokens is not None:
                 assert self.max_new_tokens > 0
@@ -291,7 +291,7 @@ def _get_reward_model_custom(
                 # text_answer = self.tokenizer.batch_decode(answer_seq,
                 #                                      skip_special_tokens=True)
 
-                text = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                text = self.tokenizer_base.batch_decode(input_ids, skip_special_tokens=True)
 
                 # print(text)
 
@@ -369,7 +369,7 @@ def _get_reward_model_custom(
                 assert return_output == False
                 # print("--FORWARD CALL--")
                 # print(input_ids.device)
-                text = self.tokenizer.batch_decode(input_ids)
+                text = self.tokenizer_base.batch_decode(input_ids)
                 # print(text)
                 tokens = self.tokenizer_RM(text, return_tensors="pt", padding=True)
                 # print(tokens)
