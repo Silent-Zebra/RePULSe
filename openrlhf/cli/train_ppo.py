@@ -221,7 +221,7 @@ def train(args):
                 tokenizer.pad_token = tokenizer.eos_token
                 return tokenizer
 
-            tokenizer_base = get_tokenizer_custom(args.reward_pretrain)
+            tokenizer_base = get_tokenizer_custom(args.pretrain)
 
             rm_name = args.reward_pretrain
 
