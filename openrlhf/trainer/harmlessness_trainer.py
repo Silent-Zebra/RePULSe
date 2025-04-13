@@ -20,7 +20,7 @@ from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
-from openrlhf.utils.utils import get_info_name_str, tile_prompts
+from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
@@ -588,6 +588,7 @@ class HarmlessnessTrainer(ABC):
                     steps = steps + 1
 
                     rewards_list.append(experience.info["reward"].mean().item())
+                    inspect_rewards_list(rewards_list)
 
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list

@@ -19,7 +19,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list
 
 
 def train(args):
@@ -977,20 +977,7 @@ def train(args):
             save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
             torch.save(target_to_save, save_str)
 
-            # print(rewards_list)
-            rewards_tensor = torch.tensor(rewards_list)
-            print("Rewards record shape")
-            print(rewards_tensor.shape)
-
-            firsts = [5, 10, 50]
-            for first in firsts:
-                print(f"First {first} reward average")
-                print(rewards_tensor[:first].mean())
-
-            lasts = [100, 50, 10, 5]
-            for last in lasts:
-                print(f"Last {last} reward average")
-                print(rewards_tensor[-last:].mean())
+            inspect_rewards_list(rewards_list)
 
     if args.save_negdata:
         print(len(neg_data))
@@ -1015,6 +1002,9 @@ def train(args):
     #         tokenizer,
     #         args.save_path + "_critic",
     #     )
+
+
+
 
 
 def do_load_checkpoints(args, actor, critic, strategy):

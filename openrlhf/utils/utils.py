@@ -203,3 +203,18 @@ def get_info_name_str(args):
     info_name_str = f"{args.rm_type}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_beta{args.target_dist_beta}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_sched{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}_s{args.seed}"
 
     return info_name_str
+
+
+def inspect_rewards_list(rewards_list):
+    # print(rewards_list)
+    rewards_tensor = torch.tensor(rewards_list)
+    print("Rewards record shape")
+    print(rewards_tensor.shape)
+    firsts = [5, 10, 50]
+    for first in firsts:
+        print(f"First {first} reward average")
+        print(rewards_tensor[:first].mean())
+    lasts = [100, 50, 10, 5]
+    for last in lasts:
+        print(f"Last {last} reward average")
+        print(rewards_tensor[-last:].mean())

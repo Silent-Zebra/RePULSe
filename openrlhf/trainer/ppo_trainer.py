@@ -20,7 +20,7 @@ from openrlhf.models.actor_custom import ActorCustom
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
-from openrlhf.utils.utils import get_info_name_str, tile_prompts
+from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
@@ -545,6 +545,7 @@ class BasePPOTrainer(ABC):
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
                     rewards_list.append(experience.info["reward"].mean().item())
+                    inspect_rewards_list(rewards_list)
 
                     pbar.update()
                     steps = steps + 1
