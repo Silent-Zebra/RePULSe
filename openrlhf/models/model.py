@@ -322,16 +322,16 @@ def _get_reward_model_custom(
                             {'role': 'user', 'content': q},
                             {'role': 'assistant', 'content': a}
                         ]
-                        messages.append(tokenizer.apply_chat_template(message, tokenize=False))
+                        messages.append(self.tokenizer_RM.apply_chat_template(message, tokenize=False))
 
                     kwargs = {"padding": 'longest', "truncation": True, "return_tensors": "pt"}
-                    tokens = tokenizer(messages, **kwargs)
+                    tokens = self.tokenizer_RM(messages, **kwargs)
 
                     input_ids = tokens["input_ids"].to(device)
                     attention_mask = tokens["attention_mask"].to(device)
 
                     with torch.no_grad():
-                        rewards_tensor = reward_model(input_ids=input_ids, attention_mask=attention_mask)[0]
+                        rewards_tensor = self.rm(input_ids=input_ids, attention_mask=attention_mask)[0]
                         r = rewards_tensor.detach().squeeze(-1)  # squeeze last dim if needed
 
                 else:
