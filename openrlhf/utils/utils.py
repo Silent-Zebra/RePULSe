@@ -214,7 +214,7 @@ def inspect_rewards_list(rewards_list):
     for first in firsts:
         print(f"First {first} reward average")
         print(rewards_tensor[:first].mean())
-    lasts = [100, 50, 10, 5]
+    lasts = [500, 200, 100, 50, 10, 5]
     for last in lasts:
         print(f"Last {last} reward average")
         print(rewards_tensor[-last:].mean())
