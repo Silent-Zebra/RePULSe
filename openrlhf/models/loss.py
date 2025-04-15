@@ -879,7 +879,6 @@ class DPGLoss(nn.Module):
                 curr_log_probs,
                 final_reward,
                 # values
-                return_normalized=True
             )
 
             # # Compute terms using the vectorized weights
