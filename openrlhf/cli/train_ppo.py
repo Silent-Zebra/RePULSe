@@ -1011,15 +1011,19 @@ def do_load_checkpoints(args, actor, critic, strategy):
     # load checkpoint
     consumed_samples = 0
     # if args.load_checkpoint and os.path.exists(os.path.join(args.ckpt_path, "_actor")):
-    if args.load_checkpoint and os.path.exists(f"{args.ckpt_path}_actor"):
-        # _, states = strategy.load_ckpt(actor.model, os.path.join(args.ckpt_path, "_actor"))
-        _, states = strategy.load_ckpt(actor.model, f"{args.ckpt_path}_actor")
-        if critic is not None:
-            # strategy.load_ckpt(critic, os.path.join(args.ckpt_path, "_critic"))
+    if args.load_checkpoint:
+        if os.path.exists(f"{args.ckpt_path}_actor"):
+            # _, states = strategy.load_ckpt(actor.model, os.path.join(args.ckpt_path, "_actor"))
+            _, states = strategy.load_ckpt(actor.model, f"{args.ckpt_path}_actor")
+            if critic is not None:
+                # strategy.load_ckpt(critic, os.path.join(args.ckpt_path, "_critic"))
 
-            strategy.load_ckpt(critic, f"{args.ckpt_path}_critic")
-        consumed_samples = states["consumed_samples"]
-        strategy.print(f"Loaded the checkpoint: {args.ckpt_path}, consumed_samples: {consumed_samples}")
+                strategy.load_ckpt(critic, f"{args.ckpt_path}_critic")
+            consumed_samples = states["consumed_samples"]
+            strategy.print(f"Loaded the checkpoint: {args.ckpt_path}, consumed_samples: {consumed_samples}")
+        else:
+            raise Exception("Checkpoint not found")
+
     return consumed_samples
 
 
