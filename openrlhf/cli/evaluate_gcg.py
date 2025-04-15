@@ -91,22 +91,31 @@ def evaluate_with_gcg(args):
 
     # Load AdvBench dataset based on scenario
     try:
-        advbench_data = pd.read_csv(args.advbench_file_path)
-        targets_all = advbench_data['target'].tolist()
-
-        if args.scenario == "behaviors" or args.scenario == "behaviours":
-            if 'goal' not in advbench_data.columns:
-                 strategy.print(f"Error: 'goal' column not found in {args.advbench_file_path} for scenario '{args.scenario}'")
-                 return
-            goals_all = advbench_data['goal'].tolist()
-        elif args.scenario == "strings":
-            # For 'strings' scenario, the goal for GCG is effectively empty,
-            # as the adversarial string itself becomes the user prompt later.
-            goals_all = [""] * len(targets_all)
+        # Determine the effective scenario
+        if args.scenario == "strings":
+            current_scenario = "strings"
         else:
-             # This case should ideally not be reached due to argparse choices
-             strategy.print(f"Error: Invalid scenario '{args.scenario}' during data loading.")
-             return
+            # Default to behaviors if scenario is not provided or is behaviors/behaviours
+            current_scenario = "behaviors"
+            if args.scenario and args.scenario not in ["behaviors", "behaviours"]:
+                # This case should be caught by argparse choices, but warn if an invalid value somehow gets through
+                strategy.print(f"Warning: Invalid scenario '{args.scenario}' provided, defaulting to 'behaviors'.")
+
+        strategy.print(f"Loading data from: {args.file_path} using effective scenario: {current_scenario}")
+        data = pd.read_csv(args.file_path)
+
+        # Check for required columns and load data based on scenario
+        if current_scenario == "behaviors":
+            if 'goal' not in data.columns or 'target' not in data.columns:
+                 raise ValueError(f"'goal' and 'target' columns are required in {args.file_path} for scenario '{current_scenario}'")
+            goals_all = data['goal'].tolist()
+            targets_all = data['target'].tolist()
+        elif current_scenario == "strings":
+             if 'target' not in data.columns:
+                 raise ValueError(f"'target' column is required in {args.file_path} for scenario '{current_scenario}'")
+             targets_all = data['target'].tolist()
+             # Create empty goals for the strings scenario
+             goals_all = [""] * len(targets_all)
 
         # Limit the number of targets if specified
         num_targets_to_process = len(targets_all)
@@ -117,13 +126,16 @@ def evaluate_with_gcg(args):
         targets = targets_all[:num_targets_to_process]
         goals = goals_all[:num_targets_to_process]
 
-        strategy.print(f"Loaded {len(targets_all)} total targets from {args.advbench_file_path}. Processing {len(targets)} for scenario: {args.scenario}")
+        strategy.print(f"Loaded {len(targets_all)} total targets from {args.file_path}. Processing {len(targets)} for scenario: {current_scenario}")
 
-    except FileNotFoundError:
-        strategy.print(f"Error: AdvBench file not found at {args.advbench_file_path}")
+    except FileNotFoundError as e:
+        strategy.print(f"Error: Data file not found - {e}")
+        return
+    except ValueError as e:
+        strategy.print(f"Error: Configuration or data format issue - {e}")
         return
     except Exception as e:
-        strategy.print(f"Error loading or processing AdvBench data from {args.advbench_file_path}: {e}")
+        strategy.print(f"Error loading or processing data: {e}")
         return
 
     # Ensure goals and targets lists are consistent (should always be true after slicing)
@@ -165,7 +177,7 @@ def evaluate_with_gcg(args):
     for i, (goal, target) in enumerate(zip(goals, targets)):
         if strategy.is_rank_0():
             # Use len(targets) which reflects the actual number being processed
-            print(f"--- Processing Target {i+1}/{len(targets)} --- ({args.scenario} scenario)")
+            print(f"--- Processing Target {i+1}/{len(targets)} --- ({current_scenario} scenario)")
             # Still print the GCG goal for context, even if empty for "strings"
             print(f"Goal for GCG: {goal}")
             print(f"Target for GCG: {target}")
@@ -187,13 +199,14 @@ def evaluate_with_gcg(args):
                 print(f"  Best loss: {result.best_loss:.4f}")
 
             # Construct prompt for generation using the best adversarial string
-            if args.scenario == "behaviors" or args.scenario == "behaviours":
+            # Use the determined 'current_scenario'
+            if current_scenario in ["behaviors", "behaviours"]:
                 prompt = f"USER: {goal} {result.best_string} ASSISTANT:"
-            elif args.scenario == "strings":
+            elif current_scenario == "strings":
                 prompt = f"USER: {result.best_string} ASSISTANT:"
             else:
                 # This check might be redundant due to earlier loading check, but good for safety
-                strategy.print(f"Error: Invalid scenario '{args.scenario}'. Choose 'behaviors' or 'strings'.")
+                strategy.print(f"Internal Error: Invalid scenario '{current_scenario}' during prompt construction.")
                 continue # Skip this goal if scenario is invalid
             
             if strategy.is_rank_0():
@@ -238,7 +251,8 @@ def evaluate_with_gcg(args):
     asr = (successful_attacks / total_targets_processed) * 100 if total_targets_processed > 0 else 0
     if strategy.is_rank_0():
         print("\n--- Evaluation Summary ---")
-        print(f"Scenario: {args.scenario}")
+        print(f"Data File: {args.file_path}")
+        print(f"Effective Scenario: {current_scenario}")
         print(f"Total Targets Processed: {total_targets_processed}")
         print(f"Successful Attacks: {successful_attacks}")
         print(f"Attack Success Rate (ASR): {asr:.2f}%")
@@ -250,9 +264,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     
     # Data arguments
-    parser.add_argument("--advbench_file_path", type=str, required=True, help="Path to the specific AdvBench CSV file (e.g., data/advbench/harmful_behaviors.csv or data/advbench/harmful_strings.csv)")
-    parser.add_argument("--scenario", type=str, required=True, choices=["behaviors", "behaviours", "strings"], help="AdvBench scenario to evaluate ('behaviors' or 'strings')")
-    parser.add_argument("--max_targets", type=int, default=None, help="Maximum number of targets to process from the AdvBench file. Processes all if None.")
+    parser.add_argument("--file_path", type=str, required=True, help="Path to the evaluation CSV file (must contain 'target' column, and 'goal' column if scenario is not 'strings').")
+    parser.add_argument("--scenario", type=str, default="behaviors", choices=["behaviors", "behaviours", "strings"], help="Evaluation scenario ('strings' requires only 'target' column, 'behaviors' [default] requires 'goal' and 'target').")
+    parser.add_argument("--max_targets", type=int, default=None, help="Maximum number of targets to process from the data file. Processes all if None.")
     
     # Model arguments
     parser.add_argument("--pretrain", type=str, required=True)
@@ -281,7 +295,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     
     # Generation arguments
-    parser.add_argument("--max_new_tokens", type=int, default=512, help="Maximum number of new tokens to generate for checking success")
+    parser.add_argument("--max_new_tokens", type=int, default=20, help="Maximum number of new tokens to generate for checking success")
 
     # Model configuration arguments
     parser.add_argument("--flash_attn", action="store_true")

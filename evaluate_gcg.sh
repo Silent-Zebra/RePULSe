@@ -19,7 +19,7 @@ CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints/toyrlhfmulti"
 CHECKPOINT_NAME="toy_rlhf_Sm13In_remodev3lav2_cutopr_len20_beta-10.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr1e-06_policy_psi_q_p_s_t_s1_actor"
 CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_NAME}"
 
-deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
+deepspeed --master_port 33892 --module openrlhf.cli.evaluate_gcg \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
     --load_checkpoint \
     --ckpt_path "${CHECKPOINT_PATH}" \
@@ -31,7 +31,8 @@ deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
     --parameterization policy_psi_q_p_s_t \
     --max_targets 100 \
     --scenario behaviors \
-    --advbench_file_path "/h/319/aidanl/OpenRLHF/advbench-data/advbench/harmful_behaviors.csv"
+    --file_path data/bad_outputs.csv \
+    --gcg_steps 10
 
 # the scenario argument can be "behaviors" or "strings"
 # the advbench_file_path argument can be the path to a csv file containing the harmful behaviors or strings
