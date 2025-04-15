@@ -64,6 +64,11 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--reinforce_hardcoded_baseline") hlrbval = "_"$(i+1)
         if($i == "--alpha") alpha = "_alpha"$(i+1)
         if($i == "--only_evaluate_on_neg_data") only_eval_neg = "_onlyevalneg"
+        if($i == "--neg_data_load_path") negloadpath = $(i+1)
+        if($i == "--ckpt_path")  {
+            ckpt_path = gensub("_actor", "", "g", $(i+1))        
+            ckpt_abbrev = gensub(".*/", "", "g", $(i+1)) 
+        }
     }
     
     # Print with a special delimiter (|) that wont appear in the values
@@ -72,14 +77,14 @@ PARAMS=$(echo "$COMMAND" | awk '
     #   target_beta != "" && lr_sched != "" && actor_loss != "")
         print micro_train "|" train "|" micro_rollout "|" rollout "|" max_epochs "|" \
               gen_max_len "|" actor_lr "|" critic_lr "|" baseactor_lr "|" target_beta "|" save_negdata_threshold "|" threshold "|" lr_sched "|" \
-              actor_loss "|" custom_prompt "|" parameterization "|" adam_beta2 "|" rm_type "|" dup_rollout "|" pretrain "|" \
+              actor_loss "|" custom_prompt "|" parameterization "|" adam_beta2 "|" rm_type "|" dup_rollout "|" pretrain "|" negloadpath "|" ckpt_path "|" ckpt_abbrev "|" \
               reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" only_eval_neg \
 
 }')
 
 # Read using the special delimiter
 IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS GEN_MAX_LEN \
-    ACTOR_LR CRITIC_LR BASEACTOR_LR TARGET_BETA SAVE_NEGDATA_THRESH THRESH LR_SCHED ACTOR_LOSS CUSTOM_PROMPT PARAMETERIZATION ADAM_BETA2 RM_TYPE DUP_ROLLOUT PRETRAIN REWARD_PRETRAIN PROMPT_DATA \
+    ACTOR_LR CRITIC_LR BASEACTOR_LR TARGET_BETA SAVE_NEGDATA_THRESH THRESH LR_SCHED ACTOR_LOSS CUSTOM_PROMPT PARAMETERIZATION ADAM_BETA2 RM_TYPE DUP_ROLLOUT PRETRAIN NEG_DATA_PATH CKPT_PATH CKPT_ABBREV REWARD_PRETRAIN PROMPT_DATA \
     INITHEADBASE SD_DIVIDER HARMLOSS HARMLOSSREINBASELINE HLRBVAL ALPHA ONLY_EVAL_NEG <<< "$PARAMS"
 
 # Check if required parameters are empty
@@ -100,9 +105,9 @@ IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS GEN_MAX_LEN \
 CURRENT_DATE=$(date +%Y-%m-%d-%H-%M)
 
 # Generate output filename
-PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${THRESH}_beta${TARGET_BETA}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_batch${MICRO_TRAIN}_${TRAIN}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_ep${MAX_EPOCHS}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${ALPHA}${BASEACTOR_LR}_${ACTOR_LOSS}_alr${ACTOR_LR}_clr${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}"
-SBATCH_FILE="sbatch_${PATTERN}"
-OUTPUT_FILE="result_${PATTERN}_s1.txt"
+#PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${THRESH}_beta${TARGET_BETA}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_batch${MICRO_TRAIN}_${TRAIN}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_ep${MAX_EPOCHS}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${ALPHA}${BASEACTOR_LR}_${ACTOR_LOSS}_alr${ACTOR_LR}_clr${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}"
+SBATCH_FILE="sbatch_${CURRENT_DATE}_eval_neg_data_${CKPT_ABBREV}"
+OUTPUT_FILE="result_${CURRENT_DATE}_eval_neg_data_${CKPT_ABBREV}.txt"
 
 # Create the sbatch file
 cat > "$SBATCH_FILE" << EOL
@@ -129,7 +134,7 @@ source newenv/bin/activate
 export CUDA_HOME=/pkgs/cuda-12.4
 export PATH=\$CUDA_HOME/bin:\$PATH
 export LD_LIBRARY_PATH=\$CUDA_HOME/lib64:\$LD_LIBRARY_PATH
-deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
+deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.cli.train_ppo --pretrain HuggingFaceTB/SmolLM-135M-Instruct --reward_pretrain OpenAssistant/reward-model-deberta-v3-large-v2 --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --logging_steps 1 --eval_steps -1 --micro_train_batch_size 400 --train_batch_size 400 --micro_rollout_batch_size 80 --rollout_batch_size 80 --duplicate_rollout_batch_by 5 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 20 --zero_stage 2 --prompt_data Silent-Zebra/mixed_prompts_ALERT --input_key prompt --apply_chat_template --max_samples 100000 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmulti --n_samples_per_prompt 1 --rm_type toy_rlhf --seed 1 --parameterization policy --load_checkpoint --only_evaluate_on_neg_data --neg_data_load_path ${NEG_DATA_PATH} --ckpt_path ${CKPT_PATH}
 EOL
 
 # Make the sbatch file executable
