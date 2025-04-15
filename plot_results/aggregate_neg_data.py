@@ -2,7 +2,8 @@ import pickle
 
 neg_data = set()
 
-base_dir = "/h/zhaostep/OpenRLHF/checkpoint/toyrlhfmulti"
+# base_dir = "/h/zhaostep/OpenRLHF/checkpoint/toyrlhfmulti"
+base_dir = "/h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti"
 
 # ls checkpoint/toyrlhfmulti  | grep -v pkl |  grep -v sddiv | grep mipr | grep neg_train | grep harml_ac
 # for x in $(ls | grep pkl | grep mipr); do echo \"$x\",; done
