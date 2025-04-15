@@ -4,8 +4,9 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-# Store the full command
+# Store the full command 
 COMMAND="$*"
+COMMAND_EXCEPT_LAST="${@:1:$(($#-2))}"
 
 # Extract parameters using awk
 PARAMS=$(echo "$COMMAND" | awk '
@@ -129,7 +130,7 @@ export PATH=\$HOME/.local/bin/:\$PATH
 cd ~/OpenRLHF
 source newenv/bin/activate
 module load cuda-12.3
-deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.cli.train_ppo --pretrain ${PRETRAIN} --reward_pretrain ${REWARD_PRETRAIN} --logging_steps 1 --eval_steps -1 --micro_train_batch_size ${MICRO_TRAIN} --train_batch_size ${TRAIN} --micro_rollout_batch_size ${MICRO_ROLLOUT} --rollout_batch_size ${ROLLOUT} --duplicate_rollout_batch_by ${DUP_ROLLOUT} --max_epochs 1 --prompt_max_len 1024 --generate_max_len ${GEN_MAX_LEN} --zero_stage 2 --prompt_data ${PROMPT_DATA} --input_key prompt --apply_chat_template --max_samples 100000 --n_samples_per_prompt 1 --rm_type ${RM_TYPE} --seed 1 --parameterization policy --load_checkpoint --only_evaluate_do_sampling --sampling_iters 1 --save_negdata_threshold -5 --ckpt_path ${CKPT_PATH} 
+deepspeed --master_port $(($RANDOM % 1000 + 3000))1 ${COMMAND_EXCEPT_LAST} --ckpt_path ${CKPT_PATH}
 EOL
 
 # Make the sbatch file executable
