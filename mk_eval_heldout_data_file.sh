@@ -129,7 +129,7 @@ export PATH=\$HOME/.local/bin/:\$PATH
 cd ~/OpenRLHF
 source newenv/bin/activate
 module load cuda-12.3
-deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.cli.train_ppo --pretrain HuggingFaceTB/SmolLM-135M-Instruct --reward_pretrain OpenAssistant/reward-model-deberta-v3-large-v2 --save_path /h/zhaostep/OpenRLHF/checkpoint/toyrlhfmulti --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 20 --rollout_batch_size 20 --duplicate_rollout_batch_by 25 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 20 --zero_stage 2 --prompt_data Silent-Zebra/ALERT_short_prompts_2 --input_key prompt --apply_chat_template --max_samples 100000 --save_info_path /h/zhaostep/OpenRLHF/info/toyrlhfmulti --n_samples_per_prompt 1 --rm_type toy_rlhf --seed 1 --parameterization policy --load_checkpoint --only_evaluate_do_sampling --sampling_iters 200 --save_negdata_threshold -5 --ckpt_path ${CKPT_PATH}
+deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.cli.train_ppo --pretrain ${PRETRAIN} --reward_pretrain ${REWARD_PRETRAIN} --logging_steps 1 --eval_steps -1 --micro_train_batch_size ${MICRO_TRAIN} --train_batch_size ${TRAIN} --micro_rollout_batch_size ${MICRO_ROLLOUT} --rollout_batch_size ${ROLLOUT} --duplicate_rollout_batch_by ${DUP_ROLLOUT} --max_epochs 1 --prompt_max_len 1024 --generate_max_len ${GEN_MAX_LEN} --zero_stage 2 --prompt_data ${PROMPT_DATA} --input_key prompt --apply_chat_template --max_samples 100000 --n_samples_per_prompt 1 --rm_type ${RM_TYPE} --seed 1 --parameterization policy --load_checkpoint --only_evaluate_do_sampling --sampling_iters 1 --save_negdata_threshold -5 --ckpt_path ${CKPT_PATH} 
 EOL
 
 # Make the sbatch file executable
