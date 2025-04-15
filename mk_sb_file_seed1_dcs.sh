@@ -116,6 +116,7 @@ cat > "$SBATCH_FILE" << EOL
 #SBATCH --qos=ml
 #SBATCH --account=ml
 #SBATCH --nodelist=quartet[1-4],overture,concerto[1-2]
+#SBATCH --nodes=1
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
 #SBATCH --gres=gpu:1
