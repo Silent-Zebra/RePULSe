@@ -156,11 +156,11 @@ class CombinedHarmlessnessTrainer(ABC):
 
         self.base_actor_loss_type = base_actor_loss_type
         if self.base_actor_loss_type == "reinforce":
-            self.actor_loss_fn = REINFORCELoss(baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline) # PolicyLoss(eps_clip)
+            self.base_actor_loss_fn = REINFORCELoss(baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline) # PolicyLoss(eps_clip)
         elif self.base_actor_loss_type == "neg_training":
-            self.actor_loss_fn = NegTrainingLoss(alpha=alpha, baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline)
+            self.base_actor_loss_fn = NegTrainingLoss(alpha=alpha, baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline)
         elif self.base_actor_loss_type == "neg_reinforce":
-            self.actor_loss_fn = NegREINFORCELoss(
+            self.base_actor_loss_fn = NegREINFORCELoss(
                 alpha=alpha, baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline,
                 baseline_type_neg=baseline_type_neg, hardcoded_baseline_neg=hardcoded_baseline_neg,
             )
@@ -435,7 +435,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     samples_per_prompt=args.duplicate_rollout_batch_by,
                     **self.generate_kwargs
                 )
-                if self.actor_loss_type == "reinforce":
+                if self.base_actor_loss_type == "reinforce":
                     experience_neg_sampling = experience  # This experience_neg will not be used with reinforce anyway
                 else:
                     experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
@@ -792,7 +792,7 @@ class CombinedHarmlessnessTrainer(ABC):
             # print(experience.advantages)
             # print(experience.action_mask)
 
-            actor_loss = self.actor_loss_fn(
+            actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
                 final_reward,
                 action_mask=exper_action_mask,
@@ -835,7 +835,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 final_reward_neg
             )
 
-            actor_loss = self.actor_loss_fn(
+            actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
                 final_reward,
@@ -871,7 +871,7 @@ class CombinedHarmlessnessTrainer(ABC):
             )
 
             # TODO fill out all the arguments below correctly, check each one
-            actor_loss = self.actor_loss_fn(
+            actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
                 final_reward,
