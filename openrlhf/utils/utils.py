@@ -207,7 +207,7 @@ def get_info_name_str(args):
 
 
 def inspect_rewards_list(rewards_list):
-    print(rewards_list)
+    # print(rewards_list)
     rewards_tensor = torch.tensor(rewards_list)
     print("Rewards record shape")
     print(rewards_tensor.shape)

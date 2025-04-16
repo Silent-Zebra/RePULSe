@@ -1254,6 +1254,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    assert args.no_test_info # Right now the rewards_list is broken if you do test info instead of no_test_info
+
     args.actor_modulates_base = False
     if "policy" not in args.parameterization:
         args.actor_modulates_base = True
