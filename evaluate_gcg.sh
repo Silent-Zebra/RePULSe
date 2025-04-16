@@ -35,7 +35,7 @@ deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
     --parameterization policy_psi_q_p_s_t \
     --max_targets 100 \
     --scenario behaviors \
-    --gcg_steps 10
+    # --gcg_steps 5
     
 
 # the scenario argument can be "behaviors" or "strings"
