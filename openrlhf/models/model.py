@@ -385,11 +385,14 @@ def _get_reward_model_custom(
                     # print(device)
                     # print(question_seq.device)
 
-                    # print("inputs to rm 2")
-                    # print(inputs)
+
                     inputs = {key: value.to(device) for
                               key, value in
                               inputs.items()}
+                    # print("inputs to rm 2")
+                    # print(inputs)
+                    print("inputs to rm shape")
+                    print(inputs["input_ids"].shape)
 
                     with torch.no_grad():
                         r = self.rm(**inputs).logits.squeeze(-1).detach()
