@@ -353,10 +353,6 @@ def _get_reward_model_custom(
                     # print(device)
                     # print(question_seq.device)
 
-                    inputs = {key: value[:, :self.max_new_tokens * 2].to(device) for
-                              key, value in
-                              inputs.items()}  # Truncate to no more than 2x output len, otherwise can have some crazy tokenizations.
-
                     # print("inputs to rm 2")
                     # print(inputs)
 
