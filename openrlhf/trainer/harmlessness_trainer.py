@@ -533,11 +533,14 @@ class HarmlessnessTrainer(ABC):
                         **self.generate_kwargs
                     )
 
-                    experience_neg = self.experience_maker_neg_sampling.make_experience(
-                        rand_prompts,
-                        samples_per_prompt=args.duplicate_rollout_batch_by,
-                        **self.generate_kwargs
-                    )
+                    if self.actor_loss_type == "reinforce":
+                        experience_neg = experience # This experience_neg will not be used with reinforce anyway
+                    else:
+                        experience_neg = self.experience_maker_neg_sampling.make_experience(
+                            rand_prompts,
+                            samples_per_prompt=args.duplicate_rollout_batch_by,
+                            **self.generate_kwargs
+                        )
 
                     # print("PROFILE1")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
