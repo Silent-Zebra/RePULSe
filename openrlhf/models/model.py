@@ -267,13 +267,49 @@ def _get_reward_model_custom(
             attention_mask=None,
             return_output=False,
         ) -> torch.Tensor:
+            """Calculates reward scores for given input sequences using the underlying reward model.
+
+            This method handles two primary modes based on the `separatequeryanswer` flag
+            set during initialization:
+
+            1. If `separatequeryanswer` is True:
+               - Decodes `input_ids` using `self.tokenizer_base`.
+               - Splits the decoded text into question and answer pairs using
+                 `self.strip_question_chat_template_fn`.
+               - Re-tokenizes the questions and answers using `self.tokenizer_RM`.
+               - Handles specific formatting for "Ray2333/GRM-Llama3.2-3B-rewardmodel-ft".
+               - Feeds the processed inputs to the underlying reward model (`self.rm`)
+                 to compute scores.
+               - Truncates inputs to `self.max_new_tokens * 2` if not using the Ray model.
+               - Prints debug information about inputs and outputs.
+
+            2. If `separatequeryanswer` is False:
+               - Decodes `input_ids` using `self.tokenizer_base`.
+               - Re-tokenizes the entire decoded text using `self.tokenizer_RM`.
+               - Feeds the resulting tokens to the underlying reward model (`self.rm`)
+                 to compute scores.
+               - Asserts that `return_output` is False.
+
+            Args:
+                input_ids (torch.LongTensor, optional): Token IDs of the input sequences.
+                    Defaults to None.
+                attention_mask (torch.Tensor, optional): Attention mask corresponding to `input_ids`.
+                    Defaults to None.
+                return_output (bool, optional): If True, returns model outputs alongside rewards.
+                    Currently asserted to be False when `separatequeryanswer` is False.
+                    Defaults to False.
+
+            Returns:
+                torch.Tensor: A tensor containing the computed reward scores for each sequence
+                    in the batch, detached from the computation graph.
+            """
 
             if separatequeryanswer:
                 assert max_new_tokens is not None
 
-                print("Toy RLHF inspection")
-                print(input_ids.shape)
-                print(max_new_tokens)
+                # print("Toy RLHF inspection")
+                # print(input_ids.shape)
+                # print(max_new_tokens)
 
                 # print("input_ids")
                 # print(input_ids)
@@ -293,13 +329,9 @@ def _get_reward_model_custom(
                 #                                        skip_special_tokens=True)
                 # text_answer = self.tokenizer.batch_decode(answer_seq,
                 #                                      skip_special_tokens=True)
-
                 text = self.tokenizer_base.batch_decode(input_ids, skip_special_tokens=True)
-
                 # print(text)
-
                 qa_list = list(map(strip_question_chat_template_fn, text))
-
                 # print(qa_list)
                 #
                 # print(list(zip(*qa_list)))
@@ -312,9 +344,9 @@ def _get_reward_model_custom(
                 # print(attention_mask)
 
                 # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
-                print("text questions and answers")
-                print(text_question)
-                print(text_answer)
+                print("text questions and answers:")
+                print("Q:", text_question)
+                print("A:", text_answer)
 
                 device = self.rm.device
 
@@ -359,8 +391,7 @@ def _get_reward_model_custom(
                     with torch.no_grad():
                         r = self.rm(**inputs).logits.squeeze(-1).detach()
 
-                print("reward")
-                print(r)
+                print("reward:", r)
                 # 1/0
 
             else:
