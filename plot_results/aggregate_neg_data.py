@@ -8,17 +8,24 @@ base_dir = "/h/319/stephenzhao/OpenRLHF/checkpoint/rlhfmulti"
 # ls checkpoint/toyrlhfmulti  | grep -v pkl |  grep -v sddiv | grep mipr | grep neg_train | grep harml_ac
 # for x in $(ls | grep pkl | grep mipr); do echo \"$x\",; done
 neg_data_load_paths = [
-    "neg_data_aggregated_2025_04_14.pkl",
-    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta100000.0_policy_ppo_epochs1_schedconstant_alr3e-05_clr3e-05_clossmse_policy_s1_thr-5.0.pkl",
-    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta100000.0_policy_ppo_epochs1_schedconstant_alr3e-05_clr3e-05_clossmse_policy_s2_thr-5.0.pkl",
-    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta100000.0_policy_ppo_epochs1_schedconstant_alr3e-05_clr3e-05_clossmse_policy_s3_thr-5.0.pkl",
-    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta100000.0_policy_ppo_epochs1_schedconstant_alr3e-05_clr3e-05_clossmse_policy_s4_thr-5.0.pkl",
+    "neg_data_aggregated_20misi1_2025_04_15.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta100000.0_policy_ppo_epochs1_schedconstant_alr3e-05_clr1e-05_clossmse_policy_s5_thr-5.0.pkl",
     "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_modulation_model_s1_thr-5.0.pkl",
-    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr1e-05_blr3e-05_modulation_model_s1_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_modulation_model_s2_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_modulation_model_s3_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_modulation_model_s4_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_modulation_model_s5_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr0.0003_blr3e-05_modulation_model_s1_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr0.0003_blr3e-05_modulation_model_s2_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_modulation_model_ctl_epochs1_schedconstant_alr0.0003_blr3e-05_modulation_model_s3_thr-5.0.pkl",
     "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2_thr-5.0.pkl",
     "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3_thr-5.0.pkl",
-    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1_thr-5.0.pkl",
-    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-3.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr3e-05_policy_psi_q_p_s_t_s1_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr3e-05_policy_psi_q_p_s_t_s2_thr-5.0.pkl",
+    "neg_data_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr3e-05_policy_psi_q_p_s_t_s3_thr-5.0.pkl",
 ]
 # neg_data_load_paths = [
 # "neg_data_aggregated_2025-04-06.pkl",
