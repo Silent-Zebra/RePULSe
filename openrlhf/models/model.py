@@ -419,7 +419,12 @@ def _get_reward_model_custom(
                 # print("--END FORWARD CALL--")
 
             if reward_transform == "minus_alpha_exp_beta_r":
+                print("REWARD TRANSFORM INSPECTION")
+                print(alpha)
+                print(beta)
+                print(r)
                 r -= alpha * torch.exp(beta * r)
+                print(r)
             else:
                 assert reward_transform is None # Others not yet implemented
 
