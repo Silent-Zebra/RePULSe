@@ -1196,7 +1196,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss outer loop) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
-    parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
+    # parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
     parser.add_argument("--test_info_every", type=int, default=1, help="Test info (e.g., F_q) after this many number of gradient updates")
 
     parser.add_argument(
@@ -1264,8 +1264,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if not args.only_evaluate_on_neg_data and not args.only_evaluate_do_sampling:
-        assert args.no_test_info # Right now the rewards_list is broken if you do test info instead of no_test_info
+    # if not args.only_evaluate_on_neg_data and not args.only_evaluate_do_sampling:
+    #     assert args.no_test_info # Right now the rewards_list is broken if you do test info instead of no_test_info
+    args.no_test_info = True
+    args.no_save_critic = True # save some memory usage
 
     args.actor_modulates_base = False
     if "policy" not in args.parameterization:

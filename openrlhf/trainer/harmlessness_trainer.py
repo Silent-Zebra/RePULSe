@@ -1076,6 +1076,7 @@ class HarmlessnessTrainer(ABC):
             client_states,
         )
         if self.critic is not None:
-            self.strategy.save_ckpt(
-                self.critic, os.path.join(args.ckpt_path, f"{save_str}_harml_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
-            )
+            if not args.no_save_critic:
+                self.strategy.save_ckpt(
+                    self.critic, os.path.join(args.ckpt_path, f"{save_str}_harml_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
+                )
