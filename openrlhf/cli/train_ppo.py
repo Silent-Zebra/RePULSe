@@ -1196,7 +1196,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss outer loop) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
-    # parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
+    parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
     parser.add_argument("--test_info_every", type=int, default=1, help="Test info (e.g., F_q) after this many number of gradient updates")
 
     parser.add_argument(
