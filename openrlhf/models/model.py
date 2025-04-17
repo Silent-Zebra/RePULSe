@@ -241,7 +241,7 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
 
 def _get_reward_model_custom(
     base_pretrained_class, rm_name, tokenizer_base, config, separatequeryanswer=False, max_new_tokens=None,
-    strip_question_chat_template_fn=None
+    strip_question_chat_template_fn=None, reward_transform=None, alpha=0, beta=0
 ):
     class RewardModel(base_pretrained_class):
         supports_gradient_checkpointing = True
@@ -417,6 +417,11 @@ def _get_reward_model_custom(
                 # print("--MEAN OF REWARDS--")
                 # print(rew.mean())
                 # print("--END FORWARD CALL--")
+
+            if reward_transform == "minus_alpha_exp_beta_r":
+                r -= alpha * torch.exp(beta * r)
+            else:
+                assert reward_transform is None # Others not yet implemented
 
             return r
 

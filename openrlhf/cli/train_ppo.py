@@ -170,8 +170,12 @@ def train(args):
             assert not args.normalize_reward # Not yet implemented
             base_class = AutoModel._model_mapping[type(config)]
             base_pretrained_class = base_class.__base__
-            reward_model = _get_reward_model_custom(base_pretrained_class, rm_name,
-                                             tokenizer_base=tokenizer_base, config=config)
+            reward_model = _get_reward_model_custom(
+                base_pretrained_class, rm_name,
+                tokenizer_base=tokenizer_base, config=config,
+                reward_transform=args.reward_transform,
+                alpha=args.alpha, beta=args.target_dist_beta
+            )
 
         elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base", "OpenAssistant/reward-model-deberta-v3-large-v2"]:
             print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
@@ -210,7 +214,9 @@ def train(args):
                 config=config,
                 separatequeryanswer=True,
                 max_new_tokens=args.generate_max_len,
-                strip_question_chat_template_fn=strip_question_chat_template_fn
+                strip_question_chat_template_fn=strip_question_chat_template_fn,
+                reward_transform=args.reward_transform,
+                alpha=args.alpha, beta=args.target_dist_beta
             )
         elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
             print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
@@ -250,7 +256,9 @@ def train(args):
                 config=config,
                 separatequeryanswer=True,
                 max_new_tokens=args.generate_max_len,
-                strip_question_chat_template_fn=strip_question_chat_template_fn
+                strip_question_chat_template_fn=strip_question_chat_template_fn,
+                reward_transform=args.reward_transform,
+                alpha=args.alpha, beta=args.target_dist_beta
             )
 
         else:
@@ -1227,6 +1235,8 @@ if __name__ == "__main__":
         "--critic_loss_type", type=str, default="mse",
         choices=["mse", "ctl", "mixed_ctl_mse", "sixo", "sixo_approxneg"]
     )
+
+    parser.add_argument("--reward_transform", type=str, default=None)
 
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, --harmlessness_training_num_episodes for the number of outer loop steps, and --harmlessness_training_episodes_per_loop for the number of harmlessness training steps in each loop iteration. So total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes * harmlessness_training_episodes_per_loop base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")
