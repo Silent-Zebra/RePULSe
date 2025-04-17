@@ -10,7 +10,6 @@
 #SBATCH --gres=gpu:1
 #SBATCH --nodelist=overture,concerto1,concerto2,concerto3
 #SBATCH --export=ALL
-#SBATCH --output=behaviors_gcg_results_100prompts.txt
 
 # Load the environment
 . /mfs1/u/$USER/envs/openrlhf
@@ -19,6 +18,8 @@ CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints/toyrlhfmulti"
 CHECKPOINT_NAME="toy_rlhf_Sm13In_remodev3lav2_cutopr_len20_beta-10.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr1e-06_policy_psi_q_p_s_t_s1_actor"
 CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_NAME}"
 DATA_FILEPATH="data/bad_outputs.csv"
+#SBATCH --output=gcg_harmlessness_bad-outputs-train_{CHECKPOINT_NAME}.txt
+
 
 deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
@@ -28,6 +29,7 @@ deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
     --atk_success_criteria reward \
     --reward_pretrain "OpenAssistant/reward-model-deberta-v3-large-v2" \
     --reward_threshold -5.0 \
+    --rm_exclude_adv_suffix \
     --bf16 \
     --zero_stage 2 \
     --gradient_checkpointing \
@@ -35,7 +37,7 @@ deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
     --parameterization policy_psi_q_p_s_t \
     --max_targets 100 \
     --scenario behaviors \
-    # --gcg_steps 5
+
     
 
 # the scenario argument can be "behaviors" or "strings"

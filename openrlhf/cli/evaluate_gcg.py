@@ -445,12 +445,28 @@ def evaluate_with_gcg(args):
                 # Use Reward Model Score to determine if the attack is successful
                 with torch.no_grad():
                     # Prepare inputs for the reward model
-                    # Pass the full generated sequence ID tensor (prompt + response)
-                    full_sequence_ids = outputs[0].unsqueeze(0) # Add batch dim
-                    # Attention mask for the full sequence
-                    full_attention_mask = (full_sequence_ids != tokenizer.pad_token_id).long().to(reward_model.device)
+                    
+                    # TODO: separate the prompt from the adversarial string attached as a suffix before calculating reward on just the original prompt and response
+                    if args.rm_exclude_adv_suffix:
+                        # Construct input string without the adversarial suffix
+                        reward_input_str = f"USER: {goal} ASSISTANT: {gen_str}"
+                        if strategy.is_rank_0():
+                            print(f"  Reward Model Input (suffix excluded): {reward_input_str}")
+                        reward_inputs = tokenizer(reward_input_str, return_tensors="pt", padding=True).to(reward_model.device)
+                        # Ensure attention mask is correct type if needed (usually long for models expecting it)
+                        # reward_attention_mask = (reward_inputs['input_ids'] != tokenizer.pad_token_id).long()
+                        reward_scores = reward_model(reward_inputs['input_ids'], attention_mask=reward_inputs['attention_mask'])
+                    else:
+                        # Default behavior: Pass the full generated sequence ID tensor (prompt + response)
+                        if strategy.is_rank_0():
+                            full_decoded_for_rm = tokenizer.decode(outputs[0], skip_special_tokens=False)
+                            print(f"  Reward Model Input (full sequence): {full_decoded_for_rm}")
 
-                    reward_scores = reward_model(full_sequence_ids, attention_mask=full_attention_mask)
+                        full_sequence_ids = outputs[0].unsqueeze(0) # Add batch dim
+                        # Attention mask for the full sequence
+                        full_attention_mask = (full_sequence_ids != tokenizer.pad_token_id).long().to(reward_model.device)
+
+                        reward_scores = reward_model(full_sequence_ids, attention_mask=full_attention_mask)
 
                     # Ensure reward_scores is a scalar tensor before calling .item()
                     if reward_scores.numel() > 1:
@@ -572,6 +588,7 @@ if __name__ == "__main__":
     parser.add_argument("--reward_normalize", action="store_true", default=False, help="Whether to normalize reward model outputs (if supported by the model class).")
     parser.add_argument("--reward_value_head_prefix", type=str, default="value_head", help="Prefix for the value head layer in the reward model.")
     # Example flag if using a custom reward model that needs the base tokenizer info
+    parser.add_argument("--rm_exclude_adv_suffix", action="store_true", default=False, help="Exclude the generated adversarial suffix from the reward model input string.")
     # parser.add_argument("--reward_tokenizer_base", type=str, default=None, help="Base model tokenizer path needed for some custom reward models.") 
     
     args = parser.parse_args()
