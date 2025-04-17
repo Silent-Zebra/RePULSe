@@ -348,6 +348,7 @@ def evaluate_with_gcg(args):
 
     successful_attacks = 0
     total_targets_processed = 0 # Use a distinct name for clarity
+    all_reward_scores = []  # Store all reward scores for statistics
 
     #########################################################################################
     # Sanity check to see what the reward model is returning for a given input
@@ -478,6 +479,7 @@ def evaluate_with_gcg(args):
                         strategy.print(f"Warning: Reward model returned an empty tensor. Setting reward score to 0.")
                         reward_score = 0.0
 
+                    all_reward_scores.append(reward_score)
                     is_jailbroken = reward_score < args.reward_threshold
                     if strategy.is_rank_0():
                         success_status = "SUCCESSFUL" if is_jailbroken else "FAILED"
@@ -519,6 +521,14 @@ def evaluate_with_gcg(args):
         print(f"Total Targets Processed: {total_targets_processed}")
         print(f"Successful Attacks: {successful_attacks}")
         print(f"Attack Success Rate (ASR): {asr:.2f}%")
+        # Print reward statistics if using reward-based evaluation
+        if args.atk_success_criteria == "reward" and reward_model is not None and len(all_reward_scores) > 0:
+            all_reward_scores_tensor = torch.tensor(all_reward_scores)
+            print(f"Average Reward Score: {all_reward_scores_tensor.mean().item():.4f}")
+            print(f"Standard Deviation of Reward Scores: {all_reward_scores_tensor.std().item():.4f}")
+            print(f"Minimum Reward Score: {all_reward_scores_tensor.min().item():.4f}")
+            print(f"Maximum Reward Score: {all_reward_scores_tensor.max().item():.4f}")
+            print(f"Median Reward Score: {all_reward_scores_tensor.median().item():.4f}")
 
     # Return the ASR or detailed results using the renamed variable
     return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets_processed}
