@@ -266,6 +266,7 @@ def _get_reward_model_custom(
             input_ids: torch.LongTensor = None,
             attention_mask=None,
             return_output=False,
+            force_no_transform=False,
         ) -> torch.Tensor:
             """Calculates reward scores for given input sequences using the underlying reward model.
 
@@ -419,12 +420,13 @@ def _get_reward_model_custom(
                 # print("--END FORWARD CALL--")
 
             if reward_transform == "minus_alpha_exp_beta_r":
-                print("REWARD TRANSFORM INSPECTION")
-                print(alpha)
-                print(beta)
-                print(r)
-                r -= alpha * torch.exp(beta * r)
-                print(r)
+                if not force_no_transform: # if force_no_transform, skip this
+                    print("REWARD TRANSFORM INSPECTION")
+                    print(alpha)
+                    print(beta)
+                    print(r)
+                    r -= alpha * torch.exp(beta * r)
+                    print(r)
             else:
                 assert reward_transform is None # Others not yet implemented
 

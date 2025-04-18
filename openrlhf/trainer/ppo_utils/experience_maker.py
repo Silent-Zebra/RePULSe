@@ -336,9 +336,11 @@ class BaseExperienceMaker(ABC):
 
 
 
-    def compute_reward_no_kl(self, sequences, attention_mask, class_num=0, multiply_by_beta=False):
+    def compute_reward_no_kl(self, sequences, attention_mask, class_num=0, multiply_by_beta=False, force_no_transform=False):
         # rewards
         if self.remote_rm_url is not None:
+
+            assert not force_no_transform # Not yet implemented/tested
 
             # TODO not yet supported/checked with custom_single_prompt
 
@@ -350,7 +352,7 @@ class BaseExperienceMaker(ABC):
         else:
 
             # local RM
-            r = self.reward_model(sequences, attention_mask)
+            r = self.reward_model(sequences, attention_mask, force_no_transform=force_no_transform)
 
         if self.save_negdata:
 

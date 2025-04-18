@@ -493,7 +493,14 @@ class CombinedHarmlessnessTrainer(ABC):
                 steps = steps + 1
 
                 # print(experience.info["reward"])
-                rewards_list.append(experience.info["reward"].mean().item())
+                if args.reward_transform is not None:
+                    r = self.base_experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask, force_no_transform=True)
+                    rewards_list.append(r.mean().item()) # Use the non transformed reward for tracking
+                    # Right now this is a bit inefficient; requires additional rm pass. Should just return 2 values
+                    # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient 
+                else:
+                    rewards_list.append(experience.info["reward"].mean().item())
+
                 # print(rewards_list)
                 # print(estimates_list)
                 # 1 / 0
