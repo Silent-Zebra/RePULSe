@@ -16,7 +16,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 import torch.nn.functional as F
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
-from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss, CTLLoss
+from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss, CTLLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list
@@ -497,7 +497,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     r = self.base_experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask, force_no_transform=True)
                     rewards_list.append(r.mean().item()) # Use the non transformed reward for tracking
                     # Right now this is a bit inefficient; requires additional rm pass. Should just return 2 values
-                    # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient 
+                    # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient
                 else:
                     rewards_list.append(experience.info["reward"].mean().item())
 
@@ -946,6 +946,64 @@ class CombinedHarmlessnessTrainer(ABC):
                 base_action_log_probs,
                 # reduce_mean_per_prompt=True
             )
+        elif self.sampling_actor_loss_type in ["dpg"]:
+            with torch.no_grad():
+                base_action_log_probs_all_vocab, base_action_log_probs = self.base_actor(
+                    experience.sequences, experience.action_mask.size(1),
+                    experience.attention_mask, return_type="both")
+                # log_phi = self.experience_maker.compute_reward_no_kl(
+                #     experience.sequences, experience.attention_mask, multiply_by_beta=True
+                #     # beta multiplied for non-PPO formulations
+                # )
+                log_phi = experience.info["reward"].to(base_action_log_probs.device)
+
+            if "policy" in self.parameterization:
+                # call actor with return_all_vocab=True
+                log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(self.sampling_actor, base_action_log_probs, experience, experience.action_mask.size(1), self.parameterization, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
+            else:
+                log_psi_all_vocab, log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask,
+                                                      return_only_modulation=True, return_type="both")
+
+            # Reshape tensors to group samples by prompt
+            log_psi = log_psi.view(num_prompts, samples_per_prompt, -1)
+            log_phi = log_phi.view(num_prompts, samples_per_prompt)
+            exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+            exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
+            base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
+
+            log_psi_all_vocab = log_psi_all_vocab.view(num_prompts, samples_per_prompt, log_psi_all_vocab.shape[1], log_psi_all_vocab.shape[2])
+            base_action_log_probs_all_vocab = base_action_log_probs_all_vocab.view(num_prompts, samples_per_prompt, base_action_log_probs_all_vocab.shape[1], base_action_log_probs_all_vocab.shape[2])
+
+            # print("DPG INSPECTION")
+            # print(experience.sequences.shape)
+            # print(experience.sequences)
+            # print(experience.attention_mask.shape)
+            # print(experience.attention_mask)
+            # print(exper_action_mask.shape)
+            # print(exper_action_mask)
+            # print(exper_action_log_probs.shape)
+            # print(exper_action_log_probs)
+            #
+            # print(log_psi.shape)
+            # print(log_psi)
+            # print(log_phi.shape)
+            # print(log_phi)
+            #
+            # print(base_action_log_probs.shape)
+            # print(base_action_log_probs)
+
+            # Calculate loss for all groups at once
+            sampling_actor_loss = self.sampling_actor_loss_fn(
+                log_psi,  # shape: [num_prompts, samples_per_prompt, num_actions]
+                log_phi,  # shape: [num_prompts, samples_per_prompt]
+                exper_action_mask,
+                exper_action_log_probs,
+                base_action_log_probs,
+                # reduce_mean_per_prompt=True
+                log_psi_all_vocab,
+                base_action_log_probs_all_vocab,
+            )
+
         else:
             raise NotImplementedError
 
