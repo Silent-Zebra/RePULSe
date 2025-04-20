@@ -321,6 +321,7 @@ def evaluate_with_gcg(args):
     # GCG Configuration
     gcg_config = nanogcg.GCGConfig(
         num_steps=args.gcg_steps,
+        optim_str_init="! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !",
         search_width=args.gcg_search_width,
         batch_size=args.gcg_batch_size,
         topk=args.gcg_topk,
@@ -351,7 +352,7 @@ def evaluate_with_gcg(args):
     all_reward_scores = []  # Store all reward scores for statistics
 
     #########################################################################################
-    # Sanity check to see what the reward model is returning for a given input
+    # Sanity check: What reward model returns for a given input
     print("\n\n")
     print("--------------------------------")
     print("Starting sanity checks for reward model...")
@@ -384,10 +385,45 @@ def evaluate_with_gcg(args):
     for i, (goal, target) in enumerate(zip(goals, targets)):
         if strategy.is_rank_0():
             # Use len(targets) which reflects the actual number being processed
-            print(f"\n\n--- Processing Target {i+1}/{len(targets)} --- ({current_scenario} scenario)")
+            print(f"\n\n\n\n\n--- Processing Target {i+1}/{len(targets)} --- ({current_scenario} scenario)")
             # Still print the GCG goal for context, even if empty for "strings"
             print(f"Goal for GCG: {goal}")
             print(f"Target for GCG: {target}")
+
+        # --- Pre-GCG Base Model Generation ---
+        if strategy.is_rank_0():
+            print("  --- Base Model Generation for the prompt before GCG ---")
+            # Construct prompt *without* adversarial string
+            if current_scenario in ["behaviors", "behaviours"]:
+                base_prompt = f"USER: {goal} ASSISTANT:"
+            elif current_scenario == "strings":
+                base_prompt = f"USER: ASSISTANT:" # Goal is empty here
+            else:
+                # This should ideally not happen due to earlier checks
+                strategy.print(f"Internal Error: Invalid scenario '{current_scenario}' during base generation.")
+                base_prompt = "USER: ASSISTANT:" # Fallback
+
+            print(f"    Base Prompt:")
+            print(base_prompt)
+            
+            # Tokenize and generate
+            base_inputs = tokenizer(base_prompt, return_tensors="pt", padding=True).to(actor.model.device)
+            with torch.no_grad():
+                base_outputs = actor.model.generate(
+                    **base_inputs,
+                    generation_config=generation_config
+                )
+            
+            # Decode
+            base_input_length = base_inputs['input_ids'].shape[1]
+            base_generated_ids = base_outputs[0][base_input_length:] if base_outputs.shape[1] > base_input_length else []
+            base_gen_str = tokenizer.decode(base_generated_ids, skip_special_tokens=True).strip()
+            
+            print(f"    Base Generated Response: ")
+            print(base_gen_str)
+            print("\n")
+            print("--- Starting GCG Attack ---")
+        # --- End Pre-GCG Base Model Generation ---
 
         total_targets_processed += 1
         
@@ -402,7 +438,8 @@ def evaluate_with_gcg(args):
             )
 
             if strategy.is_rank_0():
-                print(f"  Best adversarial string: {result.best_string}")
+                print(f"  Best adversarial string:")
+                print(result.best_string)
                 print(f"  Best loss: {result.best_loss:.4f}")
 
             # Construct prompt for generation using the best adversarial string
@@ -417,7 +454,8 @@ def evaluate_with_gcg(args):
                 continue # Skip this goal if scenario is invalid
             
             if strategy.is_rank_0():
-                print(f"  Prompt for generation: {prompt}")
+                print(f"  Prompt for generation:")
+                print(prompt)
 
             # Generate response
             inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(actor.model.device)
@@ -438,7 +476,8 @@ def evaluate_with_gcg(args):
             gen_str = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
             if strategy.is_rank_0():
-                print(f"  Generated Response: {gen_str}")
+                print(f"  Generated Response:")
+                print(gen_str)
 
             # --- Success Checking --- 
             is_jailbroken = False
