@@ -8,7 +8,7 @@
 #SBATCH --account=ml
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --nodelist=overture,concerto1,concerto2,concerto3
+#SBATCH --nodelist=concerto1,concerto2,concerto3,overture
 #SBATCH --export=ALL
 #SBATCH --output=scripts/gcg_harmlessness_bad-outputs_%A_%a.txt # Use Slurm job array index for unique output
 #SBATCH --array=0-4 # Assuming 5 checkpoints based on the ls output
@@ -20,7 +20,7 @@
 CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints/harmlessness"
 DATA_FILEPATH="data/bad_outputs.csv"
 
-# Find all checkpoint files (assuming they are directories ending in _actor)
+# Find all checkpoint directories (directories ending in _actor)
 CHECKPOINT_FILES=($(find "${CHECKPOINT_DIR}" -maxdepth 1 -type d -name '*_actor' -printf "%f\n"))
 
 # Check if any checkpoints were found
@@ -44,8 +44,6 @@ echo "Running evaluation for checkpoint: ${CHECKPOINT_NAME}"
 echo "Checkpoint path: ${CHECKPOINT_PATH}"
 echo "Data file path: ${DATA_FILEPATH}"
 
-# Adjust SLURM output file name to be specific to this job array task
-# This is already handled by the #SBATCH --output line using %A_%a
 
 deepspeed --master_port $((33391 + SLURM_ARRAY_TASK_ID)) --module openrlhf.cli.evaluate_gcg \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
@@ -62,8 +60,15 @@ deepspeed --master_port $((33391 + SLURM_ARRAY_TASK_ID)) --module openrlhf.cli.e
     --adam_offload \
     --parameterization policy_psi_q_p_s_t \
     --max_targets 100 \
-    --scenario behaviors 
-    # --gcg_steps 5
+    --scenario behaviors \
+    --gcg_steps 600 \
+    --gcg_search_width 512 \
+    --gcg_topk 256 \
+    --gcg_batch_size 512 \
+    --gcg_n_replace 1 \
+    --gcg_buffer_size 0 \
+    --gcg_use_prefix_cache \
+    --gcg_filter_ids
     
 
 # the scenario argument can be "behaviors" or "strings"

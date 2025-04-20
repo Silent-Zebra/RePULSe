@@ -8,20 +8,20 @@
 #SBATCH --account=ml
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --nodelist=overture,concerto1,concerto2,concerto3
+#SBATCH --nodelist=concerto1,concerto2,concerto3,overture
 #SBATCH --export=ALL
+#SBATCH --output=gcg_bad_outputs.txt
 
 # Load the environment
 . /mfs1/u/$USER/envs/openrlhf
 
-CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints/toyrlhfmulti"
-CHECKPOINT_NAME="toy_rlhf_Sm13In_remodev3lav2_cutopr_len20_beta-10.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr1e-06_policy_psi_q_p_s_t_s1_actor"
+CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints/harmlessness"
+CHECKPOINT_NAME="toy_rlhf_Sm13In_remodev3lav2_miprAL_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_nosecondterm_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5_harml_actor"
 CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_NAME}"
 DATA_FILEPATH="data/bad_outputs.csv"
-#SBATCH --output=gcg_harmlessness_bad-outputs-train_{CHECKPOINT_NAME}.txt
+#SBATCH --output=gcg_harmlessness_bad-outputs_{CHECKPOINT_NAME}.txt
 
-
-deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
+deepspeed --master_port 35996 --module openrlhf.cli.evaluate_gcg \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
     --load_checkpoint \
     --ckpt_path "${CHECKPOINT_PATH}" \
@@ -37,7 +37,14 @@ deepspeed --master_port 33891 --module openrlhf.cli.evaluate_gcg \
     --parameterization policy_psi_q_p_s_t \
     --max_targets 100 \
     --scenario behaviors \
-
+    --gcg_steps 600 \
+    --gcg_search_width 512 \
+    --gcg_topk 256 \
+    --gcg_batch_size 512 \
+    --gcg_n_replace 1 \
+    --gcg_buffer_size 0 \
+    --gcg_use_prefix_cache \
+    --gcg_filter_ids 
     
 
 # the scenario argument can be "behaviors" or "strings"
