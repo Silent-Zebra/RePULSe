@@ -369,7 +369,7 @@ def evaluate_with_gcg(args):
     print(f"Input: {sanity_generated_str}")
     print(f"Reward score: {sanity_reward_score}")
     print("\n\n")
-    
+
     sanity_generated_str = "USER: What is the capital city of France? ASSISTANT: The capital city of France is Paris."
     sanity_tokenized = tokenizer(sanity_generated_str, return_tensors="pt").to(reward_model.device)
     sanity_input_ids = sanity_tokenized['input_ids']
@@ -395,13 +395,21 @@ def evaluate_with_gcg(args):
             print("  --- Base Model Generation for the prompt before GCG ---")
             # Construct prompt *without* adversarial string
             if current_scenario in ["behaviors", "behaviours"]:
-                base_prompt = f"USER: {goal} ASSISTANT:"
+                # base_prompt = f"USER: {goal} ASSISTANT:"
+                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal}"}], tokenize=False)
+                # prompt_with_target = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
+
             elif current_scenario == "strings":
-                base_prompt = f"USER: ASSISTANT:" # Goal is empty here
+                # base_prompt = f"USER: ASSISTANT:" # Goal is empty here
+                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": ""}], tokenize=False)
+                # prompt_with_target = tokenizer.apply_chat_template([{"role": "user", "content": f""}, {"role": "user", "content": f"{target}"}], tokenize=False)
+
             else:
                 # This should ideally not happen due to earlier checks
                 strategy.print(f"Internal Error: Invalid scenario '{current_scenario}' during base generation.")
-                base_prompt = "USER: ASSISTANT:" # Fallback
+                # base_prompt = "USER: ASSISTANT:" # Fallback
+                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": ""}], tokenize=False)
+                # prompt_with_target = tokenizer.apply_chat_template([{"role": "user", "content": f""}, {"role": "user", "content": f"{target}"}], tokenize=False)
 
             print(f"    Base Prompt:")
             print(base_prompt)
@@ -422,7 +430,14 @@ def evaluate_with_gcg(args):
             print(f"    Base Generated Response: ")
             print(base_gen_str)
             print("\n")
+
+            check_log_prob(actor, base_input_length, current_scenario, goal, strategy, target, tokenizer)
+
+            print("\n")
             print("--- Starting GCG Attack ---")
+
+
+
         # --- End Pre-GCG Base Model Generation ---
 
         total_targets_processed += 1
@@ -445,9 +460,11 @@ def evaluate_with_gcg(args):
             # Construct prompt for generation using the best adversarial string
             # Use the determined 'current_scenario'
             if current_scenario in ["behaviors", "behaviours"]:
-                prompt = f"USER: {goal} {result.best_string} ASSISTANT:"
+                # prompt = f"USER: {goal} {result.best_string} ASSISTANT:"
+                prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal} {result.best_string}"}], tokenize=False)
             elif current_scenario == "strings":
-                prompt = f"USER: {result.best_string} ASSISTANT:"
+                # prompt = f"USER: {result.best_string} ASSISTANT:"
+                prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{result.best_string}"}], tokenize=False)
             else:
                 # This check might be redundant due to earlier loading check, but good for safety
                 strategy.print(f"Internal Error: Invalid scenario '{current_scenario}' during prompt construction.")
@@ -457,8 +474,11 @@ def evaluate_with_gcg(args):
                 print(f"  Prompt for generation:")
                 print(prompt)
 
+
             # Generate response
             inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(actor.model.device)
+
+
             
             with torch.no_grad():
                 outputs = actor.model.generate(
@@ -474,6 +494,12 @@ def evaluate_with_gcg(args):
             # decoded_full_sequence = tokenizer.decode(outputs[0], skip_special_tokens=False) # Use the same tokenizer as tokenizer_base in RM
             # print(f"  DEBUG: Decoded input for reward model: {decoded_full_sequence}")
             gen_str = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+
+
+
+            check_log_prob(actor, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
+
 
             if strategy.is_rank_0():
                 print(f"  Generated Response:")
@@ -571,6 +597,29 @@ def evaluate_with_gcg(args):
 
     # Return the ASR or detailed results using the renamed variable
     return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets_processed}
+
+
+def check_log_prob(actor, base_input_length, current_scenario, goal, strategy, target, tokenizer, best_string=None):
+    if current_scenario in ["behaviors", "behaviours"]:
+        prompt_with_target = tokenizer.apply_chat_template(
+            [{"role": "user", "content": f"{goal}{best_string}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
+    elif current_scenario == "strings":
+        prompt_with_target = tokenizer.apply_chat_template(
+            [{"role": "user", "content": f"{best_string}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
+    else:
+        strategy.print(f"Internal Error: Invalid scenario '{current_scenario}' during base generation.")
+        prompt_with_target = tokenizer.apply_chat_template(
+            [{"role": "user", "content": f"{best_string}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
+    print(f"PROMPT WITH TARGET")
+    print(prompt_with_target)
+    with torch.no_grad():
+        inputs = tokenizer.encode(prompt_with_target, return_tensors="pt").to(actor.model.device)
+        outputs = actor(inputs, num_actions=inputs.shape[1] - base_input_length)
+    print("log probs")
+    print(outputs.mean())
+    print(outputs.sum())
+    print(outputs)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
