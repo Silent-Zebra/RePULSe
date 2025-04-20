@@ -599,7 +599,7 @@ def evaluate_with_gcg(args):
     return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets_processed}
 
 
-def check_log_prob(actor, base_input_length, current_scenario, goal, strategy, target, tokenizer, best_string=None):
+def check_log_prob(actor, base_input_length, current_scenario, goal, strategy, target, tokenizer, best_string=""):
     if current_scenario in ["behaviors", "behaviours"]:
         prompt_with_target = tokenizer.apply_chat_template(
             [{"role": "user", "content": f"{goal}{best_string}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
