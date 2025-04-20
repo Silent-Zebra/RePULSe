@@ -10,7 +10,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --nodelist=concerto1,concerto2,concerto3,overture
 #SBATCH --export=ALL
-#SBATCH --output=gcg_bad_outputs.txt
+#SBATCH --output=gcg_bad_outputs_%j.txt
 
 # Load the environment
 . /mfs1/u/$USER/envs/openrlhf
