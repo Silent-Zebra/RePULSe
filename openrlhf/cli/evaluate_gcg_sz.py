@@ -496,14 +496,11 @@ def evaluate_with_gcg(args):
             gen_str = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
 
-
-
-            check_log_prob(actor, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
-
-
             if strategy.is_rank_0():
                 print(f"  Generated Response:")
                 print(gen_str)
+
+            check_log_prob(actor, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
 
             # --- Success Checking --- 
             is_jailbroken = False
