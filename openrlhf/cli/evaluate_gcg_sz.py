@@ -504,7 +504,6 @@ def evaluate_with_gcg(args):
 
             check_log_prob(actor, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
             check_log_prob(actor, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, gen_str, tokenizer, result.best_string)
-            1/0
 
             # --- Success Checking --- 
             is_jailbroken = False
@@ -573,6 +572,7 @@ def evaluate_with_gcg(args):
             if strategy.is_rank_0():
                 # Provide context about which target failed
                 print(f"  Error processing target index {i} ('{target[:50]}...'): {e}") 
+    1/0
 
     # Calculate and report ASR using the number of processed targets
     asr = (successful_attacks / total_targets_processed) * 100 if total_targets_processed > 0 else 0
@@ -619,6 +619,10 @@ def check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_leng
     print(prompt_with_target)
     with torch.no_grad():
         inputs = tokenizer.encode(prompt_with_target, return_tensors="pt").to(actor.model.device)
+        print("INPUTS")
+        print(inputs)
+        print(inputs[:, :-(inputs.shape[1] - base_input_length)])
+        print(inputs[:, -(inputs.shape[1] - base_input_length):])
         outputs = actor(inputs, num_actions=inputs.shape[1] - base_input_length, attention_mask=torch.ones_like(inputs, dtype=torch.long, device=inputs.device))
     # The below :-1 gets rid of the very last im_end which has been tacked on due to the apply chat template and may not have been model generated
     outputs = outputs[:, :-1]
