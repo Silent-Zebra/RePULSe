@@ -433,6 +433,7 @@ def evaluate_with_gcg(args):
             print("\n")
 
             check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer)
+            check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, input_length, current_scenario, goal, strategy, base_gen_str, tokenizer)
 
             print("\n")
             print("--- Starting GCG Attack ---")
@@ -502,6 +503,8 @@ def evaluate_with_gcg(args):
                 print(gen_str)
 
             check_log_prob(actor, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
+            check_log_prob(actor, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, gen_str, tokenizer, result.best_string)
+            1/0
 
             # --- Success Checking --- 
             is_jailbroken = False
