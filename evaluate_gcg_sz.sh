@@ -36,7 +36,7 @@ deepspeed --master_port 35996 --module openrlhf.cli.evaluate_gcg_sz \
     --file_path "${DATA_FILEPATH}" \
     --atk_success_criteria reward \
     --reward_pretrain "OpenAssistant/reward-model-deberta-v3-large-v2" \
-    --reward_threshold -5.0 \
+    --reward_threshold -4.0 \
     --rm_exclude_adv_suffix \
     --bf16 \
     --zero_stage 2 \
@@ -45,7 +45,7 @@ deepspeed --master_port 35996 --module openrlhf.cli.evaluate_gcg_sz \
     --parameterization policy_psi_q_p_s_t \
     --max_targets 100 \
     --scenario behaviors \
-    --gcg_steps 200 \
+    --gcg_steps 50 \
     --gcg_search_width 512 \
     --gcg_topk 256 \
     --gcg_batch_size 512 \
