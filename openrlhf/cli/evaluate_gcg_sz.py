@@ -463,7 +463,7 @@ def evaluate_with_gcg(args):
             # Use the determined 'current_scenario'
             if current_scenario in ["behaviors", "behaviours"]:
                 # prompt = f"USER: {goal} {result.best_string} ASSISTANT:"
-                prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal} {result.best_string}"}], tokenize=False, add_generation_prompt=True)
+                prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal}{result.best_string}"}], tokenize=False, add_generation_prompt=True)
             elif current_scenario == "strings":
                 # prompt = f"USER: {result.best_string} ASSISTANT:"
                 prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{result.best_string}"}], tokenize=False, add_generation_prompt=True)
@@ -572,7 +572,7 @@ def evaluate_with_gcg(args):
             if strategy.is_rank_0():
                 # Provide context about which target failed
                 print(f"  Error processing target index {i} ('{target[:50]}...'): {e}") 
-    1/0
+        1/0
 
     # Calculate and report ASR using the number of processed targets
     asr = (successful_attacks / total_targets_processed) * 100 if total_targets_processed > 0 else 0

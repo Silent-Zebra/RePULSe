@@ -129,7 +129,16 @@ def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_typ
     if return_unnormalized:
         return return_or_gather_then_return(labels, logits, return_type)
 
+    # print("LOGITS SHAPE")
+    # print(logits.shape)
+
     log_probs_all_vocab = F.log_softmax(logits, dim=-1)
+
+    # print("LOG PROBS ALL VOCAB")
+    # # print(log_probs_all_vocab)
+    # print(log_probs_all_vocab[:, :, 3350])
+    # print(log_probs_all_vocab[:, :, 359])
+
     # print("log probs full")
     # print(log_probs)
     # print("log probs max")
