@@ -614,7 +614,8 @@ def check_log_prob(actor, base_input_length, current_scenario, goal, strategy, t
     print(prompt_with_target)
     with torch.no_grad():
         inputs = tokenizer.encode(prompt_with_target, return_tensors="pt").to(actor.model.device)
-        outputs = actor(inputs, num_actions=inputs.shape[1] - base_input_length, attention_mask=torch.ones_like(inputs, dtype=torch.long, device=inputs.device))
+        # The below :-1 gets rid of the very last im_end which has been tacked on due to the apply chat template and may not have been model generated
+        outputs = actor(inputs[:, :-1], num_actions=inputs.shape[1] - base_input_length, attention_mask=torch.ones_like(inputs, dtype=torch.long, device=inputs.device))
     print("log probs")
     print(outputs.mean())
     print(outputs.sum())
