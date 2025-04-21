@@ -396,19 +396,19 @@ def evaluate_with_gcg(args):
             # Construct prompt *without* adversarial string
             if current_scenario in ["behaviors", "behaviours"]:
                 # base_prompt = f"USER: {goal} ASSISTANT:"
-                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal}"}], tokenize=False)
+                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal}"}], tokenize=False, add_generation_prompt=True)
                 # prompt_with_target = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
 
             elif current_scenario == "strings":
                 # base_prompt = f"USER: ASSISTANT:" # Goal is empty here
-                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": ""}], tokenize=False)
+                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": ""}], tokenize=False, add_generation_prompt=True)
                 # prompt_with_target = tokenizer.apply_chat_template([{"role": "user", "content": f""}, {"role": "user", "content": f"{target}"}], tokenize=False)
 
             else:
                 # This should ideally not happen due to earlier checks
                 strategy.print(f"Internal Error: Invalid scenario '{current_scenario}' during base generation.")
                 # base_prompt = "USER: ASSISTANT:" # Fallback
-                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": ""}], tokenize=False)
+                base_prompt = tokenizer.apply_chat_template([{"role": "user", "content": ""}], tokenize=False, add_generation_prompt=True)
                 # prompt_with_target = tokenizer.apply_chat_template([{"role": "user", "content": f""}, {"role": "user", "content": f"{target}"}], tokenize=False)
 
             print(f"    Base Prompt:")
@@ -461,10 +461,10 @@ def evaluate_with_gcg(args):
             # Use the determined 'current_scenario'
             if current_scenario in ["behaviors", "behaviours"]:
                 # prompt = f"USER: {goal} {result.best_string} ASSISTANT:"
-                prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal} {result.best_string}"}], tokenize=False)
+                prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{goal} {result.best_string}"}], tokenize=False, add_generation_prompt=True)
             elif current_scenario == "strings":
                 # prompt = f"USER: {result.best_string} ASSISTANT:"
-                prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{result.best_string}"}], tokenize=False)
+                prompt = tokenizer.apply_chat_template([{"role": "user", "content": f"{result.best_string}"}], tokenize=False, add_generation_prompt=True)
             else:
                 # This check might be redundant due to earlier loading check, but good for safety
                 strategy.print(f"Internal Error: Invalid scenario '{current_scenario}' during prompt construction.")
