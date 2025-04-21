@@ -350,7 +350,8 @@ def evaluate_with_gcg(args):
     successful_attacks = 0
     total_targets_processed = 0 # Use a distinct name for clarity
     all_reward_scores = []  # Store all reward scores for statistics
-    all_mean_log_probs, all_sum_log_probs, all_mean_log_probs_after, all_sum_log_probs_after = [], [], [], []
+    all_first_log_probs, all_mean_log_probs, all_sum_log_probs = [], [], []
+    all_first_log_probs_after, all_mean_log_probs_after, all_sum_log_probs_after = [], [], []
 
     #########################################################################################
     # Sanity check: What reward model returns for a given input
@@ -432,8 +433,8 @@ def evaluate_with_gcg(args):
             print(base_gen_str)
             print("\n")
 
-            check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer)
-            check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, base_gen_str, tokenizer)
+            check_log_prob(actor, all_first_log_probs, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer)
+            # check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, base_gen_str, tokenizer)
 
             print("\n")
             print("--- Starting GCG Attack ---")
@@ -502,8 +503,8 @@ def evaluate_with_gcg(args):
                 print(f"  Generated Response:")
                 print(gen_str)
 
-            check_log_prob(actor, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
-            check_log_prob(actor, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, gen_str, tokenizer, result.best_string)
+            check_log_prob(actor, all_first_log_probs_after, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
+            # check_log_prob(actor, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, gen_str, tokenizer, result.best_string)
 
             # --- Success Checking --- 
             is_jailbroken = False
@@ -594,8 +595,10 @@ def evaluate_with_gcg(args):
             print(f"Minimum Reward Score: {all_reward_scores_tensor.min().item():.4f}")
             print(f"Maximum Reward Score: {all_reward_scores_tensor.max().item():.4f}")
             print(f"Median Reward Score: {all_reward_scores_tensor.median().item():.4f}")
+        print(f"Average Log Prob of Target Without Attack (first token only): {torch.tensor(all_first_log_probs).mean().item():.2f}")
         print(f"Average Log Prob of Target Without Attack (mean per token): {torch.tensor(all_mean_log_probs).mean().item():.2f}")
         print(f"Average Log Prob of Target Without Attack (sum over tokens): {torch.tensor(all_sum_log_probs).mean().item():.2f}")
+        print(f"Average Log Prob of Target After Attack (first token only): {torch.tensor(all_first_log_probs_after).mean().item():.2f}")
         print(f"Average Log Prob of Target After Attack (mean per token): {torch.tensor(all_mean_log_probs_after).mean().item():.2f}")
         print(f"Average Log Prob of Target After Attack (sum over tokens): {torch.tensor(all_sum_log_probs_after).mean().item():.2f}")
 
@@ -603,7 +606,7 @@ def evaluate_with_gcg(args):
     return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets_processed}
 
 
-def check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer, best_string=""):
+def check_log_prob(actor, all_first_log_probs, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer, best_string=""):
     if current_scenario in ["behaviors", "behaviours"]:
         prompt_with_target = tokenizer.apply_chat_template(
             [{"role": "user", "content": f"{goal}{best_string}"}, {"role": "assistant", "content": f"{target}"}], tokenize=False)
@@ -625,6 +628,9 @@ def check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_leng
         outputs = actor(inputs, num_actions=inputs.shape[1] - base_input_length, attention_mask=torch.ones_like(inputs, dtype=torch.long, device=inputs.device))
     # The below :-1 gets rid of the very last im_end which has been tacked on due to the apply chat template and may not have been model generated
     outputs = outputs[:, :-1]
+    print("log prob first")
+    first_log_prob = outputs[:, 0].item()
+    all_first_log_probs.append(first_log_prob)
     print("log prob mean")
     mean_log_prob = outputs.mean().item()
     all_mean_log_probs.append(mean_log_prob)
