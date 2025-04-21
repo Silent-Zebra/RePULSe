@@ -530,16 +530,16 @@ class BaseExperienceMaker(ABC):
             return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
         else:
             action_log_probs = self.actor(sequences, num_actions, attention_mask)
-            print("SEQUENCES")
-            print(sequences[0,-20:])
-            print(sequences[:,-20:])
-            print(sequences)
-            print("--ACTION LOG PROBS--")
-            print(action_log_probs[0])
-            print(action_log_probs[0,-20:])
-            print(action_log_probs.mean())
-            print(action_log_probs)
-            1/0
+            # print("SEQUENCES")
+            # print(sequences[0,-20:])
+            # print(sequences[:,-20:])
+            # print(sequences)
+            # print("--ACTION LOG PROBS--")
+            # print(action_log_probs[0])
+            # print(action_log_probs[0,-20:])
+            # print(action_log_probs.mean())
+            # print(action_log_probs)
+            # 1/0
             return action_log_probs, action_mask, attention_mask, num_actions, sequences
 
     @torch.no_grad()
