@@ -350,7 +350,7 @@ def evaluate_with_gcg(args):
     successful_attacks = 0
     total_targets_processed = 0 # Use a distinct name for clarity
     all_reward_scores = []  # Store all reward scores for statistics
-    all_mean_log_probs, all_sum_log_probs = [], []
+    all_mean_log_probs, all_sum_log_probs, all_mean_log_probs_after, all_sum_log_probs_after = [], [], [], []
 
     #########################################################################################
     # Sanity check: What reward model returns for a given input
@@ -501,7 +501,7 @@ def evaluate_with_gcg(args):
                 print(f"  Generated Response:")
                 print(gen_str)
 
-            check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
+            check_log_prob(actor, all_mean_log_probs_after, all_sum_log_probs_after, input_length, current_scenario, goal, strategy, target, tokenizer, result.best_string)
 
             # --- Success Checking --- 
             is_jailbroken = False
@@ -592,8 +592,10 @@ def evaluate_with_gcg(args):
             print(f"Minimum Reward Score: {all_reward_scores_tensor.min().item():.4f}")
             print(f"Maximum Reward Score: {all_reward_scores_tensor.max().item():.4f}")
             print(f"Median Reward Score: {all_reward_scores_tensor.median().item():.4f}")
-        print(f"Average Log Prob of Target (mean per token): {torch.tensor(all_mean_log_probs).mean().item():.2f}")
-        print(f"Average Log Prob of Target (sum over tokens): {torch.tensor(all_sum_log_probs).mean().item():.2f}")
+        print(f"Average Log Prob of Target Without Attack (mean per token): {torch.tensor(all_mean_log_probs).mean().item():.2f}")
+        print(f"Average Log Prob of Target Without Attack (sum over tokens): {torch.tensor(all_sum_log_probs).mean().item():.2f}")
+        print(f"Average Log Prob of Target After Attack (mean per token): {torch.tensor(all_mean_log_probs_after).mean().item():.2f}")
+        print(f"Average Log Prob of Target After Attack (sum over tokens): {torch.tensor(all_sum_log_probs_after).mean().item():.2f}")
 
     # Return the ASR or detailed results using the renamed variable
     return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets_processed}
