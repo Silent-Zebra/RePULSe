@@ -602,14 +602,14 @@ def evaluate_with_gcg(args):
 def check_log_prob(actor, base_input_length, current_scenario, goal, strategy, target, tokenizer, best_string=""):
     if current_scenario in ["behaviors", "behaviours"]:
         prompt_with_target = tokenizer.apply_chat_template(
-            [{"role": "user", "content": f"{goal}{best_string}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
+            [{"role": "user", "content": f"{goal}{best_string}"}, {"role": "assistant", "content": f"{target}"}], tokenize=False)
     elif current_scenario == "strings":
         prompt_with_target = tokenizer.apply_chat_template(
-            [{"role": "user", "content": f"{best_string}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
+            [{"role": "user", "content": f"{best_string}"}, {"role": "assistant", "content": f"{target}"}], tokenize=False)
     else:
         strategy.print(f"Internal Error: Invalid scenario '{current_scenario}' during base generation.")
         prompt_with_target = tokenizer.apply_chat_template(
-            [{"role": "user", "content": f"{best_string}"}, {"role": "user", "content": f"{target}"}], tokenize=False)
+            [{"role": "user", "content": f"{best_string}"}, {"role": "assistant", "content": f"{target}"}], tokenize=False)
     print(f"PROMPT WITH TARGET")
     print(prompt_with_target)
     with torch.no_grad():
