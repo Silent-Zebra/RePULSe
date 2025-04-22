@@ -420,7 +420,7 @@ def evaluate_with_gcg(args):
             base_prompt = tile_prompts(base_prompt, args.samples_per_prompt)
             base_inputs = tokenizer(base_prompt, return_tensors="pt", padding=True).to(actor.model.device)
             with torch.no_grad():
-                base_outputs = actor.model.generate(
+                base_outputs, attention_mask, action_mask = actor.generate(
                     **base_inputs,
                     generation_config=generation_config
                 )
