@@ -434,7 +434,7 @@ def evaluate_with_gcg(args):
             print(base_outputs)
             print(base_generated_ids)
 
-            base_gen_str = tokenizer.batch_decode(base_generated_ids, skip_special_tokens=True).strip()
+            base_gen_str = tokenizer.batch_decode(base_generated_ids, skip_special_tokens=True)
             
             print(f"    Base Generated Response: ")
             print(base_gen_str)
