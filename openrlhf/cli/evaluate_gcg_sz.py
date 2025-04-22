@@ -442,8 +442,8 @@ def evaluate_with_gcg(args):
 
             print(f"    Base Rewards: ")
             print(base_outputs.shape)
-            print(torch.cat((base_inputs['input_ids'], base_inputs['input_ids']), -1).shape)
-            reward_scores = reward_model()  # TODO concat with the outputs
+            print(torch.cat((base_inputs['input_ids'], base_generated_ids), -1).shape)
+            reward_scores = reward_model(base_outputs)  # TODO concat with the outputs
             print(reward_scores.shape)
             is_bad_output = reward_scores < args.reward_threshold
             print(is_bad_output)
