@@ -29,7 +29,7 @@ TEMPERATURE=10.0
 N_SAMPLES=65536               # 2^16=65536
 BATCH_SIZE=256
 OUTPUT_DIR="./lpe_results/${SLURM_JOB_ID}"
-OUTPUT_FILE="${OUTPUT_DIR}/results_${METHOD}_${DISTRIBUTION}_temp${TEMPERATURE}.json"
+OUTPUT_FILE="${OUTPUT_DIR}/results_${TARGET_WORD}_${METHOD}_${DISTRIBUTION}_temp${TEMPERATURE}.json"
 
 # Run the LPE estimation script
 deepspeed --master_port 35996 --module openrlhf.evaluation.estimate_rare_harmful_outputs \
