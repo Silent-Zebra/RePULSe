@@ -430,7 +430,7 @@ def evaluate_with_gcg(args):
             # base_generated_ids = base_outputs[0][base_input_length:] if base_outputs.shape[1] > base_input_length else []
             base_generated_ids = base_outputs[:, base_input_length:] if base_outputs.shape[1] > base_input_length else []
 
-            base_gen_str = tokenizer.decode(base_generated_ids, skip_special_tokens=True).strip()
+            base_gen_str = tokenizer.batch_decode(base_generated_ids, skip_special_tokens=True).strip()
             
             print(f"    Base Generated Response: ")
             print(base_gen_str)
@@ -439,8 +439,14 @@ def evaluate_with_gcg(args):
             print(f"    Base Rewards: ")
             print(torch.cat(base_inputs['input_ids'], base_inputs['input_ids']).shape)
             print(base_outputs.shape)
-            1/0
             reward_scores = reward_model()  # TODO concat with the outputs
+            print(reward_scores.shape)
+            is_bad_output = reward_scores < args.reward_threshold
+            print(is_bad_output)
+            print(is_bad_output.sum())
+            print(is_bad_output.mean())
+            1/0
+
 
             check_log_prob(actor, all_first_log_probs, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer)
             # check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, base_gen_str, tokenizer)
