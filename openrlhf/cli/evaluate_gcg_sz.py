@@ -445,9 +445,9 @@ def evaluate_with_gcg(args):
             # base_generated_ids = base_outputs[0][base_input_length:] if base_outputs.shape[1] > base_input_length else []
             base_generated_ids = base_outputs[:, base_input_length:] if base_outputs.shape[1] > base_input_length else []
 
-            print("BASE OUTPUTS")
-            print(base_outputs)
-            print(base_generated_ids)
+            # print("BASE OUTPUTS")
+            # print(base_outputs)
+            # print(base_generated_ids)
 
             base_gen_str = tokenizer.batch_decode(base_generated_ids, skip_special_tokens=True)
             
@@ -455,17 +455,7 @@ def evaluate_with_gcg(args):
             print(base_gen_str)
             print("\n")
 
-            print(f"    Base Rewards: ")
-            print(base_outputs.shape)
-            print(torch.cat((base_inputs['input_ids'], base_generated_ids), -1).shape)
-            reward_scores = reward_model(base_outputs)  # TODO concat with the outputs
-            print(reward_scores.shape)
-            is_bad_output = reward_scores < args.reward_threshold
-            print(is_bad_output)
-            print(is_bad_output.sum())
-            print(is_bad_output.mean())
-            1/0
-
+            evaluate_rewards(args, base_inputs, base_generated_ids, base_outputs, reward_model)
 
             check_log_prob(actor, all_first_log_probs, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer)
             # check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, base_gen_str, tokenizer)
@@ -552,7 +542,7 @@ def evaluate_with_gcg(args):
                     # TODO: separate the prompt from the adversarial string attached as a suffix before calculating reward on just the original prompt and response
                     if args.rm_exclude_adv_suffix:
                         # Construct input string without the adversarial suffix
-                        reward_scores = reward_model(base_inputs['input_ids']) # TODO concat with the outputs
+                        # reward_scores = reward_model(base_inputs['input_ids']) # TODO concat with the outputs
 
                         # reward_input_str = f"USER: {goal} ASSISTANT: {gen_str}"
                         # if strategy.is_rank_0():
@@ -561,6 +551,9 @@ def evaluate_with_gcg(args):
                         # # Ensure attention mask is correct type if needed (usually long for models expecting it)
                         # # reward_attention_mask = (reward_inputs['input_ids'] != tokenizer.pad_token_id).long()
                         # reward_scores = reward_model(reward_inputs['input_ids'], attention_mask=reward_inputs['attention_mask'])
+                        evaluate_rewards(args, base_inputs, generated_ids, outputs, reward_model)
+                        exit(0)
+
                     else:
                         raise NotImplementedError
                         # Default behavior: Pass the full generated sequence ID tensor (prompt + response)
@@ -575,15 +568,17 @@ def evaluate_with_gcg(args):
                         reward_scores = reward_model(full_sequence_ids, attention_mask=full_attention_mask)
 
                     # Ensure reward_scores is a scalar tensor before calling .item()
-                    if reward_scores.numel() > 1:
-                        strategy.print(f"Warning: Reward model returned multiple scores ({reward_scores.shape}). Taking the first score.")
-                        reward_score = reward_scores.flatten()[0].item()
-                    elif reward_scores.numel() == 1:
-                        reward_score = reward_scores.item()
-                    else: 
-                        strategy.print(f"Warning: Reward model returned an empty tensor. Setting reward score to 0.")
-                        reward_score = 0.0
-
+                    # if reward_scores.numel() > 1:
+                    #     strategy.print(f"Warning: Reward model returned multiple scores ({reward_scores.shape}). Taking the first score.")
+                    #     reward_score = reward_scores.flatten()[0].item()
+                    # elif reward_scores.numel() == 1:
+                    #     reward_score = reward_scores.item()
+                    # else:
+                    #     strategy.print(f"Warning: Reward model returned an empty tensor. Setting reward score to 0.")
+                    #     reward_score = 0.0
+                    exit(0)
+                    # TODO save the mean reward
+                    # TODO: consider success if any of the samples meet threhsold (if the sum is > 0)
                     all_reward_scores.append(reward_score)
                     is_jailbroken = reward_score < args.reward_threshold
                     if strategy.is_rank_0():
@@ -643,6 +638,18 @@ def evaluate_with_gcg(args):
 
     # Return the ASR or detailed results using the renamed variable
     return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets_processed}
+
+
+def evaluate_rewards(args, base_inputs, base_generated_ids, base_outputs, reward_model):
+    print(f"    Base Rewards: ")
+    print(base_outputs.shape)
+    print(torch.cat((base_inputs['input_ids'], base_generated_ids), -1).shape)
+    reward_scores = reward_model(base_outputs)  # TODO concat with the outputs
+    print(reward_scores.shape)
+    is_bad_output = reward_scores < args.reward_threshold
+    print(is_bad_output)
+    print(is_bad_output.sum())
+    print(is_bad_output.sum() / is_bad_output.shape[-1])
 
 
 def check_log_prob(actor, all_first_log_probs, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer, best_string=""):
