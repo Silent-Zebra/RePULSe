@@ -522,7 +522,7 @@ def evaluate_with_gcg(args):
 
         # decoded_full_sequence = tokenizer.decode(outputs[0], skip_special_tokens=False) # Use the same tokenizer as tokenizer_base in RM
         # print(f"  DEBUG: Decoded input for reward model: {decoded_full_sequence}")
-        gen_str = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+        gen_str = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
 
 
         if strategy.is_rank_0():
