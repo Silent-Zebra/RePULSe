@@ -651,7 +651,7 @@ def evaluate_with_gcg(args):
             all_reward_scores_tensor = torch.tensor(all_reward_scores)
             print(f"Average Reward Score: {all_reward_scores_tensor.mean().item():.4f}")
             print(f"Standard Deviation of Reward Scores: {all_reward_scores_tensor.std().item():.4f}")
-            print(f"Minimum Reward Score: {min_reward_scores.min().item():.4f}")
+            print(f"Minimum Reward Score: {torch.tensor(min_reward_scores).min().item():.4f}")
             # print(f"Maximum Reward Score: {all_reward_scores_tensor.max().item():.4f}")
             print(f"Median Reward Score: {all_reward_scores_tensor.median().item():.4f}")
         print(f"Average Log Prob of Target Without Attack (first token only): {torch.tensor(all_first_log_probs).mean().item():.2f}")
