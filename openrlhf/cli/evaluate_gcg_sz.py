@@ -582,7 +582,7 @@ def evaluate_with_gcg(args):
                 is_jailbroken = total_bad > 0
                 if strategy.is_rank_0():
                     success_status = "SUCCESSFUL" if is_jailbroken else "FAILED"
-                    print(f"  Reward Score: {reward_score:.4f} | Threshold: {args.reward_threshold:.4f} | Attack {success_status} (Reward-based)")
+                    print(f"  Reward Score: {mean_reward:.4f} | Threshold: {args.reward_threshold:.4f} | Attack {success_status} (Reward-based)")
 
         elif args.atk_success_criteria == "prefix":
             # Use Prefix-based Check (Default or Fallback)
