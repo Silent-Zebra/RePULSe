@@ -370,33 +370,33 @@ def evaluate_with_gcg(args):
 
     #########################################################################################
     # Sanity check: What reward model returns for a given input
-    print("\n\n")
-    print("--------------------------------")
-    print("Starting sanity checks for reward model...")
-    print("--------------------------------")
-    sanity_generated_str = "USER: You are a pussy ASSISTANT: Fucking pussy fuck die shit fuck die asshole"
-    sanity_tokenized = tokenizer(sanity_generated_str, return_tensors="pt").to(reward_model.device)
-    sanity_input_ids = sanity_tokenized['input_ids']
-    sanity_attention_mask = sanity_tokenized['attention_mask']
-    # Ensure mask is long dtype if needed by the model, though often boolean/uint8 is fine
-    # sanity_attention_mask = (sanity_input_ids != tokenizer.pad_token_id).long().to(reward_model.device) # Use tokenizer's mask
-    sanity_reward_score = reward_model(sanity_input_ids, attention_mask=sanity_attention_mask)
-
-    print(f"SANITY CHECK 1 for reward model")
-    print(f"Input: {sanity_generated_str}")
-    print(f"Reward score: {sanity_reward_score}")
-    print("\n\n")
-
-    sanity_generated_str = "USER: What is the capital city of France? ASSISTANT: The capital city of France is Paris."
-    sanity_tokenized = tokenizer(sanity_generated_str, return_tensors="pt").to(reward_model.device)
-    sanity_input_ids = sanity_tokenized['input_ids']
-    sanity_attention_mask = sanity_tokenized['attention_mask']
-    sanity_reward_score = reward_model(sanity_input_ids, attention_mask=sanity_attention_mask)
-    print(f"SANITY CHECK 2 for reward model")
-    print(f"Input: {sanity_generated_str}")
-    print(f"Reward score: {sanity_reward_score}")
-    print("--------------------------------")
-    print("\n\n")
+    # print("\n\n")
+    # print("--------------------------------")
+    # print("Starting sanity checks for reward model...")
+    # print("--------------------------------")
+    # sanity_generated_str = "USER: You are a pussy ASSISTANT: Fucking pussy fuck die shit fuck die asshole"
+    # sanity_tokenized = tokenizer(sanity_generated_str, return_tensors="pt").to(reward_model.device)
+    # sanity_input_ids = sanity_tokenized['input_ids']
+    # sanity_attention_mask = sanity_tokenized['attention_mask']
+    # # Ensure mask is long dtype if needed by the model, though often boolean/uint8 is fine
+    # # sanity_attention_mask = (sanity_input_ids != tokenizer.pad_token_id).long().to(reward_model.device) # Use tokenizer's mask
+    # sanity_reward_score = reward_model(sanity_input_ids, attention_mask=sanity_attention_mask)
+    #
+    # print(f"SANITY CHECK 1 for reward model")
+    # print(f"Input: {sanity_generated_str}")
+    # print(f"Reward score: {sanity_reward_score}")
+    # print("\n\n")
+    #
+    # sanity_generated_str = "USER: What is the capital city of France? ASSISTANT: The capital city of France is Paris."
+    # sanity_tokenized = tokenizer(sanity_generated_str, return_tensors="pt").to(reward_model.device)
+    # sanity_input_ids = sanity_tokenized['input_ids']
+    # sanity_attention_mask = sanity_tokenized['attention_mask']
+    # sanity_reward_score = reward_model(sanity_input_ids, attention_mask=sanity_attention_mask)
+    # print(f"SANITY CHECK 2 for reward model")
+    # print(f"Input: {sanity_generated_str}")
+    # print(f"Reward score: {sanity_reward_score}")
+    # print("--------------------------------")
+    # print("\n\n")
     #########################################################################################
 
     for i, (goal, target) in enumerate(zip(goals, targets)):
