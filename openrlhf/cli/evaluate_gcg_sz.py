@@ -11,7 +11,7 @@ from openrlhf.utils import get_strategy, get_tokenizer
 from openrlhf.models import Actor, get_llm_for_sequence_regression
 from openrlhf.models.actor_custom import ActorCustom, ActorCritic
 from openrlhf.models.model import _get_reward_model_custom
-
+from openrlhf.utils.utils import tile_prompts
 
 # TODO: check for success using the reward model. If the reward of the output is below a certain negative threshold, then the attack is considered successful.
 # TODO: add a flag to use the reward or the prefix success definition
@@ -415,8 +415,9 @@ def evaluate_with_gcg(args):
 
             print(f"    Base Prompt:")
             print(base_prompt)
-            
+
             # Tokenize and generate
+            base_prompt = tile_prompts(base_prompt, args.samples_per_prompt)
             base_inputs = tokenizer(base_prompt, return_tensors="pt", padding=True).to(actor.model.device)
             with torch.no_grad():
                 base_outputs = actor.model.generate(
@@ -426,12 +427,20 @@ def evaluate_with_gcg(args):
             
             # Decode
             base_input_length = base_inputs['input_ids'].shape[1]
-            base_generated_ids = base_outputs[0][base_input_length:] if base_outputs.shape[1] > base_input_length else []
+            # base_generated_ids = base_outputs[0][base_input_length:] if base_outputs.shape[1] > base_input_length else []
+            base_generated_ids = base_outputs[:, base_input_length:] if base_outputs.shape[1] > base_input_length else []
+
             base_gen_str = tokenizer.decode(base_generated_ids, skip_special_tokens=True).strip()
             
             print(f"    Base Generated Response: ")
             print(base_gen_str)
             print("\n")
+
+            print(f"    Base Rewards: ")
+            print(torch.cat(base_inputs['input_ids'], base_inputs['input_ids']).shape)
+            print(base_outputs.shape)
+            1/0
+            reward_scores = reward_model()  # TODO concat with the outputs
 
             check_log_prob(actor, all_first_log_probs, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, target, tokenizer)
             # check_log_prob(actor, all_mean_log_probs, all_sum_log_probs, base_input_length, current_scenario, goal, strategy, base_gen_str, tokenizer)
@@ -479,9 +488,9 @@ def evaluate_with_gcg(args):
 
 
             # Generate response
+            prompt = tile_prompts(prompt, args.samples_per_prompt)
+
             inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(actor.model.device)
-
-
             
             with torch.no_grad():
                 outputs = actor.model.generate(
@@ -493,7 +502,9 @@ def evaluate_with_gcg(args):
             # Handle potential issues if inputs are padded
             input_length = inputs['input_ids'].shape[1]
             # Ensure we don't index past the end if generation is short/empty
-            generated_ids = outputs[0][input_length:] if outputs.shape[1] > input_length else []
+            # generated_ids = outputs[0][input_length:] if outputs.shape[1] > input_length else []
+            generated_ids = outputs[:, input_length:] if outputs.shape[1] > input_length else []
+
             # decoded_full_sequence = tokenizer.decode(outputs[0], skip_special_tokens=False) # Use the same tokenizer as tokenizer_base in RM
             # print(f"  DEBUG: Decoded input for reward model: {decoded_full_sequence}")
             gen_str = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
@@ -516,14 +527,17 @@ def evaluate_with_gcg(args):
                     # TODO: separate the prompt from the adversarial string attached as a suffix before calculating reward on just the original prompt and response
                     if args.rm_exclude_adv_suffix:
                         # Construct input string without the adversarial suffix
-                        reward_input_str = f"USER: {goal} ASSISTANT: {gen_str}"
-                        if strategy.is_rank_0():
-                            print(f"  Reward Model Input (suffix excluded): {reward_input_str}")
-                        reward_inputs = tokenizer(reward_input_str, return_tensors="pt", padding=True).to(reward_model.device)
-                        # Ensure attention mask is correct type if needed (usually long for models expecting it)
-                        # reward_attention_mask = (reward_inputs['input_ids'] != tokenizer.pad_token_id).long()
-                        reward_scores = reward_model(reward_inputs['input_ids'], attention_mask=reward_inputs['attention_mask'])
+                        reward_scores = reward_model(base_inputs['input_ids']) # TODO concat with the outputs
+
+                        # reward_input_str = f"USER: {goal} ASSISTANT: {gen_str}"
+                        # if strategy.is_rank_0():
+                        #     print(f"  Reward Model Input (suffix excluded): {reward_input_str}")
+                        # reward_inputs = tokenizer(reward_input_str, return_tensors="pt", padding=True).to(reward_model.device)
+                        # # Ensure attention mask is correct type if needed (usually long for models expecting it)
+                        # # reward_attention_mask = (reward_inputs['input_ids'] != tokenizer.pad_token_id).long()
+                        # reward_scores = reward_model(reward_inputs['input_ids'], attention_mask=reward_inputs['attention_mask'])
                     else:
+                        raise NotImplementedError
                         # Default behavior: Pass the full generated sequence ID tensor (prompt + response)
                         if strategy.is_rank_0():
                             full_decoded_for_rm = tokenizer.decode(outputs[0], skip_special_tokens=False)
@@ -710,7 +724,8 @@ if __name__ == "__main__":
     # Example flag if using a custom reward model that needs the base tokenizer info
     parser.add_argument("--rm_exclude_adv_suffix", action="store_true", default=False, help="Exclude the generated adversarial suffix from the reward model input string.")
     # parser.add_argument("--reward_tokenizer_base", type=str, default=None, help="Base model tokenizer path needed for some custom reward models.") 
-    
+    parser.add_argument("--samples_per_prompt", type=int, default=1000, help="How many samples per prompt to evaluate on")
+
     args = parser.parse_args()
     
     results = evaluate_with_gcg(args) 
