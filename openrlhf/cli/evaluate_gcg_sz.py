@@ -161,6 +161,7 @@ def evaluate_with_gcg(args):
         try:
             # Custom loading logic based on train_ppo.py
             if args.reward_pretrain in ["nicholasKluge/ToxicityModel"]:
+                raise NotImplementedError
                 strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
                 tokenizer_base = get_tokenizer_custom(args.pretrain)
                 rm_name = args.reward_pretrain
@@ -182,7 +183,17 @@ def evaluate_with_gcg(args):
                 base_class = AutoModel._model_mapping[type(config)]
                 base_pretrained_class = base_class.__base__
                 # Assuming apply_chat_template is False for evaluation context
-                strip_question_chat_template_fn = strip_user_assistant_template
+                def strip_question_chat_template_fn(text, additional_split=False):
+                    question, answer = text.split('assistant\n',
+                                                  maxsplit=1)  # in case 'assistant\n' shows up in the output, only split on the first occurrence
+                    question = question.split('user\n')[-1].strip('\n')
+                    # return text.removeprefix('user\n').removesuffix('\nassistant\n')
+
+                    if additional_split:  # Used for the neg_data right now, kind of hacky
+                        question = question.split('<|im_end|>')[0]
+
+                    return question, answer
+                strip_question_chat_template_fn = strip_question_chat_template_fn
 
                 # if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct", "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct", "meta-llama/Llama-3.2-3B-Instruct" ]:
                 #     def strip_question_chat_template_fn(text, additional_split=False):
@@ -208,6 +219,8 @@ def evaluate_with_gcg(args):
                 )
 
             elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
+                raise NotImplementedError
+
                 strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
                 tokenizer_base = get_tokenizer_custom(args.pretrain)
                 rm_name = args.reward_pretrain
@@ -240,6 +253,8 @@ def evaluate_with_gcg(args):
                 )
 
             else:
+                raise NotImplementedError
+
                 strategy.print(f"Using generic reward model loader for {args.reward_pretrain}")
                 reward_model = get_llm_for_sequence_regression(
                     model_name_or_path=args.reward_pretrain,
