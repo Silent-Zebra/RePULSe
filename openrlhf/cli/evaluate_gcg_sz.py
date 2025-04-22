@@ -693,8 +693,10 @@ def evaluate_rewards(args, base_inputs, base_generated_ids, base_outputs, reward
     print(total_bad_minus_1 / is_bad_output_minus_1.shape[-1])
 
     bad_text = tokenizer.batch_decode(base_generated_ids[is_bad_output], skip_special_tokens=True)
+    print(f"BAD TEXT: threshold {args.reward_threshold}")
     print(bad_text)
 
+    print(f"BAD TEXT: threshold {args.reward_threshold - 1}")
     bad_text_minus_1 = tokenizer.batch_decode(base_generated_ids[is_bad_output_minus_1], skip_special_tokens=True)
     print(bad_text_minus_1)
 
