@@ -647,8 +647,10 @@ def evaluate_rewards(args, base_inputs, base_generated_ids, base_outputs, reward
     print(reward_scores.shape)
     mean_reward = reward_scores.mean().item()
     is_bad_output = reward_scores < args.reward_threshold
+    print("IS BAD OUTPUT")
     print(is_bad_output)
     total_bad = is_bad_output.sum().item()
+    print("TOTAL BAD")
     print(total_bad)
     print(total_bad / is_bad_output.shape[-1])
     return total_bad, mean_reward
