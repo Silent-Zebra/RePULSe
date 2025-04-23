@@ -993,6 +993,8 @@ def train(args):
         with open(f"{args.save_path}/neg_data_{info_name_str}_thr{args.save_negdata_threshold}.pkl", "wb") as f:
             pickle.dump(neg_data, f)
 
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
 
 
     # ppo_trainer will do saving...
