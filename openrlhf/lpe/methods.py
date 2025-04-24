@@ -220,7 +220,10 @@ def ITGIS(
     for param in hf_model.parameters():
         param.requires_grad_(False)
 
-    imp_samp_probs = []
+    # Initialize accumulators for incremental mean calculation
+    total_weighted_prob_sum = 0.0
+    total_samples_processed = 0
+
     assert n_samples % batch_size == 0
     for i in tqdm(list(range(n_samples // batch_size)), disable=not show_progress):
         target_samples = []
@@ -301,7 +304,13 @@ def ITGIS(
             # Calculate probability of target token based on computed logits
             # Note: Use the *actual* model output logits here
             probs = (logits.argmax(-1) == target).float().detach()
-            imp_samp_probs.append((th.exp(logratios.sum(-1)) * probs))
+
+            # Calculate weighted probabilities for the current batch
+            batch_weighted_probs = th.exp(logratios.sum(-1)) * probs
+
+            # Update accumulators
+            total_weighted_prob_sum += batch_weighted_probs.sum().item()
+            total_samples_processed += batch_size # Increment by the actual batch size processed
 
             # Update scores using the calculated "one-hot" gradients
             # Aggregate gradient across batch dimension
@@ -313,8 +322,12 @@ def ITGIS(
             embeddings.grad = None
 
 
-    imp_samp_probs = th.cat(imp_samp_probs, dim=0)
-    return imp_samp_probs.mean().item()
+    # Calculate final mean from accumulated sums
+    if total_samples_processed == 0:
+        return 0.0 # Avoid division by zero if no samples were processed
+    else:
+        final_mean = total_weighted_prob_sum / total_samples_processed
+        return final_mean
 
 def MHIS(
     model: 'Actor', # Expect an Actor instance
@@ -520,6 +533,7 @@ def MHIS(
     # This block should be outside the loop
     acceptance_rate = acceptance_count / total_proposals if total_proposals > 0 else 0
     print(f"MHIS Acceptance Rate: {acceptance_rate:.4f}")
+
 
     # --- Importance Sampling Calculation --- #
     # We have samples x drawn from pi(x) \propto exp(s(x)/temp) * p_orig(x)
