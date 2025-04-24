@@ -452,8 +452,8 @@ class CTLLoss(nn.Module):
         # print("After mask")
         # print(curr_log_probs.sum(-1))
 
-        if action_mask.shape[-1] > 100: # Where EOS may start to come into play.
-            raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
+        # if action_mask.shape[-1] > 100:
+        #     raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
@@ -664,8 +664,8 @@ class SIXOLoss(nn.Module):
         # print("After mask")
         # print(curr_log_probs.sum(-1))
 
-        if action_mask.shape[-1] > 100:  # Where EOS may start to come into play.
-            raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
+        # if action_mask.shape[-1] > 100:
+        #     raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
 
 
         if reduce_mean_per_prompt:
@@ -867,8 +867,8 @@ class DPGLoss(nn.Module):
         values *= action_mask # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
         # But I'm leaving the above just to be safe; TODO later can test to ensure this is the case.
 
-        if action_mask.shape[-1] > 100: # Where EOS may start to come into play.
-            raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
+        # if action_mask.shape[-1] > 100:
+        #     raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
