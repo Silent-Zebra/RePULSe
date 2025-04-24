@@ -26,7 +26,7 @@ except ImportError:
 
 # Harmfulness check function
 try:
-    from .harmfulness_metrics import check_bad_token, TARGET_BAD_TOKEN_ID
+    from openrlhf.evaluation.harmfulness_metrics import check_bad_token, TARGET_BAD_TOKEN_ID
 except ImportError:
     warnings.warn("Could not import from .harmfulness_metrics. Using dummy check_bad.", ImportWarning)
     def check_bad_token(*args, **kwargs) -> bool:
@@ -36,7 +36,7 @@ except ImportError:
 
 # Distribution loading function
 try:
-    from .load_lpe_distributions import get_token_factorized_distribution
+    from openrlhf.evaluation.load_lpe_distributions import get_token_factorized_distribution
 except ImportError:
     warnings.warn("Could not import from .load_lpe_distributions. Using dummy get_token_factorized_distribution.", ImportWarning)
     def get_token_factorized_distribution(*args, **kwargs) -> list:
@@ -251,14 +251,12 @@ def main(args):
         # ITGIS in the provided code returns only the probability estimate
         # We assume stderr calculation would need to be done separately if needed
         estimated_prob = ITGIS(**estimator_args)
-        std_err = "N/A for ITGIS (in this impl)"
 
     elif args.method.lower() == "mhis":
         # Add MHIS specific args
         estimator_args["burn_in"] = args.mhis_burn_in
         # MHIS in the provided code seems to return only the probability estimate
         estimated_prob = MHIS(**estimator_args)
-        std_err = "N/A for MHIS (in this impl)"
         
     else:
         raise ValueError(f"Unknown estimation method: {args.method}")
