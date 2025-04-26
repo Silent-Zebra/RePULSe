@@ -169,7 +169,8 @@ def ITGIS(
     n_samples: int,
     batch_size: int = 256,
     decay_rate: float = 0.9,
-    show_progress: bool = False
+    show_progress: bool = False,
+    use_argmax: bool = False # Added flag
 ) -> float:
     """
     Independent Token Gradient Importance Sampling. Uses the gradient of the logit with respect to the token embedding to define a new importance sampling distribution (with all tokens still being independent). Adaptively updates the importance sampling distribution based on samples from the previous.
@@ -181,6 +182,7 @@ def ITGIS(
     - n_samples: the number of samples to be drawn.
     - batch_size: the batch size.
     - decay_rate: the decay rate in the exponentially-weighted moving average of gradients.
+    - use_argmax: If True, estimate probability based on whether the target sequence is generated greedily (argmax). If False (default), use softmax probability.
     Returns:
     - The estimated probability of outputing token `target`.
     """
@@ -306,6 +308,9 @@ def ITGIS(
             past_key_values = None # Initialize KV cache state
             # Accumulator for log P(Y|X) = log P(T1|X) + log P(T2|X,T1) + ...
             total_log_prob_y_given_x = th.zeros(batch_size, device=device)
+            # Tracker for argmax match
+            all_steps_match_argmax = th.ones(batch_size, dtype=th.bool, device=device) # Start assuming match
+
             # Use the initial logits computed during the gradient pass for the first token prediction
             current_logits_for_prob = logits
 
@@ -341,20 +346,31 @@ def ITGIS(
                     current_logits_for_prob = outputs.logits[:, -1, :] # Logits for the token predicted *after* input_ids_step
                     past_key_values = outputs.past_key_values # Update KV cache for the next step
 
-                # Calculate log probability of the target token at the current step t
-                log_probs_step = th.log_softmax(current_logits_for_prob, dim=-1)
-                # Gather prob of the specific target token target_ids[t] for this step
-                target_log_prob_step = log_probs_step[th.arange(batch_size), target_ids[t]]
+                # --- Calculate Softmax Probability (if needed) ---
+                if not use_argmax:
+                    # Calculate log probability of the target token at the current step t
+                    log_probs_step = th.log_softmax(current_logits_for_prob, dim=-1)
+                    # Gather prob of the specific target token target_ids[t] for this step
+                    target_log_prob_step = log_probs_step[th.arange(batch_size), target_ids[t]]
+                    total_log_prob_y_given_x += target_log_prob_step
 
-                total_log_prob_y_given_x += target_log_prob_step
+                # --- Calculate Argmax Match (if needed) ---
+                if use_argmax:
+                    predicted_token_id = current_logits_for_prob.argmax(dim=-1)
+                    current_step_matches = (predicted_token_id == target_ids[t])
+                    all_steps_match_argmax = all_steps_match_argmax & current_step_matches # Update overall match status
 
-            # Final probability P(Y | X) = exp( sum of log probabilities )
-            prob_y_given_x = th.exp(total_log_prob_y_given_x) # Shape: (batch_size,)
+
+            # Final probability P(Y | X) = exp( sum of log probabilities ) OR Argmax match
+            if use_argmax:
+                prob_or_match = all_steps_match_argmax.float() # Convert boolean (True=1.0, False=0.0)
+            else:
+                prob_or_match = th.exp(total_log_prob_y_given_x) # Shape: (batch_size,)
 
         # --- End P(Y | X) Calculation ---
 
-        # Calculate weighted probabilities for the current batch using the calculated probability
-        batch_weighted_probs = th.exp(logratios.sum(-1)) * prob_y_given_x.detach() # Use the computed P(Y|X)
+        # Calculate weighted probabilities for the current batch using the calculated probability or match result
+        batch_weighted_probs = th.exp(logratios.sum(-1)) * prob_or_match.detach() # Use the computed P(Y|X) or match result
 
         # Update accumulators
         total_weighted_prob_sum += batch_weighted_probs.sum().item()
@@ -385,7 +401,8 @@ def MHIS(
     n_samples: int,
     burn_in: int,
     batch_size: int = 32,
-    show_progress: bool = False
+    show_progress: bool = False,
+    use_argmax: bool = False # Added flag
 ) -> float:
     """
     Metropolis-Hastings Importance Sampling. Takes batch_size independent random walks in token space, with q(x) \propto exp(logit / temp) * p(x) as the stationary distribution.
@@ -399,6 +416,7 @@ def MHIS(
     - temp: the temperature (for both the Boltzmann stationary distribution and proposal distribution)
     - n_samples: the total number of samples to be drawn, ignoring burn-in.
     - batch_size: the number of parallel random walks to run (the total number of samples drawn is n_samples + burn_in * batch_size)
+    - use_argmax: If True, estimate probability based on whether the target sequence is generated greedily (argmax). If False (default), use softmax probability.
     Returns:
     - The estimated probability of outputing token `target`.
     """
@@ -461,6 +479,7 @@ def MHIS(
         scores_out = None
         grads_out = None
         prob_y_given_x_out = None
+        argmax_matches_out = None # Added output for argmax match
         _batch_size, _seq_len = samples.shape
 
         # --- Calculate Score s(x) and Gradient d(s)/d(onehot) --- #
@@ -518,6 +537,7 @@ def MHIS(
         # This pass computes the actual probability P(Y|X) needed for weighting.
         with th.no_grad():
             total_log_prob_y_given_x = th.zeros(_batch_size, device=device)
+            all_steps_match_argmax = th.ones(_batch_size, dtype=th.bool, device=device) # Tracker for argmax match
             past_key_values = None
             current_input_ids = samples # Start with the original context
             current_attention_mask = th.ones_like(samples, device=device)
@@ -601,15 +621,27 @@ def MHIS(
                     total_log_prob_y_given_x.fill_(-float('inf'))
                     break
 
-                # Check for non-finite values before softmax
-                if not th.isfinite(next_token_logits).all():
-                     warnings.warn(f"Non-finite logits detected at step {t}, setting log prob to -inf.")
-                     target_log_prob_step = th.full((_batch_size,), -float('inf'), device=device)
-                else:
-                     log_probs_step = th.log_softmax(next_token_logits, dim=-1)
-                     target_log_prob_step = log_probs_step[th.arange(_batch_size), target_ids[t]]
+                # --- Softmax Calculation ---
+                if not use_argmax: # Only needed if not using argmax
+                    # Check for non-finite values before softmax
+                    if not th.isfinite(next_token_logits).all():
+                         warnings.warn(f"Non-finite logits detected at step {t}, setting log prob to -inf.")
+                         target_log_prob_step = th.full((_batch_size,), -float('inf'), device=device)
+                    else:
+                         log_probs_step = th.log_softmax(next_token_logits, dim=-1)
+                         target_log_prob_step = log_probs_step[th.arange(_batch_size), target_ids[t]]
 
-                total_log_prob_y_given_x += target_log_prob_step
+                    total_log_prob_y_given_x += target_log_prob_step
+
+                # --- Argmax Calculation ---
+                if use_argmax: # Only needed if using argmax
+                    if not th.isfinite(next_token_logits).all():
+                        warnings.warn(f"Non-finite logits detected at step {t}, cannot perform argmax check.")
+                        all_steps_match_argmax.fill_(False) # Treat non-finite as non-match
+                    else:
+                        predicted_token_id = next_token_logits.argmax(dim=-1)
+                        current_step_matches = (predicted_token_id == target_ids[t])
+                        all_steps_match_argmax = all_steps_match_argmax & current_step_matches
 
                 # Prepare for the next iteration (if any)
                 if t < num_target_tokens - 1:
@@ -623,22 +655,23 @@ def MHIS(
                     # No need to update inputs after the last token
                     pass
 
-            prob_y_given_x_out = th.exp(total_log_prob_y_given_x)
+            prob_y_given_x_out = th.exp(total_log_prob_y_given_x) # Always calculate this, but might be ignored
+            argmax_matches_out = all_steps_match_argmax.float() # Always calculate this, but might be ignored
 
-        return scores_out, grads_out, prob_y_given_x_out
+        return scores_out, grads_out, prob_y_given_x_out, argmax_matches_out # Return both results
     # --- End Helper Function --- #
 
     # Initialize the first batch of samples
     current_samples = th.stack([dist.sample((batch_size,)) for dist in orig_dists], dim=1).to(device)
 
-    # Calculate initial scores, gradients, and probabilities P(Y|X)
-    current_scores, current_grads, current_probs = get_scores_grads_and_prob(current_samples)
+    # Calculate initial scores, gradients, and probabilities P(Y|X) / Argmax Match
+    current_scores, current_grads, current_probs, current_argmax_matches = get_scores_grads_and_prob(current_samples)
 
     acceptance_count = 0
     total_proposals = 0
 
     # Lists to store results after burn-in
-    final_probs_list = [] # Store P(Y|X)
+    final_results_list = [] # Stores either P(Y|X) or argmax match result
     final_scores_list = [] # Store s(x)
 
     for step in tqdm(range((n_samples // batch_size + burn_in)), disable=not show_progress):
@@ -673,7 +706,7 @@ def MHIS(
         proposed_samples[th.arange(batch_size), pos] = proposed_tokens
 
         # Recompute scores, gradients, and probabilities for proposed samples x'
-        proposed_scores, proposed_grads, proposed_probs = get_scores_grads_and_prob(proposed_samples)
+        proposed_scores, proposed_grads, proposed_probs, proposed_argmax_matches = get_scores_grads_and_prob(proposed_samples)
 
         # Compute reverse proposal probabilities q(x | x')
         # reverse_proposal_logits = log p_orig(x_i) + grad_i(x') . W_E[x_i] / temp
@@ -705,11 +738,18 @@ def MHIS(
         current_samples[accept_mask] = proposed_samples[accept_mask]
         current_scores[accept_mask] = proposed_scores[accept_mask]
         current_grads[accept_mask] = proposed_grads[accept_mask]
-        current_probs[accept_mask] = proposed_probs[accept_mask] # Update probabilities
+        # Update the correct result based on use_argmax flag
+        if use_argmax:
+            current_argmax_matches[accept_mask] = proposed_argmax_matches[accept_mask]
+        else:
+            current_probs[accept_mask] = proposed_probs[accept_mask]
 
         # Collect samples after burn-in period
         if step >= burn_in:
-            final_probs_list.append(current_probs.clone()) # Store computed P(Y|X)
+            if use_argmax:
+                final_results_list.append(current_argmax_matches.clone())
+            else:
+                final_results_list.append(current_probs.clone()) # Store computed P(Y|X)
             final_scores_list.append(current_scores.clone())  # Store target logit score s(x)
 
         acceptance_count += accept_mask.sum().item()
@@ -727,11 +767,11 @@ def MHIS(
     # w(x) = 1 / ( C * exp(s(x)/temp) )
     # E_p_orig[P(Y|X)] approx = mean( P(Y|x_i) / exp(s(x_i)/temp) ) / mean( 1 / exp(s(x_i)/temp) )
 
-    if not final_probs_list:
+    if not final_results_list:
         print("Warning: No samples collected after burn-in. Returning 0.")
         return 0.0
 
-    probs_tensor = th.cat(final_probs_list) # Shape: (num_collected_samples,)
+    results_tensor = th.cat(final_results_list) # Shape: (num_collected_samples,) - Contains probs or matches
     scores_tensor = th.cat(final_scores_list)   # Shape: (num_collected_samples,)
 
     # Weights w_i' = 1 / exp(s(x_i) / temp)
@@ -744,8 +784,8 @@ def MHIS(
         print(f"Warning: Estimated normalizing constant is zero or invalid ({mean_inv_exp_scores}). Cannot compute estimate.")
         return float('nan')
 
-    # Calculate the numerator: mean( P(Y|x_i) * w_i' )
-    unbiased_estimate_numerator = (probs_tensor * inv_exp_scores).mean()
+    # Calculate the numerator: mean( Result_i * w_i' ) - Result is P(Y|x_i) or ArgmaxMatch(x_i)
+    unbiased_estimate_numerator = (results_tensor * inv_exp_scores).mean()
 
     if not th.isfinite(unbiased_estimate_numerator):
         print(f"Warning: Numerator for estimate is invalid ({unbiased_estimate_numerator}). Cannot compute estimate.")

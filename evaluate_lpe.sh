@@ -26,14 +26,14 @@ METHOD="itgis"                # "itgis" or "mhis"
 DISTRIBUTION="uniform"        # "uniform" or "hex"
 SEQ_LEN=20
 TARGET_WORD="kill"         # <-- REPLACE with your actual target word
-TEMPERATURE=10.0
+TEMPERATURE=5
 N_SAMPLES=65536               # 2^16=65536
 BATCH_SIZE=256
 OUTPUT_DIR="./lpe_results/${METHOD}"
 OUTPUT_FILE="${OUTPUT_DIR}/results_${TARGET_WORD}_${METHOD}_${DISTRIBUTION}_temp${TEMPERATURE}_${SLURM_JOB_ID}.json"
 
 # Run the LPE estimation script
-deepspeed --master_port 40001 --module openrlhf.cli.estimate_rare_harmful_outputs \
+deepspeed --master_port 40002 --module openrlhf.cli.estimate_rare_harmful_outputs \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
     --load_checkpoint \
     --ckpt_path "${CHECKPOINT_PATH}" \
@@ -48,6 +48,7 @@ deepspeed --master_port 40001 --module openrlhf.cli.estimate_rare_harmful_output
     --n_samples $N_SAMPLES \
     --batch_size $BATCH_SIZE \
     --output_file $OUTPUT_FILE \
-    --show_progress
+    --show_progress \
+    --use_argmax
 
 echo "LPE estimation finished. Results saved to $OUTPUT_FILE" 

@@ -238,6 +238,7 @@ def main(args):
         "n_samples": args.n_samples,
         "batch_size": args.batch_size,
         "show_progress": args.show_progress,
+        "use_argmax": args.use_argmax, # Pass the flag
     }
 
     print(f"Running {args.method.upper()} estimator...")
@@ -270,6 +271,7 @@ def main(args):
     print(f"Model Path:       {args.pretrain}")
     print(f"Distribution:     {args.distribution_name} (len={args.sequence_length})")
     print(f"Method:           {args.method.upper()}")
+    print(f"Estimation Type:  {'Argmax (Greedy Check)' if args.use_argmax else 'Softmax Probability'}") # Added log
     # Log the target sequence appropriately
     print(f"Target Sequence:  {target_token_ids} ('{target_word}')")
     print(f"Temperature:      {args.temperature}")
@@ -294,6 +296,7 @@ def main(args):
             "temperature": args.temperature,
             "n_samples": args.n_samples,
             "batch_size": args.batch_size,
+            "use_argmax": args.use_argmax, # Save the flag
             "estimated_probability": estimated_prob,
             "std_err": std_err, # Note: currently N/A for ITGIS/MHIS
             "execution_time_seconds": end_time - start_time,
@@ -350,6 +353,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples", type=int, required=True, help="Number of samples for the LPE estimator.")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size for LPE estimation.")
     parser.add_argument("--show_progress", action='store_true', help="Show progress bars during estimation.")
+    parser.add_argument("--use_argmax", action='store_true', help="Estimate probability based on argmax matching instead of softmax.")
 
     # ITGIS Specific Args
     parser.add_argument("--itgis_decay_rate", type=float, default=0.9, help="Decay rate for ITGIS gradient EWMA.")
