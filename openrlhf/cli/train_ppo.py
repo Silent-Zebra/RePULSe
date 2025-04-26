@@ -196,18 +196,7 @@ def train(args):
             base_pretrained_class = base_class.__base__
             strip_question_chat_template_fn = None
             if args.apply_chat_template:
-                if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct", "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct", "meta-llama/Llama-3.2-3B-Instruct" ]:
-                    def strip_question_chat_template_fn(text, additional_split=False):
-                        question, answer = text.split('assistant\n', maxsplit=1) # in case 'assistant\n' shows up in the output, only split on the first occurrence
-                        question = question.split('user\n')[-1].strip('\n')
-                        # return text.removeprefix('user\n').removesuffix('\nassistant\n')
-
-                        if additional_split: # Used for the neg_data right now, kind of hacky
-                            question = question.split('<|im_end|>')[0]
-
-                        return question, answer
-                else:
-                    raise NotImplementedError
+                strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
                 tokenizer_base=tokenizer_base,
@@ -238,18 +227,7 @@ def train(args):
             base_pretrained_class = base_class.__base__
             strip_question_chat_template_fn = None
             if args.apply_chat_template:
-                if args.pretrain in ["HuggingFaceTB/SmolLM-135M-Instruct", "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct", "meta-llama/Llama-3.2-3B-Instruct" ]:
-                    def strip_question_chat_template_fn(text, additional_split=False):
-                        question, answer = text.split('assistant\n', maxsplit=1) # in case 'assistant\n' shows up in the output, only split on the first occurrence
-                        question = question.split('user\n')[-1].strip('\n')
-                        # return text.removeprefix('user\n').removesuffix('\nassistant\n')
-
-                        if additional_split: # Used for the neg_data right now, kind of hacky
-                            question = question.split('<|im_end|>')[0]
-
-                        return question, answer
-                else:
-                    raise NotImplementedError
+                strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
                 tokenizer_base=tokenizer_base,
@@ -1014,7 +992,25 @@ def train(args):
     #     )
 
 
+def get_strip_question_chat_template_fn(args):
+    if args.pretrain in [
+        "HuggingFaceTB/SmolLM-135M-Instruct", "HuggingFaceTB/SmolLM2-135M-Instruct", "HuggingFaceTB/SmolLM2-360M-Instruct",
+        "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct",
+        "meta-llama/Llama-3.2-3B-Instruct"
+    ]:
+        def strip_question_chat_template_fn(text, additional_split=False):
+            question, answer = text.split('assistant\n',
+                                          maxsplit=1)  # in case 'assistant\n' shows up in the output, only split on the first occurrence
+            question = question.split('user\n')[-1].strip('\n')
+            # return text.removeprefix('user\n').removesuffix('\nassistant\n')
 
+            if additional_split:  # Used for the neg_data right now, kind of hacky
+                question = question.split('<|im_end|>')[0]
+
+            return question, answer
+    else:
+        raise NotImplementedError
+    return strip_question_chat_template_fn
 
 
 def do_load_checkpoints(args, actor, critic, strategy):
