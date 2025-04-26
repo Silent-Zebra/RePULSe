@@ -1,7 +1,10 @@
 import torch as th
+import torch.nn.functional as F # Add import for padding
 from fancy_einsum import einsum
 from tqdm import tqdm
 from typing import TYPE_CHECKING, Union, List, Optional
+import warnings
+import inspect
 
 from .utils import Discrete
 
@@ -155,95 +158,6 @@ def GLD(
     return mu, sigma
 
 
-# --- Autoregressive Generation Helper --- #
-
-@th.no_grad() # Generation should not track gradients
-def _generate_autoregressive(
-    model: 'Actor',
-    initial_tokens: th.Tensor, # Shape: (batch_size, seq_len)
-    num_tokens_to_generate: int,
-    temperature: float = 1.0, # Add temperature for sampling if needed, but greedy is default
-    top_k: Optional[int] = None, # Add top_k sampling
-    top_p: Optional[float] = None, # Add top_p (nucleus) sampling
-) -> th.Tensor:
-    """
-    Generates sequences autoregressively from a batch of initial tokens.
-    """
-    # Access the underlying HF model
-    if hasattr(model.model, 'module'):
-        hf_model = model.model.module
-    else:
-        hf_model = model.model
-
-    device = initial_tokens.device
-    current_tokens = initial_tokens
-    generated_tokens_list = []
-
-    # Prepare model inputs for HF model's generate or forward pass
-    # Use past_key_values for efficiency if available/applicable
-    past_key_values = None
-
-    for _ in range(num_tokens_to_generate):
-        model_inputs = hf_model.prepare_inputs_for_generation(current_tokens, past_key_values=past_key_values, use_cache=True)
-        
-        # Handle different potential structures returned by prepare_inputs_for_generation
-        input_ids = model_inputs.get("input_ids", None)
-        if input_ids is None and "inputs_embeds" not in model_inputs:
-             # If only attention_mask etc. are returned, use the last token of current_tokens
-             input_ids = current_tokens[:, -1:]
-
-        # Construct minimal kwargs for the forward pass
-        forward_kwargs = {
-            "attention_mask": model_inputs.get("attention_mask", None),
-            "position_ids": model_inputs.get("position_ids", None),
-            "past_key_values": model_inputs.get("past_key_values", None),
-            "use_cache": True,
-        }
-        # Add input_ids or inputs_embeds based on what prepare_inputs provided
-        if input_ids is not None:
-            forward_kwargs["input_ids"] = input_ids
-        elif "inputs_embeds" in model_inputs:
-            forward_kwargs["inputs_embeds"] = model_inputs["inputs_embeds"]
-        else:
-             raise ValueError("Could not determine input_ids or inputs_embeds for model forward pass.")
-
-        # Get model outputs
-        outputs = hf_model(**forward_kwargs, return_dict=True, output_hidden_states=False, output_attentions=False)
-        
-        next_token_logits = outputs.logits[:, -1, :] # Logits for the very next token
-
-        # Apply temperature scaling
-        if temperature != 1.0:
-            next_token_logits = next_token_logits / temperature
-
-        # Apply top-k / top-p filtering if specified
-        if top_k is not None or top_p is not None:
-             # Use Hugging Face's filtering function
-             # Need to import it or re-implement logic
-             # For simplicity here, let's use greedy if filtering is complex to add inline
-             # filtered_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
-             # For now, stick to greedy/basic sampling or implement filtering if essential
-             pass # Placeholder: add filtering if needed
-
-        # Sample the next token ID (using greedy approach here for simplicity)
-        # Consider multinomial sampling if temperature/top_k/top_p are used meaningfully
-        next_token_id = th.argmax(next_token_logits, dim=-1, keepdim=True) # (batch_size, 1)
-
-        # Append generated token
-        generated_tokens_list.append(next_token_id)
-
-        # Update current_tokens and past_key_values for the next iteration
-        current_tokens = next_token_id # Only the new token is needed if using past_key_values
-        past_key_values = outputs.past_key_values
-
-    # Concatenate all generated tokens
-    if not generated_tokens_list:
-        return th.empty((initial_tokens.shape[0], 0), dtype=th.long, device=device) # Return empty tensor if 0 tokens generated
-    
-    generated_tokens = th.cat(generated_tokens_list, dim=1) # (batch_size, num_tokens_to_generate)
-    return generated_tokens
-
-# --- End Helper --- #
 
 
 def ITGIS(
@@ -488,7 +402,6 @@ def MHIS(
     Returns:
     - The estimated probability of outputing token `target`.
     """
-    # Parse target
     if isinstance(target, int):
         target_ids = [target]
     else:
@@ -505,28 +418,27 @@ def MHIS(
     else:
         hf_model = model.model
 
-    # Get model components using standard HF methods
     config = hf_model.config
-    d_vocab = config.vocab_size # Now config should be the HF config object
+    d_vocab = config.vocab_size
 
-    device = hf_model.device # Get device from the underlying HF model
+    device = hf_model.device
     embed_layer = hf_model.get_input_embeddings()
     W_E = embed_layer.weight
-    # Get LM head (handle potential variations)
+
     lm_head = hf_model.get_output_embeddings()
     if lm_head is None:
         lm_head = getattr(hf_model, 'lm_head', None)
     if lm_head is None:
         raise AttributeError("Could not find output embedding/LM head layer.")
-    # Get final layer norm (handle potential variations)
+
     final_norm = None
     if hasattr(hf_model, 'model') and hasattr(hf_model.model, 'norm'): # Llama-style
-         final_norm = hf_model.model.norm
+        final_norm = hf_model.model.norm
     elif hasattr(hf_model, 'transformer') and hasattr(hf_model.transformer, 'ln_f'): # GPT-2-style
-         final_norm = hf_model.transformer.ln_f
+        final_norm = hf_model.transformer.ln_f
     if final_norm is None:
-         print("Warning: Could not find final layer norm, using Identity.")
-         final_norm = th.nn.Identity()
+        print("Warning: Could not find final layer norm, using Identity.")
+        final_norm = th.nn.Identity()
 
     ctx_len = len(orig_dists)
     # `scores` here refers to the target logit score s(x), not the importance sampling scores from ITGIS
@@ -540,75 +452,194 @@ def MHIS(
         orig_log_probs.append(mask)
     orig_log_probs = th.stack(orig_log_probs) # (ctx_len, d_vocab)
 
-    # Ensure model parameters don't require gradients except embeddings when needed
     for param in hf_model.parameters():
         param.requires_grad_(False)
 
-    final_results = []
-    final_scores = [] # Stores s(x) = logit_target(x) for accepted samples after burn-in
-
     # --- Helper function for forward pass and gradient calculation --- #
-    def get_scores_grads_results(samples: th.Tensor):
-        # This helper now returns the logit score for the *first* target token,
-        # the corresponding gradients, and the result of checking the *full* sequence.
+    def get_scores_grads_and_prob(samples: th.Tensor):
+        # Stores results
+        scores_out = None
+        grads_out = None
+        prob_y_given_x_out = None
+        _batch_size, _seq_len = samples.shape
+
+        # --- Calculate Score s(x) and Gradient d(s)/d(onehot) --- #
         with th.enable_grad():
-            # 1. Embed tokens
-            embeddings = embed_layer(samples) # (batch_size, ctx_len, d_model)
+            initial_attention_mask_grad = th.ones_like(samples, device=device)
+            embeddings = embed_layer(samples)
             embeddings.requires_grad_(True)
 
-            # 2. Pass embeddings through the main transformer body
-            if hasattr(hf_model, 'model') and callable(hf_model.model):
-                 transformer_outputs = hf_model.model(inputs_embeds=embeddings)
-            elif hasattr(hf_model, 'transformer') and callable(hf_model.transformer):
-                 transformer_outputs = hf_model.transformer(inputs_embeds=embeddings)
-            else:
-                 raise NotImplementedError("Cannot determine main transformer body for gradient calculation.")
+            forward_kwargs_grad = {
+                "inputs_embeds": embeddings,
+                "attention_mask": initial_attention_mask_grad,
+                "use_cache": False, # No need for KV cache from this specific pass
+                "return_dict": True,
+                "output_hidden_states": False,
+                "output_attentions": False
+            }
+            try:
+                if hasattr(hf_model, 'model') and callable(hf_model.model):
+                    transformer_outputs = hf_model.model(**forward_kwargs_grad)
+                elif hasattr(hf_model, 'transformer') and callable(hf_model.transformer):
+                    transformer_outputs = hf_model.transformer(**forward_kwargs_grad)
+                else:
+                    # Basic fallback, might ignore mask
+                    sig = inspect.signature(hf_model.forward)
+                    if "attention_mask" not in sig.parameters:
+                         forward_kwargs_grad.pop("attention_mask", None)
+                    transformer_outputs = hf_model(**forward_kwargs_grad)
+            except Exception as e:
+                print(f"Error during gradient forward pass: {e}")
+                raise NotImplementedError("Cannot determine main transformer body or handle forward pass correctly for grad.")
 
-            hidden_states = transformer_outputs.last_hidden_state # (batch_size, ctx_len, d_model)
+            hidden_states = transformer_outputs.last_hidden_state
 
             # 3. Apply final norm and LM head manually to last hidden state
             last_hidden_state = hidden_states[:, -1]
             normed_hidden_state = final_norm(last_hidden_state)
-            logits = lm_head(normed_hidden_state) # (batch_size, d_vocab)
+            logits = lm_head(normed_hidden_state)
 
             # 4. Get target logit score s(x) (using *first* target) and backpropagate
             target_logit_score = logits[:, first_target_id]
             target_logit_score.sum().backward()
 
-            # 5. Get embedding gradient and calculate "one-hot" equivalent gradient
-            embedding_grad = embeddings.grad # (batch_size, ctx_len, d_model)
-            onehot_grad = einsum("b s d, v d -> b s v", embedding_grad, W_E) # (batch_size, ctx_len, d_vocab)
+            embedding_grad = embeddings.grad
+            if embedding_grad is None:
+                grads_out = th.zeros((_batch_size, ctx_len, d_vocab), device=device)
+                warnings.warn("Embedding gradient is None, returning zero gradient.")
+            else:
+                onehot_grad = einsum("b s d, v d -> b s v", embedding_grad, W_E)
+                grads_out = onehot_grad.detach().clone()
 
-            # Detach score and grads
             scores_out = target_logit_score.detach().clone()
-            grads_out = onehot_grad.detach().clone()
+            embeddings.grad = None # Clear grad
 
-            # Clear gradients for next use (before generation call)
-            embeddings.grad = None
-            # Optional: zero_grad model params if needed
+        # --- Calculate P(Y | X) using sequential forward passes (No Grad) --- #
+        # This pass computes the actual probability P(Y|X) needed for weighting.
+        with th.no_grad():
+            total_log_prob_y_given_x = th.zeros(_batch_size, device=device)
+            past_key_values = None
+            current_input_ids = samples # Start with the original context
+            current_attention_mask = th.ones_like(samples, device=device)
 
-        # --- Check for Target Sequence Match (No Grad) ---
-        generated_sequence = _generate_autoregressive(
-            model=model, # Pass the Actor wrapper
-            initial_tokens=samples,
-            num_tokens_to_generate=num_target_tokens,
-        ) # (batch_size, num_target_tokens)
-        # Expand target tensor for comparison
-        target_ids_expanded = target_ids_tensor.unsqueeze(0).expand_as(generated_sequence)
-        results_out = (generated_sequence == target_ids_expanded).all(dim=1).float().detach() # (batch_size,)
-        # --- End Check ---
+            for t in range(num_target_tokens):
+                # Prepare inputs for the current step t
+                # print(f"Preparing inputs for step {t}...")
+                # print(f"Current input IDs: {current_input_ids.shape}")
+                # print(f"Past key values: {past_key_values}")
+                # print(f"Current attention mask: {current_attention_mask.shape}")
 
-        return scores_out, grads_out, results_out
+                if t == 0:
+                    # For the first step, use prepare_inputs_for_generation with the full context
+                    model_inputs = hf_model.prepare_inputs_for_generation(
+                        input_ids=current_input_ids,
+                        past_key_values=past_key_values, # Should be None here
+                        attention_mask=current_attention_mask,
+                        use_cache=True
+                    )
+                    forward_kwargs_prob = model_inputs.copy()
+                else:
+                    # For subsequent steps (t > 0), manually construct inputs using KV cache
+                    current_seq_len = current_attention_mask.shape[1]
+                    position_ids = th.full((_batch_size, 1), current_seq_len - 1, dtype=th.long, device=device) # Position is length - 1
+                    # print(f"Manual position_ids: {position_ids.shape} (Value: {position_ids[0].item()})")
+
+                    forward_kwargs_prob = {
+                        "input_ids": current_input_ids, # Shape: [batch_size, 1]
+                        "attention_mask": current_attention_mask, # Shape: [batch_size, original_len + t]
+                        "position_ids": position_ids, # Shape: [batch_size, 1]
+                        "past_key_values": past_key_values,
+                    }
+
+                # Clean up kwargs for model's forward method based on its signature
+                valid_forward_keys = inspect.signature(hf_model.forward).parameters
+                keys_to_remove = [k for k in forward_kwargs_prob if k not in valid_forward_keys]
+                for k in keys_to_remove:
+                     forward_kwargs_prob.pop(k)
+
+                # Ensure necessary args are present if needed by model (redundant if cleaned above?)
+                # if "attention_mask" not in forward_kwargs_prob and "attention_mask" in valid_forward_keys:
+                #      forward_kwargs_prob["attention_mask"] = current_attention_mask
+                # if "position_ids" not in forward_kwargs_prob and "position_ids" in valid_forward_keys and t > 0:
+                #      # This case should be covered by manual construction above for t > 0
+                #      # If t=0 and prepare_inputs didn't add it, the model might implicitly handle it
+                #      pass
+
+                # Set common forward pass options
+                forward_kwargs_prob.update({
+                    "return_dict": True,
+                    "output_hidden_states": False,
+                    "output_attentions": False,
+                    "use_cache": True
+                })
+
+                try:
+                    outputs = hf_model(**forward_kwargs_prob)
+                except Exception as e:
+                    print(f"Error during probability forward pass (step {t}): {e}")
+                    total_log_prob_y_given_x.fill_(-float('inf'))
+                    break # Stop calculating prob for this sample batch
+
+                # Logits for the *next* token prediction
+                # Expected shapes:
+                # - (batch_size, seq_len, vocab_size) -> When t=0 (full context input)
+                # - (batch_size, 1, vocab_size) -> When t>0 (KV cache used)
+                # - (batch_size, vocab_size) -> Less common, but possible
+                next_token_logits = outputs.logits
+
+                if next_token_logits.ndim == 3:
+                    # Case 1: (batch_size, seq_len, vocab_size) where seq_len > 1 (Likely t=0)
+                    # Case 2: (batch_size, 1, vocab_size) (Likely t>0 with KV cache)
+                    # In both cases, we need the logits for the prediction *after* the last input token.
+                    next_token_logits = next_token_logits[:, -1, :] # Select the logits for the last position
+                elif next_token_logits.ndim == 2:
+                    # Case 3: (batch_size, vocab_size) - Use directly
+                    pass
+                else:
+                    # Unexpected shape
+                    warnings.warn(f"Unexpected logits shape {outputs.logits.shape} at step {t}. Cannot determine next token logits.")
+                    total_log_prob_y_given_x.fill_(-float('inf'))
+                    break
+
+                # Check for non-finite values before softmax
+                if not th.isfinite(next_token_logits).all():
+                     warnings.warn(f"Non-finite logits detected at step {t}, setting log prob to -inf.")
+                     target_log_prob_step = th.full((_batch_size,), -float('inf'), device=device)
+                else:
+                     log_probs_step = th.log_softmax(next_token_logits, dim=-1)
+                     target_log_prob_step = log_probs_step[th.arange(_batch_size), target_ids[t]]
+
+                total_log_prob_y_given_x += target_log_prob_step
+
+                # Prepare for the next iteration (if any)
+                if t < num_target_tokens - 1:
+                    # The input for the *next* step is the current target token
+                    current_input_ids = target_ids_tensor[t].repeat(_batch_size).unsqueeze(-1)
+                    # Update KV cache
+                    past_key_values = outputs.past_key_values
+                    # Extend attention mask
+                    current_attention_mask = F.pad(current_attention_mask, (0, 1), value=1)
+                else:
+                    # No need to update inputs after the last token
+                    pass
+
+            prob_y_given_x_out = th.exp(total_log_prob_y_given_x)
+
+        return scores_out, grads_out, prob_y_given_x_out
     # --- End Helper Function --- #
 
     # Initialize the first batch of samples
     current_samples = th.stack([dist.sample((batch_size,)) for dist in orig_dists], dim=1).to(device)
 
-    # Calculate initial scores, gradients, and results
-    current_scores, current_grads, current_results = get_scores_grads_results(current_samples)
+    # Calculate initial scores, gradients, and probabilities P(Y|X)
+    current_scores, current_grads, current_probs = get_scores_grads_and_prob(current_samples)
 
     acceptance_count = 0
     total_proposals = 0
+
+    # Lists to store results after burn-in
+    final_probs_list = [] # Store P(Y|X)
+    final_scores_list = [] # Store s(x)
 
     for step in tqdm(range((n_samples // batch_size + burn_in)), disable=not show_progress):
         # Choose a random position to modify for each sample in the batch
@@ -620,68 +651,48 @@ def MHIS(
         # We need the gradient for the specific position `pos` for each sample
         grad_at_pos = current_grads[th.arange(batch_size), pos] # (batch_size, d_vocab)
         proposal_logits = orig_log_probs[pos] + grad_at_pos / temp
-        # Ensure proposal probs are only non-zero for allowed tokens
-        proposal_logits[orig_log_probs[pos] == -th.inf] = -th.inf
         proposal_probs = th.softmax(proposal_logits, dim=-1)
 
-        # Propose new tokens based on proposal distribution
-        # Add check for valid probabilities before sampling
-        valid_proposal = proposal_probs.sum(dim=-1) > 0.5 # Check if probs sum to approx 1
+        # Make sure that the proposal probabilities are valid
+        valid_proposal = proposal_probs.sum(dim=-1) > 0.5
         if not valid_proposal.all():
-            print(f"Warning: Invalid proposal distribution detected at step {step}. Skipping proposal for invalid samples.")
-            # Handle invalid proposals, e.g., by resampling positions or skipping updates for those samples
-            # For now, we'll just proceed, but sampling might fail
-            # Ensure probabilities are non-negative and normalized if issues persist
-            proposal_probs = th.clamp(proposal_probs, min=0) # Ensure non-negative
-            proposal_probs = proposal_probs / proposal_probs.sum(dim=-1, keepdim=True).clamp(min=1e-9) # Renormalize
+            print(f"Warning: Invalid proposal distribution detected at step {step}.")
+            proposal_probs = th.clamp(proposal_probs, min=0)
+            proposal_probs = proposal_probs / proposal_probs.sum(dim=-1, keepdim=True).clamp(min=1e-9)
 
-        # Sample proposed tokens, handle potential NaN/inf issues if necessary
+        # Propose new tokens based on proposal distribution
         try:
             proposed_tokens = th.multinomial(proposal_probs, 1).squeeze(-1)
         except RuntimeError as e:
             print(f"Error during multinomial sampling at step {step}: {e}")
             print("Proposal probabilities (sample):", proposal_probs[0])
-            # Decide how to handle: skip step, use fallback, etc.
-            # For now, re-raising to halt execution and allow inspection
             raise e
-
 
         # Create proposed samples x'
         proposed_samples = current_samples.clone()
         proposed_samples[th.arange(batch_size), pos] = proposed_tokens
 
-        # Recompute scores, gradients, and results for proposed samples x'
-        proposed_scores, proposed_grads, proposed_results = get_scores_grads_results(proposed_samples)
+        # Recompute scores, gradients, and probabilities for proposed samples x'
+        proposed_scores, proposed_grads, proposed_probs = get_scores_grads_and_prob(proposed_samples)
 
         # Compute reverse proposal probabilities q(x | x')
         # reverse_proposal_logits = log p_orig(x_i) + grad_i(x') . W_E[x_i] / temp
         grad_at_pos_proposed = proposed_grads[th.arange(batch_size), pos] # (batch_size, d_vocab)
         reverse_proposal_logits = orig_log_probs[pos] + grad_at_pos_proposed / temp
-        reverse_proposal_logits[orig_log_probs[pos] == -th.inf] = -th.inf
         reverse_proposal_probs = th.softmax(reverse_proposal_logits, dim=-1)
 
         # Extract needed components for acceptance probability calculation
-        current_tokens_at_pos = current_samples[th.arange(batch_size), pos] # (batch_size,)
-        # Ensure indices are within bounds before gathering
-        current_tokens_at_pos = th.clamp(current_tokens_at_pos, 0, d_vocab - 1)
-        proposed_tokens = th.clamp(proposed_tokens, 0, d_vocab - 1)
+        current_tokens_at_pos = current_samples[th.arange(batch_size), pos]
+        # current_tokens_at_pos = th.clamp(current_tokens_at_pos, 0, d_vocab - 1)
+        # proposed_tokens = th.clamp(proposed_tokens, 0, d_vocab - 1)
 
         # Gather reverse and forward probabilities
-        p_rev = reverse_proposal_probs.gather(1, current_tokens_at_pos.unsqueeze(-1)).squeeze(-1) # q(x | x')
-        p_fwd = proposal_probs.gather(1, proposed_tokens.unsqueeze(-1)).squeeze(-1)             # q(x'| x)
-
-        # Avoid log(0) if proposal probability was zero (shouldn't happen with valid sampling)
-        p_rev = th.clamp(p_rev, min=1e-20)
-        p_fwd = th.clamp(p_fwd, min=1e-20)
+        p_rev = reverse_proposal_probs.gather(1, current_tokens_at_pos.unsqueeze(-1)).squeeze(-1)
+        p_fwd = proposal_probs.gather(1, proposed_tokens.unsqueeze(-1)).squeeze(-1)
+        # p_rev = th.clamp(p_rev, min=1e-20)
+        # p_fwd = th.clamp(p_fwd, min=1e-20)
 
         # Compute log acceptance probabilities: log A(x' | x)
-        # log A = log [ (p(x') q(x | x')) / (p(x) q(x' | x)) ]
-        # where p(x) is the target stationary distribution pi(x) = exp(s(x)/temp) * p_orig(x)
-        # log A = log [ (exp(s(x')/T) p_orig(x') q(x|x')) / (exp(s(x)/T) p_orig(x) q(x'|x)) ]
-        # log A = (s(x') - s(x))/T + log p_orig(x') - log p_orig(x) + log q(x|x') - log q(x'|x)
-        # Here, log p_orig(x') corresponds to orig_log_probs[pos, proposed_tokens]
-        # and   log p_orig(x) corresponds to orig_log_probs[pos, current_tokens_at_pos]
-
         log_accept_probs = (proposed_scores - current_scores) / temp + \
                            orig_log_probs[pos].gather(1, proposed_tokens.unsqueeze(1)).squeeze(1) - \
                            orig_log_probs[pos].gather(1, current_tokens_at_pos.unsqueeze(1)).squeeze(1) + \
@@ -693,74 +704,57 @@ def MHIS(
         # Update current state for accepted proposals
         current_samples[accept_mask] = proposed_samples[accept_mask]
         current_scores[accept_mask] = proposed_scores[accept_mask]
-        # Gradients need to be updated for the next step's proposal calculation
         current_grads[accept_mask] = proposed_grads[accept_mask]
-        # Results are updated for the final output
-        current_results[accept_mask] = proposed_results[accept_mask]
-
-        # Don't need to clone scores/grads/results here as they are overwritten or indexed
+        current_probs[accept_mask] = proposed_probs[accept_mask] # Update probabilities
 
         # Collect samples after burn-in period
         if step >= burn_in:
-            final_results.append(current_results.clone()) # Store whether target was predicted
-            final_scores.append(current_scores.clone())  # Store target logit score s(x)
+            final_probs_list.append(current_probs.clone()) # Store computed P(Y|X)
+            final_scores_list.append(current_scores.clone())  # Store target logit score s(x)
 
         acceptance_count += accept_mask.sum().item()
         total_proposals += batch_size
 
-    # This block should be outside the loop
+    # --- End MCMC Loop --- #
+
     acceptance_rate = acceptance_count / total_proposals if total_proposals > 0 else 0
     print(f"MHIS Acceptance Rate: {acceptance_rate:.4f}")
 
-
     # --- Importance Sampling Calculation --- #
-    # We have samples x drawn from pi(x) \propto exp(s(x)/temp) * p_orig(x)
-    # We want E_p_orig[f(x)], where f(x) = 1 if target predicted, else 0.
-    # E_p_orig[f(x)] = E_pi [ f(x) * w(x) ], where w(x) = p_orig(x) / pi(x)
-    # w(x) = p_orig(x) / ( C * exp(s(x)/temp) * p_orig(x) ) = 1 / ( C * exp(s(x)/temp) )
-    # where C is the normalizing constant of pi(x).
-    # E_p_orig[f(x)] = E_pi [ f(x) / (C * exp(s(x)/temp)) ]
-    # E_p_orig[f(x)] = (1/C) * E_pi [ f(x) / exp(s(x)/temp) ]
-    # We estimate C using 1/C = E_pi [ 1 / exp(s(x)/temp) ]
-    # E_p_orig[f(x)] approx = mean( f(x_i) / exp(s(x_i)/temp) ) / mean( 1 / exp(s(x_i)/temp) )
-    # where x_i are samples from pi (our MCMC chain after burn-in)
+    # We have samples x ~ pi(x) \propto exp(s(x)/temp) * p_orig(x)
+    # We want E_p_orig[P(Y|X)]
+    # E_p_orig[P(Y|X)] = E_pi [ P(Y|X) * w(x) ], where w(x) = p_orig(x) / pi(x)
+    # w(x) = 1 / ( C * exp(s(x)/temp) )
+    # E_p_orig[P(Y|X)] approx = mean( P(Y|x_i) / exp(s(x_i)/temp) ) / mean( 1 / exp(s(x_i)/temp) )
 
-    # This block should be outside the loop
-    if not final_results:
+    if not final_probs_list:
         print("Warning: No samples collected after burn-in. Returning 0.")
         return 0.0
 
-    # This block should be outside the loop
-    results_tensor = th.cat(final_results) # Shape: (num_collected_samples,)
-    scores_tensor = th.cat(final_scores)   # Shape: (num_collected_samples,)
+    probs_tensor = th.cat(final_probs_list) # Shape: (num_collected_samples,)
+    scores_tensor = th.cat(final_scores_list)   # Shape: (num_collected_samples,)
 
-    # Weights w_i = 1 / exp(s(x_i) / temp)
+    # Weights w_i' = 1 / exp(s(x_i) / temp)
     inv_exp_scores = th.exp(-scores_tensor / temp)
 
-    # Estimate normalizing constant C's inverse: mean(w_i)
+    # Estimate 1/C = mean(w_i')
     mean_inv_exp_scores = inv_exp_scores.mean()
 
-    if mean_inv_exp_scores == 0 or not th.isfinite(mean_inv_exp_scores): # Check for inf/nan too
+    if mean_inv_exp_scores == 0 or not th.isfinite(mean_inv_exp_scores):
         print(f"Warning: Estimated normalizing constant is zero or invalid ({mean_inv_exp_scores}). Cannot compute estimate.")
-        # This might happen if scores are extremely large/small
-        # Could indicate numerical instability or issues with the sampling
-        return float('nan') # Or handle appropriately
+        return float('nan')
 
-    # Calculate the unbiased estimate E_p_orig[f(x)]
-    # mean( f(x_i) * w_i ) / mean( w_i )
-    unbiased_estimate_numerator = (results_tensor * inv_exp_scores).mean()
+    # Calculate the numerator: mean( P(Y|x_i) * w_i' )
+    unbiased_estimate_numerator = (probs_tensor * inv_exp_scores).mean()
 
-    # Check if numerator is valid before division
     if not th.isfinite(unbiased_estimate_numerator):
         print(f"Warning: Numerator for estimate is invalid ({unbiased_estimate_numerator}). Cannot compute estimate.")
         return float('nan')
 
     estimated_prob = unbiased_estimate_numerator / mean_inv_exp_scores
 
-    # Final check for NaN/inf in the result
     if not th.isfinite(estimated_prob):
         print(f"Warning: Final estimated probability is invalid ({estimated_prob}). Returning NaN.")
         return float('nan')
-
 
     return estimated_prob.item()

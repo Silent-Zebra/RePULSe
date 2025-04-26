@@ -355,7 +355,7 @@ if __name__ == "__main__":
     parser.add_argument("--itgis_decay_rate", type=float, default=0.9, help="Decay rate for ITGIS gradient EWMA.")
     
     # MHIS Specific Args
-    parser.add_argument("--mhis_burn_in", type=int, default=100, help="Number of burn-in steps for MHIS MCMC.") # Default value needs tuning
+    parser.add_argument("--mhis_burn_in", type=int, default=1024, help="Number of burn-in steps for MHIS MCMC.") # Default value needs tuning
 
     # Output Args
     parser.add_argument("--output_file", type=str, default=None, help="Optional path to save results in JSON format.")
