@@ -1,7 +1,7 @@
 import torch as th
 from fancy_einsum import einsum
 from tqdm import tqdm
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union, List, Optional
 
 from .utils import Discrete
 
@@ -155,10 +155,101 @@ def GLD(
     return mu, sigma
 
 
+# --- Autoregressive Generation Helper --- #
+
+@th.no_grad() # Generation should not track gradients
+def _generate_autoregressive(
+    model: 'Actor',
+    initial_tokens: th.Tensor, # Shape: (batch_size, seq_len)
+    num_tokens_to_generate: int,
+    temperature: float = 1.0, # Add temperature for sampling if needed, but greedy is default
+    top_k: Optional[int] = None, # Add top_k sampling
+    top_p: Optional[float] = None, # Add top_p (nucleus) sampling
+) -> th.Tensor:
+    """
+    Generates sequences autoregressively from a batch of initial tokens.
+    """
+    # Access the underlying HF model
+    if hasattr(model.model, 'module'):
+        hf_model = model.model.module
+    else:
+        hf_model = model.model
+
+    device = initial_tokens.device
+    current_tokens = initial_tokens
+    generated_tokens_list = []
+
+    # Prepare model inputs for HF model's generate or forward pass
+    # Use past_key_values for efficiency if available/applicable
+    past_key_values = None
+
+    for _ in range(num_tokens_to_generate):
+        model_inputs = hf_model.prepare_inputs_for_generation(current_tokens, past_key_values=past_key_values, use_cache=True)
+        
+        # Handle different potential structures returned by prepare_inputs_for_generation
+        input_ids = model_inputs.get("input_ids", None)
+        if input_ids is None and "inputs_embeds" not in model_inputs:
+             # If only attention_mask etc. are returned, use the last token of current_tokens
+             input_ids = current_tokens[:, -1:]
+
+        # Construct minimal kwargs for the forward pass
+        forward_kwargs = {
+            "attention_mask": model_inputs.get("attention_mask", None),
+            "position_ids": model_inputs.get("position_ids", None),
+            "past_key_values": model_inputs.get("past_key_values", None),
+            "use_cache": True,
+        }
+        # Add input_ids or inputs_embeds based on what prepare_inputs provided
+        if input_ids is not None:
+            forward_kwargs["input_ids"] = input_ids
+        elif "inputs_embeds" in model_inputs:
+            forward_kwargs["inputs_embeds"] = model_inputs["inputs_embeds"]
+        else:
+             raise ValueError("Could not determine input_ids or inputs_embeds for model forward pass.")
+
+        # Get model outputs
+        outputs = hf_model(**forward_kwargs, return_dict=True, output_hidden_states=False, output_attentions=False)
+        
+        next_token_logits = outputs.logits[:, -1, :] # Logits for the very next token
+
+        # Apply temperature scaling
+        if temperature != 1.0:
+            next_token_logits = next_token_logits / temperature
+
+        # Apply top-k / top-p filtering if specified
+        if top_k is not None or top_p is not None:
+             # Use Hugging Face's filtering function
+             # Need to import it or re-implement logic
+             # For simplicity here, let's use greedy if filtering is complex to add inline
+             # filtered_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
+             # For now, stick to greedy/basic sampling or implement filtering if essential
+             pass # Placeholder: add filtering if needed
+
+        # Sample the next token ID (using greedy approach here for simplicity)
+        # Consider multinomial sampling if temperature/top_k/top_p are used meaningfully
+        next_token_id = th.argmax(next_token_logits, dim=-1, keepdim=True) # (batch_size, 1)
+
+        # Append generated token
+        generated_tokens_list.append(next_token_id)
+
+        # Update current_tokens and past_key_values for the next iteration
+        current_tokens = next_token_id # Only the new token is needed if using past_key_values
+        past_key_values = outputs.past_key_values
+
+    # Concatenate all generated tokens
+    if not generated_tokens_list:
+        return th.empty((initial_tokens.shape[0], 0), dtype=th.long, device=device) # Return empty tensor if 0 tokens generated
+    
+    generated_tokens = th.cat(generated_tokens_list, dim=1) # (batch_size, num_tokens_to_generate)
+    return generated_tokens
+
+# --- End Helper --- #
+
+
 def ITGIS(
     model: 'Actor', # Expect an Actor instance (or similar wrapper around HF model)
     orig_dists: list[Discrete],
-    target: int,
+    target: Union[int, List[int]], # Modified type hint
     *,
     temp: float,
     n_samples: int,
@@ -171,7 +262,7 @@ def ITGIS(
     Inputs:
     - model: the OpenRLHF Actor model instance wrapping a Hugging Face model.
     - orig_dists: list of Discrete distributions for each token position.
-    - target: the target token (in range [0...d_vocab)).
+    - target: the target token ID (int) or sequence of token IDs (list).
     - temp: the temperature.
     - n_samples: the number of samples to be drawn.
     - batch_size: the batch size.
@@ -179,17 +270,25 @@ def ITGIS(
     Returns:
     - The estimated probability of outputing token `target`.
     """
-    # Access the underlying HF model, potentially wrapped by DeepSpeed
+    if isinstance(target, int):
+        target_ids = [target]
+    else:
+        target_ids = target
+    if not target_ids:
+        raise ValueError("Target token list cannot be empty.")
+    first_target_id = target_ids[0]
+    num_target_tokens = len(target_ids)
+    target_ids_tensor = th.tensor(target_ids, device=model.model.device) # For comparison
+
     if hasattr(model.model, 'module'):
         hf_model = model.model.module
     else:
         hf_model = model.model
 
-    # Get model components using standard HF methods
     config = hf_model.config
-    d_vocab = config.vocab_size # Now config should be the HF config object
+    d_vocab = config.vocab_size
 
-    device = hf_model.device # Get device from the underlying HF model
+    device = hf_model.device
     embed_layer = hf_model.get_input_embeddings()
     W_E = embed_layer.weight
     # Get LM head (handle potential variations)
@@ -234,54 +333,34 @@ def ITGIS(
 
         # Sample tokens based on current importance scores
         for dist, scores_at_pos in zip(orig_dists, scores):
-            # Ensure scores_at_pos[dist.values] is 1D
-            current_scores = scores_at_pos[dist.values].squeeze()
-            if current_scores.dim() == 0: # Handle scalar case if dist.values has one element
-                current_scores = current_scores.unsqueeze(0)
-
-            # Compute Boltzmann distribution based on scores for allowed tokens
-            boltzmann_dist = dist.boltzmann_distribution(
-                scores=current_scores, temperature=adj_temp
-            )
-            samples_at_pos = boltzmann_dist.sample((batch_size,))
+            samples_at_pos = dist.boltzmann_distribution(
+                scores=scores_at_pos[dist.values], temperature=adj_temp
+            ).sample((batch_size,))
             target_samples.append(samples_at_pos)
-
-            # Calculate log ratio: log(p_orig(x) / p_importance(x))
-            # log p_importance(x) = scores[x]/temp - log Z(temp)
-            # log Z(temp) = logsumexp(scores[allowed]/temp)
-            # log p_orig(x) = log(dist.probs[x]) # Need to map sampled value back to index in dist.probs
-            # Assuming boltzmann_dist.probs corresponds to dist.values
-            log_p_importance = boltzmann_dist.log_prob(samples_at_pos)
-
-            # Map sampled values back to their original probabilities in orig_dist
-            value_to_prob_map = {val.item(): prob for val, prob in zip(dist.values, dist.probs)}
-            log_p_orig = th.tensor([th.log(value_to_prob_map[samp.item()]) for samp in samples_at_pos], device=device)
-
-            # log ratio = log_p_orig - log_p_importance
-            target_logratios.append(log_p_orig - log_p_importance)
-
+            target_logratios.append(
+                th.logsumexp(
+                    scores_at_pos[dist.values] / adj_temp + th.log(dist.probs), dim=0
+                )
+                - scores_at_pos[samples_at_pos] / adj_temp
+            )
 
         samples = th.stack(target_samples, dim=1)  # (batch_size, ctx_len)
         logratios = th.stack(target_logratios, dim=1)  # (batch_size, ctx_len)
 
-        # --- Calculate Gradients using HF Model ---
         with th.enable_grad():
             # 1. Embed tokens
+            # NOTE: The HF model handles the addition of positional embeddings internally 
+            # when it receives token embeddings, so we don't need to add them separately.
             embeddings = embed_layer(samples) # (batch_size, ctx_len, d_model)
             embeddings.requires_grad_(True)
 
             # 2. Pass embeddings through the main transformer body
-            # Use attention_mask if needed by the model (Llama doesn't strictly need it here)
-            # Assuming the model's main body is accessible (e.g., hf_model.model for Llama)
-            if hasattr(hf_model, 'model') and callable(hf_model.model):
-                 transformer_outputs = hf_model.model(inputs_embeds=embeddings)
+            if hasattr(hf_model, 'model') and callable(hf_model.model): # Llama-style
+                transformer_outputs = hf_model.model(inputs_embeds=embeddings)
             elif hasattr(hf_model, 'transformer') and callable(hf_model.transformer): # GPT-2 style
-                 transformer_outputs = hf_model.transformer(inputs_embeds=embeddings)
+                transformer_outputs = hf_model.transformer(inputs_embeds=embeddings)
             else:
-                 # Fallback: Pass directly to the model, hoping it handles inputs_embeds
-                 # This might double-apply embeddings if not careful! Requires checking model type.
-                 # For now, assume Llama-like structure hf_model.model exists.
-                 raise NotImplementedError("Cannot determine main transformer body for gradient calculation.")
+                raise NotImplementedError("Cannot determine main transformer body for gradient calculation.")
 
             hidden_states = transformer_outputs.last_hidden_state # (batch_size, ctx_len, d_model)
 
@@ -290,8 +369,8 @@ def ITGIS(
             normed_hidden_state = final_norm(last_hidden_state)
             logits = lm_head(normed_hidden_state) # (batch_size, d_vocab)
 
-            # 4. Get target logit and backpropagate
-            target_logit = logits[:, target]
+            # 4. Get target logit (of the *first* target token) and backpropagate
+            target_logit = logits[:, first_target_id] # Use first_target_id for gradient guidance
             target_logit.sum().backward()
 
             # 5. Get embedding gradient and calculate "one-hot" equivalent gradient
@@ -299,28 +378,82 @@ def ITGIS(
             # Project gradients back to vocab space: d_logit/d_onehot = (d_logit/d_embed) @ W_E.T
             onehot_grad = einsum("b s d, v d -> b s v", embedding_grad, W_E) # (batch_size, ctx_len, d_vocab)
 
+            # Clear gradients before probability calculation
+            embeddings.grad = None
+            # Optional: zero_grad the model if needed
+
             # --- End Gradient Calculation ---
 
-            # Calculate probability of target token based on computed logits
-            # Note: Use the *actual* model output logits here
-            probs = (logits.argmax(-1) == target).float().detach()
+        # --- Calculate P(Y | X) using sequential forward passes ---
+        # Instead of checking if greedy generation matches, calculate the actual
+        # conditional probability P(Y|X) = P(T1|X) * P(T2|X,T1) * ...
+        # This is required for the correct importance sampling estimator.
+        with th.no_grad():
+            past_key_values = None # Initialize KV cache state
+            # Accumulator for log P(Y|X) = log P(T1|X) + log P(T2|X,T1) + ...
+            total_log_prob_y_given_x = th.zeros(batch_size, device=device)
+            # Use the initial logits computed during the gradient pass for the first token prediction
+            current_logits_for_prob = logits
 
-            # Calculate weighted probabilities for the current batch
-            batch_weighted_probs = th.exp(logratios.sum(-1)) * probs
+            # We need initial KV cache. A simple way is to re-run the first pass if needed.
+            # Alternatively, if transformer_outputs contained past_key_values, use that.
+            # Re-running might be cleaner if initial grad pass had use_cache=False.
+            # Let's assume for now we can get the initial KV cache if needed.
+            # TODO: Ensure initial past_key_values are correctly obtained if t > 0 requires them.
 
-            # Update accumulators
-            total_weighted_prob_sum += batch_weighted_probs.sum().item()
-            total_samples_processed += batch_size # Increment by the actual batch size processed
+            for t in range(num_target_tokens):
+                if t > 0:
+                    # Prepare inputs for subsequent steps using the *actual* previous target token
+                    input_ids_step = target_ids_tensor[t-1].repeat(batch_size).unsqueeze(-1) # Shape: (batch_size, 1)
 
-            # Update scores using the calculated "one-hot" gradients
-            # Aggregate gradient across batch dimension
-            batch_grad = onehot_grad.sum(0) # (ctx_len, d_vocab)
-            scores *= decay_rate
-            scores += batch_grad / batch_size # Apply EWMA update
+                    # Requires handling attention_mask correctly if model uses it.
+                    # Assuming prepare_inputs handles mask extension based on past_key_values.
+                    model_inputs = hf_model.prepare_inputs_for_generation(
+                        input_ids=input_ids_step,
+                        past_key_values=past_key_values,
+                        use_cache=True
+                    )
+                    # Ensure all necessary inputs are present
+                    forward_kwargs = model_inputs.copy() # Start with prepared inputs
+                    forward_kwargs.update({
+                        "return_dict": True,
+                        "output_hidden_states": False,
+                        "output_attentions": False,
+                        "use_cache": True
+                    })
 
-            # Detach grads for next iteration
-            embeddings.grad = None
 
+                    outputs = hf_model(**forward_kwargs)
+                    current_logits_for_prob = outputs.logits[:, -1, :] # Logits for the token predicted *after* input_ids_step
+                    past_key_values = outputs.past_key_values # Update KV cache for the next step
+
+                # Calculate log probability of the target token at the current step t
+                log_probs_step = th.log_softmax(current_logits_for_prob, dim=-1)
+                # Gather prob of the specific target token target_ids[t] for this step
+                target_log_prob_step = log_probs_step[th.arange(batch_size), target_ids[t]]
+
+                total_log_prob_y_given_x += target_log_prob_step
+
+            # Final probability P(Y | X) = exp( sum of log probabilities )
+            prob_y_given_x = th.exp(total_log_prob_y_given_x) # Shape: (batch_size,)
+
+        # --- End P(Y | X) Calculation ---
+
+        # Calculate weighted probabilities for the current batch using the calculated probability
+        batch_weighted_probs = th.exp(logratios.sum(-1)) * prob_y_given_x.detach() # Use the computed P(Y|X)
+
+        # Update accumulators
+        total_weighted_prob_sum += batch_weighted_probs.sum().item()
+        total_samples_processed += batch_size # Increment by the actual batch size processed
+
+        # Update scores using the calculated "one-hot" gradients
+        # Aggregate gradient across batch dimension
+        batch_grad = onehot_grad.sum(0) # (ctx_len, d_vocab)
+        scores *= decay_rate
+        scores += batch_grad / batch_size # Apply EWMA update
+
+        # Detach grads for next iteration
+        embeddings.grad = None
 
     # Calculate final mean from accumulated sums
     if total_samples_processed == 0:
@@ -332,8 +465,8 @@ def ITGIS(
 def MHIS(
     model: 'Actor', # Expect an Actor instance
     orig_dists: list[Discrete],
-    target: int,
-    *,\
+    target: Union[int, List[int]], # Modified type hint
+    *,
     temp: float,
     n_samples: int,
     burn_in: int,
@@ -348,13 +481,24 @@ def MHIS(
     Inputs:
     - model: the OpenRLHF Actor model instance wrapping a Hugging Face model.
     - orig_dists: list of Discrete distributions for each token position.
-    - target: the target token (in range [0...d_vocab)).
+    - target: the target token ID (int) or sequence of token IDs (list).
     - temp: the temperature (for both the Boltzmann stationary distribution and proposal distribution)
     - n_samples: the total number of samples to be drawn, ignoring burn-in.
     - batch_size: the number of parallel random walks to run (the total number of samples drawn is n_samples + burn_in * batch_size)
     Returns:
     - The estimated probability of outputing token `target`.
     """
+    # Parse target
+    if isinstance(target, int):
+        target_ids = [target]
+    else:
+        target_ids = target
+    if not target_ids:
+        raise ValueError("Target token list cannot be empty.")
+    first_target_id = target_ids[0]
+    num_target_tokens = len(target_ids)
+    target_ids_tensor = th.tensor(target_ids, device=model.model.device) # For comparison
+
     # Access the underlying HF model, potentially wrapped by DeepSpeed
     if hasattr(model.model, 'module'):
         hf_model = model.model.module
@@ -405,6 +549,8 @@ def MHIS(
 
     # --- Helper function for forward pass and gradient calculation --- #
     def get_scores_grads_results(samples: th.Tensor):
+        # This helper now returns the logit score for the *first* target token,
+        # the corresponding gradients, and the result of checking the *full* sequence.
         with th.enable_grad():
             # 1. Embed tokens
             embeddings = embed_layer(samples) # (batch_size, ctx_len, d_model)
@@ -425,25 +571,32 @@ def MHIS(
             normed_hidden_state = final_norm(last_hidden_state)
             logits = lm_head(normed_hidden_state) # (batch_size, d_vocab)
 
-            # 4. Get target logit score s(x) and backpropagate
-            target_logit_score = logits[:, target]
+            # 4. Get target logit score s(x) (using *first* target) and backpropagate
+            target_logit_score = logits[:, first_target_id]
             target_logit_score.sum().backward()
 
             # 5. Get embedding gradient and calculate "one-hot" equivalent gradient
             embedding_grad = embeddings.grad # (batch_size, ctx_len, d_model)
             onehot_grad = einsum("b s d, v d -> b s v", embedding_grad, W_E) # (batch_size, ctx_len, d_vocab)
 
-            # Detach results
+            # Detach score and grads
             scores_out = target_logit_score.detach().clone()
             grads_out = onehot_grad.detach().clone()
-            results_out = (logits.argmax(dim=-1) == target).float().detach().clone()
 
-            # Clear gradients for next use
+            # Clear gradients for next use (before generation call)
             embeddings.grad = None
-            # Zero grads on the model parameters just in case, although they shouldn't accumulate
-            # hf_model.zero_grad(set_to_none=True)
-            # It might be safer to manually zero potentially affected params if needed
-            # but disabling requires_grad initially should prevent accumulation.
+            # Optional: zero_grad model params if needed
+
+        # --- Check for Target Sequence Match (No Grad) ---
+        generated_sequence = _generate_autoregressive(
+            model=model, # Pass the Actor wrapper
+            initial_tokens=samples,
+            num_tokens_to_generate=num_target_tokens,
+        ) # (batch_size, num_target_tokens)
+        # Expand target tensor for comparison
+        target_ids_expanded = target_ids_tensor.unsqueeze(0).expand_as(generated_sequence)
+        results_out = (generated_sequence == target_ids_expanded).all(dim=1).float().detach() # (batch_size,)
+        # --- End Check ---
 
         return scores_out, grads_out, results_out
     # --- End Helper Function --- #
@@ -472,7 +625,26 @@ def MHIS(
         proposal_probs = th.softmax(proposal_logits, dim=-1)
 
         # Propose new tokens based on proposal distribution
-        proposed_tokens = th.multinomial(proposal_probs, 1).squeeze(-1)
+        # Add check for valid probabilities before sampling
+        valid_proposal = proposal_probs.sum(dim=-1) > 0.5 # Check if probs sum to approx 1
+        if not valid_proposal.all():
+            print(f"Warning: Invalid proposal distribution detected at step {step}. Skipping proposal for invalid samples.")
+            # Handle invalid proposals, e.g., by resampling positions or skipping updates for those samples
+            # For now, we'll just proceed, but sampling might fail
+            # Ensure probabilities are non-negative and normalized if issues persist
+            proposal_probs = th.clamp(proposal_probs, min=0) # Ensure non-negative
+            proposal_probs = proposal_probs / proposal_probs.sum(dim=-1, keepdim=True).clamp(min=1e-9) # Renormalize
+
+        # Sample proposed tokens, handle potential NaN/inf issues if necessary
+        try:
+            proposed_tokens = th.multinomial(proposal_probs, 1).squeeze(-1)
+        except RuntimeError as e:
+            print(f"Error during multinomial sampling at step {step}: {e}")
+            print("Proposal probabilities (sample):", proposal_probs[0])
+            # Decide how to handle: skip step, use fallback, etc.
+            # For now, re-raising to halt execution and allow inspection
+            raise e
+
 
         # Create proposed samples x'
         proposed_samples = current_samples.clone()
@@ -490,8 +662,13 @@ def MHIS(
 
         # Extract needed components for acceptance probability calculation
         current_tokens_at_pos = current_samples[th.arange(batch_size), pos] # (batch_size,)
-        p_rev = reverse_proposal_probs[th.arange(batch_size), current_tokens_at_pos] # q(x | x')
-        p_fwd = proposal_probs[th.arange(batch_size), proposed_tokens]             # q(x'| x)
+        # Ensure indices are within bounds before gathering
+        current_tokens_at_pos = th.clamp(current_tokens_at_pos, 0, d_vocab - 1)
+        proposed_tokens = th.clamp(proposed_tokens, 0, d_vocab - 1)
+
+        # Gather reverse and forward probabilities
+        p_rev = reverse_proposal_probs.gather(1, current_tokens_at_pos.unsqueeze(-1)).squeeze(-1) # q(x | x')
+        p_fwd = proposal_probs.gather(1, proposed_tokens.unsqueeze(-1)).squeeze(-1)             # q(x'| x)
 
         # Avoid log(0) if proposal probability was zero (shouldn't happen with valid sampling)
         p_rev = th.clamp(p_rev, min=1e-20)
@@ -506,7 +683,8 @@ def MHIS(
         # and   log p_orig(x) corresponds to orig_log_probs[pos, current_tokens_at_pos]
 
         log_accept_probs = (proposed_scores - current_scores) / temp + \
-                           orig_log_probs[pos, proposed_tokens] - orig_log_probs[pos, current_tokens_at_pos] + \
+                           orig_log_probs[pos].gather(1, proposed_tokens.unsqueeze(1)).squeeze(1) - \
+                           orig_log_probs[pos].gather(1, current_tokens_at_pos.unsqueeze(1)).squeeze(1) + \
                            th.log(p_rev) - th.log(p_fwd)
 
         # Accept or reject proposals
@@ -562,15 +740,27 @@ def MHIS(
     # Estimate normalizing constant C's inverse: mean(w_i)
     mean_inv_exp_scores = inv_exp_scores.mean()
 
-    if mean_inv_exp_scores == 0:
-        print("Warning: Estimated normalizing constant is zero. Cannot compute estimate.")
-        # This might happen if scores are extremely large
+    if mean_inv_exp_scores == 0 or not th.isfinite(mean_inv_exp_scores): # Check for inf/nan too
+        print(f"Warning: Estimated normalizing constant is zero or invalid ({mean_inv_exp_scores}). Cannot compute estimate.")
+        # This might happen if scores are extremely large/small
         # Could indicate numerical instability or issues with the sampling
         return float('nan') # Or handle appropriately
 
     # Calculate the unbiased estimate E_p_orig[f(x)]
     # mean( f(x_i) * w_i ) / mean( w_i )
     unbiased_estimate_numerator = (results_tensor * inv_exp_scores).mean()
+
+    # Check if numerator is valid before division
+    if not th.isfinite(unbiased_estimate_numerator):
+        print(f"Warning: Numerator for estimate is invalid ({unbiased_estimate_numerator}). Cannot compute estimate.")
+        return float('nan')
+
     estimated_prob = unbiased_estimate_numerator / mean_inv_exp_scores
+
+    # Final check for NaN/inf in the result
+    if not th.isfinite(estimated_prob):
+        print(f"Warning: Final estimated probability is invalid ({estimated_prob}). Returning NaN.")
+        return float('nan')
+
 
     return estimated_prob.item()

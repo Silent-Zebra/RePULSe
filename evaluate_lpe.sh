@@ -22,15 +22,15 @@ CHECKPOINT_NAME="toy_rlhf_Sm13In_remodev3lav2_miprAL_len20_beta-10.0_harml_neg_t
 CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_NAME}"
 
 # === LPE Parameters ===
-METHOD="mhis"                # "itgis" or "mhis"
+METHOD="itgis"                # "itgis" or "mhis"
 DISTRIBUTION="uniform"        # "uniform" or "hex"
 SEQ_LEN=20
 TARGET_WORD="kill"         # <-- REPLACE with your actual target word
 TEMPERATURE=10.0
 N_SAMPLES=65536               # 2^16=65536
 BATCH_SIZE=256
-OUTPUT_DIR="./lpe_results/${SLURM_JOB_ID}"
-OUTPUT_FILE="${OUTPUT_DIR}/results_${TARGET_WORD}_${METHOD}_${DISTRIBUTION}_temp${TEMPERATURE}.json"
+OUTPUT_DIR="./lpe_results/${METHOD}"
+OUTPUT_FILE="${OUTPUT_DIR}/results_${TARGET_WORD}_${METHOD}_${DISTRIBUTION}_temp${TEMPERATURE}_${SLURM_JOB_ID}.json"
 
 # Run the LPE estimation script
 deepspeed --master_port 40001 --module openrlhf.cli.estimate_rare_harmful_outputs \

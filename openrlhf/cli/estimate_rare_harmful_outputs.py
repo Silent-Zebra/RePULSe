@@ -215,24 +215,25 @@ def main(args):
     elif len(token_ids) > 1:
          # Decode the tokens to show the user how it was split
          decoded_tokens = [tokenizer.decode([tid]) for tid in token_ids]
-         raise ValueError(
+         strategy.print(
              f"Target word '{target_word}' tokenizes into multiple tokens: {decoded_tokens} (IDs: {token_ids}). "
-             f"LPE requires a target word that maps to a single token ID."
+             f"Proceeding with estimating the probability of this sequence."
          )
     
-    target_token_id = token_ids[0]
+    # Store the list of target token IDs
+    target_token_ids = token_ids # Now this is potentially a list
     # Verify the decoded token matches the input word (optional but good sanity check)
-    decoded_check = tokenizer.decode([target_token_id], skip_special_tokens=True)
-    strategy.print(f"Target word '{target_word}' successfully mapped to token ID: {target_token_id} (Decodes to: '{decoded_check}')")
+    decoded_check = tokenizer.decode(target_token_ids, skip_special_tokens=True)
+    strategy.print(f"Target word '{target_word}' mapped to token IDs: {target_token_ids} (Decodes to: '{decoded_check}')")
 
-    # The LPE methods require the target token ID directly.
+    # The LPE methods require the target token ID(s) directly.
     # The check_bad function is for validation/bruteforce.
 
     # --- Choose and Run Estimator --- # 
     estimator_args = {
         "model": actor, # Pass the prepared Actor model
         "orig_dists": input_dist,
-        "target": target_token_id,
+        "target": target_token_ids, # Pass the list of token IDs
         "temp": args.temperature,
         "n_samples": args.n_samples,
         "batch_size": args.batch_size,
@@ -269,7 +270,8 @@ def main(args):
     print(f"Model Path:       {args.pretrain}")
     print(f"Distribution:     {args.distribution_name} (len={args.sequence_length})")
     print(f"Method:           {args.method.upper()}")
-    print(f"Target Token:     {target_token_id} ('{target_word}')")
+    # Log the target sequence appropriately
+    print(f"Target Sequence:  {target_token_ids} ('{target_word}')")
     print(f"Temperature:      {args.temperature}")
     print(f"Num Samples:      {args.n_samples}")
     print(f"Batch Size:       {args.batch_size}")
@@ -279,10 +281,6 @@ def main(args):
         print(f"MHIS Burn-in:     {args.mhis_burn_in}")
         
     print(f"\nEstimated P(target): {estimated_prob:.6e}")
-    print(f"Standard Error:      {std_err}") # LPE methods might need modification to return stderr
-
-    # TODO: Save results to a file (e.g., CSV, JSON)
-    # TODO: Integrate with RLHF logs (step 2.5) -> requires loading logs
 
     # --- Save Results (Optional) --- 
     if args.output_file:
@@ -292,6 +290,7 @@ def main(args):
             "sequence_length": args.sequence_length,
             "method": args.method,
             "target_word": target_word, # Log the original word used
+            "target_token_ids": target_token_ids, # Log the actual token IDs
             "temperature": args.temperature,
             "n_samples": args.n_samples,
             "batch_size": args.batch_size,
