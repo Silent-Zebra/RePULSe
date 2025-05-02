@@ -266,6 +266,7 @@ def train(args):
     if critic is not None:
         get_tokenizer(args.critic_pretrain, critic, "left", strategy, use_fast=not args.disable_fast_tokenizer)
 
+    info_name_str = get_info_name_str(args)
 
 
 
@@ -326,36 +327,7 @@ def train(args):
         print("BASE ACTOR OPTIM")
         print(base_actor_optim)
 
-    # prepare datasets
-    prompts_data = blending_datasets(
-        args.prompt_data,
-        args.prompt_data_probs,
-        strategy,
-        args.seed,
-        max_count=args.max_samples,
-        return_eval=False,
-        train_split=args.prompt_split,
-    )
-    prompts_data = prompts_data.select(range(min(args.max_samples, len(prompts_data))))
-    prompts_dataset = PromptDataset(prompts_data, tokenizer, strategy, input_template=args.input_template)
-
-    if args.pretrain_data:
-        pretrain_data = blending_datasets(
-            args.pretrain_data,
-            args.pretrain_data_probs,
-            strategy,
-            args.seed,
-            return_eval=False,
-            train_split=args.pretrain_split,
-        )
-        pretrain_max_len = args.max_len if args.max_len else args.prompt_max_len + args.generate_max_len
-        pretrain_dataset = SFTDataset(
-            pretrain_data.select(range(min(len(pretrain_data), args.max_epochs * len(prompts_dataset)))),
-            tokenizer,
-            pretrain_max_len,
-            strategy,
-            pretrain_mode=True,
-        )
+    pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
 
     if not args.only_evaluate_on_neg_data:
 
@@ -723,6 +695,9 @@ def train(args):
             print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
             print(f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
 
+        save_str = f"{args.save_info_path}/rewards_eval_{info_name_str}"
+        torch.save(rewards, save_str)
+
         raise SystemExit(0) # Finished
 
 
@@ -923,7 +898,6 @@ def train(args):
     #     print(param)
     #     break
 
-    info_name_str = get_info_name_str(args)
 
     if estimates_list is not None:
         if args.custom_single_prompt:
@@ -990,6 +964,39 @@ def train(args):
     #         tokenizer,
     #         args.save_path + "_critic",
     #     )
+
+
+def get_prompts_data(args, strategy, tokenizer):
+    # prepare datasets
+    prompts_data = blending_datasets(
+        args.prompt_data,
+        args.prompt_data_probs,
+        strategy,
+        args.seed,
+        max_count=args.max_samples,
+        return_eval=False,
+        train_split=args.prompt_split,
+    )
+    prompts_data = prompts_data.select(range(min(args.max_samples, len(prompts_data))))
+    prompts_dataset = PromptDataset(prompts_data, tokenizer, strategy, input_template=args.input_template)
+    if args.pretrain_data:
+        pretrain_data = blending_datasets(
+            args.pretrain_data,
+            args.pretrain_data_probs,
+            strategy,
+            args.seed,
+            return_eval=False,
+            train_split=args.pretrain_split,
+        )
+        pretrain_max_len = args.max_len if args.max_len else args.prompt_max_len + args.generate_max_len
+        pretrain_dataset = SFTDataset(
+            pretrain_data.select(range(min(len(pretrain_data), args.max_epochs * len(prompts_dataset)))),
+            tokenizer,
+            pretrain_max_len,
+            strategy,
+            pretrain_mode=True,
+        )
+    return pretrain_dataset, prompts_dataset
 
 
 def get_strip_question_chat_template_fn(args):
@@ -1150,6 +1157,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
     )
+
+    parser.add_argument("--heldout_prompt_data", type=str, default=None, help="HF dataset name or path")
+    parser.add_argument("--heldout_prompt_split", type=str, default="train")
+    parser.add_argument("--heldout_input_key", type=str, default="input", help="JSON dataset key")
+    parser.add_argument("--heldout_input_template", type=str, default=None)
+    # parser.add_argument(
+    #     "--apply_chat_template", action="store_true", default=False, help="Use HF tokenizer chat template"
+    # )
+
     parser.add_argument("--rm_type", type=str, default="exp_beta_toxicity_class_logprob",
                         choices=["exp_beta_rew_p_continuation", "exp_beta_rew_p_continuation_divided_by_p",
                                  "p_continuation", "exp_beta_toxicity", "exp_beta_toxicity_class_logprob",
@@ -1330,3 +1346,14 @@ if __name__ == "__main__":
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
     train(args)
+
+    if args.evaluate_sampling_on_heldout_after:
+        args.no_critic = True
+        args.parameterization = "policy"
+        args.prompt_data = args.heldout_prompt_data
+        args.prompt_split = args.heldout_prompt_split
+        args.input_key = args.heldout_input_key
+        args.input_template = args.heldout_input_template
+        args.only_evaluate_do_sampling = True
+
+        train(args)
