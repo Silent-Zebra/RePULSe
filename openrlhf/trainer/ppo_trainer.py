@@ -113,7 +113,7 @@ class BasePPOTrainer(ABC):
         save_negdata=False,
         save_negdata_threshold=-10000,
         neg_data: Optional[Set[str]] = None,
-        reward_transform: Optional[str] = None
+        reward_transform: Optional[str] = None,
         **generate_kwargs,
     ) -> None:
         assert (
