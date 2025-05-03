@@ -219,7 +219,7 @@ class BaseExperienceMaker(ABC):
 
 
     @torch.no_grad()
-    def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, **generate_kwargs) -> Experience:
+    def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, force_no_transform=False, **generate_kwargs) -> Experience:
         expanded_prompts = tile_prompts(prompts, samples_per_prompt)
 
 
@@ -246,7 +246,7 @@ class BaseExperienceMaker(ABC):
         # print(base_action_log_probs.mean())
         # print(base_action_log_probs)
 
-        r = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta)
+        r = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta, force_no_transform=force_no_transform)
 
         # print("--Rewards--")
         # print(r)
