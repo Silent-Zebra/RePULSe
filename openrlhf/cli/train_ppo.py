@@ -152,110 +152,7 @@ def train(args):
     if args.actor_init_on_gpu:
         actor = actor.to(torch.cuda.current_device())
 
-    if not args.remote_rm_url:
-        if args.reward_pretrain == "nicholasKluge/ToxicityModel":
-            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
-            from transformers import AutoTokenizer, AutoConfig, AutoModel
-
-            def get_tokenizer_custom(model_config):
-                tokenizer = AutoTokenizer.from_pretrained(model_config)
-                tokenizer.pad_token = tokenizer.eos_token
-                return tokenizer
-
-            tokenizer_base = get_tokenizer_custom(args.pretrain)
-
-            rm_name = args.reward_pretrain
-            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
-            config.normalize_reward = False
-            assert not args.normalize_reward # Not yet implemented
-            base_class = AutoModel._model_mapping[type(config)]
-            base_pretrained_class = base_class.__base__
-            reward_model = _get_reward_model_custom(
-                base_pretrained_class, rm_name,
-                tokenizer_base=tokenizer_base, config=config,
-                reward_transform=args.reward_transform,
-                alpha=args.alpha, beta=args.target_dist_beta
-            )
-
-        elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base", "OpenAssistant/reward-model-deberta-v3-large-v2"]:
-            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
-            from transformers import AutoTokenizer, AutoConfig, AutoModel
-
-            def get_tokenizer_custom(model_config):
-                tokenizer = AutoTokenizer.from_pretrained(model_config)
-                tokenizer.pad_token = tokenizer.eos_token
-                return tokenizer
-
-            tokenizer_base = get_tokenizer_custom(args.pretrain)
-
-            rm_name = args.reward_pretrain
-            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
-            config.normalize_reward = False
-            assert not args.normalize_reward  # Not yet implemented
-            base_class = AutoModel._model_mapping[type(config)]
-            base_pretrained_class = base_class.__base__
-            strip_question_chat_template_fn = None
-            if args.apply_chat_template:
-                strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
-            reward_model = _get_reward_model_custom(
-                base_pretrained_class, rm_name,
-                tokenizer_base=tokenizer_base,
-                config=config,
-                separatequeryanswer=True,
-                max_new_tokens=args.generate_max_len,
-                strip_question_chat_template_fn=strip_question_chat_template_fn,
-                reward_transform=args.reward_transform,
-                alpha=args.alpha, beta=args.target_dist_beta
-            )
-        elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
-            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
-            from transformers import AutoTokenizer, AutoConfig, AutoModel
-
-            def get_tokenizer_custom(model_config):
-                tokenizer = AutoTokenizer.from_pretrained(model_config)
-                tokenizer.pad_token = tokenizer.eos_token
-                return tokenizer
-
-            tokenizer_base = get_tokenizer_custom(args.pretrain)
-
-            rm_name = args.reward_pretrain
-
-            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
-            config.normalize_reward = False
-            assert not args.normalize_reward  # Not yet implemented
-            base_class = AutoModel._model_mapping[type(config)]
-            base_pretrained_class = base_class.__base__
-            strip_question_chat_template_fn = None
-            if args.apply_chat_template:
-                strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
-            reward_model = _get_reward_model_custom(
-                base_pretrained_class, rm_name,
-                tokenizer_base=tokenizer_base,
-                config=config,
-                separatequeryanswer=True,
-                max_new_tokens=args.generate_max_len,
-                strip_question_chat_template_fn=strip_question_chat_template_fn,
-                reward_transform=args.reward_transform,
-                alpha=args.alpha, beta=args.target_dist_beta
-            )
-
-        else:
-            if args.custom_single_prompt:
-                raise NotImplementedError # Below does not necessarily work with my custom reward models
-
-            reward_model = get_llm_for_sequence_regression(
-                args.reward_pretrain,
-                "reward",
-                normalize_reward=args.normalize_reward,
-                use_flash_attention_2=args.flash_attn,
-                bf16=args.bf16,
-                load_in_4bit=args.load_in_4bit,
-                ds_config=strategy.get_ds_train_config(is_actor=False),
-                value_head_prefix=args.value_head_prefix,
-            )
-            get_tokenizer(args.reward_pretrain, reward_model, "left", strategy, use_fast=not args.disable_fast_tokenizer)
-    else:
-        reward_model = None
+    reward_model, strip_question_chat_template_fn = get_reward_model(args, strategy)
 
     strategy.print("reward normalization status: {}".format(args.normalize_reward))
     if critic is not None:
@@ -893,9 +790,13 @@ def train(args):
         args.input_key = args.heldout_input_key
         args.input_template = args.heldout_input_template
         args.target_dist_beta = 1
+        args.reward_transform = None
+
 
         strategy = get_strategy(args)
         strategy.setup_distributed()
+
+        reward_model, strip_question_chat_template_fn = get_reward_model(args, strategy)
 
         if args.do_harmlessness_training:
             actor_to_test = base_actor
@@ -944,6 +845,116 @@ def train(args):
         torch.save(rewards, save_str)
 
         raise SystemExit(0) # Finished
+
+
+def get_reward_model(args, strategy):
+    if not args.remote_rm_url:
+        if args.reward_pretrain == "nicholasKluge/ToxicityModel":
+            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
+            from transformers import AutoTokenizer, AutoConfig, AutoModel
+
+            def get_tokenizer_custom(model_config):
+                tokenizer = AutoTokenizer.from_pretrained(model_config)
+                tokenizer.pad_token = tokenizer.eos_token
+                return tokenizer
+
+            tokenizer_base = get_tokenizer_custom(args.pretrain)
+
+            rm_name = args.reward_pretrain
+            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
+            config.normalize_reward = False
+            assert not args.normalize_reward  # Not yet implemented
+            base_class = AutoModel._model_mapping[type(config)]
+            base_pretrained_class = base_class.__base__
+            reward_model = _get_reward_model_custom(
+                base_pretrained_class, rm_name,
+                tokenizer_base=tokenizer_base, config=config,
+                reward_transform=args.reward_transform,
+                alpha=args.alpha, beta=args.target_dist_beta
+            )
+
+        elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base",
+                                      "OpenAssistant/reward-model-deberta-v3-large-v2"]:
+            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
+            from transformers import AutoTokenizer, AutoConfig, AutoModel
+
+            def get_tokenizer_custom(model_config):
+                tokenizer = AutoTokenizer.from_pretrained(model_config)
+                tokenizer.pad_token = tokenizer.eos_token
+                return tokenizer
+
+            tokenizer_base = get_tokenizer_custom(args.pretrain)
+
+            rm_name = args.reward_pretrain
+            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
+            config.normalize_reward = False
+            assert not args.normalize_reward  # Not yet implemented
+            base_class = AutoModel._model_mapping[type(config)]
+            base_pretrained_class = base_class.__base__
+            strip_question_chat_template_fn = None
+            if args.apply_chat_template:
+                strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
+            reward_model = _get_reward_model_custom(
+                base_pretrained_class, rm_name,
+                tokenizer_base=tokenizer_base,
+                config=config,
+                separatequeryanswer=True,
+                max_new_tokens=args.generate_max_len,
+                strip_question_chat_template_fn=strip_question_chat_template_fn,
+                reward_transform=args.reward_transform,
+                alpha=args.alpha, beta=args.target_dist_beta
+            )
+        elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
+            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
+            from transformers import AutoTokenizer, AutoConfig, AutoModel
+
+            def get_tokenizer_custom(model_config):
+                tokenizer = AutoTokenizer.from_pretrained(model_config)
+                tokenizer.pad_token = tokenizer.eos_token
+                return tokenizer
+
+            tokenizer_base = get_tokenizer_custom(args.pretrain)
+
+            rm_name = args.reward_pretrain
+
+            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
+            config.normalize_reward = False
+            assert not args.normalize_reward  # Not yet implemented
+            base_class = AutoModel._model_mapping[type(config)]
+            base_pretrained_class = base_class.__base__
+            strip_question_chat_template_fn = None
+            if args.apply_chat_template:
+                strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
+            reward_model = _get_reward_model_custom(
+                base_pretrained_class, rm_name,
+                tokenizer_base=tokenizer_base,
+                config=config,
+                separatequeryanswer=True,
+                max_new_tokens=args.generate_max_len,
+                strip_question_chat_template_fn=strip_question_chat_template_fn,
+                reward_transform=args.reward_transform,
+                alpha=args.alpha, beta=args.target_dist_beta
+            )
+
+        else:
+            if args.custom_single_prompt:
+                raise NotImplementedError  # Below does not necessarily work with my custom reward models
+
+            reward_model = get_llm_for_sequence_regression(
+                args.reward_pretrain,
+                "reward",
+                normalize_reward=args.normalize_reward,
+                use_flash_attention_2=args.flash_attn,
+                bf16=args.bf16,
+                load_in_4bit=args.load_in_4bit,
+                ds_config=strategy.get_ds_train_config(is_actor=False),
+                value_head_prefix=args.value_head_prefix,
+            )
+            get_tokenizer(args.reward_pretrain, reward_model, "left", strategy,
+                          use_fast=not args.disable_fast_tokenizer)
+    else:
+        reward_model = None
+    return reward_model, strip_question_chat_template_fn
 
 
 def get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, critic, critic_optim, critic_scheduler,
