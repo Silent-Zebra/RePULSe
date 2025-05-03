@@ -457,6 +457,7 @@ def train(args):
     consumed_samples = do_load_checkpoints(args, actor, critic, strategy)
 
     os.makedirs(args.save_path, exist_ok=True)
+    os.makedirs(args.save_info_path, exist_ok=True)
 
 
     if args.only_evaluate_on_neg_data:
@@ -606,99 +607,9 @@ def train(args):
         true_posterior_samples = true_posterior_samples.to(next(actor.parameters()).device)
         # print(true_posterior_samples.device)
 
-    # configure Trainer
-    trainer = BasePPOTrainer(
-        strategy,
-        actor,
-        critic,
-        reward_model,
-        base_actor,
-        ema_model,
-        actor_optim,
-        critic_optim,
-        actor_scheduler,
-        critic_scheduler,
-        max_epochs=args.max_epochs,
-        micro_train_batch_size=args.micro_train_batch_size,
-        micro_rollout_batch_size=args.micro_rollout_batch_size,
-        gradient_checkpointing=args.gradient_checkpointing,
-        tokenizer=tokenizer,
-        prompt_max_len=args.prompt_max_len,
-        value_clip=args.value_clip,
-        eps_clip=args.eps_clip,
-        gamma=args.gamma,
-        lambd=args.lambd,
-        init_kl_coef=args.init_kl_coef,
-        kl_target=args.kl_target,
-        target_dist_beta=args.target_dist_beta,
-        ema_beta=0.992,
-        ptx_coef=args.ptx_coef,
-        max_norm=args.max_norm,
-        # fro GPT generation
-        do_sample=True,
-        max_new_tokens=args.generate_max_len,
-        max_length=args.max_len,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        top_k=args.top_k,
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-        # remote reward model
-        remote_rm_url=args.remote_rm_url,
-        shared_actorcritic=args.shared_actorcritic,
-        vf_coef=vf_coef,
-        model_eval=args.model_eval,
-        threshold=args.threshold,
-        reward_cap=args.reward_cap,
-        n_seeds_f_q=args.n_seeds_f_q,
-        rm_type=args.rm_type,
-        bc_coef=args.bc_coef,
-        bc_steps=args.bc_steps,
-        true_posterior_samples=true_posterior_samples,
-        actor_loss_type=args.actor_loss_type,
-        critic_loss_type=args.critic_loss_type,
-        alpha=args.alpha,
-        parameterization=args.parameterization,
-        save_negdata=args.save_negdata,
-        save_negdata_threshold=args.save_negdata_threshold,
-        neg_data=neg_data,
-    )
 
 
-    if args.only_evaluate_do_sampling:
-        rewards = []
-        for i in range(args.sampling_iters):
-            print(f"Sampling iter: {i}", flush=True)
-            for rand_prompts in prompts_dataloader:
-                experience = trainer.experience_maker.make_experience(
-                    rand_prompts,
-                    samples_per_prompt=args.duplicate_rollout_batch_by,
-                    **trainer.generate_kwargs
-                )
 
-                rewards.append(experience.info["reward"])
-                # print(experience.info["reward"])
-
-        # print(rewards)
-        # print(len(rewards))
-        rewards = torch.cat(rewards)
-        # print(rewards)
-        # print(rewards.shape)
-
-        print(f"Average reward: {rewards.mean().item()}")
-        total_samples = rewards.shape[0]
-        print(f"Total number of samples drawn: {total_samples}")
-
-        for threshold in range(-6, -1):
-            outputs_below_threshold = (rewards < threshold).sum()
-            print(f"Number of outputs below threshold {threshold}: {outputs_below_threshold.item()}")
-            print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
-            print(f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
-
-        save_str = f"{args.save_info_path}/rewards_eval_{info_name_str}"
-        torch.save(rewards, save_str)
-
-        raise SystemExit(0) # Finished
 
 
 
@@ -888,6 +799,9 @@ def train(args):
         )
 
     else:
+        trainer = get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, critic, critic_optim,
+                                       critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
+                                       true_posterior_samples, vf_coef)
         estimates_list = trainer.fit(
             args, prompts_dataloader, pretrain_dataloader, consumed_samples,
             num_update_steps_per_episodes, true_posterior_samples
@@ -964,6 +878,131 @@ def train(args):
     #         tokenizer,
     #         args.save_path + "_critic",
     #     )
+
+    if args.evaluate_heldout_sampling:
+        assert args.heldout_prompt_data is not None
+        assert args.heldout_input_key is not None
+        args.no_critic = True
+        critic, critic_optim, critic_scheduler = None, None, None
+        actor_optim, actor_scheduler = None, None
+        args.parameterization = "policy"
+        args.prompt_data = args.heldout_prompt_data
+        args.prompt_split = args.heldout_prompt_split
+        args.input_key = args.heldout_input_key
+        args.input_template = args.heldout_input_template
+
+        strategy = get_strategy(args)
+        strategy.setup_distributed()
+
+        if args.do_harmlessness_training:
+            actor_to_test = base_actor
+            initial_model = static_initial_model
+        else:
+            actor_to_test = actor
+            initial_model = base_actor
+
+        trainer = get_base_ppo_trainer(actor_to_test, actor_optim, actor_scheduler, args, initial_model, critic, critic_optim,
+                                       critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
+                                       true_posterior_samples, vf_coef)
+        rewards = []
+
+        pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+        prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
+
+        for i in range(args.sampling_iters):
+            print(f"Sampling iter: {i}", flush=True)
+            for rand_prompts in prompts_dataloader:
+                experience = trainer.experience_maker.make_experience(
+                    rand_prompts,
+                    samples_per_prompt=args.duplicate_rollout_batch_by,
+                    **trainer.generate_kwargs
+                )
+
+                rewards.append(experience.info["reward"])
+                # print(experience.info["reward"])
+
+        # print(rewards)
+        # print(len(rewards))
+        rewards = torch.cat(rewards)
+        # print(rewards)
+        # print(rewards.shape)
+
+        print(f"Average reward: {rewards.mean().item()}")
+        total_samples = rewards.shape[0]
+        print(f"Total number of samples drawn: {total_samples}")
+
+        for threshold in range(-6, -1):
+            outputs_below_threshold = (rewards < threshold).sum()
+            print(f"Number of outputs below threshold {threshold}: {outputs_below_threshold.item()}")
+            print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
+            print(f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
+
+        save_str = f"{args.save_info_path}/rewards_eval_{info_name_str}"
+        torch.save(rewards, save_str)
+
+        raise SystemExit(0) # Finished
+
+
+def get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, critic, critic_optim, critic_scheduler,
+                         ema_model, neg_data, reward_model, strategy, tokenizer, true_posterior_samples, vf_coef):
+    # configure Trainer
+    trainer = BasePPOTrainer(
+        strategy,
+        actor,
+        critic,
+        reward_model,
+        base_actor,
+        ema_model,
+        actor_optim,
+        critic_optim,
+        actor_scheduler,
+        critic_scheduler,
+        max_epochs=args.max_epochs,
+        micro_train_batch_size=args.micro_train_batch_size,
+        micro_rollout_batch_size=args.micro_rollout_batch_size,
+        gradient_checkpointing=args.gradient_checkpointing,
+        tokenizer=tokenizer,
+        prompt_max_len=args.prompt_max_len,
+        value_clip=args.value_clip,
+        eps_clip=args.eps_clip,
+        gamma=args.gamma,
+        lambd=args.lambd,
+        init_kl_coef=args.init_kl_coef,
+        kl_target=args.kl_target,
+        target_dist_beta=args.target_dist_beta,
+        ema_beta=0.992,
+        ptx_coef=args.ptx_coef,
+        max_norm=args.max_norm,
+        # fro GPT generation
+        do_sample=True,
+        max_new_tokens=args.generate_max_len,
+        max_length=args.max_len,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        top_k=args.top_k,
+        pad_token_id=tokenizer.pad_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        # remote reward model
+        remote_rm_url=args.remote_rm_url,
+        shared_actorcritic=args.shared_actorcritic,
+        vf_coef=vf_coef,
+        model_eval=args.model_eval,
+        threshold=args.threshold,
+        reward_cap=args.reward_cap,
+        n_seeds_f_q=args.n_seeds_f_q,
+        rm_type=args.rm_type,
+        bc_coef=args.bc_coef,
+        bc_steps=args.bc_steps,
+        true_posterior_samples=true_posterior_samples,
+        actor_loss_type=args.actor_loss_type,
+        critic_loss_type=args.critic_loss_type,
+        alpha=args.alpha,
+        parameterization=args.parameterization,
+        save_negdata=args.save_negdata,
+        save_negdata_threshold=args.save_negdata_threshold,
+        neg_data=neg_data,
+    )
+    return trainer
 
 
 def get_prompts_data(args, strategy, tokenizer):
@@ -1261,8 +1300,8 @@ if __name__ == "__main__":
     parser.add_argument("--only_evaluate_on_neg_data", action="store_true", help="Only evaluate on neg_data")
     parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")
 
-    parser.add_argument("--only_evaluate_do_sampling", action="store_true", help="Only evaluate by doing sampling on prompts")
-    parser.add_argument("--sampling_iters", type=int, default=1, help="Do this many iterations of sampling over the whole dataset (only for only_evaluate_do_sampling)")
+    parser.add_argument("--evaluate_heldout_sampling", action="store_true", help="Evaluate by doing sampling on prompts on heldout data after the training is done")
+    parser.add_argument("--sampling_iters", type=int, default=1, help="Do this many iterations of sampling over the whole dataset (only for evaluate_heldout_sampling)")
 
 
     parser.add_argument(
@@ -1278,7 +1317,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # if not args.only_evaluate_on_neg_data and not args.only_evaluate_do_sampling:
+    # if not args.only_evaluate_on_neg_data and not args.evaluate_heldout_sampling:
     #     assert args.no_test_info # Right now the rewards_list is broken if you do test info instead of no_test_info
     args.no_test_info = True
     args.no_save_critic = True # save some memory usage
@@ -1338,7 +1377,7 @@ if __name__ == "__main__":
         args.no_critic = True
 
 
-    if args.only_evaluate_on_neg_data or args.only_evaluate_do_sampling:
+    if args.only_evaluate_on_neg_data:
         assert args.parameterization == "policy"
         args.no_critic = True
 
@@ -1346,14 +1385,3 @@ if __name__ == "__main__":
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
     train(args)
-
-    if args.evaluate_sampling_on_heldout_after:
-        args.no_critic = True
-        args.parameterization = "policy"
-        args.prompt_data = args.heldout_prompt_data
-        args.prompt_split = args.heldout_prompt_split
-        args.input_key = args.heldout_input_key
-        args.input_template = args.heldout_input_template
-        args.only_evaluate_do_sampling = True
-
-        train(args)
