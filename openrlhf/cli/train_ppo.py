@@ -792,11 +792,8 @@ def train(args):
         args.target_dist_beta = 1
         args.reward_transform = None
 
-
         strategy = get_strategy(args)
         strategy.setup_distributed()
-
-        reward_model, strip_question_chat_template_fn = get_reward_model(args, strategy)
 
         if args.do_harmlessness_training:
             actor_to_test = base_actor
@@ -819,6 +816,7 @@ def train(args):
                 experience = trainer.experience_maker.make_experience(
                     rand_prompts,
                     samples_per_prompt=args.duplicate_rollout_batch_by,
+                    force_no_transform=True,
                     **trainer.generate_kwargs
                 )
 
