@@ -792,7 +792,8 @@ def train(args):
         )
         print("-----HARMLESSNESS TRAINING-----", flush=True)
         # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
-        assert args.num_episodes == 1 # Right now only supports 1 twist/proposal update per base_actor update
+        if args.harmlessness_training_num_episodes > 0:
+            assert args.num_episodes == 1 # Right now only supports 1 twist/proposal update per base_actor update
         estimates_list = harmlessness_trainer.fit(
             args, prompts_dataloader, pretrain_dataloader, consumed_samples,
             num_update_steps_per_episodes, true_posterior_samples
