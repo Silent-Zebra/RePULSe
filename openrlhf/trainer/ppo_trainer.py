@@ -113,6 +113,7 @@ class BasePPOTrainer(ABC):
         save_negdata=False,
         save_negdata_threshold=-10000,
         neg_data: Optional[Set[str]] = None,
+        reward_transform: Optional[str] = None
         **generate_kwargs,
     ) -> None:
         assert (
@@ -137,6 +138,7 @@ class BasePPOTrainer(ABC):
         self.ema_beta = ema_beta
         self.gradient_checkpointing = gradient_checkpointing
         self.reward_fn = reward_fn
+        self.reward_transform = reward_transform
 
         self.neg_data = neg_data
 
@@ -232,12 +234,14 @@ class BasePPOTrainer(ABC):
             threshold,
             reward_cap,
             target_dist_beta,
+            alpha,
             rm_type,
             actor_loss_type,
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
+            reward_transform=self.reward_transform
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 
@@ -544,15 +548,15 @@ class BasePPOTrainer(ABC):
                     # print("PROFILE2")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
-                    if args.reward_transform is not None:
-                        r = self.experience_maker.compute_reward_no_kl(experience.sequences,
-                                                                            experience.attention_mask,
-                                                                            force_no_transform=True)
-                        rewards_list.append(r.mean().item())  # Use the non transformed reward for tracking
-                        # Right now this is a bit inefficient; requires additional rm pass. Should just return 2 values
-                        # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient
-                    else:
-                        rewards_list.append(experience.info["reward"].mean().item())
+                    # if args.reward_transform is not None:
+                    #     r = self.experience_maker.compute_reward_no_kl(experience.sequences,
+                    #                                                         experience.attention_mask,
+                    #                                                         force_no_transform=True)
+                    #     rewards_list.append(r.mean().item())  # Use the non transformed reward for tracking
+                    #     # Right now this is a bit inefficient; requires additional rm pass. Should just return 2 values
+                    #     # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient
+                    # else:
+                    rewards_list.append(experience.info["untransformed_reward"].mean().item())
                     inspect_rewards_list(rewards_list)
 
                     pbar.update()
@@ -822,7 +826,7 @@ class BasePPOTrainer(ABC):
         # Also, with phi = e^{beta log p(toxic class | s_1:T)), log_phi is simply just beta log p(toxic class | s_1:T)
         # rewards_no_kl = rewards_no_kl.float() # more precision
         # log_phi = args.target_dist_beta * rewards_no_kl
-        log_phi = self.experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
+        log_phi, _ = self.experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
         # print(args.target_dist_beta)
         # print("log_phi")
         # print(log_phi)
@@ -1525,7 +1529,7 @@ class BasePPOTrainer(ABC):
                 base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, num_actions,
                     experience.attention_mask)
-            final_reward = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
+            final_reward, _ = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
 
             print("FINAL RETURN COMPARISON")
             print(final_reward)
@@ -1542,54 +1546,52 @@ class BasePPOTrainer(ABC):
             )
         elif self.critic_loss_type == "mixed_ctl_mse":
             raise NotImplementedError # no longer tested
-
-            num_actions = experience.action_mask.size(1)
-            final_reward = self.reward_model(experience.sequences, experience.attention_mask)
-            with torch.no_grad():
-                base_action_log_probs = self.experience_maker.initial_model(
-                    experience.sequences, num_actions,
-                    experience.attention_mask)
-            critic_loss = self.critic_loss_fn(
-                values,
-                experience.values,
-                experience.returns,
-                action_mask=experience.action_mask,
-                curr_log_probs=experience.action_log_probs,
-                base_action_log_probs=base_action_log_probs,
-                final_reward=final_reward
-            )
+            # num_actions = experience.action_mask.size(1)
+            # final_reward = self.reward_model(experience.sequences, experience.attention_mask)
+            # with torch.no_grad():
+            #     base_action_log_probs = self.experience_maker.initial_model(
+            #         experience.sequences, num_actions,
+            #         experience.attention_mask)
+            # critic_loss = self.critic_loss_fn(
+            #     values,
+            #     experience.values,
+            #     experience.returns,
+            #     action_mask=experience.action_mask,
+            #     curr_log_probs=experience.action_log_probs,
+            #     base_action_log_probs=base_action_log_probs,
+            #     final_reward=final_reward
+            # )
         elif self.critic_loss_type in ["sixo", "sixo_approxneg"]:
             raise NotImplementedError # no longer tested
-
-            num_actions = experience.action_mask.size(1)
-            with torch.no_grad():
-                base_action_log_probs = self.experience_maker.initial_model(
-                    experience.sequences, num_actions,
-                    experience.attention_mask) # NOTE: for clarity, these are p(seqs), where seqs are generated according to the (twisted) proposal. This is used in the p phi / q calculation for positive samples
-            # This is different from p(seqs) where seqs are generated according to p
-            final_reward = self.reward_model(experience.sequences, experience.attention_mask)
-
-            values_on_base_samples = None
-            if self.critic_loss_type == "sixo":
-                raise NotImplementedError # Not yet tested after changes
-                base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs(custom_prompt)
-
-
-                values_on_base_samples = self.critic(
-                    base_sequences,
-                    action_mask=base_action_mask,
-                    attention_mask=base_attention_mask,
-                    return_output=False,
-                )
-
-            critic_loss = self.critic_loss_fn(
-                values,
-                final_reward=final_reward,
-                action_mask=experience.action_mask,
-                curr_log_probs=experience.action_log_probs,
-                base_action_log_probs=base_action_log_probs,
-                values_on_base_samples=values_on_base_samples
-            )
+            # num_actions = experience.action_mask.size(1)
+            # with torch.no_grad():
+            #     base_action_log_probs = self.experience_maker.initial_model(
+            #         experience.sequences, num_actions,
+            #         experience.attention_mask) # NOTE: for clarity, these are p(seqs), where seqs are generated according to the (twisted) proposal. This is used in the p phi / q calculation for positive samples
+            # # This is different from p(seqs) where seqs are generated according to p
+            # final_reward = self.reward_model(experience.sequences, experience.attention_mask)
+            #
+            # values_on_base_samples = None
+            # if self.critic_loss_type == "sixo":
+            #     raise NotImplementedError # Not yet tested after changes
+            #     base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs(custom_prompt)
+            #
+            #
+            #     values_on_base_samples = self.critic(
+            #         base_sequences,
+            #         action_mask=base_action_mask,
+            #         attention_mask=base_attention_mask,
+            #         return_output=False,
+            #     )
+            #
+            # critic_loss = self.critic_loss_fn(
+            #     values,
+            #     final_reward=final_reward,
+            #     action_mask=experience.action_mask,
+            #     curr_log_probs=experience.action_log_probs,
+            #     base_action_log_probs=base_action_log_probs,
+            #     values_on_base_samples=values_on_base_samples
+            # )
         else:
             raise NotImplementedError
         return critic_loss

@@ -591,6 +591,7 @@ def train(args):
         #     baseline_type_neg=args.neg_baseline_type,
         #     hardcoded_baseline_neg=args.neg_hardcoded_baseline,
         #     neg_data=neg_data,
+        # reward_transform=args.reward_transform
         # )
         #
         # # print("device check")
@@ -686,6 +687,7 @@ def train(args):
             baseline_type_neg=args.neg_baseline_type,
             hardcoded_baseline_neg=args.neg_hardcoded_baseline,
             neg_data=neg_data,
+            reward_transform=args.reward_transform
         )
         print("-----HARMLESSNESS TRAINING-----", flush=True)
         # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
@@ -816,7 +818,7 @@ def train(args):
                 experience = trainer.experience_maker.make_experience(
                     rand_prompts,
                     samples_per_prompt=args.duplicate_rollout_batch_by,
-                    force_no_transform=True,
+                    # force_no_transform=True,
                     **trainer.generate_kwargs
                 )
 
@@ -846,6 +848,7 @@ def train(args):
 
 
 def get_reward_model(args, strategy):
+    strip_question_chat_template_fn = None
     if not args.remote_rm_url:
         if args.reward_pretrain == "nicholasKluge/ToxicityModel":
             print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
@@ -867,8 +870,6 @@ def get_reward_model(args, strategy):
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
                 tokenizer_base=tokenizer_base, config=config,
-                reward_transform=args.reward_transform,
-                alpha=args.alpha, beta=args.target_dist_beta
             )
 
         elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base",
@@ -899,8 +900,6 @@ def get_reward_model(args, strategy):
                 separatequeryanswer=True,
                 max_new_tokens=args.generate_max_len,
                 strip_question_chat_template_fn=strip_question_chat_template_fn,
-                reward_transform=args.reward_transform,
-                alpha=args.alpha, beta=args.target_dist_beta
             )
         elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
             print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
@@ -930,8 +929,6 @@ def get_reward_model(args, strategy):
                 separatequeryanswer=True,
                 max_new_tokens=args.generate_max_len,
                 strip_question_chat_template_fn=strip_question_chat_template_fn,
-                reward_transform=args.reward_transform,
-                alpha=args.alpha, beta=args.target_dist_beta
             )
 
         else:
@@ -1013,6 +1010,7 @@ def get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, 
         save_negdata=args.save_negdata,
         save_negdata_threshold=args.save_negdata_threshold,
         neg_data=neg_data,
+        reward_transform=args.reward_transform
     )
     return trainer
 

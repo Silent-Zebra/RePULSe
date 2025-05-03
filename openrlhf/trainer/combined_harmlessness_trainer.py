@@ -100,6 +100,7 @@ class CombinedHarmlessnessTrainer(ABC):
         hardcoded_baseline: Optional[float] = None,
         baseline_type_neg: Optional[str] = None,
         hardcoded_baseline_neg: Optional[float] = None,
+        reward_transform: Optional[str] = None
         **generate_kwargs,
     ) -> None:
         assert (
@@ -125,6 +126,7 @@ class CombinedHarmlessnessTrainer(ABC):
         self.ema_beta = ema_beta
         self.gradient_checkpointing = gradient_checkpointing
         self.reward_fn = reward_fn
+        self.reward_transform = reward_transform
 
         self.neg_data = neg_data
 
@@ -232,12 +234,14 @@ class CombinedHarmlessnessTrainer(ABC):
             threshold,
             reward_cap,
             1, # target_dist_beta 1 here, because this is just going to need regular rewards for REINFORCE
+            alpha,
             rm_type,
             base_actor_loss_type, # Does not matter, when the target_dist_beta is 1
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
+            reward_transform = self.reward_transform
         )
 
         # Sampling actor experience maker (for approximate sigma samples)
@@ -257,12 +261,14 @@ class CombinedHarmlessnessTrainer(ABC):
             threshold,
             reward_cap,
             target_dist_beta,
+            alpha,
             rm_type,
             sampling_actor_loss_type,
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
+            reward_transform=self.reward_transform
         )
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
         self.sampling_replay_buffer_neg = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
@@ -492,14 +498,15 @@ class CombinedHarmlessnessTrainer(ABC):
                 pbar.update()
                 steps = steps + 1
 
-                # print(experience.info["reward"])
-                if args.reward_transform is not None:
-                    r = self.base_experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask, force_no_transform=True)
-                    rewards_list.append(r.mean().item()) # Use the non transformed reward for tracking
-                    # Right now this is a bit inefficient; requires additional rm pass. Should just return 2 values
-                    # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient
-                else:
-                    rewards_list.append(experience.info["reward"].mean().item())
+                # # print(experience.info["reward"])
+                # if args.reward_transform is not None:
+                #     r = self.base_experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask, force_no_transform=True)
+                #     rewards_list.append(r.mean().item()) # Use the non transformed reward for tracking
+                #     # Right now this is a bit inefficient; requires additional rm pass. Should just return 2 values
+                #     # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient
+                # else:
+
+                rewards_list.append(experience.info["untransformed_reward"].mean().item())
 
                 # print(rewards_list)
                 # print(estimates_list)
@@ -1114,88 +1121,7 @@ class CombinedHarmlessnessTrainer(ABC):
 
     def get_critic_loss(self, experience, values, custom_prompt=None):
         raise NotImplementedError # not yet tested
-        if self.base_critic_loss_type == "mse":
-            critic_loss = self.base_critic_loss_fn(
-                values,
-                experience.values,
-                experience.returns,
-                action_mask=experience.action_mask,
-            )
-        elif self.base_critic_loss_type == "ctl":
-            raise NotImplementedError # no longer tested
-            num_actions = experience.action_mask.size(1)
-            with torch.no_grad():
-                base_action_log_probs = self.base_experience_maker.static_initial_model(
-                    experience.sequences, num_actions,
-                    experience.attention_mask)
-            final_reward = self.base_experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
-
-            print("FINAL RETURN COMPARISON")
-            print(final_reward)
-            print(experience.returns[:, -1])
-            print(experience.returns[:, -1] - final_reward)
-
-
-            critic_loss = self.base_critic_loss_fn(
-                values,
-                final_reward=final_reward,
-                action_mask=experience.action_mask,
-                curr_log_probs=experience.action_log_probs,
-                base_action_log_probs=base_action_log_probs
-            )
-        elif self.base_critic_loss_type == "mixed_ctl_mse":
-            raise NotImplementedError # no longer tested
-
-            num_actions = experience.action_mask.size(1)
-            final_reward = self.reward_model(experience.sequences, experience.attention_mask)
-            with torch.no_grad():
-                base_action_log_probs = self.base_experience_maker.static_initial_model(
-                    experience.sequences, num_actions,
-                    experience.attention_mask)
-            critic_loss = self.base_critic_loss_fn(
-                values,
-                experience.values,
-                experience.returns,
-                action_mask=experience.action_mask,
-                curr_log_probs=experience.action_log_probs,
-                base_action_log_probs=base_action_log_probs,
-                final_reward=final_reward
-            )
-        elif self.base_critic_loss_type in ["sixo", "sixo_approxneg"]:
-            raise NotImplementedError # no longer tested
-
-            num_actions = experience.action_mask.size(1)
-            with torch.no_grad():
-                base_action_log_probs = self.base_experience_maker.static_initial_model(
-                    experience.sequences, num_actions,
-                    experience.attention_mask) # NOTE: for clarity, these are p(seqs), where seqs are generated according to the (twisted) proposal. This is used in the p phi / q calculation for positive samples
-            # This is different from p(seqs) where seqs are generated according to p
-            final_reward = self.reward_model(experience.sequences, experience.attention_mask)
-
-            values_on_base_samples = None
-            if self.base_critic_loss_type == "sixo":
-                raise NotImplementedError # Not yet tested after changes
-                base_action_mask, base_attention_mask, base_sequences = self.generate_base_seqs(custom_prompt)
-
-
-                values_on_base_samples = self.base_critic(
-                    base_sequences,
-                    action_mask=base_action_mask,
-                    attention_mask=base_attention_mask,
-                    return_output=False,
-                )
-
-            critic_loss = self.base_critic_loss_fn(
-                values,
-                final_reward=final_reward,
-                action_mask=experience.action_mask,
-                curr_log_probs=experience.action_log_probs,
-                base_action_log_probs=base_action_log_probs,
-                values_on_base_samples=values_on_base_samples
-            )
-        else:
-            raise NotImplementedError
-        return critic_loss
+        # return critic_loss
 
 
     def save_logs_and_checkpoints(self, args, global_step, step_bar, logs_dict={}, client_states={}):

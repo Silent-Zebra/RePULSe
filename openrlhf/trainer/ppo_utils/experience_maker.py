@@ -153,12 +153,14 @@ class BaseExperienceMaker(ABC):
         threshold=-5.,
         reward_cap=4.5,
         target_dist_beta=1.,
+        alpha=0.,
         rm_type=None,
         actor_loss_type=None,
         max_new_tokens=None,
         save_negdata=False,
         save_negdata_threshold=-10000,
-        neg_data: Optional[Set[str]] = None
+        neg_data: Optional[Set[str]] = None,
+        reward_transform: Optional[str] = None
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -175,9 +177,11 @@ class BaseExperienceMaker(ABC):
         self.threshold = threshold
         self.reward_cap = reward_cap
         self.target_dist_beta = target_dist_beta
+        self.alpha = alpha
         self.rm_type = rm_type
         self.actor_loss_type = actor_loss_type
         self.max_new_tokens = max_new_tokens
+        self.reward_transform = reward_transform
 
         self.perf_stats = {}
         self.advantage_estimator = strategy.args.advantage_estimator
@@ -219,7 +223,7 @@ class BaseExperienceMaker(ABC):
 
 
     @torch.no_grad()
-    def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, force_no_transform=False, **generate_kwargs) -> Experience:
+    def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, **generate_kwargs) -> Experience:
         expanded_prompts = tile_prompts(prompts, samples_per_prompt)
 
 
@@ -240,13 +244,12 @@ class BaseExperienceMaker(ABC):
 
         # init log probs
         with torch.no_grad():
-            base_action_log_probs = self.initial_model(sequences, num_actions,
-                                                       attention_mask)
+            base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
         # print("--BASE ACTION LOG PROBS--")
         # print(base_action_log_probs.mean())
         # print(base_action_log_probs)
 
-        r = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta, force_no_transform=force_no_transform)
+        r, untransformed_reward = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta)
 
         # print("--Rewards--")
         # print(r)
@@ -315,6 +318,7 @@ class BaseExperienceMaker(ABC):
             "total_length": attention_mask.float().sum(dim=-1),
             "f_q": f_q,
             "entropy": -log_q,
+            "untransformed_reward": untransformed_reward
         }
         # reset model state
         self.actor.train()
@@ -336,12 +340,11 @@ class BaseExperienceMaker(ABC):
 
 
 
-    def compute_reward_no_kl(self, sequences, attention_mask, class_num=0, multiply_by_beta=False, force_no_transform=False):
+    def compute_reward_no_kl(
+        self, sequences, attention_mask, class_num=0, multiply_by_beta=False,
+    ):
         # rewards
         if self.remote_rm_url is not None:
-
-            assert not force_no_transform # Not yet implemented/tested
-
             # TODO not yet supported/checked with custom_single_prompt
 
             # remote RM
@@ -352,7 +355,8 @@ class BaseExperienceMaker(ABC):
         else:
 
             # local RM
-            r = self.reward_model(sequences, attention_mask, force_no_transform=force_no_transform)
+            r = self.reward_model(sequences, attention_mask)
+
 
         if self.save_negdata:
 
@@ -372,7 +376,18 @@ class BaseExperienceMaker(ABC):
             # print(self.neg_data)
             print(len(self.neg_data))
 
-
+        untransformed_reward = r
+        if self.reward_transform == "minus_alpha_exp_beta_r":
+            print("REWARD TRANSFORM INSPECTION")
+            print(self.alpha)
+            print(self.target_dist_beta)
+            transformed_reward = r - self.alpha * torch.exp(self.target_dist_beta * r)
+            # r -= alpha * torch.exp(beta * r)
+            print(r)
+            print(transformed_reward)
+            r = transformed_reward
+        else:
+            assert self.reward_transform is None  # Others not yet implemented
 
         # if self.rm_type is None:
         #     return r
@@ -440,12 +455,12 @@ class BaseExperienceMaker(ABC):
             raise NotImplementedError
 
         if multiply_by_beta: # Use for twist formulation # For twists: target potential phi is e^{beta r}, so log potential is beta r
-            return final_reward * self.target_dist_beta
+            return final_reward * self.target_dist_beta, untransformed_reward
         else: # Use for PPO formulation # For PPO, e.g. see the RL with KL penalties is better viewed as Bayesian inference paper, we have that reward - 1/beta (KL to prior) is equivalent to targeting base e^{beta r}
             if self.target_dist_beta < 0:
-                return -final_reward # For PPO, if we have target e^{beta r} where beta is negative, say beta = -b, then e^{-br} = e^{b(-r)} which is equivalent to using PPO on a new reward model r' = -r. So what we'll instead do is keep the KL penalty as 1/beta but now have the reward -r. Twist formulations directly handle multiplying by beta
+                return -final_reward, untransformed_reward # For PPO, if we have target e^{beta r} where beta is negative, say beta = -b, then e^{-br} = e^{b(-r)} which is equivalent to using PPO on a new reward model r' = -r. So what we'll instead do is keep the KL penalty as 1/beta but now have the reward -r. Twist formulations directly handle multiplying by beta
             else:
-                return final_reward
+                return final_reward, untransformed_reward
 
     def set_all_eval(self):
         self.actor.eval()
