@@ -100,7 +100,7 @@ class CombinedHarmlessnessTrainer(ABC):
         hardcoded_baseline: Optional[float] = None,
         baseline_type_neg: Optional[str] = None,
         hardcoded_baseline_neg: Optional[float] = None,
-        reward_transform: Optional[str] = None
+        reward_transform: Optional[str] = None,
         **generate_kwargs,
     ) -> None:
         assert (
