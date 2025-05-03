@@ -892,6 +892,7 @@ def train(args):
         args.prompt_split = args.heldout_prompt_split
         args.input_key = args.heldout_input_key
         args.input_template = args.heldout_input_template
+        args.target_dist_beta = 1
 
         strategy = get_strategy(args)
         strategy.setup_distributed()
