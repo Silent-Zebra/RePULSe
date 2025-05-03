@@ -179,7 +179,8 @@ class NegTrainingLoss(nn.Module):
 
 
         # Weighting here controls how much to emphasize the negative training (reduce probability on negative samples) loss vs. the standard REINFORCE/RL loss
-        return (1 - self.alpha) * reinforce_loss + self.alpha * loss
+        # return (1 - self.alpha) * reinforce_loss + self.alpha * loss
+        return reinforce_loss + self.alpha * loss
 
 
 class NegREINFORCELoss(nn.Module):
@@ -216,8 +217,8 @@ class NegREINFORCELoss(nn.Module):
 
         neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg)
 
-
-        return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
+        # return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
+        return reinforce_loss + self.alpha * neg_reinforce_loss
 
 
 class PolicyLoss(nn.Module):
@@ -611,7 +612,8 @@ class MixedCTLValueLoss(nn.Module):
     ) -> torch.Tensor:
         ctl_loss = self.ctl_loss(values, final_reward, action_mask, curr_log_probs, base_action_log_probs)
         mse_loss = self.value_loss(values, old_values, returns, action_mask)
-        return self.alpha * ctl_loss + (1 - self.alpha) * mse_loss
+        # return self.alpha * ctl_loss + (1 - self.alpha) * mse_loss
+        return self.alpha * ctl_loss + mse_loss
 
 
 class SIXOLoss(nn.Module):
