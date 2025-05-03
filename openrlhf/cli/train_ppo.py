@@ -1018,6 +1018,7 @@ def get_prompts_data(args, strategy, tokenizer):
     )
     prompts_data = prompts_data.select(range(min(args.max_samples, len(prompts_data))))
     prompts_dataset = PromptDataset(prompts_data, tokenizer, strategy, input_template=args.input_template)
+    pretrain_dataset = None
     if args.pretrain_data:
         pretrain_data = blending_datasets(
             args.pretrain_data,
