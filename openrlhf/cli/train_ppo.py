@@ -1396,3 +1396,6 @@ if __name__ == "__main__":
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
     train(args)
+
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
