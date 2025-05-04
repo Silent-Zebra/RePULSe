@@ -1322,6 +1322,8 @@ if __name__ == "__main__":
     parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")
 
     parser.add_argument("--evaluate_heldout_sampling", action="store_true", help="Evaluate by doing sampling on prompts on heldout data after the training is done")
+    parser.add_argument("--evaluate_on_neg_data", action="store_true", help="Evaluate on neg data (must provide --neg_data_load_path)")
+
     parser.add_argument("--sampling_iters", type=int, default=1, help="Do this many iterations of sampling over the whole dataset (only for evaluate_heldout_sampling)")
 
 
