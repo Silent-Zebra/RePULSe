@@ -651,8 +651,6 @@ def train(args):
         with open(f"{args.save_path}/neg_data_{info_name_str}_thr{args.save_negdata_threshold}.pkl", "wb") as f:
             pickle.dump(neg_data, f)
 
-    if torch.distributed.is_initialized():
-        torch.distributed.destroy_process_group()
 
 
     # ppo_trainer will do saving...
@@ -697,14 +695,20 @@ def train(args):
             initial_model = base_actor
 
         if args.evaluate_heldout_sampling:
+            print("DOING evaluate_heldout_sampling", flush=True)
             do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                          critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
                                          strategy, tokenizer, true_posterior_samples, vf_coef)
 
         if args.evaluate_on_neg_data:
+            print("DOING evaluate_on_neg_data", flush=True)
             do_evaluate_on_neg_data(actor_to_test, args, strip_question_chat_template_fn, tokenizer, info_name_str)
 
         raise SystemExit(0)  # Finished
+
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
+
 
 
 def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
