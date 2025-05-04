@@ -221,8 +221,8 @@ def train(args):
             base_actor, lr=args.base_actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
         )
 
-        print("BASE ACTOR OPTIM")
-        print(base_actor_optim)
+        strategy.print("BASE ACTOR OPTIM")
+        strategy.print(base_actor_optim)
 
     pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
 
@@ -361,116 +361,7 @@ def train(args):
 
         _ = do_load_checkpoints(args, actor, critic, strategy)
 
-        with open(args.neg_data_load_path, "rb") as f:
-            neg_data = pickle.load(f)
-        neg_data = list(neg_data)
-
-        actor.eval()
-        actor = actor.to(torch.cuda.current_device())
-        results = []
-        prompts = []
-
-        def tokenize_fn(texts):
-            batch = tokenizer(
-                texts,
-                return_tensors="pt",
-                add_special_tokens=False,
-                max_length=args.prompt_max_len,
-                padding=True,
-                truncation=True,
-            )
-            return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
-
-        print(len(neg_data))
-
-        import re
-        def strip_leading_im_end(s):
-            return re.sub(r'^(<\|im_end\|>)+', '', s)
-        from functools import partial
-
-        for i in range(len(neg_data) // args.train_batch_size + 1):
-            if (i + 1) % 10 == 0:
-                print(f"BATCH {i + 1}", flush=True)
-
-            batch = neg_data[i * args.train_batch_size : (i + 1) * args.train_batch_size]
-            # print("BATCH")
-            # print(batch)
-            # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
-            cleaned_batch = list(map(strip_leading_im_end, batch))
-            # print("BATCH CLEANED")
-            # print(cleaned_batch)
-
-            strip_question_chat_template_fn_for_neg_data = partial(strip_question_chat_template_fn, additional_split=True)
-
-            qa_list = list(map(strip_question_chat_template_fn_for_neg_data, cleaned_batch))
-            text_question, text_answer = map(list, zip(*qa_list))
-
-            inputs = tokenize_fn(cleaned_batch)
-            # print("INPUTS")
-            # print(inputs)
-            sequences = inputs["input_ids"]
-            # print("Shapes")
-            # print(sequences.size(1) - args.generate_max_len)
-            # print(sequences.shape)
-            sequences, attention_mask, action_mask = actor.process_sequences(sequences, sequences.size(1) - args.generate_max_len, tokenizer.eos_token_id, tokenizer.pad_token_id)
-
-            # print("ATTENTION MASK CHECK")
-            # print(attention_mask)
-            # print((inputs["attention_mask"] - attention_mask).abs().sum())
-
-            with torch.no_grad():
-                log_probs = actor(
-                    sequences=sequences,
-                    num_actions=args.generate_max_len,
-                    attention_mask=attention_mask,
-                )
-
-            # print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
-            # print(inputs["attention_mask"])
-            # print(log_probs.shape)
-            # print(inputs["attention_mask"].shape)
-
-            # print("ACTION MASK")
-            # print(action_mask)
-
-            total_log_prob = (log_probs * action_mask).sum(-1)
-
-            results.append(total_log_prob)
-
-            prompts.extend(text_question)
-
-        result_stack = torch.cat(results, dim=0)
-        print(result_stack.shape)
-        # print(result_stack)
-
-
-        detailed_dict = {}
-        for prompt, log_prob in zip(prompts, result_stack):
-            if prompt not in detailed_dict.keys():
-                detailed_dict[prompt] = []
-            detailed_dict[prompt].append(log_prob)
-
-        mean_log_prob_by_prompt = []
-        total_log_prob_by_prompt = []
-
-        for prompt in detailed_dict.keys():
-            # print(detailed_dict[prompt])
-            detailed_dict[prompt] = torch.tensor(detailed_dict[prompt])
-            print(f"Prompt: {prompt}")
-            print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
-            avg_log_prob = detailed_dict[prompt].mean()
-            print(f"Average log prob on bad sequences: {avg_log_prob}")
-            mean_log_prob_by_prompt.append(avg_log_prob)
-            total_log_prob = torch.logsumexp(detailed_dict[prompt], dim=0)
-            print(f"Total log prob of bad sequences (logsumexp): {total_log_prob}")
-            total_log_prob_by_prompt.append(total_log_prob)
-
-        print("Mean log prob on dataset")
-        print(result_stack.mean().item())
-        print("Averaging the mean log prob for each prompt over prompts")
-        print(torch.tensor(mean_log_prob_by_prompt).mean().item())
-        print("Averaging the total log prob for each prompt over prompts")
-        print(torch.tensor(total_log_prob_by_prompt).mean().item())
+        do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy)
 
         raise SystemExit(0)  # Finished
 
@@ -488,7 +379,7 @@ def train(args):
     true_posterior_samples = None
     if args.load_posterior_samples:
 
-        print("Loading true posterior samples")
+        strategy.print("Loading true posterior samples")
 
         true_posterior_samples_by_prompt_and_by_token = torch.load(f"{args.load_posterior_samples_name}")
         true_posterior_samples = \
@@ -689,7 +580,7 @@ def train(args):
             neg_data=neg_data,
             reward_transform=args.reward_transform
         )
-        print("-----HARMLESSNESS TRAINING-----", flush=True)
+        strategy.print("-----HARMLESSNESS TRAINING-----")
         # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
         if args.harmlessness_training_num_episodes > 0:
             assert args.num_episodes == 1 # Right now only supports 1 twist/proposal update per base_actor update
@@ -755,13 +646,12 @@ def train(args):
             inspect_rewards_list(rewards_list)
 
     if args.save_negdata:
-        print(len(neg_data))
+        strategy.print("SAVING NEG DATA")
+        strategy.print(len(neg_data))
         # Save to file
         with open(f"{args.save_path}/neg_data_{info_name_str}_thr{args.save_negdata_threshold}.pkl", "wb") as f:
             pickle.dump(neg_data, f)
 
-    if torch.distributed.is_initialized():
-        torch.distributed.destroy_process_group()
 
 
     # ppo_trainer will do saving...
@@ -780,7 +670,7 @@ def train(args):
     #         args.save_path + "_critic",
     #     )
 
-    if args.evaluate_heldout_sampling:
+    if args.evaluate_heldout_sampling or args.evaluate_on_neg_data:
         assert args.heldout_prompt_data is not None
         assert args.heldout_input_key is not None
         args.no_critic = True
@@ -793,6 +683,7 @@ def train(args):
         args.input_template = args.heldout_input_template
         args.target_dist_beta = 1
         args.reward_transform = None
+        args.model_eval = True
 
         strategy = get_strategy(args)
         strategy.setup_distributed()
@@ -804,54 +695,178 @@ def train(args):
             actor_to_test = actor
             initial_model = base_actor
 
-        trainer = get_base_ppo_trainer(actor_to_test, actor_optim, actor_scheduler, args, initial_model, critic, critic_optim,
-                                       critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
-                                       true_posterior_samples, vf_coef)
-        rewards = []
+        if args.evaluate_heldout_sampling:
+            strategy.print("DOING evaluate_heldout_sampling")
+            do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
+                                         critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
+                                         strategy, tokenizer, true_posterior_samples, vf_coef)
 
-        pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
-        prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
+        if args.evaluate_on_neg_data:
+            strategy.print("DOING evaluate_on_neg_data")
+            do_evaluate_on_neg_data(actor_to_test, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy)
 
-        for i in range(args.sampling_iters):
-            print(f"Sampling iter: {i}", flush=True)
-            for rand_prompts in prompts_dataloader:
-                experience = trainer.experience_maker.make_experience(
-                    rand_prompts,
-                    samples_per_prompt=args.duplicate_rollout_batch_by,
-                    # force_no_transform=True,
-                    **trainer.generate_kwargs
-                )
+        raise SystemExit(0)  # Finished
 
-                rewards.append(experience.info["reward"])
-                # print(experience.info["reward"])
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
 
-        # print(rewards)
-        # print(len(rewards))
-        rewards = torch.cat(rewards)
-        # print(rewards)
-        # print(rewards.shape)
 
-        print(f"Average reward: {rewards.mean().item()}")
-        total_samples = rewards.shape[0]
-        print(f"Total number of samples drawn: {total_samples}")
 
-        for threshold in range(-6, -1):
-            outputs_below_threshold = (rewards < threshold).sum()
-            print(f"Number of outputs below threshold {threshold}: {outputs_below_threshold.item()}")
-            print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
-            print(f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
+def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
+                                 critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
+                                 strategy, tokenizer, true_posterior_samples, vf_coef):
+    trainer = get_base_ppo_trainer(actor_to_test, actor_optim, actor_scheduler, args, initial_model, critic,
+                                   critic_optim,
+                                   critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
+                                   true_posterior_samples, vf_coef)
+    rewards = []
+    pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+    prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
+    for i in range(args.sampling_iters):
+        strategy.print(f"Sampling iter: {i}")
+        for rand_prompts in prompts_dataloader:
+            experience = trainer.experience_maker.make_experience(
+                rand_prompts,
+                samples_per_prompt=args.duplicate_rollout_batch_by,
+                # force_no_transform=True,
+                **trainer.generate_kwargs
+            )
 
-        save_str = f"{args.save_info_path}/rewards_eval_{info_name_str}"
-        torch.save(rewards, save_str)
+            rewards.append(experience.info["reward"])
+            # print(experience.info["reward"])
+    # print(rewards)
+    # print(len(rewards))
+    rewards = torch.cat(rewards)
+    # print(rewards)
+    # print(rewards.shape)
+    strategy.print(f"Average reward: {rewards.mean().item()}")
+    total_samples = rewards.shape[0]
+    strategy.print(f"Total number of samples drawn: {total_samples}")
+    for threshold in range(-6, -1):
+        outputs_below_threshold = (rewards < threshold).sum()
+        strategy.print(f"Number of outputs below threshold {threshold}: {outputs_below_threshold.item()}")
+        strategy.print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
+        strategy.print(
+            f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
+    save_str = f"{args.save_info_path}/rewards_eval_{info_name_str}"
+    torch.save(rewards, save_str)
 
-        raise SystemExit(0) # Finished
+
+def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy):
+    with open(args.neg_data_load_path, "rb") as f:
+        neg_data = pickle.load(f)
+    neg_data = list(neg_data)
+    actor.eval()
+    actor = actor.to(torch.cuda.current_device())
+    results = []
+    prompts = []
+
+    def tokenize_fn(texts):
+        batch = tokenizer(
+            texts,
+            return_tensors="pt",
+            add_special_tokens=False,
+            max_length=args.prompt_max_len,
+            padding=True,
+            truncation=True,
+        )
+        return {k: v.to(torch.cuda.current_device()) for k, v in batch.items()}
+
+    strategy.print(len(neg_data))
+    import re
+    def strip_leading_im_end(s):
+        return re.sub(r'^(<\|im_end\|>)+', '', s)
+
+    from functools import partial
+    for i in range(len(neg_data) // args.train_batch_size + 1):
+        if (i + 1) % 10 == 0:
+            strategy.print(f"BATCH {i + 1}")
+
+        batch = neg_data[i * args.train_batch_size: (i + 1) * args.train_batch_size]
+        # print("BATCH")
+        # print(batch)
+        # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
+        cleaned_batch = list(map(strip_leading_im_end, batch))
+        # print("BATCH CLEANED")
+        # print(cleaned_batch)
+
+        strip_question_chat_template_fn_for_neg_data = partial(strip_question_chat_template_fn, additional_split=True)
+
+        qa_list = list(map(strip_question_chat_template_fn_for_neg_data, cleaned_batch))
+        text_question, text_answer = map(list, zip(*qa_list))
+
+        inputs = tokenize_fn(cleaned_batch)
+        # print("INPUTS")
+        # print(inputs)
+        sequences = inputs["input_ids"]
+        # print("Shapes")
+        # print(sequences.size(1) - args.generate_max_len)
+        # print(sequences.shape)
+        sequences, attention_mask, action_mask = actor.process_sequences(sequences,
+                                                                         sequences.size(1) - args.generate_max_len,
+                                                                         tokenizer.eos_token_id, tokenizer.pad_token_id)
+
+        # print("ATTENTION MASK CHECK")
+        # print(attention_mask)
+        # print((inputs["attention_mask"] - attention_mask).abs().sum())
+
+        with torch.no_grad():
+            log_probs = actor(
+                sequences=sequences,
+                num_actions=args.generate_max_len,
+                attention_mask=attention_mask,
+            )
+
+        # print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
+        # print(inputs["attention_mask"])
+        # print(log_probs.shape)
+        # print(inputs["attention_mask"].shape)
+
+        # print("ACTION MASK")
+        # print(action_mask)
+
+        total_log_prob = (log_probs * action_mask).sum(-1)
+
+        results.append(total_log_prob)
+
+        prompts.extend(text_question)
+    result_stack = torch.cat(results, dim=0)
+    strategy.print(result_stack.shape)
+    # print(result_stack)
+    detailed_dict = {}
+    for prompt, log_prob in zip(prompts, result_stack):
+        if prompt not in detailed_dict.keys():
+            detailed_dict[prompt] = []
+        detailed_dict[prompt].append(log_prob)
+    mean_log_prob_by_prompt = []
+    total_log_prob_by_prompt = []
+    for prompt in detailed_dict.keys():
+        # print(detailed_dict[prompt])
+        detailed_dict[prompt] = torch.tensor(detailed_dict[prompt])
+        strategy.print(f"Prompt: {prompt}")
+        strategy.print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
+        avg_log_prob = detailed_dict[prompt].mean()
+        strategy.print(f"Average log prob on bad sequences: {avg_log_prob}")
+        mean_log_prob_by_prompt.append(avg_log_prob)
+        total_log_prob = torch.logsumexp(detailed_dict[prompt], dim=0)
+        strategy.print(f"Total log prob of bad sequences (logsumexp): {total_log_prob}")
+        total_log_prob_by_prompt.append(total_log_prob)
+    strategy.print("Mean log prob on dataset")
+    strategy.print(result_stack.mean().item())
+    strategy.print("Averaging the mean log prob for each prompt over prompts")
+    strategy.print(torch.tensor(mean_log_prob_by_prompt).mean().item())
+    strategy.print("Averaging the total log prob for each prompt over prompts")
+    strategy.print(torch.tensor(total_log_prob_by_prompt).mean().item())
+
+    save_str = f"{args.save_info_path}/neg_data_dict_{info_name_str}"
+    torch.save(detailed_dict, save_str)
 
 
 def get_reward_model(args, strategy):
     strip_question_chat_template_fn = None
     if not args.remote_rm_url:
         if args.reward_pretrain == "nicholasKluge/ToxicityModel":
-            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
+            strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
             from transformers import AutoTokenizer, AutoConfig, AutoModel
 
             def get_tokenizer_custom(model_config):
@@ -874,7 +889,7 @@ def get_reward_model(args, strategy):
 
         elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base",
                                       "OpenAssistant/reward-model-deberta-v3-large-v2"]:
-            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
+            strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
             from transformers import AutoTokenizer, AutoConfig, AutoModel
 
             def get_tokenizer_custom(model_config):
@@ -902,7 +917,7 @@ def get_reward_model(args, strategy):
                 strip_question_chat_template_fn=strip_question_chat_template_fn,
             )
         elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
-            print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
+            strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
             from transformers import AutoTokenizer, AutoConfig, AutoModel
 
             def get_tokenizer_custom(model_config):
@@ -1312,6 +1327,8 @@ if __name__ == "__main__":
     parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")
 
     parser.add_argument("--evaluate_heldout_sampling", action="store_true", help="Evaluate by doing sampling on prompts on heldout data after the training is done")
+    parser.add_argument("--evaluate_on_neg_data", action="store_true", help="Evaluate on neg data (must provide --neg_data_load_path)")
+
     parser.add_argument("--sampling_iters", type=int, default=1, help="Do this many iterations of sampling over the whole dataset (only for evaluate_heldout_sampling)")
 
 
@@ -1396,6 +1413,3 @@ if __name__ == "__main__":
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
     train(args)
-
-    if torch.distributed.is_initialized():
-        torch.distributed.destroy_process_group()
