@@ -2,8 +2,8 @@ import pickle
 
 neg_data = set()
 
-base_dir = "/h/zhaostep/OpenRLHF/checkpoint/rlhfmulti"
-# base_dir = "/h/319/stephenzhao/OpenRLHF/checkpoint/rlhfmulti"
+# base_dir = "/h/zhaostep/OpenRLHF/checkpoint/rlhfmulti"
+base_dir = "/h/319/stephenzhao/OpenRLHF/checkpoint/rlhfmulti"
 
 # ls checkpoint/toyrlhfmulti  | grep -v pkl |  grep -v sddiv | grep mipr | grep neg_train | grep harml_ac
 # for x in $(ls | grep pkl | grep mipr); do echo \"$x\",; done
@@ -118,5 +118,5 @@ for neg_data_load_path in neg_data_load_paths:
     print(len(neg_data))
 
 # save
-with open(f"{base_dir}/neg_data_a22he_aggregated_2025_04_20.pkl", "wb") as f:
+with open(f"{base_dir}/neg_data_a22he_aggregated_2025_05_03.pkl", "wb") as f:
     pickle.dump(neg_data, f)
