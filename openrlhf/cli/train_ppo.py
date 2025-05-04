@@ -363,6 +363,9 @@ def train(args):
 
         do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy)
 
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
+
         raise SystemExit(0)  # Finished
 
 
@@ -705,7 +708,7 @@ def train(args):
             strategy.print("DOING evaluate_on_neg_data")
             do_evaluate_on_neg_data(actor_to_test, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy)
 
-        raise SystemExit(0)  # Finished
+        # raise SystemExit(0)  # Finished
 
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
