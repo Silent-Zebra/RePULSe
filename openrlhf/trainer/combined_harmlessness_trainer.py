@@ -625,12 +625,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 status = self.strategy.all_reduce(status)
                 status[f"{x}_kl"] /= status[f"{x}_response_length"]
         short_status = {
-            "srm": status["sampling_reward"],
-            "sret": status["sampling_return"],
-            "sglen": status["sampling_response_length"],
-            "stlen": status["sampling_total_length"],
-            "skl": status["sampling_kl"],
-            "sact_lr": status["sampling_actor_lr"],
             "bpg": status["base_policy_loss"],
             "brm": status["base_reward"],
             "bret": status["base_return"],
@@ -639,8 +633,20 @@ class CombinedHarmlessnessTrainer(ABC):
             "bkl": status["base_kl"],
             "bact_lr": status["base_actor_lr"],
         }
+        if "sampling_reward" in status:
+            sampling_short_status = {
+                "srm": status["sampling_reward"],
+                "sret": status["sampling_return"],
+                "sglen": status["sampling_response_length"],
+                "stlen": status["sampling_total_length"],
+                "skl": status["sampling_kl"],
+                "sact_lr": status["sampling_actor_lr"],
+            }
+            status.update(sampling_short_status)
+
         if "sampling_policy_loss" in status:
             short_status["spg"] = status["sampling_policy_loss"]
+        if "base_policy_loss" in status:
             short_status["bpg"] = status["base_policy_loss"]
         if "sampling_f_q" in status:
             short_status["sf_q"] = status["sampling_f_q"]

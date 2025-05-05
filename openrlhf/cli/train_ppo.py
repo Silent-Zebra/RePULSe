@@ -14,7 +14,7 @@ from openrlhf.datasets import PromptDataset, SFTDataset
 from openrlhf.models import Actor, get_llm_for_sequence_regression
 from openrlhf.models.actor_custom import ActorCustom, ActorCritic
 from openrlhf.trainer import BasePPOTrainer
-from openrlhf.trainer.harmlessness_trainer import HarmlessnessTrainer
+# from openrlhf.trainer.harmlessness_trainer import HarmlessnessTrainer # Have not tested this in a while
 from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessTrainer
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
