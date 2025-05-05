@@ -18,6 +18,8 @@ from openrlhf.utils.logging_utils import init_logger
 
 logger = init_logger(__name__)
 
+INDICATOR_REWARD_EPS = 1e-16
+
 
 # Construct transformer with a value head for sequence classification.
 # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L1310

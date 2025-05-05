@@ -18,6 +18,7 @@ from openrlhf.models.utils import compute_approx_kl, compute_reward, masked_mean
 from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
 from openrlhf.utils.utils import tile_prompts
+from openrlhf.models.model import INDICATOR_REWARD_EPS
 
 logger = init_logger(__name__)
 
@@ -436,7 +437,7 @@ class BaseExperienceMaker(ABC):
             # Because remember r_u = 1/beta log phi is the right way to set up the unregularized reward for equivalence between standard RL formulation and our setup
             # BUT remember that phi = p(class | s)^\beta right? So log phi is beta * p(class | s). But anyway, my experiments just use beta = 1 here...
         elif self.rm_type == "indicator_below_threshold": # works for any arbitrary indicator function on checking if score is less than threshold
-            eps = 1e-16
+            eps = INDICATOR_REWARD_EPS
             score = r
             # print("score")
             # print(score)
