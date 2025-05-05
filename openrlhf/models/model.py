@@ -398,6 +398,7 @@ def _get_reward_model_custom(
                         r = self.rm(**inputs).logits.squeeze(-1).detach()
 
                 print("reward:", r)
+                print("reward mean:", r.mean().item())
                 # 1/0
 
             else:

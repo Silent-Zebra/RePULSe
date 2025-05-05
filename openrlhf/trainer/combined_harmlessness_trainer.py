@@ -436,6 +436,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:
 
+                print("Making experience: standard sampling")
+
                 experience = self.base_experience_maker.make_experience(
                     rand_prompts,
                     samples_per_prompt=args.duplicate_rollout_batch_by,
@@ -444,6 +446,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 if self.base_actor_loss_type == "reinforce":
                     experience_neg_sampling = experience  # This experience_neg will not be used with reinforce anyway
                 else:
+                    print("Making experience: neg sampling")
+
                     experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
                         rand_prompts,
                         samples_per_prompt=args.duplicate_rollout_batch_by,
