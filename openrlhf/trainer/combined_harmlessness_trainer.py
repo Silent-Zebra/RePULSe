@@ -152,6 +152,8 @@ class CombinedHarmlessnessTrainer(ABC):
         assert parameterization != ""
         self.parameterization = parameterization
 
+        self.rm_type = rm_type
+
 
         # Just do very simple negative training, REINFORCE (on base samples), and REINFORCE (on sigma samples)
         # Then have the ability to combine the above ones (we need REINFORCE on base samples, what is "actor" here, plus with either neg train or reinforce on bad (sigma) samples)
@@ -235,7 +237,7 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_cap,
             1, # target_dist_beta 1 here, because this is just going to need regular rewards for REINFORCE
             alpha,
-            rm_type,
+            "rlhf", # Use this to ensure the standard reward formulation
             base_actor_loss_type, # Does not matter, when the target_dist_beta is 1
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
@@ -852,6 +854,13 @@ class CombinedHarmlessnessTrainer(ABC):
                 experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
                 final_reward_neg
             )
+
+            if self.rm_type == "indicator_below_threshold":
+                # Only have any weight (do the negative training/gradient ascent/-SFT) on any samples that satisfy the indicator function
+                print(final_reward_neg)
+                print(normalized_w_t_approx_sigma_samples)
+                # TODO set the weights to be 0 for all where final_reward_neg is above threshold. If no sample satisfies indicator, then all get weight 0, and no update/neg training done.
+                1/0
 
             actor_loss = self.base_actor_loss_fn(
                 action_log_probs,

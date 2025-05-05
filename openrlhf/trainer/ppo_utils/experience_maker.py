@@ -441,7 +441,7 @@ class BaseExperienceMaker(ABC):
             # print("score")
             # print(score)
             final_reward = torch.log((score < self.threshold) + eps)
-        elif self.rm_type == "toy_rlhf":
+        elif self.rm_type == "rlhf":
             score = r
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
 
