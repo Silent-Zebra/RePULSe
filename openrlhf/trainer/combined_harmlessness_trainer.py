@@ -153,6 +153,7 @@ class CombinedHarmlessnessTrainer(ABC):
         self.parameterization = parameterization
 
         self.rm_type = rm_type
+        self.threshold = threshold
 
 
         # Just do very simple negative training, REINFORCE (on base samples), and REINFORCE (on sigma samples)
@@ -859,7 +860,10 @@ class CombinedHarmlessnessTrainer(ABC):
                 # Only have any weight (do the negative training/gradient ascent/-SFT) on any samples that satisfy the indicator function
                 print(final_reward_neg)
                 print(normalized_w_t_approx_sigma_samples)
+                normalized_w_t_approx_sigma_samples = normalized_w_t_approx_sigma_samples * (final_reward_neg < self.threshold)
                 # TODO set the weights to be 0 for all where final_reward_neg is above threshold. If no sample satisfies indicator, then all get weight 0, and no update/neg training done.
+                print(final_reward_neg)
+                print(normalized_w_t_approx_sigma_samples)
                 1/0
 
             actor_loss = self.base_actor_loss_fn(
