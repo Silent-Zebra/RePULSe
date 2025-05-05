@@ -581,7 +581,8 @@ def train(args):
             baseline_type_neg=args.neg_baseline_type,
             hardcoded_baseline_neg=args.neg_hardcoded_baseline,
             neg_data=neg_data,
-            reward_transform=args.reward_transform
+            reward_transform=args.reward_transform,
+            use_base_as_proposal=args.use_base_as_proposal
         )
         strategy.print("-----HARMLESSNESS TRAINING-----")
         # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
@@ -1325,6 +1326,8 @@ if __name__ == "__main__":
     parser.add_argument("--harmlessness_training_episodes_per_loop", type=int, default=1, help="Number of harmlessness training steps to do for each outer loop step")
 
     parser.add_argument("--sampling_target_updated_base", action="store_true", help="Only for the combined_harmlessness_trainer; if set, then the sampling_actor/twisted proposal tries to target the new, updated base model after base_actor has taken a gradient step. Otherwise, twisted proposal updates before the base_actor learns")
+    parser.add_argument("--use_base_as_proposal", action="store_true", help="Only for the combined_harmlessness_trainer; if set, then the sampling_actor/twisted proposal is just equivalent to the base actor, and no updates will be done to this.")
+
 
     parser.add_argument("--only_evaluate_on_neg_data", action="store_true", help="Only evaluate on neg_data")
     parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")
