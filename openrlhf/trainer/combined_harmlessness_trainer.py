@@ -863,14 +863,13 @@ class CombinedHarmlessnessTrainer(ABC):
                 # Only have any weight (do the negative training/gradient ascent/-SFT) on any samples that satisfy the indicator function
                 print(final_reward_neg)
                 print(normalized_w_t_approx_sigma_samples)
-                normalized_w_t_approx_sigma_samples = normalized_w_t_approx_sigma_samples * (torch.exp(final_reward_neg) < INDICATOR_REWARD_EPS * 2) # Assign 0 weights to all samples that do not satisfy the indicator. This really only makes a difference if all the samples do not satisfy the indicator, in which case this ensures no negative training update is applied, otherwise all samples would get equal weights and pushed down equally even if none satisfy the indicator
+                normalized_w_t_approx_sigma_samples = normalized_w_t_approx_sigma_samples * (torch.exp(final_reward_neg) > INDICATOR_REWARD_EPS * 2) # Assign 0 weights to all samples that do not satisfy the indicator. This really only makes a difference if all the samples do not satisfy the indicator, in which case this ensures no negative training update is applied, otherwise all samples would get equal weights and pushed down equally even if none satisfy the indicator
                 # TODO needs to be something like > 2 * eps or something like that instead...
                 # TODO set the weights to be 0 for all where final_reward_neg is above threshold. If no sample satisfies indicator, then all get weight 0, and no update/neg training done.
-                print(torch.exp(final_reward_neg))
-                print(INDICATOR_REWARD_EPS * 2)
-                print((torch.exp(final_reward_neg) < INDICATOR_REWARD_EPS * 2))
-                1/0
-
+                # print(torch.exp(final_reward_neg))
+                # print(INDICATOR_REWARD_EPS * 2)
+                # print((torch.exp(final_reward_neg) < INDICATOR_REWARD_EPS * 2))
+                # 1/0
                 print(final_reward_neg)
                 print(normalized_w_t_approx_sigma_samples)
                 1/0
