@@ -109,18 +109,17 @@ cat > "$SBATCH_FILE" << EOL
 #!/bin/bash
 #SBATCH -J s1_$(($RANDOM % 100000))
 #SBATCH --ntasks=1
-#SBATCH --mem=64G
+#SBATCH --mem=48G
 #SBATCH -c 4
 #SBATCH --time=4:00:00
 #SBATCH --partition=ml
 #SBATCH --qos=ml
 #SBATCH --account=ml
-#SBATCH --nodelist=overture,quartet[1-4]
+#SBATCH --nodelist=overture,quartet[1-2],quartet5
 #SBATCH --nodes=1
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
 #SBATCH --gres=gpu:1
-cd ~
 ln -s /usr/bin/gcc-10 .local/bin/gcc
 ln -s /usr/bin/g++-10 .local/bin/g++
 export PATH=\$HOME/.local/bin/:\$PATH
@@ -129,6 +128,7 @@ source newenv/bin/activate
 export CUDA_HOME=/pkgs/cuda-12.4
 export PATH=\$CUDA_HOME/bin:\$PATH
 export LD_LIBRARY_PATH=\$CUDA_HOME/lib64:\$LD_LIBRARY_PATH
+export MAX_JOBS=1
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
 EOL
 
