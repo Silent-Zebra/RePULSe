@@ -724,6 +724,9 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
                                    critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
                                    true_posterior_samples, vf_coef)
     rewards = []
+    returns = []
+    entropy = []
+    kls = []
     pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
     prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
     for i in range(args.sampling_iters):
@@ -737,6 +740,9 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             )
 
             rewards.append(experience.info["reward"])
+            returns.append(experience.info["return"])
+            entropy.append(experience.info["entropy"])
+            kls.append(experience.info["kl"])
             # print(experience.info["reward"])
     # print(rewards)
     # print(len(rewards))
@@ -754,6 +760,10 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
     save_str = f"{args.save_info_path}/rewards_eval_{info_name_str}"
     torch.save(rewards, save_str)
+
+    save_str = f"{args.save_info_path}/otherinfo_eval_{info_name_str}"
+    torch.save((returns, kls, entropy), save_str)
+
 
 
 def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy):
