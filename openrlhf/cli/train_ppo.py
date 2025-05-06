@@ -1398,8 +1398,9 @@ if __name__ == "__main__":
     else: # Not PPO
         # assert args.actor_modulates_base # Need the twist formulation with the CustomActor for this # Now ok; can use policy parameterization directly outputting log(p psi), just need to subtract log_p then to get log_psi
         args.no_critic = True # No (PPO) critic when using the twist formulation
-        args.init_kl_coef = 0 # Do not modify the reward with KL penalty for the twist learning losses
-        assert args.kl_target is None
+        if not args.do_harmlessness_training:
+            assert args.init_kl_coef == 0 # Do not modify the reward with KL penalty for the twist learning losses (harmlessness training will use the KL for the base actor learning
+            assert args.kl_target is None
         assert args.duplicate_rollout_batch_by > 1 # NOTE: this is also the "batch" or "number of particles" used in twist learning; for a given prompt, how many particles we use.
         assert args.parameterization != "policy" # Instead use one of "policy_psi_unnorm", "policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"
 
