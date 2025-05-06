@@ -842,9 +842,10 @@ class CombinedHarmlessnessTrainer(ABC):
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
 
+            print("REWARD VS RETURN COMPARISON")
             print(experience.info["reward"])
             print(experience.info["return"])
-            1/0
+            print(torch.abs(experience.info["reward"] - experience.info["return"]))
             # TODO afterwards, make this change for the rest of the learning methods too
 
             # final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
