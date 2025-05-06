@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('PDF')
 import matplotlib.pyplot as plt
-
+import scipy.stats as stats
 
 load_dir = "../info"
 
@@ -30,10 +30,12 @@ def populate_lists(load_prefixes):
 def get_last_avg_and_conf_bound(f_q_estimates_list, i):
     f_q_estimates = np.stack(f_q_estimates_list[i], axis=0)
     f_q_estimates = f_q_estimates.mean(axis=-1)  # Average over all samples for each seed
-    z_score = 1.96
+
+    t_value = stats.t.ppf(0.975, df=f_q_estimates.shape[0] - 1)
+
     f_q_avg = f_q_estimates.mean(axis=0)  # Average over seeds
     f_q_stdev = np.std(f_q_estimates, axis=0, ddof=1)  # stdev across seeds
-    conf_bound_f_q = z_score * f_q_stdev / np.sqrt(f_q_avg.shape[0])
+    conf_bound_f_q = t_value * f_q_stdev / np.sqrt(f_q_avg.shape[0])
     last_avg_f_q = f_q_avg[-1]
     last_conf_bound_f_q = conf_bound_f_q[-1]
     return last_avg_f_q, last_conf_bound_f_q

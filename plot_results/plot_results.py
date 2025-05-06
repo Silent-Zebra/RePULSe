@@ -13,11 +13,15 @@ sys.path.append(parent_dir)
 
 import datetime
 import copy
+import scipy.stats as stats
 
-def plot_with_conf_bounds(ax, record, x_range, label, z_score=1.96, **kwargs):
+def plot_with_conf_bounds(ax, record, x_range, label, **kwargs):
     avg = record.mean(axis=0)
     stdev = np.std(record, axis=0, ddof=1)
-    conf_bound = z_score * stdev / np.sqrt(record.shape[0])
+
+    t_value = stats.t.ppf(0.975, df=f_q_estimates.shape[0] - 1)
+
+    conf_bound = t_value * stdev / np.sqrt(record.shape[0])
 
     upper_conf_bound = avg + conf_bound
     lower_conf_bound = avg - conf_bound
