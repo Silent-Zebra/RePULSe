@@ -257,6 +257,11 @@ class BaseExperienceMaker(ABC):
         # print(r.mean())
         # print("--End Rewards--")
 
+        print("COMPUTE REWARD INSPECTION")
+        print(self.kl_ctl.value)
+        print(action_log_probs)
+        print(base_action_log_probs)
+
         rewards, kl = compute_reward(
             r,
             self.kl_ctl.value,
