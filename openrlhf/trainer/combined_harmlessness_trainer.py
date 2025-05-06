@@ -841,7 +841,14 @@ class CombinedHarmlessnessTrainer(ABC):
             # print(action_log_probs.shape)
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
-            final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
+
+            print(experience.info["reward"])
+            print(experience.info["return"])
+            1/0
+            # TODO afterwards, make this change for the rest of the learning methods too
+
+            # final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
+            final_reward_including_kl = experience.info["return"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             # print(action_log_probs)
@@ -851,7 +858,7 @@ class CombinedHarmlessnessTrainer(ABC):
 
             actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
-                final_reward,
+                final_reward_including_kl,
                 action_mask=exper_action_mask,
             )
 
