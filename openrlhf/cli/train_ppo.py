@@ -14,7 +14,7 @@ from openrlhf.datasets import PromptDataset, SFTDataset
 from openrlhf.models import Actor, get_llm_for_sequence_regression
 from openrlhf.models.actor_custom import ActorCustom, ActorCritic
 from openrlhf.trainer import BasePPOTrainer
-from openrlhf.trainer.harmlessness_trainer import HarmlessnessTrainer
+# from openrlhf.trainer.harmlessness_trainer import HarmlessnessTrainer # Have not tested this in a while
 from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessTrainer
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
@@ -542,7 +542,7 @@ def train(args):
             eps_clip=args.eps_clip,
             gamma=args.gamma,
             lambd=args.lambd,
-            init_kl_coef=0,
+            init_kl_coef=args.init_kl_coef,
             kl_target=args.kl_target,
             target_dist_beta=args.target_dist_beta, # TODO later check to make sure this is desired
             ema_beta=0.992,
@@ -581,7 +581,8 @@ def train(args):
             baseline_type_neg=args.neg_baseline_type,
             hardcoded_baseline_neg=args.neg_hardcoded_baseline,
             neg_data=neg_data,
-            reward_transform=args.reward_transform
+            reward_transform=args.reward_transform,
+            use_base_as_proposal=args.use_base_as_proposal
         )
         strategy.print("-----HARMLESSNESS TRAINING-----")
         # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
@@ -1163,7 +1164,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--critic_learning_rate", type=float, default=9e-6)
     parser.add_argument("--kl_target", type=float, default=None)
-    # parser.add_argument("--init_kl_coef", type=float, default=1., help="KL penalty in PPO") # DO NOT USE: USE THE TARGET_DIST_BETA
+    parser.add_argument("--init_kl_coef", type=float, default=1, help="KL penalty to prior/base model in PPO/REINFORCE")
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
 
 
@@ -1239,9 +1240,9 @@ if __name__ == "__main__":
                                  "p_continuation", "exp_beta_toxicity", "exp_beta_toxicity_class_logprob",
                                  "exp_beta_sentiment_class_logprob",
                                  "indicator_below_threshold", "sentiment_threshold",
-                                 "p_last_tokens", "toy_test", "toy_rlhf"])
+                                 "p_last_tokens", "toy_test", "rlhf"])
     parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score (or whatever score used for indicator_below_threshold)")
-    parser.add_argument("--reward_cap", type=float, default=10000, help="Only for use with toy_rlhf rm_type")
+    parser.add_argument("--reward_cap", type=float, default=10000, help="Only for use with rlhf rm_type")
     parser.add_argument(
         "--save_negdata", action="store_true", default=False, help="Save a dataset of negative examples"
     )
@@ -1268,7 +1269,7 @@ if __name__ == "__main__":
         default="ppo_%s" % datetime.now().strftime("%m%dT%H:%M"),
     )
 
-    parser.add_argument("--target_dist_beta", type=float, default=1., help="Beta in our SMC formulation of the target distribution of p_0 e^{beta r}")
+    parser.add_argument("--target_dist_beta", type=float, default=None, help="Beta in our SMC formulation of the target distribution of p_0 e^{beta r}. Auto-calculated based on KL coef for PPO. For harmlessness training, this is for the sigma target distribution for negative training/whatever unlearning method")
     parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
     parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
     parser.add_argument("--save_info_path", type=str, default="./info")
@@ -1325,6 +1326,8 @@ if __name__ == "__main__":
     parser.add_argument("--harmlessness_training_episodes_per_loop", type=int, default=1, help="Number of harmlessness training steps to do for each outer loop step")
 
     parser.add_argument("--sampling_target_updated_base", action="store_true", help="Only for the combined_harmlessness_trainer; if set, then the sampling_actor/twisted proposal tries to target the new, updated base model after base_actor has taken a gradient step. Otherwise, twisted proposal updates before the base_actor learns")
+    parser.add_argument("--use_base_as_proposal", action="store_true", help="Only for the combined_harmlessness_trainer; if set, then the sampling_actor/twisted proposal is just equivalent to the base actor, and no updates will be done to this.")
+
 
     parser.add_argument("--only_evaluate_on_neg_data", action="store_true", help="Only evaluate on neg_data")
     parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")
@@ -1358,16 +1361,19 @@ if __name__ == "__main__":
         args.actor_modulates_base = True
 
 
-    args.init_kl_coef = abs(1 / args.target_dist_beta)
-    if args.target_dist_beta > 1000:
-        args.init_kl_coef = 0
-    print(f"Init KL coef set to: {args.init_kl_coef}, based on target_dist_beta {args.target_dist_beta}")
-    # Because otherwise you don't have the equivalence between the RL formulation and the probabilistic inference formulation with target dist
+    if args.actor_loss_type == "ppo":
+        assert args.target_dist_beta is None # We'll automatically calculate based on init_kl_coef
+        args.target_dist_beta = round(abs(1 / args.init_kl_coef), 3)
+        print(f"target_dist_beta set to: {args.target_dist_beta}, based on init_kl_coef {args.init_kl_coef}")
+        # assert math.isclose(args.init_kl_coef, abs(1 / args.target_dist_beta), abs_tol=0.01) # Because otherwise you don't have the equivalence between the RL formulation and the probabilistic inference formulation with target dist
+        # assert args.init_kl_coef == abs(1 / args.target_dist_beta)
+    else:
+        assert args.target_dist_beta is not None
 
-    # assert args.init_kl_coef == 1 / args.target_dist_beta
-    # assert args.target_dist_beta == args.init_kl_coef
-    # if args.target_dist_beta != 1 or args.init_kl_coef != 1:
-    #     raise Exception("Be very careful; this has not been tested; be careful that the PPO = inference formulation is correctly implemented. Be careful about x or 1/x also.")
+    # args.init_kl_coef = abs(1 / args.target_dist_beta)
+    # if args.target_dist_beta > 1000:
+    #     args.init_kl_coef = 0
+    # print(f"Init KL coef set to: {args.init_kl_coef}, based on target_dist_beta {args.target_dist_beta}")
 
     assert args.kl_target is None # Just use fixed KL for now
 

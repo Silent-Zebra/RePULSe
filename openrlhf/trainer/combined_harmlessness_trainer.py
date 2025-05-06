@@ -24,6 +24,9 @@ from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_reward
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
 
+from openrlhf.models.model import INDICATOR_REWARD_EPS
+
+
 
 class CombinedHarmlessnessTrainer(ABC):
     """
@@ -101,6 +104,7 @@ class CombinedHarmlessnessTrainer(ABC):
         baseline_type_neg: Optional[str] = None,
         hardcoded_baseline_neg: Optional[float] = None,
         reward_transform: Optional[str] = None,
+        use_base_as_proposal: bool = False,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -152,6 +156,10 @@ class CombinedHarmlessnessTrainer(ABC):
         assert parameterization != ""
         self.parameterization = parameterization
 
+        self.rm_type = rm_type
+        self.threshold = threshold
+
+        self.use_base_as_proposal = use_base_as_proposal
 
         # Just do very simple negative training, REINFORCE (on base samples), and REINFORCE (on sigma samples)
         # Then have the ability to combine the above ones (we need REINFORCE on base samples, what is "actor" here, plus with either neg train or reinforce on bad (sigma) samples)
@@ -218,6 +226,11 @@ class CombinedHarmlessnessTrainer(ABC):
 
         assert base_critic is None # Not yet implemented/tested
 
+        self.separate_neg_samples = True
+        if self.base_actor_loss_type == "reinforce" or self.use_base_as_proposal:
+            self.separate_neg_samples = False
+
+
         # Base actor experience maker (for standard reinforce)
         self.base_experience_maker = BaseExperienceMaker(
             base_actor,
@@ -235,7 +248,7 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_cap,
             1, # target_dist_beta 1 here, because this is just going to need regular rewards for REINFORCE
             alpha,
-            rm_type,
+            "rlhf", # Use this to ensure the standard reward formulation
             base_actor_loss_type, # Does not matter, when the target_dist_beta is 1
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
@@ -244,34 +257,39 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_transform = self.reward_transform
         )
 
-        # Sampling actor experience maker (for approximate sigma samples)
-        # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
-        self.sampling_experience_maker_neg = BaseExperienceMaker(
-            sampling_actor,
-            sampling_critic,
-            reward_model,
-            base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
-            tokenizer,
-            prompt_max_len,
-            self.kl_ctl,
-            strategy,
-            remote_rm_url,
-            reward_fn,
-            shared_actorcritic,
-            threshold,
-            reward_cap,
-            target_dist_beta,
-            alpha,
-            rm_type,
-            sampling_actor_loss_type,
-            self.generate_kwargs['max_new_tokens'],
-            save_negdata=save_negdata,
-            save_negdata_threshold=save_negdata_threshold,
-            neg_data=self.neg_data,
-            reward_transform=self.reward_transform
-        )
+        self.sampling_experience_maker_neg = None
+        if self.separate_neg_samples:
+            # Sampling actor experience maker (for approximate sigma samples)
+            # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
+            self.sampling_experience_maker_neg = BaseExperienceMaker(
+                sampling_actor,
+                sampling_critic,
+                reward_model,
+                base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
+                tokenizer,
+                prompt_max_len,
+                self.kl_ctl,
+                strategy,
+                remote_rm_url,
+                reward_fn,
+                shared_actorcritic,
+                threshold,
+                reward_cap,
+                target_dist_beta,
+                alpha,
+                rm_type,
+                sampling_actor_loss_type,
+                self.generate_kwargs['max_new_tokens'],
+                save_negdata=save_negdata,
+                save_negdata_threshold=save_negdata_threshold,
+                neg_data=self.neg_data,
+                reward_transform=self.reward_transform
+            )
+
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
-        self.sampling_replay_buffer_neg = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
+        self.sampling_replay_buffer_neg = None
+        if self.separate_neg_samples:
+            self.sampling_replay_buffer_neg = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 
         self._wandb = None
         if self.strategy.args.use_wandb and self.strategy.is_rank_0():
@@ -443,9 +461,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     samples_per_prompt=args.duplicate_rollout_batch_by,
                     **self.generate_kwargs
                 )
-                if self.base_actor_loss_type == "reinforce":
-                    experience_neg_sampling = experience  # This experience_neg will not be used with reinforce anyway
-                else:
+                if self.separate_neg_samples:
                     print("Making experience: neg sampling")
 
                     experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
@@ -453,6 +469,8 @@ class CombinedHarmlessnessTrainer(ABC):
                         samples_per_prompt=args.duplicate_rollout_batch_by,
                         **self.generate_kwargs
                     )
+                else:
+                    experience_neg_sampling = None  # This experience_neg will not be used with reinforce anyway
 
                 # print("PROFILE1")
                 # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
@@ -463,7 +481,8 @@ class CombinedHarmlessnessTrainer(ABC):
                     output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
                     self.strategy.print(output[0])
                 self.base_replay_buffer.append(experience)
-                self.sampling_replay_buffer_neg.append(experience_neg_sampling)
+                if self.separate_neg_samples:
+                    self.sampling_replay_buffer_neg.append(experience_neg_sampling)
 
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:
@@ -476,12 +495,14 @@ class CombinedHarmlessnessTrainer(ABC):
 
                     torch.cuda.empty_cache()
                     self.base_replay_buffer.normalize(self.strategy, "advantages")
-                    self.sampling_replay_buffer_neg.normalize(self.strategy, "advantages")
+                    if self.separate_neg_samples:
+                        self.sampling_replay_buffer_neg.normalize(self.strategy, "advantages")
 
                     assert custom_prompt is None
                     status = self.train(global_steps, custom_prompt=custom_prompt)
                     self.base_replay_buffer.clear()
-                    self.sampling_replay_buffer_neg.clear()
+                    if self.separate_neg_samples:
+                        self.sampling_replay_buffer_neg.clear()
                     torch.cuda.empty_cache()
 
                     if "kl" in status:
@@ -534,87 +555,48 @@ class CombinedHarmlessnessTrainer(ABC):
             pin_memory=self.dataloader_pin_memory,
             collate_fn=self.base_replay_buffer.collate_fn,
         )
-        dataloader_neg = DataLoader(
-            self.sampling_replay_buffer_neg,
-            batch_size=self.sampling_replay_buffer_neg.sample_batch_size,
-            shuffle=self.sampling_shuffle_replay_buffer_sample,
-            drop_last=True,
-            pin_memory=self.dataloader_pin_memory,
-            collate_fn=self.sampling_replay_buffer_neg.collate_fn,
-        )
+        dataloader_neg = None
+        if self.separate_neg_samples:
+            dataloader_neg = DataLoader(
+                self.sampling_replay_buffer_neg,
+                batch_size=self.sampling_replay_buffer_neg.sample_batch_size,
+                shuffle=self.sampling_shuffle_replay_buffer_sample,
+                drop_last=True,
+                pin_memory=self.dataloader_pin_memory,
+                collate_fn=self.sampling_replay_buffer_neg.collate_fn,
+            )
         device = torch.cuda.current_device()
 
         status_list = []
         status_mean = {}
         for epoch in range(self.max_epochs):
-            assert len(dataloader) == len(dataloader_neg)
-            pbar = tqdm(
-                zip(dataloader, dataloader_neg),  # Zip both dataloaders
-                desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
-                disable=not self.strategy.is_rank_0(),
-                total=min(len(dataloader), len(dataloader_neg))  # Ensure tqdm gets a proper length
-            )
+            if self.separate_neg_samples:
+                assert len(dataloader) == len(dataloader_neg)
+                pbar = tqdm(
+                    zip(dataloader, dataloader_neg),  # Zip both dataloaders
+                    desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
+                    disable=not self.strategy.is_rank_0(),
+                    total=min(len(dataloader), len(dataloader_neg))  # Ensure tqdm gets a proper length
+                )
 
-            # pbar = tqdm(
-            #     dataloader,
-            #     desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
-            #     disable=not self.strategy.is_rank_0(),
-            # )
-            # for experience in pbar:
-            for experience, experience_neg_sampling in pbar:
-                experience.to_device(device)
-                experience_neg_sampling.to_device(device)
-
-                # print("EXPERIENCE NEG INFO")
-                # print(experience_neg_sampling.sequences)
-                # print(experience_neg_sampling.info["reward"])
-                # print((experience_neg_sampling.action_log_probs * experience_neg_sampling.action_mask).sum(-1))
-                # print(experience_neg_sampling.info)
-
-                status = self.training_step(experience, experience_neg_sampling, global_steps, custom_prompt=custom_prompt)
-
-                # for DP
-                # weighted mean for kl
-                for x in ["sampling", "base"]:
-                    if f"{x}_kl" in status:
-                        status[f"{x}_kl"] *= status[f"{x}_response_length"]
-                        status = self.strategy.all_reduce(status)
-                        status[f"{x}_kl"] /= status[f"{x}_response_length"]
-
-                short_status = {
-                    "srm": status["sampling_reward"],
-                    "sret": status["sampling_return"],
-                    "sglen": status["sampling_response_length"],
-                    "stlen": status["sampling_total_length"],
-                    "skl": status["sampling_kl"],
-                    "sact_lr": status["sampling_actor_lr"],
-                    "bpg": status["base_policy_loss"],
-                    "brm": status["base_reward"],
-                    "bret": status["base_return"],
-                    "bglen": status["base_response_length"],
-                    "btlen": status["base_total_length"],
-                    "bkl": status["base_kl"],
-                    "bact_lr": status["base_actor_lr"],
-                }
-                if "sampling_policy_loss" in status:
-                    short_status["spg"] = status["sampling_policy_loss"]
-                    short_status["bpg"] = status["base_policy_loss"]
-                if "sampling_f_q" in status:
-                    short_status["sf_q"] = status["sampling_f_q"]
-
-                if "critic_loss" in status:
-                    raise NotImplementedError
-                    # short_status["cri"] = status["critic_loss"]
-                    # short_status["vals"] = status["values"]
-                    # if "critic_lr" in status:
-                    #     short_status["cri_lr"] = status["critic_lr"]
-
-                if "ptx_loss" in status:
-                    raise NotImplementedError
-                    # short_status["ptx"] = status["ptx_loss"]
-
-                status_list.append(status)
-                pbar.set_postfix(short_status)
+                # pbar = tqdm(
+                #     dataloader,
+                #     desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
+                #     disable=not self.strategy.is_rank_0(),
+                # )
+                # for experience in pbar:
+                for experience, experience_neg_sampling in pbar:
+                    self.train_on_experiences(custom_prompt, device, experience, experience_neg_sampling, global_steps,
+                                              pbar, status_list)
+            else:
+                pbar = tqdm(
+                    dataloader,
+                    desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
+                    disable=not self.strategy.is_rank_0(),
+                )
+                for experience in pbar:
+                    self.train_on_experiences(custom_prompt, device, experience, experience, global_steps,
+                                              pbar, status_list)
 
         if status_list:
             status_mean = status_list[0]
@@ -625,6 +607,60 @@ class CombinedHarmlessnessTrainer(ABC):
                 status_mean[k] /= len(status_list)
         return status_mean
 
+    def train_on_experiences(self, custom_prompt, device, experience, experience_neg_sampling, global_steps, pbar,
+                             status_list):
+        experience.to_device(device)
+        experience_neg_sampling.to_device(device)
+        # print("EXPERIENCE NEG INFO")
+        # print(experience_neg_sampling.sequences)
+        # print(experience_neg_sampling.info["reward"])
+        # print((experience_neg_sampling.action_log_probs * experience_neg_sampling.action_mask).sum(-1))
+        # print(experience_neg_sampling.info)
+        status = self.training_step(experience, experience_neg_sampling, global_steps, custom_prompt=custom_prompt)
+        # for DP
+        # weighted mean for kl
+        for x in ["sampling", "base"]:
+            if f"{x}_kl" in status:
+                status[f"{x}_kl"] *= status[f"{x}_response_length"]
+                status = self.strategy.all_reduce(status)
+                status[f"{x}_kl"] /= status[f"{x}_response_length"]
+        short_status = {
+            "bpg": status["base_policy_loss"],
+            "brm": status["base_reward"],
+            "bret": status["base_return"],
+            "bglen": status["base_response_length"],
+            "btlen": status["base_total_length"],
+            "bkl": status["base_kl"],
+            "bact_lr": status["base_actor_lr"],
+        }
+        if "sampling_reward" in status:
+            sampling_short_status = {
+                "srm": status["sampling_reward"],
+                "sret": status["sampling_return"],
+                "sglen": status["sampling_response_length"],
+                "stlen": status["sampling_total_length"],
+                "skl": status["sampling_kl"],
+                "sact_lr": status["sampling_actor_lr"],
+            }
+            status.update(sampling_short_status)
+
+        if "sampling_policy_loss" in status:
+            short_status["spg"] = status["sampling_policy_loss"]
+        if "base_policy_loss" in status:
+            short_status["bpg"] = status["base_policy_loss"]
+        if "sampling_f_q" in status:
+            short_status["sf_q"] = status["sampling_f_q"]
+        if "critic_loss" in status:
+            raise NotImplementedError
+            # short_status["cri"] = status["critic_loss"]
+            # short_status["vals"] = status["values"]
+            # if "critic_lr" in status:
+            #     short_status["cri_lr"] = status["critic_lr"]
+        if "ptx_loss" in status:
+            raise NotImplementedError
+            # short_status["ptx"] = status["ptx_loss"]
+        status_list.append(status)
+        pbar.set_postfix(short_status)
 
     def training_step(self, experience: Experience, experience_neg_sampling: Experience, global_steps, custom_prompt=None) -> Dict[str, float]:
         status = {}
@@ -635,15 +671,18 @@ class CombinedHarmlessnessTrainer(ABC):
                 if self.sampling_target_updated_base:
                     # Do the base model update first, and do the twist/proposal learning based on sigma which is based on the updated base model
                     status = self.training_step_base_actor(experience, experience_neg_sampling, custom_prompt=custom_prompt)
-                    status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
+                    if self.separate_neg_samples:
+                        status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
                 else:
                     # Do the twist/proposal learning based on sigma which is based on the base model before its update
-                    status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
+                    if self.separate_neg_samples:
+                        status_sampling = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
                     status = self.training_step_base_actor(experience, experience_neg_sampling, custom_prompt=custom_prompt)
                 # Note that the updates to the sampling actor don't change the experience_maker_neg_sampling log probs that were already stored there
                 # So the only direction of effect is that changing the base model can change the sampling actor target.
                 # But in later iterations, the sampling actor should be different, which means the neg train loss should be different...
-                status.update(status_sampling)
+                if self.separate_neg_samples:
+                    status.update(status_sampling)
 
             if self.base_critic is not None:
                 raise NotImplementedError
@@ -852,6 +891,19 @@ class CombinedHarmlessnessTrainer(ABC):
                 experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
                 final_reward_neg
             )
+
+            if self.rm_type == "indicator_below_threshold":
+                # Only have any weight (do the negative training/gradient ascent/-SFT) on any samples that satisfy the indicator function
+                # print(final_reward_neg)
+                # print(normalized_w_t_approx_sigma_samples)
+                normalized_w_t_approx_sigma_samples = normalized_w_t_approx_sigma_samples * (torch.exp(final_reward_neg) > INDICATOR_REWARD_EPS * 2) # Assign 0 weights to all samples that do not satisfy the indicator. This really only makes a difference if all the samples do not satisfy the indicator, in which case this ensures no negative training update is applied, otherwise all samples would get equal weights and pushed down equally even if none satisfy the indicator, which is probably not what we want (we don't want to just randomly push down on a bunch of samples that aren't from the target)
+                # print(torch.exp(final_reward_neg))
+                # print(INDICATOR_REWARD_EPS * 2)
+                # print((torch.exp(final_reward_neg) < INDICATOR_REWARD_EPS * 2))
+                # 1/0
+                print("Indicator weights inspection")
+                print(final_reward_neg)
+                print(normalized_w_t_approx_sigma_samples)
 
             actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
