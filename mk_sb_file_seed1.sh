@@ -30,7 +30,7 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--critic_learning_rate") critic_lr = $(i+1)
         if($i == "--base_actor_learning_rate") baseactor_lr = "_baselr"$(i+1)
         # if($i == "--target_dist_beta") target_beta = "_beta"$(i+1)
-        if($i ~ /^--target_dist_beta(=|$)/) target_beta = ($i ~ /=/) ? gensub(/^[^=]+=/, "", "g", $i) : $(i+1)
+        if($i ~ /^--target_dist_beta(=|$)/) target_beta = ($i ~ /=/) ? gensub(/^[^=]+=/, "", "g", $i) : "_beta"$(i+1)
         if($i ~ /^--save_negdata_threshold(=|$)/) save_negdata_threshold = ($i ~ /=/) ? "_savethr" gensub(/^[^=]+=/, "", "g", $i) : "_savethr" $(i+1)
         if($i ~ /^--threshold(=|$)/) threshold = ($i ~ /=/) ? "_thresh" gensub(/^[^=]+=/, "", "g", $i) : "_thresh" $(i+1)
         if($i == "--lr_scheduler") lr_sched = $(i+1)
