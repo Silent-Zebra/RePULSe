@@ -18,7 +18,6 @@ import scipy.stats as stats
 n_epochs = 80
 policy_updates_per_epoch = 5
 
-ylabel_bad = "Log Total Prob of Bad Word"
 
 from scipy.stats import norm
 # from scipy import stats
@@ -298,6 +297,8 @@ from scipy.stats import norm
 
 
 
+ylabel_bad = "Total Prob of Bad Output (reward < threshold)"
+
 def make_frontier_bootstrap(
     xlabel, ylabel, figname, labels, results_list,
     color_list, marker_list, xlimlow=None, xlimhigh=None, fontsize=7,
@@ -346,7 +347,7 @@ def make_frontier_bootstrap(
                 # print(len(t[0]))
                 # print(t[0][0].shape)
                 if isinstance(t, tuple):
-                    t = t[0] # get just the returns values
+                    t = t[0] # get just the reward values for now
                     if isinstance(t, list):
                         t = torch.cat(t)
 
@@ -477,75 +478,190 @@ if do_load:
             "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
         ],
     ]
+    load_prefixes_to_use = [
+        # [
+        # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+        # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+        # ],
+        [
+        # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+            "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
+            "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
+
+        ],
+        [
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
+        ],
+        [
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+        "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+        ],
+        [
+            "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+            "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2",
+            "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s3",
+        ],
+        # [
+        #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
+        #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
+        #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s3",
+        # ],
+        # [
+        #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+        #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+        #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+        # ]
+    ]
+    load_prefixes_to_use = [
+        [
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s3",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s4",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s6",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s7",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s8",
+        ],
+        [
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s3",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s4",
+        "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
+        ],
+        [
+            "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+            "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+            "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+            "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
+            "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
+        ],
+        # 1/0 # TODO note this is not quite right, as now the threshold on bad outputs will be calculated on the ret values as well... what you need to do is load both the standard rew and the ret values if you want to do the comparison that way...
+    ]
+
     # load_prefixes_to_use = [
-    #     # [
-    #     # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
-    #     # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
-    #     # ],
     #     [
-    #     # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-    #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
-    #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
-    #         "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
-    #         "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
-    #
-    #     ],
-    #     # [
-    #     # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-    #     # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
-    #     # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
-    #     # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
-    #     # "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
-    #     # ],
-    #     [
-    #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-    #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
-    #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
     #     ],
     #     [
-    #         "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-    #         "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2",
-    #         "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s5",
+    #     ],
+    #     [
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s5",
+    #     ],
+    #     [
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s5",
+    #     ],
+    #     [
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s5",
     #     ],
     #     # [
-    #     #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-    #     #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
-    #     #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s3",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
+    #     # ],
+    #     [
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s5",
+    #     ],
+    #     # [
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
     #     # ],
     #     # [
-    #     #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-    #     #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
-    #     #     "rewards_eval_toy_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s3",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s4",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s5",
+    #     # ],
+    #     # [
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
+    #     #     "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
     #     # ]
-    #
     # ]
+    #
     # load_prefixes_to_use = [
     #     [
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s3",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s4",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s6",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s7",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s8",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s5",
     #     ],
     #     [
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s3",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s4",
-    #     "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
     #     ],
     #     [
-    #         "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-    #         "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
-    #         "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
-    #         "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
-    #         "otherinfo_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
     #     ],
-    #     1/0 # TODO note this is not quite right, as now the threshold on bad outputs will be calculated on the ret values as well... what you need to do is load both the standard rew and the ret values if you want to do the comparison that way...
+    #     [
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s4",
+    #     ],
+    #     [
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
+    #     ],
+    #     [
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s3",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s4",
+    #         "rewards_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
+    #     ],
     # ]
+
 
     # labels = [
     #     r"a0.001 alr0.0001_blr3e-05",
@@ -561,7 +677,7 @@ if do_load:
 
     labels = ['_'.join(a[0].split('len20_')[-1].split('_policy_psi_q_p_s_t_ctl_epochs1_schedconstant_')).split('_policy_psi_q_p_s_t')[0] for a in load_prefixes_to_use]
 
-    figname_modifier = "len20_05_06_bootstrap_ret"
+    figname_modifier = "len20_05_07_bootstrap_oldresults"
 
 
     results_list = [[] for i in range(len(load_prefixes_to_use))]
