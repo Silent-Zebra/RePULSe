@@ -204,7 +204,11 @@ def get_info_name_str(args):
     # sddiv_str = f"_sddiv{args.additional_sd_divider}"
     sddiv_str = ""
 
-    info_name_str = f"{args.rm_type}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_beta{args.target_dist_beta}_kl{args.init_kl_coef}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epochs{args.max_epochs}{eval_str}_sched{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}_s{args.seed}"
+    n_episodes = args.num_episodes
+    if args.do_harmlessness_training:
+        n_episodes = args.harmlessness_training_num_episodes
+
+    info_name_str = f"{args.rm_type}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_beta{args.target_dist_beta}_kl{args.init_kl_coef}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epo{args.max_epochs}_epi{n_episodes}{eval_str}_sch{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}_s{args.seed}"
 
     return info_name_str
 

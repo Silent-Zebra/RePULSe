@@ -675,6 +675,16 @@ def train(args):
     #     )
 
     if args.evaluate_heldout_sampling or args.evaluate_on_neg_data:
+        args.rm_type = "rlhf"
+        args.target_dist_beta = 1
+        args.reward_transform = None
+        reward_model, strip_question_chat_template_fn = get_reward_model(args, strategy)
+        reward_model = strategy.prepare(
+            reward_model,
+            is_rlhf=True,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+        )
+
         assert args.heldout_prompt_data is not None
         assert args.heldout_input_key is not None
         args.no_critic = True
@@ -685,8 +695,6 @@ def train(args):
         args.prompt_split = args.heldout_prompt_split
         args.input_key = args.heldout_input_key
         args.input_template = args.heldout_input_template
-        args.target_dist_beta = 1
-        args.reward_transform = None
         args.model_eval = True
 
         strategy = get_strategy(args)
@@ -747,6 +755,9 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
     # print(rewards)
     # print(len(rewards))
     rewards = torch.cat(rewards)
+    # returns = torch.cat(returns)
+    # entropy = torch.cat(entropy)
+    # kls = torch.cat(kls)
     # print(rewards)
     # print(rewards.shape)
     strategy.print(f"Average reward: {rewards.mean().item()}")
