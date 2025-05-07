@@ -679,6 +679,11 @@ def train(args):
         args.target_dist_beta = 1
         args.reward_transform = None
         reward_model, strip_question_chat_template_fn = get_reward_model(args, strategy)
+        reward_model = strategy.prepare(
+            reward_model,
+            is_rlhf=True,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+        )
 
         assert args.heldout_prompt_data is not None
         assert args.heldout_input_key is not None
