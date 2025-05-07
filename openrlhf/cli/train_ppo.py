@@ -675,6 +675,11 @@ def train(args):
     #     )
 
     if args.evaluate_heldout_sampling or args.evaluate_on_neg_data:
+        args.rm_type = "rlhf"
+        args.target_dist_beta = 1
+        args.reward_transform = None
+        reward_model, strip_question_chat_template_fn = get_reward_model(args, strategy)
+
         assert args.heldout_prompt_data is not None
         assert args.heldout_input_key is not None
         args.no_critic = True
@@ -685,8 +690,6 @@ def train(args):
         args.prompt_split = args.heldout_prompt_split
         args.input_key = args.heldout_input_key
         args.input_template = args.heldout_input_template
-        args.target_dist_beta = 1
-        args.reward_transform = None
         args.model_eval = True
 
         strategy = get_strategy(args)
