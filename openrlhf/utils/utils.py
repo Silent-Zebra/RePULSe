@@ -7,6 +7,9 @@ import torch
 
 import re
 
+from openrlhf.models import Actor
+from openrlhf.models.actor_custom import ActorCustom
+
 DEFAULT_PAD_TOKEN = "[PAD]"
 DEFAULT_EOS_TOKEN = "</s>"
 DEFAULT_BOS_TOKEN = "<s>"
@@ -219,3 +222,62 @@ def inspect_rewards_list(rewards_list):
     for last in lasts:
         print(f"Last {last} reward average")
         print(rewards_tensor[-last:].mean())
+
+# New function to load model and tokenizer
+def load_model_and_tokenizer(args, strategy):
+    """
+    Loads the actor model and tokenizer based on provided arguments and strategy.
+
+    Args:
+        args: Command line arguments containing model configuration.
+        strategy: The distributed training/evaluation strategy object.
+
+    Returns:
+        tuple: A tuple containing the loaded and prepared actor model and the tokenizer.
+    """
+    # Create base actor first
+    base_actor = Actor(
+        args.pretrain,
+        use_flash_attention_2=getattr(args, 'flash_attn', False),
+        bf16=getattr(args, 'bf16', False),
+        load_in_4bit=getattr(args, 'load_in_4bit', False),
+        ds_config=strategy.get_ds_eval_config(offload=False), # Use eval config for base
+    )
+
+    # Create the actual actor based on parameterization
+    if "policy" not in getattr(args, 'parameterization', 'policy'): # Default to 'policy' if not present
+        actor = ActorCustom(
+            args.pretrain,
+            initial_model=base_actor,
+            use_flash_attention_2=getattr(args, 'flash_attn', False),
+            bf16=getattr(args, 'bf16', False),
+            load_in_4bit=getattr(args, 'load_in_4bit', False),
+            lora_rank=getattr(args, 'lora_rank', 0),
+            lora_alpha=getattr(args, 'lora_alpha', 0),
+            target_modules=getattr(args, 'target_modules', None),
+            lora_dropout=getattr(args, 'lora_dropout', 0),
+            ds_config=strategy.get_ds_train_config(is_actor=True), # Use train config for custom actor
+            parameterization=args.parameterization,
+            additional_sd_divider=getattr(args, 'additional_sd_divider', 1.0),
+            init_head_from_base=getattr(args, 'init_head_from_base', False)
+        )
+    else:
+        actor = base_actor
+
+    # Initialize with DeepSpeed
+    # Pass is_rlhf=True as it was in the original script context
+    actor = strategy.prepare(actor.eval(), is_rlhf=True)
+
+    # Get tokenizer for the actor model
+    # Use getattr for optional 'disable_fast_tokenizer' arg
+    use_fast = not getattr(args, 'disable_fast_tokenizer', False)
+    tokenizer = get_tokenizer(args.pretrain, actor.model, "left", strategy, use_fast=use_fast)
+
+    # Ensure pad token is set for generation
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        if hasattr(actor.model, 'config') and hasattr(actor.model.config, 'pad_token_id'):
+            actor.model.config.pad_token_id = tokenizer.pad_token_id
+
+    return actor, tokenizer
