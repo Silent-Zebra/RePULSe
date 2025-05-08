@@ -755,9 +755,9 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
     # print(rewards)
     # print(len(rewards))
     rewards = torch.cat(rewards)
-    # returns = torch.cat(returns)
-    # entropy = torch.cat(entropy)
-    # kls = torch.cat(kls)
+    returns = torch.cat(returns)
+    entropy = torch.cat(entropy)
+    kls = torch.cat(kls)
     # print(rewards)
     # print(rewards.shape)
     strategy.print(f"Average reward: {rewards.mean().item()}")
@@ -769,11 +769,10 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         strategy.print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
         strategy.print(
             f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
-    save_str = f"{args.save_info_path}/rewards_eval_{info_name_str}"
-    torch.save(rewards, save_str)
 
-    save_str = f"{args.save_info_path}/otherinfo_eval_{info_name_str}"
-    torch.save((returns, kls, entropy), save_str)
+
+    save_str = f"{args.save_info_path}/info_eval_{info_name_str}"
+    torch.save((rewards, returns, kls, entropy), save_str)
 
 
 
