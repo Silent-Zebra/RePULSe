@@ -300,77 +300,41 @@ def ITGIS(
 
             # --- End Gradient Calculation ---
 
-        # --- Calculate P(Y | X) using sequential forward passes ---
-        # Instead of checking if greedy generation matches, calculate the actual
-        # conditional probability P(Y|X) = P(T1|X) * P(T2|X,T1) * ...
-        # This is required for the correct importance sampling estimator.
+        # --- Calculate P(target | input) using a standard Actor forward pass ---
+        # NOTE: This simplification removes the 'use_argmax' functionality previously
+        # present, which allowed estimating probability based on whether greedy generation matching the target.
+        # The 'prob_or_match' variable will now always represent exp(log P(target | input)).
         with th.no_grad():
-            past_key_values = None # Initialize KV cache state
-            # Accumulator for log P(Y|X) = log P(T1|X) + log P(T2|X,T1) + ...
-            total_log_prob_y_given_x = th.zeros(batch_size, device=device)
-            # Tracker for argmax match
-            all_steps_match_argmax = th.ones(batch_size, dtype=th.bool, device=device) # Start assuming match
+            # 1. Prepare combined input sequences (input + target)
+            expanded_target_ids = target_ids_tensor.unsqueeze(0).expand(batch_size, -1) # (batch_size, num_target_tokens)
+            combined_sequences = th.cat([samples, expanded_target_ids], dim=1) # (batch_size, ctx_len + num_target_tokens)
 
-            # Use the initial logits computed during the gradient pass for the first token prediction
-            current_logits_for_prob = logits
+            # 2. Create an attention mask for the combined sequence.
+            # This assumes that 'samples' and 'target_ids' do not contain internal padding
+            # and represent contiguous blocks of tokens. If 'samples' had its own attention_mask,
+            # it should be used for the first part of combined_attention_mask.
+            combined_attention_mask = th.ones_like(combined_sequences, device=device, dtype=th.long)
+            
+            # 3. Call Actor's forward method to get log probabilities for the target tokens (Y)
+            log_probs_y_given_x = model.forward(
+                sequences=combined_sequences,
+                num_actions=num_target_tokens,
+                attention_mask=combined_attention_mask,
+                return_type='p' # Ensures log P(token | context) is returned for the action sequence
+            ) # Expected shape: (batch_size, num_target_tokens)
 
-            # We need initial KV cache. A simple way is to re-run the first pass if needed.
-            # Alternatively, if transformer_outputs contained past_key_values, use that.
-            # Re-running might be cleaner if initial grad pass had use_cache=False.
-            # Let's assume for now we can get the initial KV cache if needed.
-            # TODO: Ensure initial past_key_values are correctly obtained if t > 0 requires them.
+            # 4. Sum log probabilities along the sequence dimension to get total log P(target|input) for each item in the batch
+            total_log_prob_y_given_x = log_probs_y_given_x.sum(dim=-1) # Shape: (batch_size,)
 
-            for t in range(num_target_tokens):
-                if t > 0:
-                    # Prepare inputs for subsequent steps using the *actual* previous target token
-                    input_ids_step = target_ids_tensor[t-1].repeat(batch_size).unsqueeze(-1) # Shape: (batch_size, 1)
+            # 5. Calculate P(target|input) = exp(log P(target|input))
+            # As noted above, the 'use_argmax' conditional path and its associated logic
+            # (all_steps_match_argmax) are removed in this simplified version.
+            prob_or_match = th.exp(total_log_prob_y_given_x) # Shape: (batch_size,)
 
-                    # Requires handling attention_mask correctly if model uses it.
-                    # Assuming prepare_inputs handles mask extension based on past_key_values.
-                    model_inputs = hf_model.prepare_inputs_for_generation(
-                        input_ids=input_ids_step,
-                        past_key_values=past_key_values,
-                        use_cache=True
-                    )
-                    # Ensure all necessary inputs are present
-                    forward_kwargs = model_inputs.copy() # Start with prepared inputs
-                    forward_kwargs.update({
-                        "return_dict": True,
-                        "output_hidden_states": False,
-                        "output_attentions": False,
-                        "use_cache": True
-                    })
-
-
-                    outputs = hf_model(**forward_kwargs)
-                    current_logits_for_prob = outputs.logits[:, -1, :] # Logits for the token predicted *after* input_ids_step
-                    past_key_values = outputs.past_key_values # Update KV cache for the next step
-
-                # --- Calculate Softmax Probability (if needed) ---
-                if not use_argmax:
-                    # Calculate log probability of the target token at the current step t
-                    log_probs_step = th.log_softmax(current_logits_for_prob, dim=-1)
-                    # Gather prob of the specific target token target_ids[t] for this step
-                    target_log_prob_step = log_probs_step[th.arange(batch_size), target_ids[t]]
-                    total_log_prob_y_given_x += target_log_prob_step
-
-                # --- Calculate Argmax Match (if needed) ---
-                if use_argmax:
-                    predicted_token_id = current_logits_for_prob.argmax(dim=-1)
-                    current_step_matches = (predicted_token_id == target_ids[t])
-                    all_steps_match_argmax = all_steps_match_argmax & current_step_matches # Update overall match status
-
-
-            # Final probability P(Y | X) = exp( sum of log probabilities ) OR Argmax match
-            if use_argmax:
-                prob_or_match = all_steps_match_argmax.float() # Convert boolean (True=1.0, False=0.0)
-            else:
-                prob_or_match = th.exp(total_log_prob_y_given_x) # Shape: (batch_size,)
-
-        # --- End P(Y | X) Calculation ---
+        # --- End P(target | input) Calculation ---
 
         # Calculate weighted probabilities for the current batch using the calculated probability or match result
-        batch_weighted_probs = th.exp(logratios.sum(-1)) * prob_or_match.detach() # Use the computed P(Y|X) or match result
+        batch_weighted_probs = th.exp(logratios.sum(-1)) * prob_or_match.detach()
 
         # Update accumulators
         total_weighted_prob_sum += batch_weighted_probs.sum().item()
@@ -533,132 +497,32 @@ def MHIS(
             scores_out = target_logit_score.detach().clone()
             embeddings.grad = None # Clear grad
 
-        # --- Calculate P(Y | X) using sequential forward passes (No Grad) --- #
-        # This pass computes the actual probability P(Y|X) needed for weighting.
+        # --- Calculate P(target seq | input seq) using a standard Actor forward pass (No Grad) --- #
         with th.no_grad():
-            total_log_prob_y_given_x = th.zeros(_batch_size, device=device)
-            all_steps_match_argmax = th.ones(_batch_size, dtype=th.bool, device=device) # Tracker for argmax match
-            past_key_values = None
-            current_input_ids = samples # Start with the original context
-            current_attention_mask = th.ones_like(samples, device=device)
+            # 1. Prepare combined input sequences (input seq + target seq)
+            expanded_target_ids = target_ids_tensor.unsqueeze(0).expand(_batch_size, -1) # Shape: (_batch_size, num_target_tokens)
+            combined_sequences = th.cat([samples, expanded_target_ids], dim=1) # Shape: (_batch_size, _seq_len + num_target_tokens)
 
-            for t in range(num_target_tokens):
-                # Prepare inputs for the current step t
-                # print(f"Preparing inputs for step {t}...")
-                # print(f"Current input IDs: {current_input_ids.shape}")
-                # print(f"Past key values: {past_key_values}")
-                # print(f"Current attention mask: {current_attention_mask.shape}")
+            # 2. Create an attention mask for the combined sequence
+            combined_attention_mask = th.ones_like(combined_sequences, device=device, dtype=th.long)
+            
+            # 3. Call Actor's forward method to get log probabilities for the target tokens
+            log_probs_y_given_x = model.forward(
+                sequences=combined_sequences,
+                num_actions=num_target_tokens,
+                attention_mask=combined_attention_mask,
+                return_type='p' # Ensures log P(token | context) is returned
+            ) # Expected shape: (_batch_size, num_target_tokens)
 
-                if t == 0:
-                    # For the first step, use prepare_inputs_for_generation with the full context
-                    model_inputs = hf_model.prepare_inputs_for_generation(
-                        input_ids=current_input_ids,
-                        past_key_values=past_key_values, # Should be None here
-                        attention_mask=current_attention_mask,
-                        use_cache=True
-                    )
-                    forward_kwargs_prob = model_inputs.copy()
-                else:
-                    # For subsequent steps (t > 0), manually construct inputs using KV cache
-                    current_seq_len = current_attention_mask.shape[1]
-                    position_ids = th.full((_batch_size, 1), current_seq_len - 1, dtype=th.long, device=device) # Position is length - 1
-                    # print(f"Manual position_ids: {position_ids.shape} (Value: {position_ids[0].item()})")
+            # 4. Sum log probabilities to get total log P(target seq | input seq) for each item in the batch
+            total_log_prob_y_given_x = log_probs_y_given_x.sum(dim=-1) # Shape: (_batch_size,)
 
-                    forward_kwargs_prob = {
-                        "input_ids": current_input_ids, # Shape: [batch_size, 1]
-                        "attention_mask": current_attention_mask, # Shape: [batch_size, original_len + t]
-                        "position_ids": position_ids, # Shape: [batch_size, 1]
-                        "past_key_values": past_key_values,
-                    }
+            # 5. Calculate P(target seq | input seq) = exp(log P(target seq | input seq))
+            # Both outputs related to P(target seq | input seq) are now set to this probability.
+            prob_y_given_x_out = th.exp(total_log_prob_y_given_x) 
+            argmax_matches_out = prob_y_given_x_out.clone()
 
-                # Clean up kwargs for model's forward method based on its signature
-                valid_forward_keys = inspect.signature(hf_model.forward).parameters
-                keys_to_remove = [k for k in forward_kwargs_prob if k not in valid_forward_keys]
-                for k in keys_to_remove:
-                     forward_kwargs_prob.pop(k)
-
-                # Ensure necessary args are present if needed by model (redundant if cleaned above?)
-                # if "attention_mask" not in forward_kwargs_prob and "attention_mask" in valid_forward_keys:
-                #      forward_kwargs_prob["attention_mask"] = current_attention_mask
-                # if "position_ids" not in forward_kwargs_prob and "position_ids" in valid_forward_keys and t > 0:
-                #      # This case should be covered by manual construction above for t > 0
-                #      # If t=0 and prepare_inputs didn't add it, the model might implicitly handle it
-                #      pass
-
-                # Set common forward pass options
-                forward_kwargs_prob.update({
-                    "return_dict": True,
-                    "output_hidden_states": False,
-                    "output_attentions": False,
-                    "use_cache": True
-                })
-
-                try:
-                    outputs = hf_model(**forward_kwargs_prob)
-                except Exception as e:
-                    print(f"Error during probability forward pass (step {t}): {e}")
-                    total_log_prob_y_given_x.fill_(-float('inf'))
-                    break # Stop calculating prob for this sample batch
-
-                # Logits for the *next* token prediction
-                # Expected shapes:
-                # - (batch_size, seq_len, vocab_size) -> When t=0 (full context input)
-                # - (batch_size, 1, vocab_size) -> When t>0 (KV cache used)
-                # - (batch_size, vocab_size) -> Less common, but possible
-                next_token_logits = outputs.logits
-
-                if next_token_logits.ndim == 3:
-                    # Case 1: (batch_size, seq_len, vocab_size) where seq_len > 1 (Likely t=0)
-                    # Case 2: (batch_size, 1, vocab_size) (Likely t>0 with KV cache)
-                    # In both cases, we need the logits for the prediction *after* the last input token.
-                    next_token_logits = next_token_logits[:, -1, :] # Select the logits for the last position
-                elif next_token_logits.ndim == 2:
-                    # Case 3: (batch_size, vocab_size) - Use directly
-                    pass
-                else:
-                    # Unexpected shape
-                    warnings.warn(f"Unexpected logits shape {outputs.logits.shape} at step {t}. Cannot determine next token logits.")
-                    total_log_prob_y_given_x.fill_(-float('inf'))
-                    break
-
-                # --- Softmax Calculation ---
-                if not use_argmax: # Only needed if not using argmax
-                    # Check for non-finite values before softmax
-                    if not th.isfinite(next_token_logits).all():
-                         warnings.warn(f"Non-finite logits detected at step {t}, setting log prob to -inf.")
-                         target_log_prob_step = th.full((_batch_size,), -float('inf'), device=device)
-                    else:
-                         log_probs_step = th.log_softmax(next_token_logits, dim=-1)
-                         target_log_prob_step = log_probs_step[th.arange(_batch_size), target_ids[t]]
-
-                    total_log_prob_y_given_x += target_log_prob_step
-
-                # --- Argmax Calculation ---
-                if use_argmax: # Only needed if using argmax
-                    if not th.isfinite(next_token_logits).all():
-                        warnings.warn(f"Non-finite logits detected at step {t}, cannot perform argmax check.")
-                        all_steps_match_argmax.fill_(False) # Treat non-finite as non-match
-                    else:
-                        predicted_token_id = next_token_logits.argmax(dim=-1)
-                        current_step_matches = (predicted_token_id == target_ids[t])
-                        all_steps_match_argmax = all_steps_match_argmax & current_step_matches
-
-                # Prepare for the next iteration (if any)
-                if t < num_target_tokens - 1:
-                    # The input for the *next* step is the current target token
-                    current_input_ids = target_ids_tensor[t].repeat(_batch_size).unsqueeze(-1)
-                    # Update KV cache
-                    past_key_values = outputs.past_key_values
-                    # Extend attention mask
-                    current_attention_mask = F.pad(current_attention_mask, (0, 1), value=1)
-                else:
-                    # No need to update inputs after the last token
-                    pass
-
-            prob_y_given_x_out = th.exp(total_log_prob_y_given_x) # Always calculate this, but might be ignored
-            argmax_matches_out = all_steps_match_argmax.float() # Always calculate this, but might be ignored
-
-        return scores_out, grads_out, prob_y_given_x_out, argmax_matches_out # Return both results
+        return scores_out, grads_out, prob_y_given_x_out, argmax_matches_out
     # --- End Helper Function --- #
 
     # Initialize the first batch of samples
