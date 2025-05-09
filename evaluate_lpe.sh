@@ -14,7 +14,7 @@
 #SBATCH --time=02:00:00
 
 # Load the environment
-. /mfs1/u/$USER/envs/openrlhf
+. /mfs1/u/$USER/envs/OpenRLHF
 
 # === Model and Checkpoint Setup ===
 CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints/harmlessness"
@@ -33,7 +33,7 @@ OUTPUT_DIR="./lpe_results/${METHOD}"
 OUTPUT_FILE="${OUTPUT_DIR}/results_${TARGET_WORD}_${METHOD}_${DISTRIBUTION}_temp${TEMPERATURE}_${SLURM_JOB_ID}.json"
 
 # Run the LPE estimation script
-deepspeed --master_port 40002 --module openrlhf.cli.estimate_rare_harmful_outputs \
+deepspeed --master_port 40002 --module openrlhf.cli.lpe_experiment \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
     --load_checkpoint \
     --ckpt_path "${CHECKPOINT_PATH}" \
@@ -48,7 +48,6 @@ deepspeed --master_port 40002 --module openrlhf.cli.estimate_rare_harmful_output
     --n_samples $N_SAMPLES \
     --batch_size $BATCH_SIZE \
     --output_file $OUTPUT_FILE \
-    --show_progress \
-    --use_argmax
+    --show_progress
 
 echo "LPE estimation finished. Results saved to $OUTPUT_FILE" 
