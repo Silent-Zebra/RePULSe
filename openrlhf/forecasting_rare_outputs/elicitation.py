@@ -194,6 +194,7 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         p_elicit_val = math.exp(log_prob_clamp)
 
     elif method == 'logprob_keyword':
+        raise NotImplementedError("logprob_keyword method not implemented yet. For now, use repeated_sampling.")
         if behavior_definition.type != 'keyword':
             raise ValueError("Method 'logprob_keyword' requires behavior_definition type 'keyword'.")
         keywords_to_check = []
