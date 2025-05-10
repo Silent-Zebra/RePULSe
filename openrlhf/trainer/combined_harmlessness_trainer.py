@@ -888,7 +888,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
             else:
                 # experience_neg_sampling = experience here
-                log_phi, _ = sampling_experience_maker_neg.compute_reward_no_kl(experience_neg_sampling.sequences, experience_neg_sampling.attention_mask, multiply_by_beta=True)
+                log_phi, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(experience_neg_sampling.sequences, experience_neg_sampling.attention_mask, multiply_by_beta=True)
                 final_reward_neg = log_phi
 
 
