@@ -7,11 +7,9 @@ import torch
 import pandas as pd
 import nanogcg
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, AutoConfig, AutoModel
-from openrlhf.utils import get_strategy, get_tokenizer
-from openrlhf.models import Actor, get_llm_for_sequence_regression
-from openrlhf.models.actor_custom import ActorCustom, ActorCritic
+from openrlhf.utils import get_strategy, get_tokenizer, tile_prompts, load_model_and_tokenizer
+from openrlhf.models import get_llm_for_sequence_regression
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import tile_prompts
 
 # TODO: check for success using the reward model. If the reward of the output is below a certain negative threshold, then the attack is considered successful.
 # TODO: add a flag to use the reward or the prefix success definition
@@ -101,44 +99,16 @@ def evaluate_with_gcg(args):
     strategy = get_strategy(args)
     strategy.setup_distributed()
 
-    # Create base actor first
-    base_actor = Actor(
-        args.pretrain,
-        use_flash_attention_2=args.flash_attn,
-        bf16=args.bf16,
-        load_in_4bit=args.load_in_4bit,
-        ds_config=strategy.get_ds_eval_config(offload=False),
-    )
-
-    # Create the actual actor based on parameterization
-    if "policy" not in args.parameterization:
-        actor = ActorCustom(
-            args.pretrain,
-            initial_model=base_actor,
-            use_flash_attention_2=args.flash_attn,
-            bf16=args.bf16,
-            load_in_4bit=args.load_in_4bit,
-            lora_rank=args.lora_rank,
-            lora_alpha=args.lora_alpha,
-            target_modules=args.target_modules,
-            lora_dropout=args.lora_dropout,
-            ds_config=strategy.get_ds_train_config(is_actor=True),
-            parameterization=args.parameterization,
-            additional_sd_divider=args.additional_sd_divider,
-            init_head_from_base=args.init_head_from_base
-        )
-    else:
-        actor = base_actor
-
-    # Initialize with DeepSpeed
-    actor = strategy.prepare(actor.eval(), is_rlhf=True)
+    # Load actor model and tokenizer using the new utility function
+    actor, tokenizer = load_model_and_tokenizer(args, strategy)
 
     # Load checkpoint
-    if args.load_checkpoint:
+    if args.ckpt_path:
+        strategy.print(f"Attempting to load checkpoint from: {args.ckpt_path}")
         strategy.load_ckpt(actor.model, f"{args.ckpt_path}", load_module_strict=True, load_module_only=True)
-
+        strategy.print(f"Checkpoint loaded successfully.")
     # Get tokenizer for the base actor model
-    tokenizer = get_tokenizer(args.pretrain, actor.model, "left", strategy)
+    # tokenizer = get_tokenizer(args.pretrain, actor.model, "left", strategy)
     # Ensure pad token is set for generation
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -749,7 +719,6 @@ if __name__ == "__main__":
     
     # Model arguments
     parser.add_argument("--pretrain", type=str, required=True)
-    parser.add_argument("--load_checkpoint", action="store_true")
     parser.add_argument("--ckpt_path", type=str)
     # this is commented out in the train_ppo.py script
     parser.add_argument("--actor_modulates_base", action="store_true") 

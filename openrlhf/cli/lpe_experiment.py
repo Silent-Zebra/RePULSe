@@ -9,10 +9,10 @@ from typing import Optional
 
 # --- OpenRLHF Imports (Strategy, Tokenizer) ---
 # Add openrlhf parent directory to path if running script directly
-script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(script_dir)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
+# script_dir = os.path.dirname(os.path.abspath(__file__))
+# parent_dir = os.path.dirname(script_dir)
+# if parent_dir not in sys.path:
+#     sys.path.append(parent_dir)
 
 try:
     from openrlhf.utils import get_strategy, get_tokenizer
@@ -23,72 +23,70 @@ except ImportError:
     def get_tokenizer(*args, **kwargs): raise NotImplementedError("Dummy get_tokenizer cannot proceed.")
 
 # --- Local Imports from openrlhf.evaluation --- #
-
-# Harmfulness check function
-try:
-    from openrlhf.evaluation.harmfulness_metrics import check_bad_token, TARGET_BAD_TOKEN_ID
-except ImportError:
-    warnings.warn("Could not import from .harmfulness_metrics. Using dummy check_bad.", ImportWarning)
-    def check_bad_token(*args, **kwargs) -> bool:
-        print("Warning: Using dummy check_bad_token.")
-        return False
-    TARGET_BAD_TOKEN_ID = -1
-
+from openrlhf.lpe.harmfulness_metrics import check_bad_token, TARGET_BAD_TOKEN_ID
+# # Harmfulness check function
+# try:
+    
+# except ImportError:
+#     warnings.warn("Could not import from .harmfulness_metrics. Using dummy check_bad.", ImportWarning)
+#     def check_bad_token(*args, **kwargs) -> bool:
+#         print("Warning: Using dummy check_bad_token.")
+#         return False
+#     TARGET_BAD_TOKEN_ID = -1
+from openrlhf.lpe import get_token_factorized_distribution
 # Distribution loading function
-try:
-    from openrlhf.evaluation.load_lpe_distributions import get_token_factorized_distribution
-except ImportError:
-    warnings.warn("Could not import from .load_lpe_distributions. Using dummy get_token_factorized_distribution.", ImportWarning)
-    def get_token_factorized_distribution(*args, **kwargs) -> list:
-        print("Warning: Using dummy get_token_factorized_distribution.")
-        # Need to return a list of dummy objects with a 'sample' method for ITGIS/MHIS structure
-        class DummyDist:
-             def sample(self, shape): return torch.zeros(shape, dtype=torch.long)
-             def boltzmann_distribution(self, scores, temperature): return self
-        return [DummyDist()]
-
+# try:
+    
+# except ImportError:
+#     warnings.warn("Could not import from .load_lpe_distributions. Using dummy get_token_factorized_distribution.", ImportWarning)
+#     def get_token_factorized_distribution(*args, **kwargs) -> list:
+#         print("Warning: Using dummy get_token_factorized_distribution.")
+#         # Need to return a list of dummy objects with a 'sample' method for ITGIS/MHIS structure
+#         class DummyDist:
+#              def sample(self, shape): return torch.zeros(shape, dtype=torch.long)
+#              def boltzmann_distribution(self, scores, temperature): return self
+#         return [DummyDist()]
+from openrlhf.lpe import ITGIS, MHIS
 # --- LPE Method Imports --- #
 # Assume low-probability-estimation is installed or importable
-try:
-    from openrlhf.lpe.methods import ITGIS, MHIS
-except ImportError:
-    warnings.warn("Could not import ITGIS, MHIS from openrlhf.lpe.methods. LPE will not run.", ImportWarning)
-    # Define dummy functions to avoid NameError
-    def ITGIS(*args, **kwargs):
-        print("Warning: Using dummy ITGIS.")
-        return 0.0, 0.0 # Return prob, stderr
-    def MHIS(*args, **kwargs):
-        print("Warning: Using dummy MHIS.")
-        return 0.0, 0.0 # Return prob, stderr
-
+# try:
+    
+# except ImportError:
+#     warnings.warn("Could not import ITGIS, MHIS from openrlhf.lpe.methods. LPE will not run.", ImportWarning)
+#     # Define dummy functions to avoid NameError
+#     def ITGIS(*args, **kwargs):
+#         print("Warning: Using dummy ITGIS.")
+#         return 0.0, 0.0 # Return prob, stderr
+#     def MHIS(*args, **kwargs):
+#         print("Warning: Using dummy MHIS.")
+#         return 0.0, 0.0 # Return prob, stderr
+from openrlhf.models import Actor, ActorCustom
 # --- OpenRLHF Model Loading --- #
-# This needs to be robust based on how openrlhf saves models
-# For now, assume Actor class can load from path
-try:
-    from openrlhf.models.actor import Actor
-except ImportError:
-    warnings.warn("Could not import Actor from openrlhf.models.actor. Model loading might fail.", ImportWarning)
-    # Use the dummy Actor defined in model_adapters if needed
-    try:
-        # If adapter import succeeded, it defined a dummy Actor
-        pass
-    except NameError:
-        # Define a basic dummy if adapter also failed
-        class Actor(torch.nn.Module):
-            def __init__(self, *args, **kwargs): super().__init__()
-            def forward(self, *args, **kwargs): return torch.zeros(1)
-            model = torch.nn.Identity()
+# try:
+    
+# except ImportError:
+#     warnings.warn("Could not import Actor from openrlhf.models.actor. Model loading might fail.", ImportWarning)
+#     # Use the dummy Actor defined in model_adapters if needed
+#     try:
+#         # If adapter import succeeded, it defined a dummy Actor
+#         pass
+#     except NameError:
+#         # Define a basic dummy if adapter also failed
+#         class Actor(torch.nn.Module):
+#             def __init__(self, *args, **kwargs): super().__init__()
+#             def forward(self, *args, **kwargs): return torch.zeros(1)
+#             model = torch.nn.Identity()
 
 # --- Add ActorCustom Import ---
-try:
-    from openrlhf.models.actor_custom import ActorCustom
-except ImportError:
-    warnings.warn("Could not import ActorCustom from openrlhf.models.actor_custom. Custom parameterization loading will fail.", ImportWarning)
-    # Define a dummy if needed, though the logic below will likely prevent its use if Actor is also dummy
-    class ActorCustom(Actor): # Inherit dummy Actor if primary failed
-        def __init__(self, *args, **kwargs):
-             super().__init__(*args, **kwargs)
-             print("Warning: Using dummy ActorCustom class.")
+# try:
+#     from openrlhf.models.actor_custom import ActorCustom
+# except ImportError:
+#     warnings.warn("Could not import ActorCustom from openrlhf.models.actor_custom. Custom parameterization loading will fail.", ImportWarning)
+#     # Define a dummy if needed, though the logic below will likely prevent its use if Actor is also dummy
+#     class ActorCustom(Actor): # Inherit dummy Actor if primary failed
+#         def __init__(self, *args, **kwargs):
+#              super().__init__(*args, **kwargs)
+#              print("Warning: Using dummy ActorCustom class.")
 
 def main(args):
     # --- Strategy Setup --- 
