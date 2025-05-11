@@ -636,7 +636,7 @@ def evaluate_with_gcg(args):
         print(f"Average Log Prob of Target After Attack (sum over tokens): {torch.tensor(all_sum_log_probs_after).mean().item():.2f}")
 
     save_str = transform_path(args.ckpt_path)
-    torch.save((total_bad, total_bads), save_str)
+    torch.save((total_bads, total_bads_minus_1), save_str)
     # Return the ASR or detailed results using the renamed variable
     return {"asr": asr, "successful_attacks": successful_attacks, "total_targets": total_targets_processed}
 
@@ -710,16 +710,14 @@ def check_log_prob(actor, all_first_log_probs, all_mean_log_probs, all_sum_log_p
         outputs = actor(inputs, num_actions=inputs.shape[1] - base_input_length, attention_mask=torch.ones_like(inputs, dtype=torch.long, device=inputs.device))
     # The below :-1 gets rid of the very last im_end which has been tacked on due to the apply chat template and may not have been model generated
     outputs = outputs[:, :-1]
-    print("log prob first")
     first_log_prob = outputs[:, 0].item()
+    print(f"log prob first: {first_log_prob}")
     all_first_log_probs.append(first_log_prob)
-    print("log prob mean")
     mean_log_prob = outputs.mean().item()
+    print(f"log prob mean: {mean_log_prob}")
     all_mean_log_probs.append(mean_log_prob)
-    print(outputs.mean())
-    print("log prob sum")
     sum_log_prob = outputs.sum().item()
-    print(sum_log_prob)
+    print(f"log prob sum: {sum_log_prob}")
     all_sum_log_probs.append(sum_log_prob)
     print("log probs")
     print(outputs)
