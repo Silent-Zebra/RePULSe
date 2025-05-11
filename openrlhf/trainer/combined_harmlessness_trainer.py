@@ -258,33 +258,33 @@ class CombinedHarmlessnessTrainer(ABC):
         )
 
         self.sampling_experience_maker_neg = None
-        if self.separate_neg_samples:
-            # Sampling actor experience maker (for approximate sigma samples)
-            # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
-            self.sampling_experience_maker_neg = BaseExperienceMaker(
-                sampling_actor,
-                sampling_critic,
-                reward_model,
-                base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
-                tokenizer,
-                prompt_max_len,
-                self.kl_ctl,
-                strategy,
-                remote_rm_url,
-                reward_fn,
-                shared_actorcritic,
-                threshold,
-                reward_cap,
-                target_dist_beta,
-                alpha,
-                rm_type,
-                sampling_actor_loss_type,
-                self.generate_kwargs['max_new_tokens'],
-                save_negdata=save_negdata,
-                save_negdata_threshold=save_negdata_threshold,
-                neg_data=self.neg_data,
-                reward_transform=self.reward_transform
-            )
+        # if self.separate_neg_samples:
+        # Sampling actor experience maker (for approximate sigma samples)
+        # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
+        self.sampling_experience_maker_neg = BaseExperienceMaker(
+            sampling_actor,
+            sampling_critic,
+            reward_model,
+            base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
+            tokenizer,
+            prompt_max_len,
+            self.kl_ctl,
+            strategy,
+            remote_rm_url,
+            reward_fn,
+            shared_actorcritic,
+            threshold,
+            reward_cap,
+            target_dist_beta,
+            alpha,
+            rm_type,
+            sampling_actor_loss_type,
+            self.generate_kwargs['max_new_tokens'],
+            save_negdata=save_negdata,
+            save_negdata_threshold=save_negdata_threshold,
+            neg_data=self.neg_data,
+            reward_transform=self.reward_transform
+        )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
         self.sampling_replay_buffer_neg = None
@@ -868,10 +868,14 @@ class CombinedHarmlessnessTrainer(ABC):
                 attention_mask=experience.attention_mask, return_output=False
             )
 
-            action_log_probs_neg = self.base_actor(
-                experience_neg_sampling.sequences, experience_neg_sampling.action_mask.size(1),
-                attention_mask=experience_neg_sampling.attention_mask, return_output=False
-            )
+            if self.separate_neg_samples:
+
+                action_log_probs_neg = self.base_actor(
+                    experience_neg_sampling.sequences, experience_neg_sampling.action_mask.size(1),
+                    attention_mask=experience_neg_sampling.attention_mask, return_output=False
+                )
+            else:
+                action_log_probs_neg = action_log_probs
 
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
@@ -880,7 +884,14 @@ class CombinedHarmlessnessTrainer(ABC):
             # final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             final_reward_including_kl = experience.info["return"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
 
-            final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+            if self.separate_neg_samples:
+                final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+            else:
+                # experience_neg_sampling = experience here
+                log_phi, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(experience_neg_sampling.sequences, experience_neg_sampling.attention_mask, multiply_by_beta=True)
+                final_reward_neg = log_phi.view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+
+
 
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg_sampling.action_mask.view(num_prompts, samples_per_prompt, -1)
