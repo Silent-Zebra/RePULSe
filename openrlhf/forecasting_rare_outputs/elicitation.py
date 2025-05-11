@@ -183,41 +183,98 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
     p_elicit_val = 0.0
 
     if method == 'logprob_specific':
+        # We want to measure the log probability of the specific output sequence that contains the harmful behavior given the query.
         if behavior_definition.type != 'specific_output':
              raise ValueError("Method 'logprob_specific' requires behavior_definition type 'specific_output'.")
         target_output = behavior_definition.target
         if not isinstance(target_output, str):
             raise ValueError("Target for 'logprob_specific' method must be a string.")
+        
         log_prob = calculate_sequence_logprob(model, tokenizer, query, target_output)
+        
+        if log_prob > 0:
+            log_prob = 0.0 
         
         log_prob_clamp = max(log_prob, -700.0)
         p_elicit_val = math.exp(log_prob_clamp)
 
     elif method == 'logprob_keyword':
-        raise NotImplementedError("logprob_keyword method not implemented yet. For now, use repeated_sampling.")
         if behavior_definition.type != 'keyword':
-            raise ValueError("Method 'logprob_keyword' requires behavior_definition type 'keyword'.")
-        keywords_to_check = []
+            raise ValueError("Method 'logprob_keyword' currently requires behavior_definition type 'keyword'.")
+
+        if not generation_kwargs or 'fixed_reference_output' not in generation_kwargs:
+            raise ValueError("Method 'logprob_keyword' requires 'fixed_reference_output' in generation_kwargs, specifying the exact output string to analyze.")
+        
+        reference_output_text = generation_kwargs['fixed_reference_output']
+        if not isinstance(reference_output_text, str) or not reference_output_text:
+            raise ValueError("'fixed_reference_output' must be a non-empty string.")
+
+        keywords_to_find = []
         if isinstance(behavior_definition.target, str):
-            keywords_to_check = [behavior_definition.target]
-        elif isinstance(behavior_definition.target, list) and behavior_definition.target:
-            if len(behavior_definition.target) > 1:
-                raise ValueError("Method 'logprob_keyword' currently supports only a single target keyword string, not a list of keywords. Please define separate behaviors or use 'repeated_sampling'.")
-            keywords_to_check = behavior_definition.target
+            keywords_to_find.append(behavior_definition.target)
+        elif isinstance(behavior_definition.target, list) and all(isinstance(t, str) for t in behavior_definition.target):
+            keywords_to_find = behavior_definition.target
         else:
-            raise ValueError("Target for 'logprob_keyword' must be a string or a non-empty list of strings.")
+            raise ValueError("Target for 'keyword' type behavior must be a string or list of strings.")
 
-        if not keywords_to_check:
-            raise ValueError("No keyword target specified for 'logprob_keyword'.")
+        if not keywords_to_find:
+            return 0.0
 
-        primary_keyword = keywords_to_check[0]
+        model.eval()
 
-        p_elicit_val = estimate_keyword_probability(
-            model, tokenizer, query, primary_keyword,
-            k_samples=k_samples,
-            **generation_kwargs
-        )
+        query_tokens = tokenizer.encode(query, add_special_tokens=False)
+        reference_output_tokens_ids = tokenizer.encode(reference_output_text, add_special_tokens=False)
 
+        if not reference_output_tokens_ids:
+            return 0.0
+
+        input_ids_list = []
+        if tokenizer.bos_token_id is not None:
+            input_ids_list.append(tokenizer.bos_token_id)
+        input_ids_list.extend(query_tokens)
+        input_ids_list.extend(reference_output_tokens_ids)
+        
+        input_ids_tensor = torch.tensor([input_ids_list], dtype=torch.long)
+        num_actions = len(reference_output_tokens_ids)
+
+        try:
+            device = model.model.device if hasattr(model, 'model') and hasattr(model.model, 'device') else next(model.parameters()).device
+        except StopIteration:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        input_ids_tensor = input_ids_tensor.to(device)
+
+        total_probability_sum = 0.0
+
+        with torch.no_grad():
+            try:
+                all_action_log_probs = model.forward(input_ids_tensor, num_actions=num_actions, attention_mask=None)
+
+                if all_action_log_probs is None or all_action_log_probs.ndim == 0 or all_action_log_probs.shape[-1] != num_actions:
+                    return 0.0
+                
+                for keyword_str in keywords_to_find:
+                    if not keyword_str: continue
+
+                    keyword_tokens_ids = tokenizer.encode(keyword_str, add_special_tokens=False)
+                    if not keyword_tokens_ids:
+                        continue
+                    
+                    len_keyword_tokens = len(keyword_tokens_ids)
+
+                    for i in range(len(reference_output_tokens_ids) - len_keyword_tokens + 1):
+                        reference_slice = reference_output_tokens_ids[i : i + len_keyword_tokens]
+                        if reference_slice == keyword_tokens_ids:
+                            log_prob_of_this_keyword_occurrence = 0.0
+                            for k_idx in range(len_keyword_tokens):
+                                log_prob_of_this_keyword_occurrence += all_action_log_probs[0, i + k_idx].item()
+                            
+                            prob_of_this_occurrence = math.exp(max(log_prob_of_this_keyword_occurrence, -700.0))
+                            total_probability_sum += prob_of_this_occurrence
+            except Exception:
+                # Consider logging the exception e
+                return 0.0
+        p_elicit_val = total_probability_sum
+        
     elif method == 'repeated_sampling':
         success_count = 0
         check_function = get_behavior_check_function(behavior_definition)
@@ -238,7 +295,8 @@ def calculate_sequence_logprob(model: Actor, tokenizer: PreTrainedTokenizer, que
     """Calculates the log probability log P(target_output | query) using the Actor model's forward pass.
     """
     model.eval() # Ensure model is in evaluation mode
-
+    # TODO: Check the correctness of this implementation. We should be able to do this in a single forward pass of the model.
+    
     # 1. Tokenize query and target_output.
     # The Actor.forward method expects the full sequence that includes the "actions" (target tokens).
     # Typically, for P(Y|X), the input to the model should represent X and then Y.

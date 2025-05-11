@@ -22,7 +22,8 @@ The framework forecasts rare event risks in language models by analyzing the dis
 *   **`elicitation.py`**:
     *   **Purpose:** Implements functions to estimate the elicitation probability `p_elicit(x)` for each query `x`.
     *   **Functionality:**
-        *   `logprob_specific()`: Estimates `p_elicit` by directly calculating or looking up the log-probability of the model generating an exact (undesirable) target string.
+        *   `logprob_specific()`: TO BE IMPLEMENTED. Measures the log probability of a specific sequence given the query.
+        *   `logprob_keyword()`: TO BE IMPLEMENTED. Measures the log probability of a specific keyword appearing anywhere in the generated output.
         *   `repeated_sampling()`: Estimates `p_elicit` using Monte Carlo estimation by generating multiple outputs for each query and calculating the fraction that exhibit the defined harmful behavior.
         *   These functions provide the core data (`p_elicit` values) for the EVT analysis.
 
