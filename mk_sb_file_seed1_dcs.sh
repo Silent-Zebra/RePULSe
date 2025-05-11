@@ -12,12 +12,12 @@ PARAMS=$(echo "$COMMAND" | awk '
 {
     # Initialize empty variables
     micro_train = train = micro_rollout = rollout = ""
-    max_epochs = gen_max_len = actor_lr = critic_lr = baseactor_lr = ""
-    target_beta = lr_sched = actor_loss = kl = ""
+    max_epochs = num_episodes = num_episodes_h = gen_max_len = actor_lr = critic_lr = baseactor_lr = ""
+    target_beta = lr_sched = actor_loss = kl = do_harmlessness = ""
     custom_prompt = prompt_data = parameterization = adam_beta2 = rm_type = dup_rollout = pretrain = reward_pretrain = init_head_from_base = ""
     sd_divider = harmloss = harmlossreinbaseline = hlrbval = ""
-    save_negdata_threshold = threshold = alpha = only_eval_neg = ""
-    
+    save_negdata_threshold = threshold = alpha = only_eval_neg = use_base_as_proposal = ""
+
     # Scan through all matches in the string
     for(i=1; i<=NF; i++) {
         if($i == "--micro_train_batch_size") micro_train = $(i+1)
@@ -25,6 +25,8 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--micro_rollout_batch_size") micro_rollout = $(i+1)
         if($i == "--rollout_batch_size") rollout = $(i+1)
         if($i == "--max_epochs") max_epochs = $(i+1)
+        if($i == "--num_episodes") num_episodes = $(i+1)
+        if($i == "--harmlessness_training_num_episodes") num_episodes_h = $(i+1)
         if($i == "--generate_max_len") gen_max_len = $(i+1)
         if($i == "--actor_learning_rate") actor_lr = $(i+1)
         if($i == "--critic_learning_rate") critic_lr = $(i+1)
@@ -65,32 +67,24 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--alpha") alpha = "_alpha"$(i+1)
         if($i == "--init_kl_coef") kl = "_kl"$(i+1)
         if($i == "--only_evaluate_on_neg_data") only_eval_neg = "_onlyevalneg"
+        if($i == "--do_harmlessness_training") do_harmlessness = 1
+        if($i == "--use_base_as_proposal") use_base_as_proposal = "_baseprop"
     }
-    
-    # Print with a special delimiter (|) that wont appear in the values
-    #if(micro_train != "" && train != "" && micro_rollout != "" && rollout != "" && 
-    #   max_epochs != "" && gen_max_len != "" && actor_lr != "" && critic_lr != "" && 
-    #   lr_sched != "" && actor_loss != "")
-        print micro_train "|" train "|" micro_rollout "|" rollout "|" max_epochs "|" \
+    # Use num_episodes_h if do_harmlessness is set
+    episodes_to_use = do_harmlessness ? num_episodes_h : num_episodes
+
+        print micro_train "|" train "|" micro_rollout "|" rollout "|" max_epochs "|" episodes_to_use "|" \
               gen_max_len "|" actor_lr "|" critic_lr "|" baseactor_lr "|" target_beta "|" save_negdata_threshold "|" threshold "|" lr_sched "|" \
               actor_loss "|" custom_prompt "|" parameterization "|" adam_beta2 "|" rm_type "|" dup_rollout "|" pretrain "|" \
-              reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" kl "|" only_eval_neg \
+              reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" kl "|" only_eval_neg "|" use_base_as_proposal \
 
 }')
 
 # Read using the special delimiter
-IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS GEN_MAX_LEN \
+IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS NUM_EPISODES GEN_MAX_LEN \
     ACTOR_LR CRITIC_LR BASEACTOR_LR TARGET_BETA SAVE_NEGDATA_THRESH THRESH LR_SCHED ACTOR_LOSS CUSTOM_PROMPT PARAMETERIZATION ADAM_BETA2 RM_TYPE DUP_ROLLOUT PRETRAIN REWARD_PRETRAIN PROMPT_DATA \
-    INITHEADBASE SD_DIVIDER HARMLOSS HARMLOSSREINBASELINE HLRBVAL ALPHA KL ONLY_EVAL_NEG <<< "$PARAMS"
+    INITHEADBASE SD_DIVIDER HARMLOSS HARMLOSSREINBASELINE HLRBVAL ALPHA KL ONLY_EVAL_NEG BASE_PROP <<< "$PARAMS"
 
-# Check if required parameters are empty
-#if [ -z "$MICRO_TRAIN" ] || [ -z "$TRAIN" ] || [ -z "$MICRO_ROLLOUT" ] || [ -z "$ROLLOUT" ] || \
-#   [ -z "$MAX_EPOCHS" ] || [ -z "$GEN_MAX_LEN" ] || [ -z "$ACTOR_LR" ] || [ -z "$CRITIC_LR" ] || \
-#   [ -z "$TARGET_BETA" ] || [ -z "$LR_SCHED" ] || [ -z "$ACTOR_LOSS" ] || [ -z "$PARAMETERIZATION" ] || \
-#   [ -z "$RM_TYPE" ] || [ -z "$PRETRAIN" ] || [ -z "$REWARD_PRETRAIN" ] || [ -z "$PROMPT_DATA" ]; then
-#    echo "Error: Missing required parameters"
-#    exit 1
-#fi
 
 # echo $PRETRAIN
 # PRETRAIN="${PRETRAIN%%/*}"
@@ -101,9 +95,10 @@ IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS GEN_MAX_LEN \
 CURRENT_DATE=$(date +%Y-%m-%d-%H-%M)
 
 # Generate output filename
-PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${THRESH}${TARGET_BETA}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_batch${MICRO_TRAIN}_${TRAIN}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_ep${MAX_EPOCHS}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${ALPHA}${BASEACTOR_LR}_${ACTOR_LOSS}_alr${ACTOR_LR}_clr${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}"
+PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${BASE_PROP}${THRESH}${TARGET_BETA}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_batch${MICRO_TRAIN}_${TRAIN}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_epo${MAX_EPOCHS}_epi${NUM_EPISODES}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${ALPHA}${BASEACTOR_LR}_${ACTOR_LOSS}_alr${ACTOR_LR}_clr${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}"
 SBATCH_FILE="sbatch_${PATTERN}"
 OUTPUT_FILE="result_${PATTERN}_s1.txt"
+
 
 # Create the sbatch file
 cat > "$SBATCH_FILE" << EOL
