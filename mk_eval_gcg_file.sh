@@ -32,7 +32,6 @@ source newenv/bin/activate
 module load cuda-12.3
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.cli.evaluate_gcg_sz \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
-    --load_checkpoint \
     --ckpt_path ${CKPT_PATH} \
     --file_path data/harmful_behaviors_custom.csv \
     --atk_success_criteria reward \
