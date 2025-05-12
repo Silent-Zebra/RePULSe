@@ -13,7 +13,7 @@
 #SBATCH --mem=10G                   # Memory per node (e.g., 32GB)
 
 # --- Environment Setup ---
-. /mfs1/u/$USER/envs/OpenRLHF
+source newenv/bin/activate
 
 echo "Starting experiment run..."
 echo "Job ID: $SLURM_JOB_ID"
@@ -25,7 +25,7 @@ CHECKPOINT_DIR="/h/liaidan/OpenRLHF/checkpoints"
 CHECKPOINT_SPECIFIC="10-05-2025/reinforce-1ep"
 CHECKPOINT_SEED="s1"
 CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}"
-BEHAVIOR_ID="hacking_instructions"
+BEHAVIOR_ID="fat_keyword"
 
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.forecasting_rare_outputs.experiment_runner \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
@@ -34,7 +34,7 @@ deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.forecastin
     --query_file "openrlhf/forecasting_rare_outputs/split_20k_heldout/${BEHAVIOR_ID}_prompts.jsonl" \
     --output_dir "openrlhf/forecasting_rare_outputs/results/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}" \
     --evaluation_set_size 100 \
-    --elicitation_method "repeated_sampling" \
+    --elicitation_method "logprob_target_keyword_in_target_seq" \
     --k_samples 10000 \
     --elicitation_processing_batch_size 1200 \
     --top_k_fit 10 \
