@@ -150,12 +150,14 @@ core
 *test_scripts*
 */checkpoint/*
 
-outputs/*
-lpe_results/itgis/*
-lpe_results/mhis/*
-lpe_results/*
-
 newenv/*
 *.out
 *.err
 *.log
+
+outputs/*
+lpe_results/itgis/*
+lpe_results/mhis/*
+lpe_results/*
+openrlhf/forecasting_rare_outputs/results/*
+/checkpoints/*
