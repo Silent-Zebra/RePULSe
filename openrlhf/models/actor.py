@@ -154,6 +154,9 @@ class Actor(nn.Module):
             "eos_token_id": kwargs.get("eos_token_id"),
             "pad_token_id": kwargs.get("pad_token_id"),
             "min_new_tokens": kwargs.get("min_new_tokens", 1),
+            "max_new_tokens": kwargs.get("max_new_tokens", None),
+            "max_length": kwargs.get("max_length", None),
+            "num_return_sequences": kwargs.get("num_return_sequences", 1),
         }
 
         if kwargs.get("max_new_tokens", None):
