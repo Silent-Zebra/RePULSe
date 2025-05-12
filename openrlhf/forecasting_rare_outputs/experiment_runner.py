@@ -177,10 +177,10 @@ def main():
     run_name = args.run_name
     if run_name is None:
         model_name_part = os.path.basename(args.pretrain.rstrip('/'))
-        run_name = f"{model_name_part}_{args.behavior_id}"
+        run_name = f"{args.behavior_id}-{args.elicitation_method}"
 
-    results_file = os.path.join(args.output_dir, f"{run_name}_results.jsonl")
-    summary_file = os.path.join(args.output_dir, f"{run_name}_summary.json")
+    results_file = os.path.join(args.output_dir, f"{run_name}-results.jsonl")
+    summary_file = os.path.join(args.output_dir, f"{run_name}-summary.json")
 
     print(f"Starting experiment run: {run_name}")
     print(f"Output directory: {args.output_dir}")
