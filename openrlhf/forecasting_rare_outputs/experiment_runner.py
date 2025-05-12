@@ -20,7 +20,7 @@ import torch
 
 
 def load_queries(query_file: str) -> list[str]:
-    """Loads queries from a file (JSONL with 'query' or 'prompt' key, or plain text list)."""
+    """Loads queries from a file (JSONL with 'query', 'prompt', or nested 'prompt[0].content' key, or plain text list)."""
     queries = []
     try:
         with open(query_file, 'r', encoding='utf-8') as f:
@@ -29,34 +29,54 @@ def load_queries(query_file: str) -> list[str]:
                 print(f"Warning: Query file {query_file} is empty.")
                 return []
 
-            # Attempt to parse as JSONL
-            is_jsonl = True
-            temp_queries_jsonl = []
+            potential_queries = []
+            all_lines_json_parsable_with_key = True # Assume true until proven otherwise
+
             for i, line_content in enumerate(lines):
                 line_content = line_content.strip()
-                if not line_content: continue
+                if not line_content:
+                    continue
+
+                extracted_query = None
                 try:
                     data = json.loads(line_content)
-                    if 'query' in data and isinstance(data['query'], str):
-                        temp_queries_jsonl.append(data['query'])
-                    elif 'prompt' in data and isinstance(data['prompt'], str):
-                        temp_queries_jsonl.append(data['prompt'])
+                    if isinstance(data, dict):
+                        if 'query' in data and isinstance(data['query'], str):
+                            extracted_query = data['query']
+                        elif 'prompt' in data:
+                            if isinstance(data['prompt'], str):
+                                extracted_query = data['prompt'] # Handles {"prompt": "query text"}
+                            elif isinstance(data['prompt'], list) and data['prompt']:
+                                first_prompt_item = data['prompt'][0]
+                                if isinstance(first_prompt_item, dict) and 'content' in first_prompt_item and isinstance(first_prompt_item['content'], str):
+                                    extracted_query = first_prompt_item['content'] # Handles {"prompt": [{"content": "query text", ...}]}
+                        
+                        if extracted_query is not None:
+                            potential_queries.append(extracted_query)
+                        else:
+                            # Parsed as JSON, but didn't find the expected keys/structure
+                            all_lines_json_parsable_with_key = False
+                            break 
                     else:
-                        # print(f"Warning: Line {i+1} in {query_file} is JSON but lacks 'query'/'prompt' string or has wrong type.")
-                        is_jsonl = False; break 
+                        # Parsed as JSON, but it's not a dictionary (e.g., a JSON list, number)
+                        all_lines_json_parsable_with_key = False
+                        break
                 except json.JSONDecodeError:
-                    is_jsonl = False; break # Not JSONL if any line fails
+                    # Not JSON, or malformed JSON
+                    all_lines_json_parsable_with_key = False
+                    break 
             
-            if is_jsonl:
-                queries = temp_queries_jsonl
+            if all_lines_json_parsable_with_key:
+                queries = potential_queries
             else:
-                # print(f"Could not parse {query_file} as JSONL, attempting to read as plain text lines.")
-                queries = [line.strip() for line in lines if line.strip()] # Treat as plain text
+                # Fallback: Treat as plain text if any line wasn't JSON or didn't match structure
+                # print(f"Could not parse {query_file} consistently as JSONL with expected keys, attempting to read as plain text lines.")
+                queries = [line.strip() for line in lines if line.strip()]
 
         if not queries:
-             print(f"Warning: No queries successfully loaded from {query_file} (checked JSONL and plain text)." )
+             print(f"Warning: No queries successfully loaded from {query_file} (checked JSONL types and plain text).")
         # else:
-             # print(f"Successfully loaded {len(queries)} queries from {query_file}.")
+        # print(f"Successfully loaded {len(queries)} queries from {query_file}.")
         return queries
 
     except FileNotFoundError:
@@ -106,7 +126,7 @@ def main():
     parser.add_argument("--evaluation_set_size", "-m", type=int, default=1000,
                         help="Number of queries (m) to sample from the pool for evaluation.")
     parser.add_argument("--elicitation_method", type=str, default=None,
-                        help="Method for p_elicit estimation ('logprob_target_sequence', 'logprob_target_keyword_in_target_seq', 'repeated_sampling'). Overrides behavior default.")
+                        help="Method for p_elicit estimation ('logprob_target_seq', 'logprob_target_keyword_in_target_seq', 'repeated_sampling'). Overrides behavior default.")
     parser.add_argument("--k_samples", type=int, default=100,
                         help="Number of samples per query for 'repeated_sampling'.")
     parser.add_argument("--top_k_fit", type=int, default=10,
@@ -127,6 +147,8 @@ def main():
                          help="Top-p (nucleus) sampling parameter (used by 'repeated_sampling').")
     parser.add_argument("--gen_top_k", type=int, default=None, 
                          help="Top-k sampling parameter (used by 'repeated_sampling').")
+    parser.add_argument("--elicitation_processing_batch_size", type=int, default=1000,
+                        help="For 'repeated_sampling', the number of samples to generate and process in each internal batch within estimate_p_elicit. Default is 1000.")
 
     # --- New parameters for repeated_sampling
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size for p_elicit estimation and generation.")
@@ -181,9 +203,27 @@ def main():
     strategy.print(f"Model dtype: {model.module.model.dtype if hasattr(model, 'module') and hasattr(model.module, 'model') and hasattr(model.module.model, 'dtype') else (model.model.dtype if hasattr(model, 'model') and hasattr(model.model, 'dtype') else 'N/A')}")
     # Load checkpoint if provided
     if args.ckpt_path:
-        strategy.print(f"Attempting to load checkpoint from: {args.ckpt_path}")
-        strategy.load_ckpt(model.model, args.ckpt_path, load_module_strict=True, load_module_only=True)
-        strategy.print(f"Checkpoint {args.ckpt_path} loaded successfully.")
+        load_dir = os.path.dirname(args.ckpt_path)
+        tag = os.path.basename(args.ckpt_path)
+        strategy.print(f"Attempting to load checkpoint from directory: {load_dir} with tag: {tag}")
+        # Ensure the tag is not empty, which could happen if ckpt_path ends with a slash
+        if not tag:
+            strategy.print(f"Warning: Tag derived from ckpt_path '{args.ckpt_path}' is empty. Attempting to use the directory name above.")
+            # Attempt to use the directory name of load_dir if tag is empty
+            # This handles cases like /path/to/checkpoint_dir/
+            potential_new_tag = os.path.basename(load_dir)
+            potential_new_load_dir = os.path.dirname(load_dir)
+            if potential_new_tag: # ensure we don't get another empty tag
+                 strategy.print(f"Revised load_dir: {potential_new_load_dir}, revised tag: {potential_new_tag}")
+                 load_dir = potential_new_load_dir
+                 tag = potential_new_tag
+            else: # If still no valid tag, this is problematic
+                strategy.print(f"Error: Could not derive a valid tag from {args.ckpt_path}. Checkpoint loading might fail.")
+                # Fallback to old behavior or raise error, for now, will let deepspeed handle it.
+                # Consider adding more robust error handling or path normalization here.
+        
+        strategy.load_ckpt(model.model, load_dir, tag=tag, load_module_strict=True, load_module_only=True)
+        strategy.print(f"Checkpoint {args.ckpt_path} (tag: {tag}) loaded successfully.")
 
     
     print(f"Loading queries from {args.query_file}...")
@@ -240,7 +280,8 @@ def main():
                 behavior_definition=behavior_definition,
                 method=elicitation_method,
                 k_samples=args.k_samples if elicitation_method == 'repeated_sampling' else 0,
-                generation_kwargs=current_generation_kwargs if elicitation_method == 'repeated_sampling' else {}
+                generation_kwargs=current_generation_kwargs if elicitation_method == 'repeated_sampling' else {},
+                elicitation_processing_batch_size=args.elicitation_processing_batch_size if elicitation_method == 'repeated_sampling' else 1000 # Pass the arg
             )
             p_elicits.append(p_val)
             query_log_entry["p_elicit"] = p_val

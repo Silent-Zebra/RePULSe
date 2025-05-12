@@ -34,7 +34,7 @@ def estimate_keyword_probability(
         name='Temporary Keyword Check',
         description='Internal object for estimate_keyword_probability',
         type='keyword',
-        target=keyword, # estimate_keyword_probability designed for single keyword string
+        target_keywords=[keyword], # Use target_keywords as it's a list
         goal='Temporary goal for internal check' # Placeholder
         # default_elicitation_method can be None or omitted if not needed by get_behavior_check_function's path for 'keyword'
     )
@@ -82,87 +82,112 @@ def generate_output(model: Actor, tokenizer: PreTrainedTokenizer, query: str, k_
     input_ids = input_tokens["input_ids"].to(device)
     attention_mask = input_tokens["attention_mask"].to(device) # Actor.generate can infer this
 
-    # Default generation args (can be overridden by **generation_kwargs)
-    # Actor's generate will use its own defaults if not specified.
-    default_gen_kwargs = {
+    # Base generation args (can be overridden by **generation_kwargs)
+    # num_return_sequences will be set per batch.
+    default_gen_params = {
         "max_new_tokens": 50,
         "temperature": 1.0,
         "top_p": 0.9,
         "do_sample": True,
-        "num_return_sequences": k_samples,
+        # "num_return_sequences": k_samples, # Removed: will be controlled per batch
         "eos_token_id": tokenizer.eos_token_id,
         "pad_token_id": tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id,
     }
-    final_gen_kwargs = {**default_gen_kwargs, **generation_kwargs}
+    # These parameters are common to all batches, after merging with user's kwargs.
+    base_batch_gen_kwargs = {**default_gen_params, **generation_kwargs}
     
     # Ensure pad_token_id is set if generation needs it (e.g. for batching or beam search)
-    if final_gen_kwargs.get("pad_token_id") is None:
-        final_gen_kwargs["pad_token_id"] = tokenizer.eos_token_id
+    if base_batch_gen_kwargs.get("pad_token_id") is None:
+        base_batch_gen_kwargs["pad_token_id"] = tokenizer.eos_token_id
         # print("generate_output: Setting pad_token_id to eos_token_id as it was None.")
 
+    all_generated_outputs_decoded = []
+    samples_generated_so_far = 0
+    
+    # Tune this batch size based on your GPU memory.
+    # Starting with a smaller value like 1000 or 5000 might be safer, then increase if possible.
+    # User suggested 10000 for 100k total -> 10 batches.
+    generation_batch_size = k_samples
 
-    generated_outputs_decoded = []
-    with torch.no_grad():
-        try:
-            # Actor.generate returns: sequences, attention_mask, action_mask
-            # sequences are (batch_size * num_return_sequences, seq_len)
-            # We are providing batch_size = 1 for input_ids
-            output_sequences, _, _ = model.generate(
-                input_ids,
-                attention_mask=attention_mask, # provided explicitly because of some issue inferring the attention mask
-                **final_gen_kwargs
-            )
+    with torch.no_grad(): # Single no_grad context for all generation batches
+        while samples_generated_so_far < k_samples:
+            num_to_generate_this_batch = min(generation_batch_size, k_samples - samples_generated_so_far)
+
+            if num_to_generate_this_batch <= 0:
+                break  # Should not be strictly necessary due to while condition but safe
+
+            current_batch_gen_kwargs = base_batch_gen_kwargs.copy()
+            current_batch_gen_kwargs["num_return_sequences"] = num_to_generate_this_batch
             
-            input_length = input_ids.shape[1]
-            # Decode only the newly generated part
-            generated_tokens_only = output_sequences[:, input_length:]
-            generated_outputs_decoded = tokenizer.batch_decode(generated_tokens_only, skip_special_tokens=True)
+            # For debugging, you might want to uncomment this:
+            # print(f"DEBUG: Generating batch of {num_to_generate_this_batch}. Args: {current_batch_gen_kwargs}")
 
-        except Exception as e:
-            # print(f"Error during model generation for query: {query[:100]}...\nError: {e}")
-            # import traceback
-            # traceback.print_exc()
-            return [] # Return empty list on error
+            try:
+                # Actor.generate returns: sequences, attention_mask, action_mask
+                # sequences are (num_to_generate_this_batch, seq_len)
+                # We are providing batch_size = 1 for input_ids
+                output_sequences, _, _ = model.generate(
+                    input_ids,
+                    attention_mask=attention_mask, # provided explicitly
+                    **current_batch_gen_kwargs
+                )
+                # print(f"output_sequences.shape for batch: {output_sequences.shape}")
+                input_length = input_ids.shape[1]
+                # Decode only the newly generated part
+                generated_tokens_only = output_sequences[:, input_length:]
+                decoded_batch_outputs = tokenizer.batch_decode(generated_tokens_only, skip_special_tokens=True)
 
-    return generated_outputs_decoded[:k_samples]
+                all_generated_outputs_decoded.extend(decoded_batch_outputs)
+                
+                actual_generated_in_batch = len(decoded_batch_outputs)
+                samples_generated_so_far += actual_generated_in_batch
+
+                # If the model returns fewer sequences than requested in a batch (without an error)
+                if actual_generated_in_batch < num_to_generate_this_batch:
+                    print(f"Warning: Model generated {actual_generated_in_batch} sequences in current batch, but {num_to_generate_this_batch} were requested. Stopping generation for this query.")
+                    break # Exit the while loop for this query; will return what's collected so far.
+
+            except Exception as e:
+                print(f"Error during model generation batch for query: {query[:100]}... (requested {num_to_generate_this_batch} for this batch)\nError: {e}")
+                # import traceback
+                # traceback.print_exc()
+                return [] # Return empty list on error for the entire query's generation attempt
+
+    return all_generated_outputs_decoded[:k_samples] # Ensure we don't return more than k_samples
 
 
 def get_behavior_check_function(behavior_definition: Behavior) -> Callable[[str], bool]:
     """Returns a function `check(output) -> bool` implementing the B(o)=1 check."""
     behavior_type = behavior_definition.type
-    target = behavior_definition.target
+    # target = behavior_definition.target # This attribute no longer exists on Behavior
 
     if behavior_type == 'specific_output':
-        if not isinstance(target, str):
-            raise ValueError("Target must be a string for 'specific_output' type.")
+        # This type is not currently defined or used in behavior_defs.py with the current Behavior structure.
+        # If it were to be used, target_sequence would be the likely field.
+        # For now, let's assume if this type is passed, target_sequence should be checked.
+        target_output_seq = behavior_definition.target_sequence
+        if not isinstance(target_output_seq, str):
+            raise ValueError("Target sequence must be a string for 'specific_output' type if target_sequence is used.")
         # Normalize whitespace for comparison
-        target_normalized = " ".join(target.strip().split())
+        target_normalized = " ".join(target_output_seq.strip().split())
         return lambda output: " ".join(output.strip().split()) == target_normalized
 
     elif behavior_type == 'keyword':
-        if isinstance(target, str):
-            targets = [target]
-        elif isinstance(target, list) and all(isinstance(t, str) for t in target):
-            targets = target
-        else:
-            raise ValueError("Target must be a string or list of strings for 'keyword' type.")
+        # For 'keyword' type, we now use target_keywords attribute from Behavior
+        targets = behavior_definition.target_keywords
+        if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets) or not targets:
+            raise ValueError("Target_keywords must be a non-empty list of strings for 'keyword' type.")
         
         # Case-insensitive check for any of the keywords
         targets_lower = [t.lower() for t in targets]
         return lambda output: any(t_lower in output.lower() for t_lower in targets_lower)
-
-    elif behavior_type == 'custom_function':
-        # Assumes 'target' is the actual callable function
-        if not callable(target):
-             raise ValueError("Target must be a callable function for 'custom_function' type.")
-        return target
 
     # TODO: Add cases for classifier or other complex checks if needed.
     else:
         raise NotImplementedError(f"Behavior check type '{behavior_type}' not implemented.")
 
 
-def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, behavior_definition: Behavior, method: str, k_samples: int = 100, generation_kwargs: Dict[str, Any] = None) -> float:
+def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, behavior_definition: Behavior, method: str, k_samples: int = 100, generation_kwargs: Dict[str, Any] = None, elicitation_processing_batch_size: int = 1000) -> float:
     """Estimates the elicitation probability (p_elicit) for a given query and behavior definition.
 
     Args:
@@ -170,9 +195,10 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         tokenizer: The tokenizer.
         query: The input query string.
         behavior_definition: A Behavior object defining the harmful behavior B.
-        method: The estimation method ('logprob_target_sequence', 'logprob_target_keyword_in_target_seq', 'repeated_sampling').
-        k_samples: Number of samples for 'repeated_sampling'.
+        method: The estimation method ('logprob_target_seq', 'logprob_target_keyword_in_target_seq', 'repeated_sampling').
+        k_samples: Number of samples for 'repeated_sampling' (total samples to acquire).
         generation_kwargs: Additional arguments for model.generate, used in 'repeated_sampling'.
+        elicitation_processing_batch_size: For 'repeated_sampling', the number of samples to generate and process in each internal batch. Default is 1000.
 
     Returns:
         Estimated elicitation probability (float between 0 and 1).
@@ -182,14 +208,14 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
 
     p_elicit_val = 0.0
 
-    if method == 'logprob_target_sequence':
+    if method == 'logprob_target_seq':
         if not behavior_definition.target_sequence:
-            raise ValueError("Method 'logprob_target_sequence' requires behavior_definition.target_sequence to be set.")
+            raise ValueError("Method 'logprob_target_seq' requires behavior_definition.target_sequence to be set.")
         
         target_output = behavior_definition.target_sequence
         # Ensure target_output is a string, though type hint on Behavior.target_sequence should cover this.
         if not isinstance(target_output, str):
-            raise ValueError("behavior_definition.target_sequence must be a string for 'logprob_target_sequence' method.")
+            raise ValueError("behavior_definition.target_sequence must be a string for 'logprob_target_seq' method.")
         
         log_prob = calculate_sequence_logprob(model, tokenizer, query, target_output)
         
@@ -283,13 +309,59 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         
     elif method == 'repeated_sampling':
         success_count = 0
+        total_samples_processed = 0
         check_function = get_behavior_check_function(behavior_definition)
-        outputs = generate_output(model, tokenizer, query, k_samples, **generation_kwargs)
-        for output_text in outputs:
-            if check_function(output_text):
-                success_count += 1
-        if k_samples == 0: p_elicit_val = 0.0
-        else: p_elicit_val = success_count / k_samples
+
+        # k_samples is the total number of samples to acquire for this query.
+        # elicitation_processing_batch_size is how many we ask generate_output for at a time.
+        # This is now a parameter to the function, with a default.
+
+        if k_samples == 0:
+            p_elicit_val = 0.0
+        else:
+            while total_samples_processed < k_samples:
+                num_to_generate_this_iteration = min(elicitation_processing_batch_size, k_samples - total_samples_processed)
+
+                if num_to_generate_this_iteration <= 0:
+                    break
+
+                outputs = generate_output(model, tokenizer, query, num_to_generate_this_iteration, **generation_kwargs)
+                
+                if not outputs and num_to_generate_this_iteration > 0:
+                    print(f"Warning: generate_output returned no samples for query '{query[:100]}...' when {num_to_generate_this_iteration} were requested. Stopping for this query.")
+                    break
+
+                batch_success_count = 0
+                if outputs: # Process only if there are outputs
+                    output_series = pd.Series(outputs)
+                    
+                    if behavior_definition.type == 'keyword':
+                        # Vectorized check for keyword presence (any of the keywords)
+                        targets_lower = [t.lower() for t in behavior_definition.target_keywords]
+                        if not output_series.empty:
+                            output_series_lower = output_series.str.lower()
+                            # Initialize a mask for recording if any keyword is found in an output
+                            combined_keyword_mask = pd.Series(False, index=output_series_lower.index, dtype=bool)
+                            for t_lower in targets_lower:
+                                combined_keyword_mask |= output_series_lower.str.contains(t_lower, regex=False, na=False)
+                            batch_success_count = combined_keyword_mask.sum()
+                    else:
+                        # For 'specific_output' or other types, use the pre-defined check_function.
+                        # Series.apply is a vectorized way to apply the function to each element.
+                        if not output_series.empty:
+                            batch_success_count = output_series.apply(check_function).sum()
+                
+                success_count += batch_success_count
+                
+                total_samples_processed += len(outputs)
+                print(f"DEBUG: Processed {total_samples_processed}/{k_samples} samples for query '{query[:50]}...'")
+
+            if total_samples_processed == 0:
+                p_elicit_val = 0.0
+            else:
+                p_elicit_val = success_count / total_samples_processed 
+                if total_samples_processed < k_samples:
+                    print(f"Warning: Elicitation probability for query '{query[:100]}...' calculated over {total_samples_processed} samples instead of the requested {k_samples} due to generation issues.")
     else:
         raise ValueError(f"Unknown elicitation method: {method}")
 
