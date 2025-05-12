@@ -170,9 +170,9 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         tokenizer: The tokenizer.
         query: The input query string.
         behavior_definition: A Behavior object defining the harmful behavior B.
-        method: The estimation method ('logprob_specific', 'logprob_keyword', 'repeated_sampling').
-        k_samples: Number of samples for 'repeated_sampling' or 'logprob_keyword' (if keyword uses sampling).
-        generation_kwargs: Additional arguments for model.generate, used in 'repeated_sampling' or 'logprob_keyword'.
+        method: The estimation method ('logprob_target_sequence', 'logprob_target_keyword_in_target_seq', 'repeated_sampling').
+        k_samples: Number of samples for 'repeated_sampling'.
+        generation_kwargs: Additional arguments for model.generate, used in 'repeated_sampling'.
 
     Returns:
         Estimated elicitation probability (float between 0 and 1).
@@ -182,43 +182,37 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
 
     p_elicit_val = 0.0
 
-    if method == 'logprob_specific':
-        # We want to measure the log probability of the specific output sequence that contains the harmful behavior given the query.
-        if behavior_definition.type != 'specific_output':
-             raise ValueError("Method 'logprob_specific' requires behavior_definition type 'specific_output'.")
-        target_output = behavior_definition.target
+    if method == 'logprob_target_sequence':
+        if not behavior_definition.target_sequence:
+            raise ValueError("Method 'logprob_target_sequence' requires behavior_definition.target_sequence to be set.")
+        
+        target_output = behavior_definition.target_sequence
+        # Ensure target_output is a string, though type hint on Behavior.target_sequence should cover this.
         if not isinstance(target_output, str):
-            raise ValueError("Target for 'logprob_specific' method must be a string.")
+            raise ValueError("behavior_definition.target_sequence must be a string for 'logprob_target_sequence' method.")
         
         log_prob = calculate_sequence_logprob(model, tokenizer, query, target_output)
         
-        if log_prob > 0:
+        if log_prob > 0: # Log probs should be <= 0
             log_prob = 0.0 
         
         log_prob_clamp = max(log_prob, -700.0)
         p_elicit_val = math.exp(log_prob_clamp)
 
-    elif method == 'logprob_keyword':
-        if behavior_definition.type != 'keyword':
-            raise ValueError("Method 'logprob_keyword' currently requires behavior_definition type 'keyword'.")
+    elif method == 'logprob_target_keyword_in_target_seq':
+        if not behavior_definition.target_sequence:
+            raise ValueError("Method 'logprob_target_keyword_in_target_seq' requires behavior_definition.target_sequence to be set as the reference output.")
+        if not behavior_definition.target_keywords:
+            raise ValueError("Method 'logprob_target_keyword_in_target_seq' requires behavior_definition.target_keywords to be a non-empty list.")
 
-        if not generation_kwargs or 'fixed_reference_output' not in generation_kwargs:
-            raise ValueError("Method 'logprob_keyword' requires 'fixed_reference_output' in generation_kwargs, specifying the exact output string to analyze.")
-        
-        reference_output_text = generation_kwargs['fixed_reference_output']
+        reference_output_text = behavior_definition.target_sequence
         if not isinstance(reference_output_text, str) or not reference_output_text:
-            raise ValueError("'fixed_reference_output' must be a non-empty string.")
+            # This should be caught by the first check, but kept for robustness
+            raise ValueError("'target_sequence' must be a non-empty string to serve as reference output.")
 
-        keywords_to_find = []
-        if isinstance(behavior_definition.target, str):
-            keywords_to_find.append(behavior_definition.target)
-        elif isinstance(behavior_definition.target, list) and all(isinstance(t, str) for t in behavior_definition.target):
-            keywords_to_find = behavior_definition.target
-        else:
-            raise ValueError("Target for 'keyword' type behavior must be a string or list of strings.")
-
-        if not keywords_to_find:
-            return 0.0
+        keywords_to_find = behavior_definition.target_keywords
+        if not isinstance(keywords_to_find, list) or not all(isinstance(k, str) for k in keywords_to_find) or not keywords_to_find:
+            raise ValueError("'target_keywords' must be a non-empty list of strings.")
 
         model.eval()
 
@@ -226,6 +220,7 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         reference_output_tokens_ids = tokenizer.encode(reference_output_text, add_special_tokens=False)
 
         if not reference_output_tokens_ids:
+            # print(f"Warning: Reference output (from target_sequence) '{reference_output_text[:100]}...' tokenized to empty. Returning 0.0")
             return 0.0
 
         input_ids_list = []
@@ -235,11 +230,12 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         input_ids_list.extend(reference_output_tokens_ids)
         
         input_ids_tensor = torch.tensor([input_ids_list], dtype=torch.long)
-        num_actions = len(reference_output_tokens_ids)
+        num_actions = len(reference_output_tokens_ids) # Logprobs for each token in the reference_output_text
 
         try:
             device = model.model.device if hasattr(model, 'model') and hasattr(model.model, 'device') else next(model.parameters()).device
-        except StopIteration:
+        except StopIteration: # Model has no parameters (e.g. on meta device)
+            # print("Warning: Could not determine model device from parameters, attempting to use cuda if available, else cpu.")
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         input_ids_tensor = input_ids_tensor.to(device)
 
@@ -247,32 +243,42 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
 
         with torch.no_grad():
             try:
+                # Actor.forward returns log P(action_i | context_i) for each action in num_actions
+                # Here, actions are the tokens of reference_output_text
                 all_action_log_probs = model.forward(input_ids_tensor, num_actions=num_actions, attention_mask=None)
 
                 if all_action_log_probs is None or all_action_log_probs.ndim == 0 or all_action_log_probs.shape[-1] != num_actions:
-                    return 0.0
+                    # print(f"Warning: Invalid action_log_probs received from model.forward. Shape: {all_action_log_probs.shape if all_action_log_probs is not None else 'None'}. Expected num_actions: {num_actions}")
+                    return 0.0 # Cannot proceed if log_probs are not as expected
                 
                 for keyword_str in keywords_to_find:
-                    if not keyword_str: continue
+                    if not keyword_str: continue # Should be caught by earlier validation
 
                     keyword_tokens_ids = tokenizer.encode(keyword_str, add_special_tokens=False)
                     if not keyword_tokens_ids:
+                        # print(f"Warning: Keyword '{keyword_str}' tokenized to empty sequence. Skipping.")
                         continue
                     
                     len_keyword_tokens = len(keyword_tokens_ids)
 
+                    # Find occurrences of keyword_tokens_ids within reference_output_tokens_ids
                     for i in range(len(reference_output_tokens_ids) - len_keyword_tokens + 1):
                         reference_slice = reference_output_tokens_ids[i : i + len_keyword_tokens]
                         if reference_slice == keyword_tokens_ids:
+                            # This is an occurrence. Sum the log_probs of its constituent tokens.
                             log_prob_of_this_keyword_occurrence = 0.0
                             for k_idx in range(len_keyword_tokens):
+                                # all_action_log_probs[0, j] is log P(reference_output_tokens_ids[j] | query, reference_output_tokens_ids[<j])
                                 log_prob_of_this_keyword_occurrence += all_action_log_probs[0, i + k_idx].item()
                             
+                            # Clamp and convert to probability
                             prob_of_this_occurrence = math.exp(max(log_prob_of_this_keyword_occurrence, -700.0))
                             total_probability_sum += prob_of_this_occurrence
-            except Exception:
-                # Consider logging the exception e
-                return 0.0
+            except Exception as e:
+                # print(f"Error during 'logprob_target_keyword_in_target_seq' (model.forward or token processing) for query: '{query[:100]}...' Sequence: '{reference_output_text[:100]}...' Keywords: {keywords_to_find}\nError: {e}")
+                # import traceback
+                # traceback.print_exc()
+                return 0.0 # Return 0 probability on error during calculation
         p_elicit_val = total_probability_sum
         
     elif method == 'repeated_sampling':

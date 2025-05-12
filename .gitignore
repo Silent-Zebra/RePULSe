@@ -151,3 +151,10 @@ core
 */checkpoint/*
 
 outputs/*
+lpe_results/241193/results_kill_mhis_uniform_temp10.0.json
+lpe_results/241206/results_kill_mhis_uniform_temp10.0.json
+lpe_results/241766/results_kill_mhis_uniform_temp10.0.json
+lpe_results/242009/results_fuck_itgis_uniform_temp10.0.json
+lpe_results/242009/results_kill_itgis_uniform_temp10.0.json
+lpe_results/itgis/*
+lpe_results/mhis/*

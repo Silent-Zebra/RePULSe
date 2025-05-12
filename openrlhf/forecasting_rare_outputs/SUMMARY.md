@@ -17,14 +17,19 @@ The framework forecasts rare event risks in language models by analyzing the dis
 
 *   **`behavior_defs.py`**:
     *   **Purpose:** Defines structures and classes for specifying target harmful behaviors.
-    *   **Functionality:** Allows users to define a behavior through various criteria, such as the presence of specific keywords/tokens in the output, adherence to a specific format, or evaluation by a custom Python function (`check_output_func`). This is crucial for identifying `B(o)=1`.
+    *   **Functionality:** Allows users to define a behavior through various criteria. Each `Behavior` object includes:
+        *   `id`, `name`, `description`, `type` (e.g., 'keyword', 'custom_function').
+        *   `target`: The target used by `get_behavior_check_function` for the `repeated_sampling` method based on `type`.
+        *   `target_sequence: Optional[str]`: A specific target output sequence. Used by the `logprob_target_sequence` elicitation method.
+        *   `target_keywords: Optional[List[str]]`: A list of specific keywords. Used by the `logprob_target_keyword_in_target_seq` elicitation method (which also uses `target_sequence` as the reference text).
+        *   `default_elicitation_method`: Specifies the default method ('logprob_target_sequence', 'logprob_target_keyword_in_target_seq', 'repeated_sampling') for estimating `p_elicit`.
 
 *   **`elicitation.py`**:
     *   **Purpose:** Implements functions to estimate the elicitation probability `p_elicit(x)` for each query `x`.
-    *   **Functionality:**
-        *   `logprob_specific()`: TO BE IMPLEMENTED. Measures the log probability of a specific sequence given the query.
-        *   `logprob_keyword()`: TO BE IMPLEMENTED. Measures the log probability of a specific keyword appearing anywhere in the generated output.
-        *   `repeated_sampling()`: Estimates `p_elicit` using Monte Carlo estimation by generating multiple outputs for each query and calculating the fraction that exhibit the defined harmful behavior.
+    *   **Functionality (via `estimate_p_elicit` function):**
+        *   `logprob_target_sequence()`: Measures `log P(target_sequence | query)` where `target_sequence` is taken from `Behavior.target_sequence`. Uses a single forward pass of the model.
+        *   `logprob_target_keyword_in_target_seq()`: Estimates the sum of probabilities of `Behavior.target_keywords` appearing within `Behavior.target_sequence` (acting as a fixed reference output), conditioned on the query. Uses a single forward pass.
+        *   `repeated_sampling()`: Estimates `p_elicit` using Monte Carlo by generating multiple outputs for each query and calculating the fraction that exhibit the behavior (checked using `get_behavior_check_function` based on `Behavior.type` and `Behavior.target`).
         *   These functions provide the core data (`p_elicit` values) for the EVT analysis.
 
 *   **`forecasting.py`**:

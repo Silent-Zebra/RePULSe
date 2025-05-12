@@ -106,9 +106,9 @@ def main():
     parser.add_argument("--evaluation_set_size", "-m", type=int, default=1000,
                         help="Number of queries (m) to sample from the pool for evaluation.")
     parser.add_argument("--elicitation_method", type=str, default=None,
-                        help="Method for p_elicit estimation ('logprob_specific', 'logprob_keyword', 'repeated_sampling'). Overrides behavior default.")
+                        help="Method for p_elicit estimation ('logprob_target_sequence', 'logprob_target_keyword_in_target_seq', 'repeated_sampling'). Overrides behavior default.")
     parser.add_argument("--k_samples", type=int, default=100,
-                        help="Number of samples per query for 'repeated_sampling' or 'logprob_keyword' (if sampling-based).")
+                        help="Number of samples per query for 'repeated_sampling'.")
     parser.add_argument("--top_k_fit", type=int, default=10,
                         help="Number of top scores (k) to use for Gumbel tail fitting.")
     parser.add_argument("--forecast_scales", "-n", type=str, default="1e4,1e5,1e6,1e7,1e8,1e9",
@@ -118,13 +118,18 @@ def main():
     parser.add_argument("--random_seed", type=int, default=42,
                         help="Random seed for query sampling.")
 
-    # --- Generation Parameters (for repeated_sampling / keyword estimation) ---
+    # --- Generation Parameters (primarily for repeated_sampling) ---
     parser.add_argument("--gen_temperature", type=float, default=1.0,
-                         help="Temperature for sampling generation.")
+                         help="Temperature for sampling generation (used by 'repeated_sampling').")
     parser.add_argument("--gen_max_new_tokens", type=int, default=256,
-                         help="Max new tokens for sampling generation.")
+                         help="Max new tokens for sampling generation (used by 'repeated_sampling').")
     parser.add_argument("--gen_top_p", type=float, default=1.0, # Default to no top-p filtering
-                         help="Top-p (nucleus) sampling parameter.")
+                         help="Top-p (nucleus) sampling parameter (used by 'repeated_sampling').")
+    parser.add_argument("--gen_top_k", type=int, default=None, 
+                         help="Top-k sampling parameter (used by 'repeated_sampling').")
+
+    # --- New parameters for repeated_sampling
+    parser.add_argument("--batch_size", type=int, default=8, help="Batch size for p_elicit estimation and generation.")
 
     args = parser.parse_args()
 
@@ -210,18 +215,20 @@ def main():
     p_elicits = []
     detailed_results_log = [] 
 
-    generation_params = {}
-    if elicitation_method == 'repeated_sampling' or elicitation_method == 'logprob_keyword':
-        generation_params = {
+    # Initialize generation_params, only populated if needed by the method
+    current_generation_kwargs = {}
+    if elicitation_method == 'repeated_sampling':
+        current_generation_kwargs = {
             'temperature': args.gen_temperature,
             'max_new_tokens': args.gen_max_new_tokens,
             'top_p': args.gen_top_p,
+            'top_k': args.gen_top_k,
             'do_sample': True,
         }
         if tokenizer.pad_token_id is not None:
-            generation_params['pad_token_id'] = tokenizer.pad_token_id
+            current_generation_kwargs['pad_token_id'] = tokenizer.pad_token_id
         elif tokenizer.eos_token_id is not None:
-            generation_params['pad_token_id'] = tokenizer.eos_token_id 
+            current_generation_kwargs['pad_token_id'] = tokenizer.eos_token_id 
 
     for i, query_text in enumerate(tqdm(eval_queries, desc="Estimating p_elicit")):
         query_log_entry = {"query_idx": i, "query": query_text}
@@ -232,8 +239,8 @@ def main():
                 query=query_text,
                 behavior_definition=behavior_definition,
                 method=elicitation_method,
-                k_samples=args.k_samples,
-                generation_kwargs=generation_params
+                k_samples=args.k_samples if elicitation_method == 'repeated_sampling' else 0,
+                generation_kwargs=current_generation_kwargs if elicitation_method == 'repeated_sampling' else {}
             )
             p_elicits.append(p_val)
             query_log_entry["p_elicit"] = p_val

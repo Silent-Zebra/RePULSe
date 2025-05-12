@@ -6,6 +6,7 @@ import torch
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from openrlhf.forecasting_rare_outputs.behavior_defs import BEHAVIORS, Behavior
+import argparse
 
 # Placeholder for the actual model and tokenizer
 # User should replace this with actual loading of HuggingFaceTB/SmolLM-135M-Instruct
@@ -99,7 +100,7 @@ def generate_raw_prompts_from_llm(behavior_goal: str, num_prompts_to_generate: i
     inputs = GENERATION_TOKENIZER(meta_prompt_filled, return_tensors='pt').to(GENERATION_MODEL.device)
     outputs = GENERATION_MODEL.generate(
         **inputs,
-        max_new_tokens=100, # Adjust as needed
+        max_new_tokens=30, # Adjust as needed
         num_return_sequences=num_prompts_to_generate,
         do_sample=True,
         top_p=0.9,
@@ -226,7 +227,7 @@ def generate_query_pool_for_behavior(behavior, target_query_count=100000, max_ge
     print(f"First 5 queries: {filtered_queries[:5]}")
     return filtered_queries
 
-def main_generate_all_query_pools(behaviors_list, query_pool_dir='openrlhf/forecasting_rare_outputs/query_pools', target_queries_per_behavior=100000):
+def main_generate_all_query_pools(behaviors_list, query_pool_dir='openrlhf/forecasting_rare_outputs/query_pools_short_10k', num_queries_per_behavior=10000, queries_per_batch=50):
     '''
     Main function to generate and save query pools for all defined behaviors.
     '''
@@ -244,9 +245,9 @@ def main_generate_all_query_pools(behaviors_list, query_pool_dir='openrlhf/forec
         print(f"Processing behavior: {behavior.name}")
         gen_pool_start_time = time.time()
         pool = generate_query_pool_for_behavior(behavior, 
-                                                target_query_count=target_queries_per_behavior,
+                                                target_query_count=num_queries_per_behavior,
                                                 max_generation_attempts=100,
-                                                queries_per_batch=50)
+                                                queries_per_batch=queries_per_batch)
         gen_pool_end_time = time.time()
         print(f"Generating pool for '{behavior.name}' took {gen_pool_end_time - gen_pool_start_time:.2f} seconds.")
         
@@ -260,7 +261,21 @@ def main_generate_all_query_pools(behaviors_list, query_pool_dir='openrlhf/forec
             break
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Generate query pools for all defined behaviors.")
+    parser.add_argument('--query_pool_dir', type=str, default='openrlhf/forecasting_rare_outputs/query_pools_short_10k',
+                        help='Directory to save the generated query pools (default: %(default)s)')
+    parser.add_argument('--num_queries_per_behavior', type=int, default=10000,
+                        help='Number of target queries to generate per behavior (default: %(default)s)')
+    parser.add_argument('--queries_per_batch', type=int, default=50,
+                        help='Number of queries to generate at once in each batch (default: %(default)s)')
+    args = parser.parse_args()
+
     overall_start_time = time.time()
-    main_generate_all_query_pools(BEHAVIORS, query_pool_dir='openrlhf/forecasting_rare_outputs/query_pools_100k',target_queries_per_behavior=100000)
+    main_generate_all_query_pools(
+        BEHAVIORS,
+        query_pool_dir=args.query_pool_dir,
+        num_queries_per_behavior=args.num_queries_per_behavior,
+        queries_per_batch=args.queries_per_batch
+    )
     overall_end_time = time.time()
     print(f"\nTotal script execution time: {overall_end_time - overall_start_time:.2f} seconds.")
