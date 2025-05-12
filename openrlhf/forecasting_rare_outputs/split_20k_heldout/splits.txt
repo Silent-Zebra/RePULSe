@@ -1,0 +1,19 @@
+Finished processing 6700 lines.
+Successfully processed: 6700 prompts.
+Could not process (errors/skipped): 0 lines.
+Wrote 321 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/insult_generation_prompts.jsonl
+Wrote 653 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/steal_keyword_prompts.jsonl
+Wrote 98 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/fat_keyword_prompts.jsonl
+Wrote 287 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/violence_glorification_prompts.jsonl
+Wrote 687 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/drugs_keyword_prompts.jsonl
+Wrote 94 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/dick_keyword_prompts.jsonl
+Wrote 689 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/die_keyword_prompts.jsonl
+Wrote 600 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/kill_keyword_prompts.jsonl
+Wrote 181 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/hacking_instructions_prompts.jsonl
+Wrote 89 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/hate_speech_ethnic_racial_prompts.jsonl
+Wrote 97 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/kidnapping_instructions_prompts.jsonl
+Wrote 312 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/misinformation_generation_prompts.jsonl
+Wrote 42 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/porn_keyword_prompts.jsonl
+Wrote 24 prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/nude_keyword_prompts.jsonl
+Wrote 3298 unclassified prompts to /h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout/unclassified_prompts.jsonl
+Script finished.
