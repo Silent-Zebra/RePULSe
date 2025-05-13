@@ -161,7 +161,8 @@ class BaseExperienceMaker(ABC):
         save_negdata=False,
         save_negdata_threshold=-10000,
         neg_data: Optional[Set[str]] = None,
-        reward_transform: Optional[str] = None
+        reward_transform: Optional[str] = None,
+        reward_transform_beta: Optional[float] = None
     ) -> None:
         super().__init__()
         self.actor = actor
