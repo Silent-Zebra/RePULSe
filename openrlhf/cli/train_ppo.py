@@ -22,6 +22,8 @@ from openrlhf.models.model import _get_reward_model_custom
 from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list
 
 from typing import List, Union
+import torch.nn.functional as F
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 def train(args):
