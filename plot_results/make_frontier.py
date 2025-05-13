@@ -9,7 +9,7 @@ import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
-# from plot_utils import *
+from plot_utils import *
 
 import torch
 
@@ -189,113 +189,6 @@ from scipy.stats import norm
 
 
 
-# def make_frontier_bootstrap(
-#     xlabel, ylabel, figname, labels, results_list,
-#     color_list, marker_list, xlimlow=None, xlimhigh=None, fontsize=7,
-#     aggregate_seeds=False, alpha_error=0.3, threshold=-5,
-#     n_bootstrap_draws=1000  # Still needed for Y variable
-# ):
-#     plt.clf()
-#     plt.xlabel(xlabel)
-#     plt.ylabel(ylabel)
-#
-#     for i in range(len(labels)):
-#         print(f"Processing: {labels[i]}")
-#
-#         if isinstance(results_list[i], tuple):
-#             to_plot_x_agg = results_list[i][0]
-#             to_plot_y_agg = results_list[i][1]
-#             if not aggregate_seeds:
-#                 plt.scatter(to_plot_x_agg, to_plot_y_agg, label=labels[i], c=color_list[i], marker=marker_list[i])
-#             else:
-#                 plt.scatter(to_plot_x_agg, to_plot_y_agg, label=labels[i], c=color_list[i], marker=marker_list[i])
-#                 print(
-#                     f"Warning: aggregate_seeds is True for {labels[i]}, but data is a pre-aggregated tuple. Plotting point without error bars.")
-#         else:
-#             tensor_list = results_list[i]
-#             x_results_per_seed = []
-#             y_results_per_seed = []
-#
-#             if not tensor_list:
-#                 print(f"Warning: Empty tensor_list for {labels[i]}. Skipping.")
-#                 continue
-#
-#             for t_idx, t in enumerate(tensor_list):
-#                 x_results_per_seed.append(t.cpu().numpy().mean())
-#                 y_results_per_seed.append((t.cpu().numpy() < threshold).mean())
-#
-#             x_values_all_seeds = np.array(x_results_per_seed)
-#             y_values_all_seeds = np.array(y_results_per_seed)
-#
-#             if not aggregate_seeds:
-#                 plt.scatter(x_values_all_seeds, y_values_all_seeds, label=labels[i], c=color_list[i],
-#                             marker=marker_list[i])
-#             else:  # aggregate_seeds is True
-#                 n_seeds = x_values_all_seeds.shape[0]
-#
-#                 if n_seeds == 0:
-#                     print(f"Warning: No seed data for {labels[i]} after processing. Skipping.")
-#                     continue
-#
-#                 x_observed_mean = np.mean(x_values_all_seeds)
-#                 y_observed_mean = np.mean(y_values_all_seeds)
-#
-#                 print(
-#                     f"  {labels[i]}: Num seeds = {n_seeds}, Observed X-mean = {x_observed_mean:.4f}, Observed Y-mean (Prob Bad) = {y_observed_mean:.4f}")
-#
-#                 x_conf_final = None  # For t-distribution symmetric error
-#                 y_err_bootstrap_final = None  # For bootstrap asymmetric error array
-#
-#                 if n_seeds < 2:
-#                     print(f"  Warning: Only {n_seeds} seed for {labels[i]}. Plotting mean without error bars.")
-#                 else:
-#                     alpha_level_for_ci = 0.05  # For a 95% CI
-#
-#                     # --- X Variable: t-distribution CI ---
-#                     t_value_x = stats.t.ppf(1 - (alpha_level_for_ci / 2), df=n_seeds - 1)  # Corrected for 0.975
-#                     x_std_dev = np.std(x_values_all_seeds, ddof=1)
-#                     x_conf_final = t_value_x * x_std_dev / np.sqrt(n_seeds)  # This is the margin of error
-#                     print(f"  {labels[i]}: X t-dist ME = +/-{x_conf_final:.4f}")
-#
-#                     # --- Y Variable: Bootstrap CI ---
-#                     bootstrap_y_means = []
-#                     for _ in range(n_bootstrap_draws):
-#                         resample_indices = np.random.choice(n_seeds, size=n_seeds, replace=True)
-#                         bootstrap_sample_y = y_values_all_seeds[resample_indices]
-#                         bootstrap_y_means.append(np.mean(bootstrap_sample_y))
-#
-#                     y_ci_lower = np.percentile(bootstrap_y_means, (alpha_level_for_ci / 2) * 100)
-#                     y_ci_upper = np.percentile(bootstrap_y_means, (1 - alpha_level_for_ci / 2) * 100)
-#
-#                     y_err_bootstrap_final = np.array([[y_observed_mean - y_ci_lower], [y_ci_upper - y_observed_mean]])
-#                     y_err_bootstrap_final[y_err_bootstrap_final < 0] = 0  # Ensure error deltas are non-negative
-#                     print(
-#                         f"  {labels[i]}: Y Bootstrap CI ({((1 - alpha_level_for_ci) * 100):.0f}%) = [{y_ci_lower:.4f}, {y_ci_upper:.4f}]")
-#
-#                 # Plot the observed mean
-#                 plt.scatter(x_observed_mean, y_observed_mean, label=labels[i], c=color_list[i],
-#                             marker=marker_list[i])
-#
-#                 # Plot error bars if they were computed (i.e., n_seeds >= 2)
-#                 if x_conf_final is not None and y_err_bootstrap_final is not None:
-#                     plt.errorbar(
-#                         x_observed_mean,
-#                         y_observed_mean,
-#                         xerr=x_conf_final,  # Symmetric error for X
-#                         yerr=y_err_bootstrap_final,  # Potentially asymmetric error for Y
-#                         fmt='',
-#                         ecolor=color_list[i],
-#                         alpha=alpha_error,
-#                         capsize=2,
-#                     )
-#
-#     if (xlimlow is not None) or (xlimhigh is not None):
-#         plt.xlim(xlimlow, xlimhigh)
-#     plt.legend(fontsize=fontsize)
-#     plt.savefig(figname)
-#     print(f"Figure saved to {figname}")
-
-
 
 
 def make_frontier_bootstrap(
@@ -311,8 +204,8 @@ def make_frontier_bootstrap(
     ylimlow=None, ylimhigh=None
 ):
     plt.clf()
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
+    plt.xlabel(xlabel, fontsize=fontsize)
+    plt.ylabel(ylabel, fontsize=fontsize)
 
 
     for i in range(len(labels)):
@@ -429,8 +322,8 @@ def make_frontier_bootstrap(
                 x_observed_mean = np.mean(x_values_all_seeds)
                 y_observed_mean = np.mean(y_values_all_seeds)
 
-                # print(
-                #     f"  {labels[i]}: Num seeds = {n_seeds}, Observed X-mean = {x_observed_mean:.4f}, Observed Y-mean (Prob Bad) = {y_observed_mean:.4f}")
+                print(
+                    f"  {labels[i]}: Num seeds = {n_seeds}, Observed X-mean = {x_observed_mean:.1f}, Observed Y-mean (Prob Bad) = {y_observed_mean:.1f}")
 
                 if n_seeds < 2:
                     print(f"  Warning: Only {n_seeds} seed for {labels[i]}. Plotting mean without error bars.")
@@ -467,8 +360,8 @@ def make_frontier_bootstrap(
                     y_err_bootstrap = np.array([[y_observed_mean - y_ci_lower], [y_ci_upper - y_observed_mean]])
                     y_err_bootstrap[y_err_bootstrap < 0] = 0
 
-                    # print(
-                    #     f"  {labels[i]}: X CI ({((1 - alpha_level_for_ci) * 100):.0f}%) = [{x_ci_lower:.4f}, {x_ci_upper:.4f}], Y CI = [{y_ci_lower:.4f}, {y_ci_upper:.4f}]")
+                    print(
+                        f"  {labels[i]}: X CI ({((1 - alpha_level_for_ci) * 100):.0f}%) = [{x_ci_lower:.1f}, {x_ci_upper:.1f}], Y CI = [{y_ci_lower:.1f}, {y_ci_upper:.1f}]")
 
                 # Plot the observed mean
                 plt.scatter(x_observed_mean, y_observed_mean, label=labels[i], c=color_list[i],
@@ -491,6 +384,8 @@ def make_frontier_bootstrap(
         plt.xlim(xlimlow, xlimhigh)
     if (ylimlow is not None) or (ylimhigh is not None):
         plt.ylim(ylimlow, ylimhigh)
+    plt.tick_params(axis='x', labelsize=fontsize)
+    plt.tick_params(axis='y', labelsize=fontsize)
     plt.tight_layout()
     plt.legend(fontsize=fontsize)
     plt.savefig(figname)
@@ -512,20 +407,6 @@ def make_frontier_bootstrap(
 #         for i in range(first_seed, last_seed + 1) if i not in skip_seeds
 #     ]
 
-def make_list(name, first_seed, last_seed):
-    add_back_actor = ""
-    if name[-12:] == "_harml_actor":
-        add_back_actor = "_harml_actor"
-        name = name[:-12]
-    elif name[-6:] == "_actor":
-        add_back_actor = "_actor"
-        name = name[:-6]
-    if name[-1] != "s":
-        name = name[:-1]
-    return [
-        f"{name}{i}{add_back_actor}"
-        for i in range(first_seed, last_seed + 1)
-    ]
 
 
 
@@ -551,7 +432,7 @@ marker_list = ["D", "x", "x", "v", "v", "v", "v", "P", "o", "o",
 
 # xlimlow = 2
 # xlimhigh = 10
-fontsize = 6
+fontsize = 10
 
 compare_to_reference = False
 if compare_to_reference:
@@ -560,19 +441,6 @@ if compare_to_reference:
 
 do_load = True # False
 
-
-def do_load_prefixes(results_list, load_prefixes_to_use):
-    for i in range(len(load_prefixes_to_use)):
-
-        load_prefixes = load_prefixes_to_use[i]
-
-        for load_prefix in load_prefixes:
-            # print(load_prefix)
-            try:
-                x = torch.load(f'./info/{load_prefix}')
-                results_list[i].append(x)
-            except:
-                print(f"Warning: Failed to load {load_prefix}")
 
 
 if do_load:
@@ -745,10 +613,10 @@ if do_load:
 
     figname_modifier = "len20_05_11_overall"
 
-    figname_modifier = "len20_05_12_test"
+    figname_modifier = "len20_05_12"
 
 
-    do_gcg = False
+    do_gcg = True # False
 
     if do_gcg:
 
@@ -821,39 +689,39 @@ ylabel_bad = f"Total Prob of Bad Output (reward < {threshold})"
 if do_gcg:
     ylabel_bad = f"Prop. of GCG Attack Success (any(r(s) < {threshold}) in 1000 samples)"
 
-    make_frontier_bootstrap(
-        xlabel="Average Reward", ylabel=ylabel_bad,
-        figname=f"{figname_modifier}_frontier_rew",
-        labels=labels, results_list=results_list,
-        color_list=color_list, marker_list=marker_list,
-        # xlimlow=xlimlow, xlimhigh=xlimhigh,
-        fontsize=fontsize, aggregate_seeds=True,
-        tuple_index=0,
-        tuple_index_gcg=1,
-        compare_to_reference=compare_to_reference,
-        threshold=threshold,
-        gcg_results_list=gcg_results_list
-    )
-
-    # TODO This one below goes better in a table instead...
-
-    # ylabel_bad = f"Log Prob of Target Sequence After GCG Attack"
-    #
     # make_frontier_bootstrap(
     #     xlabel="Average Reward", ylabel=ylabel_bad,
-    #     figname=f"{figname_modifier}_frontier_logprob",
+    #     figname=f"{figname_modifier}_frontier_rew",
     #     labels=labels, results_list=results_list,
     #     color_list=color_list, marker_list=marker_list,
-    #     ylimlow=-600,
-    #     # xlimhigh=xlimhigh,
+    #     # xlimlow=xlimlow, xlimhigh=xlimhigh,
     #     fontsize=fontsize, aggregate_seeds=True,
     #     tuple_index=0,
     #     tuple_index_gcg=1,
     #     compare_to_reference=compare_to_reference,
     #     threshold=threshold,
-    #     gcg_results_list=gcg_logprobs_results_list,
-    #     gcg_results_type="log_probs"
+    #     gcg_results_list=gcg_results_list
     # )
+
+    # TODO This one below goes better in a table instead...
+
+    ylabel_bad = f"Log Prob of Target Sequence After GCG Attack"
+
+    make_frontier_bootstrap(
+        xlabel="Average Reward", ylabel=ylabel_bad,
+        figname=f"{figname_modifier}_frontier_logprob",
+        labels=labels, results_list=results_list,
+        color_list=color_list, marker_list=marker_list,
+        ylimlow=-600,
+        # xlimhigh=xlimhigh,
+        fontsize=fontsize, aggregate_seeds=True,
+        tuple_index=0,
+        tuple_index_gcg=1,
+        compare_to_reference=compare_to_reference,
+        threshold=threshold,
+        gcg_results_list=gcg_logprobs_results_list,
+        gcg_results_type="log_probs"
+    )
 
     # ylabel_bad = f"Prop. of GCG Attack Success (any(r(s) < {threshold + 1}) in 1000 samples)"
     #

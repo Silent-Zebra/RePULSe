@@ -183,6 +183,7 @@ class BaseExperienceMaker(ABC):
         self.actor_loss_type = actor_loss_type
         self.max_new_tokens = max_new_tokens
         self.reward_transform = reward_transform
+        self.reward_transform_beta = reward_transform_beta
 
         self.perf_stats = {}
         self.advantage_estimator = strategy.args.advantage_estimator
@@ -386,8 +387,8 @@ class BaseExperienceMaker(ABC):
         if self.reward_transform == "minus_alpha_exp_beta_r":
             print("REWARD TRANSFORM INSPECTION")
             print(self.alpha)
-            print(self.target_dist_beta)
-            transformed_reward = r - self.alpha * torch.exp(self.target_dist_beta * r)
+            print(self.reward_transform_beta)
+            transformed_reward = r - self.alpha * torch.exp(self.reward_transform_beta * r)
             # r -= alpha * torch.exp(beta * r)
             print(r)
             print(transformed_reward)

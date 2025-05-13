@@ -254,7 +254,8 @@ class CombinedHarmlessnessTrainer(ABC):
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
-            reward_transform = self.reward_transform
+            reward_transform = self.reward_transform,
+            reward_transform_beta = target_dist_beta
         )
 
         self.sampling_experience_maker_neg = None
