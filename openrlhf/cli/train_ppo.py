@@ -839,7 +839,7 @@ def calculate_bad_word_log_prob_pytorch(
     batch_log_probs_case2_terms = [] # Stores log P(good_j, any_bad_k | prompt) for each j
 
     for i in range(0, n_good_words, batch_size):
-        print(i)
+        # print(i)
         batch_good_indices = good_word_indices[i : i + batch_size]
         current_batch_size = len(batch_good_indices)
 
