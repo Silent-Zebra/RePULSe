@@ -306,7 +306,9 @@ def make_frontier_bootstrap(
     tuple_index=0, # 0 for rewards, 1 for returns (with kl penalty)
     tuple_index_gcg=1,
     compare_to_reference=False,
-    gcg_results_list=None
+    gcg_results_list=None,
+    gcg_results_type="attack_success",
+    ylimlow=None, ylimhigh=None
 ):
     plt.clf()
     plt.xlabel(xlabel)
@@ -368,19 +370,31 @@ def make_frontier_bootstrap(
             if gcg_results_list is not None:
                 gcg_list = gcg_results_list[i]
                 print(gcg_list)
-                for t_idx, t in enumerate(gcg_list):
-                    print(t)
-                    print("proportion of successful attacks")
-                    successful_attacks = (np.array(t[tuple_index_gcg]) > 0)
-                    prop = successful_attacks.mean()
-                    print(prop)
-                    y_results_per_seed.append(prop)
+                if gcg_results_type == "attack_success":
+
+                    for t_idx, t in enumerate(gcg_list):
+                        print(t)
+                        print("proportion of successful attacks")
+                        successful_attacks = (np.array(t[tuple_index_gcg]) > 0)
+                        prop = successful_attacks.mean()
+                        print(prop)
+                        y_results_per_seed.append(prop)
+
+                elif gcg_results_type == "log_probs":
+                    y_results_per_seed = gcg_list
+
+                else:
+                    raise NotImplementedError
 
 
 
             # Convert lists of per-seed results to numpy arrays
             x_values_all_seeds = np.array(x_results_per_seed)
             y_values_all_seeds = np.array(y_results_per_seed)
+
+            # print(x_values_all_seeds)
+            # print(x_values_all_seeds.shape)
+            # print(y_values_all_seeds.shape)
 
             if y_values_all_seeds.shape[0] < x_values_all_seeds.shape[0]:
                 print("WARNING: IGNORING ADDITIONAL X VALUES")
@@ -475,24 +489,43 @@ def make_frontier_bootstrap(
 
     if (xlimlow is not None) or (xlimhigh is not None):
         plt.xlim(xlimlow, xlimhigh)
+    if (ylimlow is not None) or (ylimhigh is not None):
+        plt.ylim(ylimlow, ylimhigh)
     plt.tight_layout()
     plt.legend(fontsize=fontsize)
     plt.savefig(figname)
     print(f"Figure saved to {figname}")
 
 
-def make_list(name, first_seed, last_seed, skip_seeds=[]):
-    add_back_harml_actor = ""
+# def make_list(name, first_seed, last_seed, skip_seeds=[]):
+#     add_back_actor = ""
+#     if name[-12:] == "_harml_actor":
+#         add_back_actor = "_harml_actor"
+#         name = name[:-12]
+#     elif name[-6:] == "_actor":
+#         add_back_actor = "_actor"
+#         name = name[:-6]
+#     if name[-1] != "s":
+#         name = name[:-1]
+#     return [
+#         f"{name}{i}{add_back_actor}"
+#         for i in range(first_seed, last_seed + 1) if i not in skip_seeds
+#     ]
+
+def make_list(name, first_seed, last_seed):
+    add_back_actor = ""
     if name[-12:] == "_harml_actor":
-        add_back_harml_actor = "_harml_actor"
+        add_back_actor = "_harml_actor"
         name = name[:-12]
+    elif name[-6:] == "_actor":
+        add_back_actor = "_actor"
+        name = name[:-6]
     if name[-1] != "s":
         name = name[:-1]
     return [
-        f"{name}{i}{add_back_harml_actor}"
-        for i in range(first_seed, last_seed + 1) if i not in skip_seeds
+        f"{name}{i}{add_back_actor}"
+        for i in range(first_seed, last_seed + 1)
     ]
-
 
 
 
@@ -510,7 +543,10 @@ color_list = [
     'xkcd:blue', 'xkcd:green', 'xkcd:orange', 'xkcd:purple', 'xkcd:red', 'xkcd:black', 'xkcd:gray', 'xkcd:light brown',
     'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:dark brown', 'xkcd:magenta',
 ]
-marker_list = ["D", "x", "x", "v", "v", "v", "v", "P", "o", "o", "P", "o", "o", "P", "o", "o", "P", "o", "o", "o", "v", "v", "v", "v", "v", "v", "v", "v", "v", "v", "v", "v", "v", "^", "^", "x", "x", "x", "x", "D", "P", "P", "P"]
+marker_list = ["D", "x", "x", "v", "v", "v", "v", "P", "o", "o",
+               "P", "o", "o", "P", "o", "o", "P", "o", "o", "o",
+               "v", "v", "^", "P", "v", "D", "v", "v", "x", "v", # 22 23 25 27 28 reinf, ours, baseprop, reinftransf ppo
+               "v", "v", "v", "^", "^", "x", "x", "x", "x", "D", "P", "P", "P"]
 
 
 # xlimlow = 2
@@ -609,7 +645,7 @@ if do_load:
             "info_eval_ind_thresh-4.0baseprop_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
             1, 5),
 
-        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1", 1, 5, [2]),
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1", 1, 5),
         make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1", 1, 5),
 
         make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
@@ -625,12 +661,12 @@ if do_load:
 
         make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
 
-        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1", 1, 5, skip_seeds=[2]),
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1", 1, 5),
         make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr3e-05_clr0.0001_clossmse_policy_s1", 1, 5),
 
     ]
 
-    use_handcrafted_labels = False # True
+    use_handcrafted_labels = True
 
     if use_handcrafted_labels:
 
@@ -655,6 +691,17 @@ if do_load:
             # r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.003$ (2 Episodes)",
             r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.01$ (1 Episodes)",
             r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.01$ (2 Episodes)", # 18
+            "",
+            "",
+            "",
+            r"REINFORCE (4 Episodes)", # 22
+            r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (2 Episodes)", # 23
+            "",
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (4 Episodes)", # 25
+            "",
+            r"REINFORCE, $r(s) - 0.003 e^{-30 r(s)}$ (4 Episodes)",  # 27
+            r"PPO (4 Episodes)", # 28
+
         ]
 
         # print(len(load_prefixes_to_use))
@@ -678,7 +725,7 @@ if do_load:
 
     # inds_to_use = [0, 1, 2, 3, 5, 7, 19, 20, 21, 22, 23, 24, 25, 26]
     # inds_to_use = [2, 3, 5, 7, 22, 23, 25]
-    inds_to_use = [22, 23, 25, 27, 28]
+    inds_to_use = [22, 23, 25, 27, 28] # reinf, ours, baseprop, reinftransf ppo
 
     # Maybe leave just the epi 4 ones (make another list)
 
@@ -701,30 +748,54 @@ if do_load:
     figname_modifier = "len20_05_12_test"
 
 
-    do_gcg =  False
+    do_gcg = False
 
     if do_gcg:
 
         # inds_to_use = [1, 2, 5, 7, 10]
-        inds_to_use = [1, 2, 5, 7, 9]
+        # inds_to_use = [1, 2, 5, 7, 9]
+        inds_to_use = [22, 23, 25, 27, 28]
 
+
+        # gcg_prefixes = [
+        #     make_list(
+        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        #         1, 5),
+        #     make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #
+        #     make_list(
+        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        #         1, 3),
+        #
+        #     make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #     # make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #     make_list("gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #     # make_list("gcg_eval_ind_thresh-4.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #
+        # ]
         gcg_prefixes = [
             make_list(
-                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
                 1, 5),
-            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+            make_list("gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
 
-            make_list(
-                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
-                1, 3),
-
-            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
-            # make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
-            make_list("gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
-            # make_list("gcg_eval_ind_thresh-4.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1_actor", 1, 5),
 
         ]
-        figname_modifier = "len20_05_11_bootstrap_gcgcomparison"
+
+        # for x in result_2025-05-13-00-20_eval_gc*; do tail -n 2 $x; done
+        gcg_logprobs_results_list = [
+            [-55.98, -55.18, -50.66, -56.32, -55.45], # regular reinforce
+            [-97.50, -721.26, -58.86, -84.33, -1770.67], # ours
+            [-54.94, -59.82, -51.30, -49.71, -62.02], # baseprop
+            [-63.35, -46.93, -51.53, -51.43, -57.78], # reinf with reward transf
+            [-60.90, -54.80, -55.77, -49.74] # ppo
+
+        ]
+
+        figname_modifier = "len20_05_12_bootstrap_gcgcomparison"
 
 
 
@@ -746,6 +817,7 @@ if do_load:
 ylabel_bad = f"Total Prob of Bad Output (reward < {threshold})"
 
 
+
 if do_gcg:
     ylabel_bad = f"Prop. of GCG Attack Success (any(r(s) < {threshold}) in 1000 samples)"
 
@@ -763,19 +835,41 @@ if do_gcg:
         gcg_results_list=gcg_results_list
     )
 
-    make_frontier_bootstrap(
-        xlabel="Average Reward", ylabel=ylabel_bad,
-        figname=f"{figname_modifier}_frontier4_rew",
-        labels=labels, results_list=results_list,
-        color_list=color_list, marker_list=marker_list,
-        # xlimlow=xlimlow, xlimhigh=xlimhigh,
-        fontsize=fontsize, aggregate_seeds=True,
-        tuple_index=0,
-        tuple_index_gcg=0,
-        compare_to_reference=compare_to_reference,
-        threshold=threshold,
-        gcg_results_list=gcg_results_list
-    )
+    # TODO This one below goes better in a table instead...
+
+    # ylabel_bad = f"Log Prob of Target Sequence After GCG Attack"
+    #
+    # make_frontier_bootstrap(
+    #     xlabel="Average Reward", ylabel=ylabel_bad,
+    #     figname=f"{figname_modifier}_frontier_logprob",
+    #     labels=labels, results_list=results_list,
+    #     color_list=color_list, marker_list=marker_list,
+    #     ylimlow=-600,
+    #     # xlimhigh=xlimhigh,
+    #     fontsize=fontsize, aggregate_seeds=True,
+    #     tuple_index=0,
+    #     tuple_index_gcg=1,
+    #     compare_to_reference=compare_to_reference,
+    #     threshold=threshold,
+    #     gcg_results_list=gcg_logprobs_results_list,
+    #     gcg_results_type="log_probs"
+    # )
+
+    # ylabel_bad = f"Prop. of GCG Attack Success (any(r(s) < {threshold + 1}) in 1000 samples)"
+    #
+    # make_frontier_bootstrap(
+    #     xlabel="Average Reward", ylabel=ylabel_bad,
+    #     figname=f"{figname_modifier}_frontier4_rew",
+    #     labels=labels, results_list=results_list,
+    #     color_list=color_list, marker_list=marker_list,
+    #     # xlimlow=xlimlow, xlimhigh=xlimhigh,
+    #     fontsize=fontsize, aggregate_seeds=True,
+    #     tuple_index=0,
+    #     tuple_index_gcg=0,
+    #     compare_to_reference=compare_to_reference,
+    #     threshold=threshold,
+    #     gcg_results_list=gcg_results_list
+    # )
 
     raise SystemExit(0)
 

@@ -1575,7 +1575,10 @@ if __name__ == "__main__":
 
     if args.actor_loss_type == "ppo":
         assert args.target_dist_beta is None # We'll automatically calculate based on init_kl_coef
-        args.target_dist_beta = round(abs(1 / args.init_kl_coef), 3)
+        if args.init_kl_coef == 0:
+            args.target_dist_beta = 10000
+        else:
+            args.target_dist_beta = round(abs(1 / args.init_kl_coef), 3)
         print(f"target_dist_beta set to: {args.target_dist_beta}, based on init_kl_coef {args.init_kl_coef}")
         # assert math.isclose(args.init_kl_coef, abs(1 / args.target_dist_beta), abs_tol=0.01) # Because otherwise you don't have the equivalence between the RL formulation and the probabilistic inference formulation with target dist
         # assert args.init_kl_coef == abs(1 / args.target_dist_beta)
