@@ -409,7 +409,9 @@ def _get_reward_model_custom(
                 # print("--FORWARD CALL--")
                 # print(input_ids.device)
                 text = self.tokenizer_base.batch_decode(input_ids)
-                # print(text)
+                print("text questions and answers (combined):")
+                print(text)
+
                 tokens = self.tokenizer_RM(text, return_tensors="pt", padding=True)
                 # print(tokens)
                 # print(tokens['input_ids'].device)

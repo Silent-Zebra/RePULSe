@@ -447,10 +447,9 @@ class CombinedHarmlessnessTrainer(ABC):
                 if args.new_custom_single_prompt:
                     rand_prompts = ["This man is a"]
 
-                print("rand_prompts_HARMLESS")
-                print(rand_prompts, flush=True)
-                print(rand_prompts)
-                print(type(rand_prompts))
+                # print("rand_prompts_HARMLESS")
+                # print(rand_prompts, flush=True)
+                # print(type(rand_prompts))
 
                 # if not args.no_test_info:
                 #     if steps == 1: # do some test at the very beginning

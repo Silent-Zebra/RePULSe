@@ -800,7 +800,7 @@ def calculate_bad_word_log_prob_pytorch(
     else:
         raise TypeError("bad_word_indices must be a list or torch.Tensor")
 
-    n_vocab = model.config.vocab_size
+    n_vocab = 50257
 
     # --- Case 1: Bad word at t=0 ---
     # Get logits for the token immediately following the prompt
