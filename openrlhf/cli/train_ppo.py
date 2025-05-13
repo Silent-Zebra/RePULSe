@@ -729,7 +729,7 @@ def train(args):
             21551, 40267, 7510, 16211, 20041, 32574, 41356,
             31030, 47209, 18185, 29836
         ]  # You might want to filter these indices to ensure they are within the vocab size
-        vocab_size = model.config.vocab_size
+        vocab_size = actor_to_test.model.config.vocab_size
         assert vocab_size == 50257  # above are for gpt2 models
 
         bad_word_tokens_ids = [idx for idx in bad_word_tokens_ids if idx < vocab_size]
