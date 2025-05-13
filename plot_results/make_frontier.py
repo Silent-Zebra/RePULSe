@@ -625,6 +625,8 @@ if do_load:
 
         make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
 
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1", 1, 5, skip_seeds=[2]),
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr3e-05_clr0.0001_clossmse_policy_s1", 1, 5),
 
     ]
 
@@ -676,7 +678,7 @@ if do_load:
 
     # inds_to_use = [0, 1, 2, 3, 5, 7, 19, 20, 21, 22, 23, 24, 25, 26]
     # inds_to_use = [2, 3, 5, 7, 22, 23, 25]
-    inds_to_use = [22, 23, 25, 27]
+    inds_to_use = [22, 23, 25, 27, 28]
 
     # Maybe leave just the epi 4 ones (make another list)
 
