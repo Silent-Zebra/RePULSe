@@ -1422,6 +1422,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
     )
+    parser.add_argument(
+        "--new_custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
+    )
 
     parser.add_argument("--heldout_prompt_data", type=str, default=None, help="HF dataset name or path")
     parser.add_argument("--heldout_prompt_split", type=str, default="train")
@@ -1623,6 +1626,7 @@ if __name__ == "__main__":
         assert "gpt" in args.pretrain
         # others not yet implemented/tested
         assert args.generate_max_len <= 2
+        assert args.new_custom_single_prompt
 
 
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
