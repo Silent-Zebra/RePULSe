@@ -503,10 +503,12 @@ linestyle_list = ['solid'] * 30
 
 color_list = [
     'xkcd:black',
-    'xkcd:blue', 'xkcd:green', 'xkcd:orange', 'xkcd:purple', 'xkcd:red', 'xkcd:black',  'xkcd:gray',  'xkcd:light brown', 'xkcd:pink',
-    'xkcd:gold', 'xkcd:teal', 'xkcd:dark brown', 'xkcd:magenta',
-    'xkcd:blue', 'xkcd:green', 'xkcd:orange', 'xkcd:purple', 'xkcd:red', 'xkcd:black',  'xkcd:gray',  'xkcd:light brown', 'xkcd:pink',
-    'xkcd:gold', 'xkcd:teal', 'xkcd:dark brown', 'xkcd:magenta',
+    'xkcd:blue', 'xkcd:green', 'xkcd:orange', 'xkcd:purple', 'xkcd:red', 'xkcd:black',  'xkcd:gray',  'xkcd:light brown',
+    'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:dark brown', 'xkcd:magenta',
+    'xkcd:blue', 'xkcd:green', 'xkcd:orange', 'xkcd:purple', 'xkcd:red', 'xkcd:black',  'xkcd:gray',  'xkcd:light brown',
+    'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:dark brown', 'xkcd:magenta',
+    'xkcd:blue', 'xkcd:green', 'xkcd:orange', 'xkcd:purple', 'xkcd:red', 'xkcd:black', 'xkcd:gray', 'xkcd:light brown',
+    'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:dark brown', 'xkcd:magenta',
 ]
 marker_list = ["D", "x", "x", "v", "v", "v", "v", "P", "o", "o", "P", "o", "o", "P", "o", "o", "P", "o", "o", "o", "v", "v", "v", "v", "v", "v", "v", "v", "v", "v", "v", "v", "v", "^", "^", "x", "x", "x", "x", "D", "P", "P", "P"]
 
@@ -607,37 +609,56 @@ if do_load:
             "info_eval_ind_thresh-4.0baseprop_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
             1, 5),
 
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1", 1, 5, [2]),
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1", 1, 5),
+
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 3),
+
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
+
+        make_list("info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
+        make_list(
+            "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
+            1, 5),
+
+        make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
 
 
     ]
 
-    labels = [
-        r"PPO (1 Episode)",
-        r"REINFORCE (1 Episode)",
-        r"REINFORCE (2 Episodes)", # 2
-        r"REINFORCE, $r(s) - 0.003 e^{-30 r(s)}$ (1 Episode)", # 3
-        r"REINFORCE, $r(s) - 0.03 e^{-30 r(s)}$ (1 Episode)",
-        r"REINFORCE, $r(s) - 0.003 e^{-30 r(s)}$ (2 Episodes)",
-        r"REINFORCE, $r(s) - 0.03 e^{-30 r(s)}$ (2 Episodes)", # 6
-        r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$ (1 Episode)", # 7
-        r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$ (1 Episode)",
-        r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$ (2 Episodes)",
-        r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (1 Episode)",
-        r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (1 Episode)",
-        r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (2 Episodes)", # 12
-        r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -3]$, $\alpha = 0.003$ (1 Episode)", # 13
-        r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -3]$, $\alpha = 0.003$ (1 Episode)",
-        r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -3]$, $\alpha = 0.003$ (2 Episodes)",
-        r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.01$ (1 Episode)",
-        # r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.003$ (2 Episodes)",
-        r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.01$ (1 Episodes)",
-        r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.01$ (2 Episodes)", # 18
-    ]
+    use_handcrafted_labels = False # True
 
-    # print(len(load_prefixes_to_use))
-    # print(len(labels))
+    if use_handcrafted_labels:
 
-    # labels = ['_'.join(a[0].split('len20_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for a in load_prefixes_to_use]
+        labels = [
+            r"PPO (1 Episode)",
+            r"REINFORCE (1 Episode)",
+            r"REINFORCE (2 Episodes)", # 2
+            r"REINFORCE, $r(s) - 0.003 e^{-30 r(s)}$ (1 Episode)", # 3
+            r"REINFORCE, $r(s) - 0.03 e^{-30 r(s)}$ (1 Episode)",
+            r"REINFORCE, $r(s) - 0.003 e^{-30 r(s)}$ (2 Episodes)",
+            r"REINFORCE, $r(s) - 0.03 e^{-30 r(s)}$ (2 Episodes)", # 6
+            r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$ (1 Episode)", # 7
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$ (1 Episode)",
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$ (2 Episodes)",
+            r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (1 Episode)",
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (1 Episode)",
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (2 Episodes)", # 12
+            r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -3]$, $\alpha = 0.003$ (1 Episode)", # 13
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -3]$, $\alpha = 0.003$ (1 Episode)",
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -3]$, $\alpha = 0.003$ (2 Episodes)",
+            r"$q_\psi$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.01$ (1 Episode)",
+            # r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.003$ (2 Episodes)",
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.01$ (1 Episodes)",
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) \mathbb{I}[r(s) < -4]$, $\alpha = 0.01$ (2 Episodes)", # 18
+        ]
+
+        # print(len(load_prefixes_to_use))
+        # print(len(labels))
+    else:
+        labels = ['_'.join(a[0].split('len20_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for a in load_prefixes_to_use]
 
     inds_to_use = [0, 1]
     # inds_to_use = [1, 2, 3, 5]
@@ -652,6 +673,12 @@ if do_load:
     inds_to_use = [1, 2, 16, 17, 18]
 
     inds_to_use = [0, 1, 2, 3, 5, 7, 8, 9, 16, 17, 18]
+
+    # inds_to_use = [0, 1, 2, 3, 5, 7, 19, 20, 21, 22, 23, 24, 25, 26]
+    # inds_to_use = [2, 3, 5, 7, 22, 23, 25]
+    inds_to_use = [22, 23, 25, 27]
+
+    # Maybe leave just the epi 4 ones (make another list)
 
 
     # TODO add one more combined/aggregate one
@@ -669,13 +696,15 @@ if do_load:
 
     figname_modifier = "len20_05_11_overall"
 
+    figname_modifier = "len20_05_12_test"
 
-    do_gcg = True # False
+
+    do_gcg =  False
 
     if do_gcg:
 
         # inds_to_use = [1, 2, 5, 7, 10]
-        inds_to_use = [1, 2, 5, 7]
+        inds_to_use = [1, 2, 5, 7, 9]
 
         gcg_prefixes = [
             make_list(
@@ -689,6 +718,8 @@ if do_load:
 
             make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
             # make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+            make_list("gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+            # make_list("gcg_eval_ind_thresh-4.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
 
         ]
         figname_modifier = "len20_05_11_bootstrap_gcgcomparison"
