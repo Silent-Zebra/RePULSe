@@ -740,7 +740,8 @@ def train(args):
             tokenizer=tokenizer,
             prompt_text=prompt,
             bad_word_indices=bad_word_tokens_ids,
-            batch_size=args.train_batch_size  # Adjust batch size based on GPU memory
+            batch_size=args.train_batch_size,  # Adjust batch size based on GPU memory
+            info_name_str=info_name_str
         )
 
     if torch.distributed.is_initialized():
@@ -755,8 +756,8 @@ def calculate_bad_word_log_prob_pytorch(
     tokenizer: AutoTokenizer,
     prompt_text: str,
     bad_word_indices: Union[List[int], torch.Tensor],
-    batch_size: int = 128,
-    device: Union[str, torch.device] = None
+    batch_size: int,
+    info_name_str: str
 ) -> float:
     """
     Calculates the total log probability of generating a sequence of length 2
@@ -781,9 +782,8 @@ def calculate_bad_word_log_prob_pytorch(
         first or second generated token position.
     """
 
-    if device is None:
-        device = model.device if hasattr(model, 'device') else \
-                 torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = model.device if hasattr(model, 'device') else \
+             torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model.eval() # Set model to evaluation mode
     model.to(device)
