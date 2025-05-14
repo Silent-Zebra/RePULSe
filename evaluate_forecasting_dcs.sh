@@ -7,7 +7,7 @@
 #SBATCH --account=ml
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --nodelist=overture,quartet[1-2],quartet[4-5],concerto[1-3],bulbasaur,squirtle,charmander
+#SBATCH --nodelist=concerto[1-3],overture,quartet[1-3,5],dgx1,sonata[1-2],bulbasaur,charmander,squirtle
 #SBATCH --ntasks-per-node=1         # Number of tasks (processes) per node
 #SBATCH --cpus-per-task=4           # Number of CPU cores per task
 #SBATCH --mem=32G                   # Memory per node (e.g., 32GB)
@@ -22,26 +22,11 @@ echo "Running on host: $HOSTNAME"
 echo "Allocated GRES: $SLURM_JOB_GRES"
 echo "Python executable: $(which python)"
 
-CHECKPOINT_DIR="/h/liaidan/OpenRLHF/checkpoints"
-CHECKPOINT_SPECIFIC="10-05-2025/reinforce-1ep"
+CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints"
+CHECKPOINT_SPECIFIC="13-05-2025/p-prop"
 CHECKPOINT_SEED="s1"
 CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}"
 BEHAVIOR_ID="insult_generation"
-
-# --- Environment Setup ---
-. /mfs1/u/$USER/envs/OpenRLHF
-
-echo "Starting experiment run..."
-echo "Job ID: $SLURM_JOB_ID"
-echo "Running on host: $HOSTNAME"
-echo "Allocated GRES: $SLURM_JOB_GRES"
-echo "Python executable: $(which python)"
-
-CHECKPOINT_DIR="/h/liaidan/OpenRLHF/checkpoints"
-CHECKPOINT_SPECIFIC="10-05-2025/reinforce-1ep"
-CHECKPOINT_SEED="s1"
-CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}"
-BEHAVIOR_ID="hacking_instructions"
 
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.forecasting_rare_outputs.experiment_runner \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
