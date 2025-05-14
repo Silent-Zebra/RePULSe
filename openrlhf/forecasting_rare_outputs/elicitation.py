@@ -4,7 +4,7 @@ import pandas as pd
 from transformers import PreTrainedModel, PreTrainedTokenizer
 from typing import Callable, Dict, Any
 from openrlhf.models import Actor, ActorCustom
-from .behavior_defs import Behavior
+from .behavior_defs import Behavior, TARGET_SEQUENCES
 
 def estimate_keyword_probability(
     model: Actor,
@@ -211,19 +211,30 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
     if method == 'logprob_target_seq':
         if not behavior_definition.target_sequence:
             raise ValueError("Method 'logprob_target_seq' requires behavior_definition.target_sequence to be set.")
+        # Behavior-specific target_sequence is no longer used for this method.
+        # We iterate through the global TARGET_SEQUENCES.
         
-        target_output = behavior_definition.target_sequence
-        # Ensure target_output is a string, though type hint on Behavior.target_sequence should cover this.
-        if not isinstance(target_output, str):
-            raise ValueError("behavior_definition.target_sequence must be a string for 'logprob_target_seq' method.")
+        if not TARGET_SEQUENCES:
+            # print("Warning: Global TARGET_SEQUENCES is empty. Returning 0.0 for 'logprob_target_seq'.")
+            return 0.0
+
+        current_total_prob = 0.0
+        for target_output in TARGET_SEQUENCES:
+            if not isinstance(target_output, str) or not target_output:
+                # print(f"Warning: Invalid entry in TARGET_SEQUENCES: '{target_output}'. Skipping.")
+                continue
+
+            log_prob = calculate_sequence_logprob(model, tokenizer, query, target_output)
+            
+            # Clamp log_prob: should be <= 0. If positive, suggests an issue or perfect P=1.0.
+            # Also clamp at a very low value to prevent underflow with math.exp.
+            clamped_log_prob = max(min(log_prob, 0.0), -700.0) 
+            
+            prob = math.exp(clamped_log_prob)
+            current_total_prob += prob
         
-        log_prob = calculate_sequence_logprob(model, tokenizer, query, target_output)
-        
-        if log_prob > 0: # Log probs should be <= 0
-            log_prob = 0.0 
-        
-        log_prob_clamp = max(log_prob, -700.0)
-        p_elicit_val = math.exp(log_prob_clamp)
+        p_elicit_val = current_total_prob
+        # The final result will be clamped to [0, 1] at the end of the function.
 
     elif method == 'logprob_target_keyword_in_target_seq':
         if not behavior_definition.target_sequence:
