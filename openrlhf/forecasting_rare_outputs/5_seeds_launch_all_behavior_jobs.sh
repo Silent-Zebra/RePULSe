@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration ---
-JOB_NAME="p-prop"
+JOB_NAME="ppo"
 CHECKPOINT_DIR="/h/liaidan/OpenRLHF/checkpoints"
 CHECKPOINT_SPECIFIC="13-05-2025/${JOB_NAME}" # Update this if needed
 # CHECKPOINT_SEED="s2" # This will be set by the loop
@@ -63,7 +63,7 @@ for CURRENT_CHECKPOINT_SEED in "${SEEDS[@]}"; do
         relative_query_file="${PROMPT_DIR}/${filename}"
 
         # Define unique job name for sbatch and output/error files
-        sbatch_job_name="${JOB_NAME}-${CHECKPOINT_SEED}"
+        sbatch_job_name="${CHECKPOINT_SEED}-${JOB_NAME}"
         output_file="${CURRENT_OUTPUT_BASE_DIR_ABS}/slurm_logs/forecasting_job_${behavior_id}_%j.out"
         error_file="${CURRENT_OUTPUT_BASE_DIR_ABS}/slurm_logs/forecasting_job_${behavior_id}_%j.err"
 
