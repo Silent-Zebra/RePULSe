@@ -352,7 +352,7 @@ def main():
         
     # Filter by evaluation size if specified
     eval_size_filter = 100 if args.filter_eval_size is None else args.filter_eval_size
-    filtered_df = results_df[results_df['m_eval_size'] == eval_size_filter]
+    filtered_df = results_df[results_df['m_eval_size'] >= eval_size_filter]
     
     if len(filtered_df) < len(results_df):
         print(f"\nFiltered data to only include rows with m_eval_size = {eval_size_filter}")
