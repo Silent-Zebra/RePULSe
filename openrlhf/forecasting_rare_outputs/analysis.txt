@@ -1,0 +1,1 @@
+./newenv/bin/python openrlhf/forecasting_rare_outputs/analysis.py --results_dir openrlhf/forecasting_rare_outputs/results/13-05-2025/ --output_dir openrlhf/forecasting_rare_outputs/analysis_results_output/
