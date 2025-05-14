@@ -228,13 +228,49 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
             
             # Clamp log_prob: should be <= 0. If positive, suggests an issue or perfect P=1.0.
             # Also clamp at a very low value to prevent underflow with math.exp.
-            clamped_log_prob = max(min(log_prob, 0.0), -700.0) 
+            # clamped_log_prob = max(min(log_prob, 0.0), -700.0) 
             
-            prob = math.exp(clamped_log_prob)
+            prob = math.exp(log_prob)
             current_total_prob += prob
         
         p_elicit_val = current_total_prob
         # The final result will be clamped to [0, 1] at the end of the function.
+
+        # # <DEBUGGING_CODE_START>
+        # # For debugging logprob_target_seq: Generate and print N samples
+        # print(f"\n\n\n\n\n\n--- DEBUG: Generating 100 samples for query (logprob_target_seq method) ---\nQuery: {query[:200]}...")
+        
+        # debug_sampling_generation_kwargs = {
+        #     'temperature': 1.0,
+        #     'max_new_tokens': 100, # Max length of each sample
+        #     'top_p': 0.9,
+        #     'do_sample': True,
+        # }
+        # if tokenizer.pad_token_id is not None:
+        #     debug_sampling_generation_kwargs['pad_token_id'] = tokenizer.pad_token_id
+        # elif tokenizer.eos_token_id is not None: # Fallback to eos_token_id for padding
+        #     debug_sampling_generation_kwargs['pad_token_id'] = tokenizer.eos_token_id
+        
+        # # 'generation_kwargs' passed to estimate_p_elicit is typically empty for logprob_target_seq method.
+        # # This ensures our debug sampling uses its own defined parameters.
+        # final_debug_gen_kwargs_for_sampling = {**debug_sampling_generation_kwargs, **(generation_kwargs if generation_kwargs else {})}
+
+        # debug_samples = generate_output(
+        #     model=model,
+        #     tokenizer=tokenizer,
+        #     query=query,
+        #     k_samples=100, # Generate 100 samples
+        #     **final_debug_gen_kwargs_for_sampling
+        # )
+        
+        # if debug_samples:
+        #     print(f"--- Samples for query '{query[:100]}...' ---")
+        #     for idx, sample in enumerate(debug_samples):
+        #         print(f"Sample {idx+1:3d}: {sample}")
+        # else:
+        #     print(f"--- No samples generated for query '{query[:100]}...' ---")
+        # print(f"--- End DEBUG samples for query (logprob_target_seq method) ---\n")
+        # # <DEBUGGING_CODE_END>
 
     elif method == 'logprob_target_keyword_in_target_seq':
         if not behavior_definition.target_sequence:
@@ -483,11 +519,11 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
 
     return max(0.0, min(p_elicit_val, 1.0)) # Ensure result is strictly in [0, 1]
 
-# Placeholder: Implement these helper functions based on your model framework
-# These will need access to the specific model and tokenizer objects used in OpenRLHF
+
 def calculate_sequence_logprob(model: Actor, tokenizer: PreTrainedTokenizer, query: str, target_output: str) -> float:
     """Calculates the log probability log P(target_output | query) using the Actor model's forward pass.
     """
+    # print(f"[DEBUG calculate_sequence_logprob] Called with query: '{query[:100]}...', target_output: '{target_output[:100]}...'")
     model.eval() # Ensure model is in evaluation mode
     # TODO: Check the correctness of this implementation. We should be able to do this in a single forward pass of the model.
     
@@ -496,9 +532,11 @@ def calculate_sequence_logprob(model: Actor, tokenizer: PreTrainedTokenizer, que
     # Typically, for P(Y|X), the input to the model should represent X and then Y.
     query_tokens = tokenizer.encode(query, add_special_tokens=False)
     target_tokens = tokenizer.encode(target_output, add_special_tokens=False)
+    # print(f"[DEBUG calculate_sequence_logprob] Query tokens ({len(query_tokens)}): {query_tokens[:20]}...")
+    # print(f"[DEBUG calculate_sequence_logprob] Target tokens ({len(target_tokens)}): {target_tokens[:20]}...")
 
     if not target_tokens:
-        # print(f"Warning: Target output '{target_output[:100]}...' tokenized to an empty sequence. Returning -inf logprob.")
+        print(f"[DEBUG calculate_sequence_logprob] Target output '{target_output[:100]}...' tokenized to an empty sequence. Returning -inf logprob.")
         return -float('inf')
 
     # 2. Construct the full input_ids sequence for the model.
@@ -511,51 +549,75 @@ def calculate_sequence_logprob(model: Actor, tokenizer: PreTrainedTokenizer, que
     input_ids_list = []
     if tokenizer.bos_token_id is not None:
         input_ids_list.append(tokenizer.bos_token_id)
+        # print(f"[DEBUG calculate_sequence_logprob] Added BOS token: {tokenizer.bos_token_id}")
     
     input_ids_list.extend(query_tokens)
     input_ids_list.extend(target_tokens) # These are the "actions"
+    # print(f"[DEBUG calculate_sequence_logprob] Full input_ids_list ({len(input_ids_list)}): {input_ids_list[:30]}...")
 
     # If the model implicitly adds EOS or expects it for full sequence processing,
     # and if num_actions correctly slices *before* any such auto-added EOS, this is fine.
     # Let's assume for now that num_actions targets exactly the target_tokens as appended.
 
     input_ids_tensor = torch.tensor([input_ids_list], dtype=torch.long)
+    # print(f"[DEBUG calculate_sequence_logprob] input_ids_tensor shape: {input_ids_tensor.shape}")
     
     num_actions = len(target_tokens)
+    # print(f"[DEBUG calculate_sequence_logprob] num_actions (length of target_tokens): {num_actions}")
 
     try:
         device = model.model.device if hasattr(model, 'model') and hasattr(model.model, 'device') else next(model.parameters()).device
+        # print(f"[DEBUG calculate_sequence_logprob] Determined model device: {device}")
     except StopIteration: 
-        # print("Warning: Could not determine model device, attempting to use cuda if available, else cpu.")
+        print("[DEBUG calculate_sequence_logprob] Warning: Could not determine model device from parameters, attempting to use cuda if available, else cpu.")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # If the model is on meta, it needs to be moved.
         # The experiment_runner should handle placing the model on a device.
         # model.to(device) # This might be problematic if device_map was used.
+    # print(f"[DEBUG calculate_sequence_logprob] Using device: {device}")
 
     input_ids_tensor = input_ids_tensor.to(device)
+    # print(f"[DEBUG calculate_sequence_logprob] input_ids_tensor moved to device {input_ids_tensor.device}")
+
+    # Create an attention mask as the Actor model requires it.
+    # A default mask attending to all tokens.
+    attention_mask_tensor = torch.ones_like(input_ids_tensor, device=device)
+    # print(f"[DEBUG calculate_sequence_logprob] Created attention_mask_tensor with shape {attention_mask_tensor.shape} on device {attention_mask_tensor.device}")
 
     # 3. Call model.forward() with the full sequence and num_actions.
     # Actor.forward is expected to return log_probs of shape (batch_size, num_actions)
     # where batch_size is 1 here.
     with torch.no_grad():
         try:
+            # print(f"[DEBUG calculate_sequence_logprob] Calling model.forward with input_ids (shape {input_ids_tensor.shape}), num_actions = {num_actions}, and attention_mask (shape {attention_mask_tensor.shape})")
             # The Actor's forward pass with num_actions should give us the logprobs for the target sequence.
-            action_log_probs = model.forward(input_ids_tensor, num_actions=num_actions, attention_mask=None) # Let Actor handle attention_mask
+            action_log_probs = model.forward(input_ids_tensor, num_actions=num_actions, attention_mask=attention_mask_tensor) # Pass the created attention_mask
+            
+            if action_log_probs is None:
+                print(f"[DEBUG calculate_sequence_logprob] model.forward returned None for action_log_probs.")
+            # else:
+            #     print(f"[DEBUG calculate_sequence_logprob] action_log_probs received from model.forward. Shape: {action_log_probs.shape}, Dtype: {action_log_probs.dtype}")
+            #     if action_log_probs.numel() > 0:
+            #         print(f"[DEBUG calculate_sequence_logprob] action_log_probs values (first 5): {action_log_probs.flatten()[:5]}")
+            #         print(f"[DEBUG calculate_sequence_logprob] action_log_probs min: {action_log_probs.min().item()}, max: {action_log_probs.max().item()}, mean: {action_log_probs.mean().item()}")
+            #     else:
+            #         print(f"[DEBUG calculate_sequence_logprob] action_log_probs is empty.")
 
             if action_log_probs is None or action_log_probs.ndim == 0 : # Check if it's a scalar or None
-                # print(f"Warning: action_log_probs from model.forward is None or scalar. Value: {action_log_probs}")
+                print(f"[DEBUG calculate_sequence_logprob] Condition met: action_log_probs is None or scalar. Value: {action_log_probs}. Returning -float('inf').")
                 return -float('inf')
             if action_log_probs.shape[-1] != num_actions:
-                # print(f"Warning: action_log_probs from model.forward has unexpected shape. Shape: {action_log_probs.shape}. Expected num_actions: {num_actions}")
+                print(f"[DEBUG calculate_sequence_logprob] Condition met: action_log_probs shape[-1] ({action_log_probs.shape[-1]}) != num_actions ({num_actions}). Shape: {action_log_probs.shape}. Returning -float('inf').")
                 return -float('inf')
 
             # 4. Sum the log probabilities for the target sequence.
             sum_log_probs = action_log_probs.sum().item()
+            # print(f"[DEBUG calculate_sequence_logprob] Sum of action_log_probs: {sum_log_probs}")
             
             return sum_log_probs
 
         except Exception as e:
-            # print(f"Error during logprob calculation (Actor.forward) for query: '{query[:100]}...' Target: '{target_output[:100]}...'\nError: {e}")
-            # import traceback
-            # traceback.print_exc()
+            print(f"[DEBUG calculate_sequence_logprob] Error during logprob calculation (Actor.forward or summation) for query: '{query[:100]}...' Target: '{target_output[:100]}...'")
+            import traceback
+            traceback.print_exc() # Print full traceback for the exception
             return -float('inf') 
