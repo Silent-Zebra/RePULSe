@@ -63,7 +63,7 @@ for CURRENT_CHECKPOINT_SEED in "${SEEDS[@]}"; do
         relative_query_file="${PROMPT_DIR}/${filename}"
 
         # Define unique job name for sbatch and output/error files
-        sbatch_job_name="${JOB_NAME}-${behavior_id}-${CHECKPOINT_SEED}"
+        sbatch_job_name="${JOB_NAME}-${CHECKPOINT_SEED}"
         output_file="${CURRENT_OUTPUT_BASE_DIR_ABS}/slurm_logs/forecasting_job_${behavior_id}_%j.out"
         error_file="${CURRENT_OUTPUT_BASE_DIR_ABS}/slurm_logs/forecasting_job_${behavior_id}_%j.err"
 
