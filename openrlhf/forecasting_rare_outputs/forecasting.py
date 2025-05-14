@@ -4,7 +4,7 @@ import math
 from typing import List, Tuple
 
 # Small constant to prevent log(0) or log(1) issues
-_LOG_EPSILON = 1e-12
+_LOG_EPSILON = 1e-200
 
 def fit_gumbel_tail(p_elicits: List[float], top_k: int = 10) -> Tuple[float, float, float]:
     """Fits the Gumbel tail linear model (log P(>psi) ~ a*psi + b)

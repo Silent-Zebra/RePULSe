@@ -209,28 +209,26 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
     p_elicit_val = 0.0
 
     if method == 'logprob_target_seq':
-        if not behavior_definition.target_sequence:
-            raise ValueError("Method 'logprob_target_seq' requires behavior_definition.target_sequence to be set.")
-        # Behavior-specific target_sequence is no longer used for this method.
-        # We iterate through the global TARGET_SEQUENCES.
-        
-        if not TARGET_SEQUENCES:
-            # print("Warning: Global TARGET_SEQUENCES is empty. Returning 0.0 for 'logprob_target_seq'.")
+        target_sequences_list = behavior_definition.target_sequence
+
+        # Expect target_sequence to be a list of strings for this method,
+        # based on user request and data examples (e.g., "fat_keyword").
+        # The Behavior dataclass hint is Optional[str], but data often provides List[str].
+        if not isinstance(target_sequences_list, list) or not target_sequences_list:
+            # Handles None, not a list, or an empty list.
+            print(f"Warning: For 'logprob_target_seq', behavior_definition.target_sequence is not a non-empty list for behavior '{behavior_definition.id}'. Value: {target_sequences_list}. Returning 0.0.")
             return 0.0
 
         current_total_prob = 0.0
-        for target_output in TARGET_SEQUENCES:
+        for target_output in target_sequences_list:
             if not isinstance(target_output, str) or not target_output:
-                # print(f"Warning: Invalid entry in TARGET_SEQUENCES: '{target_output}'. Skipping.")
+                print(f"Warning: Invalid item in behavior_definition.target_sequence (expected non-empty string): '{target_output}' for behavior '{behavior_definition.id}'. Skipping.")
                 continue
 
             log_prob = calculate_sequence_logprob(model, tokenizer, query, target_output)
-            
-            # Clamp log_prob: should be <= 0. If positive, suggests an issue or perfect P=1.0.
-            # Also clamp at a very low value to prevent underflow with math.exp.
-            # clamped_log_prob = max(min(log_prob, 0.0), -700.0) 
-            
             prob = math.exp(log_prob)
+            # print(f"DEBUG: log_prob for target_output '{target_output}' in query '{query[:50]}...': {log_prob}", flush=True)
+            # print(f"DEBUG: prob for target_output '{target_output}' in query '{query[:50]}...': {prob}", flush=True)
             current_total_prob += prob
         
         p_elicit_val = current_total_prob
