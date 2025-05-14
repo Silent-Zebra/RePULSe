@@ -207,7 +207,7 @@ def generate_qpn_summary_table(df: pd.DataFrame, output_dir: str):
     def q05(x): return x.quantile(0.05)
     def q95(x): return x.quantile(0.95)
 
-    agg_funcs = {col: ["mean","median", "min", "max", q05, q95] for col in qpn_cols}
+    agg_funcs = {col: ["mean", "median", "min", "max", q05, q95] for col in qpn_cols}
     
     # Group by model and behavior, then aggregate
     summary_df = df.groupby(['model_name', 'behavior_id'], as_index=False).agg(agg_funcs)
