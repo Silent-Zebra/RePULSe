@@ -231,7 +231,7 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
             # print(f"DEBUG: prob for target_output '{target_output}' in query '{query[:50]}...': {prob}", flush=True)
             current_total_prob += prob
         
-        p_elicit_val = current_total_prob
+        p_elicit_val = current_total_prob / len(target_sequences_list)
         # The final result will be clamped to [0, 1] at the end of the function.
 
         # # <DEBUGGING_CODE_START>
@@ -271,191 +271,127 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         # # <DEBUGGING_CODE_END>
 
     elif method == 'logprob_target_keyword_in_target_seq':
-        if not behavior_definition.target_sequence:
-            raise ValueError("Method 'logprob_target_keyword_in_target_seq' requires behavior_definition.target_sequence to be set as the reference output.")
+        target_sequences_list = behavior_definition.target_sequence # Expect a list of strings
+
+        if not isinstance(target_sequences_list, list) or not target_sequences_list:
+            print(f"Warning: For 'logprob_target_keyword_in_target_seq', behavior_definition.target_sequence is not a non-empty list for behavior '{behavior_definition.id}'. Value: {target_sequences_list}. Returning 0.0.")
+            return 0.0
+
         if not behavior_definition.target_keywords:
             raise ValueError("Method 'logprob_target_keyword_in_target_seq' requires behavior_definition.target_keywords to be a non-empty list.")
-
-        reference_output_text = behavior_definition.target_sequence
-        if not isinstance(reference_output_text, str) or not reference_output_text:
-            # This should be caught by the first check, but kept for robustness
-            raise ValueError("'target_sequence' must be a non-empty string to serve as reference output.")
-
+        
         keywords_to_find = behavior_definition.target_keywords
         if not isinstance(keywords_to_find, list) or not all(isinstance(k, str) for k in keywords_to_find) or not keywords_to_find:
+            # This check might be redundant if behavior_definition.target_keywords is already validated upon Behavior object creation,
+            # but kept for robustness within this function's logic.
             raise ValueError("'target_keywords' must be a non-empty list of strings.")
 
         model.eval()
 
-        query_tokens = tokenizer.encode(query, add_special_tokens=False)
-        reference_output_tokens_ids = tokenizer.encode(reference_output_text, add_special_tokens=False)
-
-        if not reference_output_tokens_ids:
-            # print(f"Warning: Reference output (from target_sequence) '{reference_output_text[:100]}...' tokenized to empty. Returning 0.0")
-            return 0.0
-
-        input_ids_list = []
-        if tokenizer.bos_token_id is not None:
-            input_ids_list.append(tokenizer.bos_token_id)
-        input_ids_list.extend(query_tokens)
-        input_ids_list.extend(reference_output_tokens_ids)
+        # --- ADDED PART: Get all unique token IDs for target keywords (once) ---
+        target_keyword_token_ids = set()
+        for keyword_str in keywords_to_find:
+            if not keyword_str: continue
+            tokens_alone = tokenizer.encode(keyword_str, add_special_tokens=False)
+            if tokens_alone:
+                for token_id in tokens_alone:
+                    target_keyword_token_ids.add(token_id)
+            tokens_with_space = tokenizer.encode(" " + keyword_str, add_special_tokens=False)
+            if tokens_with_space:
+                for token_id in tokens_with_space:
+                    target_keyword_token_ids.add(token_id)
         
-        input_ids_tensor = torch.tensor([input_ids_list], dtype=torch.long)
-        num_actions = len(reference_output_tokens_ids) # Logprobs for each token in the reference_output_text
+        if not target_keyword_token_ids:
+            print(f"Warning: No valid token IDs found for any target_keywords: {keywords_to_find} for behavior '{behavior_definition.id}'. Returning 0.0.")
+            return 0.0
+        # --- END ADDED PART (modified from original placement) ---
 
-        try:
-            device = model.model.device if hasattr(model, 'model') and hasattr(model.model, 'device') else next(model.parameters()).device
-        except StopIteration: # Model has no parameters (e.g. on meta device)
-            # print("Warning: Could not determine model device from parameters, attempting to use cuda if available, else cpu.")
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        input_ids_tensor = input_ids_tensor.to(device)
+        # --- DEBUG PRINT 1 (moved before loop) ---
+        # print(f"DEBUG: Target Keyword Token IDs for behavior '{behavior_definition.id}': {target_keyword_token_ids}", flush=True)
+        # --- END DEBUG PRINT 1 ---
 
-        total_probability_sum = 0.0
+        final_total_probability_sum_across_sequences = 0.0
+        total_num_sequences = len(target_sequences_list)
+        for seq_idx, reference_output_text in enumerate(target_sequences_list):
+            if not isinstance(reference_output_text, str) or not reference_output_text:
+                print(f"Warning: Invalid item #{seq_idx} in behavior_definition.target_sequence (expected non-empty string): '{reference_output_text}' for behavior '{behavior_definition.id}' in 'logprob_target_keyword_in_target_seq'. Skipping this item.")
+                continue
 
-        with torch.no_grad():
+            current_sequence_probability_sum = 0.0
             try:
-                # Actor.forward returns log P(action_i | context_i) for each action in num_actions
-                # Here, actions are the tokens of reference_output_text
-                # --- MODIFIED CALL --- 
-                # Get the full model output, which includes logits
-                _, model_output = model.forward(
-                    input_ids_tensor,
-                    num_actions=None, # Requesting full output, num_actions slicing happens later
-                    attention_mask=None, # Let Actor handle attention_mask
-                    return_output=True # Request the full output object
-                    # return_type="all_vocab" # Removed: Not supported
-                )
+                query_tokens = tokenizer.encode(query, add_special_tokens=False)
+                reference_output_tokens_ids = tokenizer.encode(reference_output_text, add_special_tokens=False)
+
+                if not reference_output_tokens_ids:
+                    print(f"Warning: Reference output (item #{seq_idx} from target_sequence list) '{reference_output_text[:100]}...' tokenized to empty. Skipping this item for behavior '{behavior_definition.id}'.")
+                    continue
+
+                input_ids_list = []
+                if tokenizer.bos_token_id is not None:
+                    input_ids_list.append(tokenizer.bos_token_id)
+                input_ids_list.extend(query_tokens)
+                input_ids_list.extend(reference_output_tokens_ids)
                 
-                # Extract logits [batch_size=1, seq_len, vocab_size]
-                all_logits = model_output['logits'].to(torch.float32)
+                input_ids_tensor = torch.tensor([input_ids_list], dtype=torch.long)
+                num_actions = len(reference_output_tokens_ids)
+
+                try:
+                    device = model.model.device if hasattr(model, 'model') and hasattr(model.model, 'device') else next(model.parameters()).device
+                except StopIteration:
+                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                input_ids_tensor = input_ids_tensor.to(device)
+                attention_mask_tensor = torch.ones_like(input_ids_tensor, device=device) # Create explicit attention mask
+
+                with torch.no_grad():
+                    model_output = model.forward(
+                        input_ids_tensor,
+                        num_actions=None,
+                        attention_mask=attention_mask_tensor,
+                        return_output=True
+                    )
+                    
+                    all_logits = model_output['logits'].to(torch.float32)
+                    all_vocab_log_probs = torch.log_softmax(all_logits, dim=-1)
+                    
+                    start_logit_index = len(input_ids_list) - num_actions - 1 
+                    end_logit_index = len(input_ids_list) - 1
+                    
+                    all_vocab_log_probs_for_target_sequence = all_vocab_log_probs[:, start_logit_index:end_logit_index, :]
+                    
+                    # print(f"Returned all_vocab_log_probs_for_target_sequence.shape for seq_idx {seq_idx}: {all_vocab_log_probs_for_target_sequence.shape}", flush=True)
+
+                    if all_vocab_log_probs_for_target_sequence is None or \
+                       all_vocab_log_probs_for_target_sequence.ndim != 3 or \
+                       all_vocab_log_probs_for_target_sequence.shape[0] != 1 or \
+                       all_vocab_log_probs_for_target_sequence.shape[1] != num_actions:
+                        print(f"Warning: Invalid all_vocab_log_probs_for_target_sequence received for seq_idx {seq_idx} ('{reference_output_text[:50]}...'). Shape: {all_vocab_log_probs_for_target_sequence.shape if all_vocab_log_probs_for_target_sequence is not None else 'None'}. Expected: (1, {num_actions}, vocab_size). Skipping this item.")
+                        continue
+
+                    vocab_size = all_vocab_log_probs_for_target_sequence.shape[2]
+                    # print(f"DEBUG: Vocab size for seq_idx {seq_idx}: {vocab_size}", flush=True)
+                    # print(f"DEBUG: num_actions (steps in target_sequence item #{seq_idx}): {num_actions}", flush=True)
+
+                    for j in range(num_actions):
+                        log_probs_at_step_j = all_vocab_log_probs_for_target_sequence[0, j, :]
+                        # if j == 0 and seq_idx == 0: print(f"DEBUG: Processing step j={j} in target_sequence item #{seq_idx}", flush=True)
+                        for token_id in target_keyword_token_ids:
+                            if 0 <= token_id < vocab_size:
+                                log_prob_keyword_token = log_probs_at_step_j[token_id].item()
+                                # if j == 0 and seq_idx == 0: print(f"DEBUG:   Keyword Token ID: {token_id}, Log Prob: {log_prob_keyword_token}", flush=True)
+                                prob_keyword_token = math.exp(log_prob_keyword_token)
+                                # if j == 0 and seq_idx == 0: print(f"DEBUG:     Prob for Token ID {token_id}: {prob_keyword_token}", flush=True)
+                                current_sequence_probability_sum += prob_keyword_token
                 
-                # Calculate log probabilities across the full vocabulary
-                # Apply log_softmax to the vocabulary dimension
-                all_vocab_log_probs = torch.log_softmax(all_logits, dim=-1)
-                
-                # The logits correspond to predicting the *next* token. 
-                # So, all_logits[:, i, :] contains the distribution for predicting token i+1 given tokens up to i.
-                # We want the logprobs for predicting the tokens in reference_output_tokens_ids.
-                # The input was [BOS] + query_tokens + reference_output_tokens_ids
-                # The logits for predicting the first reference token are at index len(query_tokens) (if BOS exists) or len(query_tokens)-1 (if no BOS).
-                # Let's determine the start index precisely.
-                query_start_index = 1 if tokenizer.bos_token_id is not None else 0
-                num_query_tokens = len(query_tokens)
-                # Logits relevant for predicting the reference sequence start at index: query_start_index + num_query_tokens -1
-                # The sequence length dimension of all_vocab_log_probs is len(input_ids_list)
-                # We need the log_probs for the last num_actions tokens predicted. 
-                # These correspond to the *output* logits from position query_len-1 up to seq_len-2
-                start_logit_index = len(input_ids_list) - num_actions -1 
-                end_logit_index = len(input_ids_list) -1 # Exclusive, so up to seq_len-2
-                
-                # Slice the log_probs tensor to get the distributions corresponding to the target sequence positions
-                # Shape should be [1, num_actions, vocab_size]
-                all_vocab_log_probs_for_target_sequence = all_vocab_log_probs[:, start_logit_index:end_logit_index, :]
-                # --- END MODIFIED CALL --- 
-                
-                print(f"Returned all_vocab_log_probs_for_target_sequence.shape: {all_vocab_log_probs_for_target_sequence.shape}", flush=True)
+                final_total_probability_sum_across_sequences += current_sequence_probability_sum
+                # print(f"DEBUG: Prob sum for reference_output_text (item #{seq_idx}) '{reference_output_text[:50]}...': {current_sequence_probability_sum}", flush=True)
 
-                # Shape of all_vocab_log_probs_for_target_sequence should be (batch_size=1, num_actions, vocab_size)
-                if all_vocab_log_probs_for_target_sequence is None or \
-                   all_vocab_log_probs_for_target_sequence.ndim != 3 or \
-                   all_vocab_log_probs_for_target_sequence.shape[0] != 1 or \
-                   all_vocab_log_probs_for_target_sequence.shape[1] != num_actions:
-                    print(f"Warning: Invalid all_vocab_log_probs_for_target_sequence received. Shape: {all_vocab_log_probs_for_target_sequence.shape if all_vocab_log_probs_for_target_sequence is not None else 'None'}. Expected: (1, {num_actions}, vocab_size)")
-                    return 0.0 # Cannot proceed if log_probs are not as expected
-
-                # --- ADDED PART: Get all unique token IDs for target keywords --- 
-                target_keyword_token_ids = set()
-                for keyword_str in keywords_to_find:
-                    if not keyword_str: continue
-                    # Tokenize keyword alone
-                    tokens_alone = tokenizer.encode(keyword_str, add_special_tokens=False)
-                    if tokens_alone:
-                        for token_id in tokens_alone:
-                            target_keyword_token_ids.add(token_id)
-                    # Tokenize keyword with preceding space (common variation)
-                    tokens_with_space = tokenizer.encode(" " + keyword_str, add_special_tokens=False)
-                    # Sometimes tokenizing " word" results in the same token ID for "word" plus a space marker token,
-                    # sometimes it's a completely different token ID. Add all possibilities.
-                    if tokens_with_space:
-                        for token_id in tokens_with_space:
-                            target_keyword_token_ids.add(token_id)
-                # --- END ADDED PART ---
-
-                # --- DEBUG PRINT 1 ---
-                print(f"DEBUG: Target Keyword Token IDs: {target_keyword_token_ids}", flush=True)
-                # --- END DEBUG PRINT 1 ---
-
-                # --- REVISED LOGIC: Sum probabilities of target keyword tokens at each step ---
-                vocab_size = all_vocab_log_probs_for_target_sequence.shape[2]
-                print(f"DEBUG: Vocab size: {vocab_size}", flush=True) # --- DEBUG PRINT Vocab Size ---
-                print(f"DEBUG: num_actions (steps in target_sequence): {num_actions}", flush=True) # --- DEBUG PRINT num_actions ---
-
-                for j in range(num_actions): # Iterate through each token position in the target sequence
-                    log_probs_at_step_j = all_vocab_log_probs_for_target_sequence[0, j, :] # Shape: (vocab_size)
-                    # --- DEBUG PRINT for first step (j=0) ---
-                    if j == 0:
-                        print(f"DEBUG: Processing step j={j} in target_sequence", flush=True)
-                    # --- END DEBUG PRINT ---
-                    for token_id in target_keyword_token_ids:
-                        if 0 <= token_id < vocab_size:
-                            log_prob_keyword_token = log_probs_at_step_j[token_id].item()
-                            # --- DEBUG PRINT for first step (j=0) ---
-                            if j == 0:
-                                print(f"DEBUG:   Keyword Token ID: {token_id}, Log Prob: {log_prob_keyword_token}", flush=True)
-                            # --- END DEBUG PRINT ---
-                            prob_keyword_token = math.exp(max(log_prob_keyword_token, -700.0))
-                            # --- DEBUG PRINT for first step (j=0) ---
-                            if j == 0:
-                                print(f"DEBUG:     Prob for Token ID {token_id}: {prob_keyword_token}", flush=True)
-                            # --- END DEBUG PRINT ---
-                            total_probability_sum += prob_keyword_token
-                        # else: # Optional: Warn if a keyword token ID is out of bounds
-                        #     print(f"Warning: Keyword token ID {token_id} is out of vocabulary range [0, {vocab_size-1}]. Skipping.")
-                # --- END REVISED LOGIC ---
-
-                # --- REMOVED OLD LOGIC --- 
-                # for keyword_str in keywords_to_find:
-                #     if not keyword_str: continue # Should be caught by earlier validation
-                #
-                #     keyword_tokens_ids = tokenizer.encode(keyword_str, add_special_tokens=False)
-                #     if not keyword_tokens_ids:
-                #         # print(f"Warning: Keyword '{keyword_str}' tokenized to empty sequence. Skipping.")
-                #         continue
-                #     
-                #     len_keyword_tokens = len(keyword_tokens_ids)
-                #
-                #     # Find occurrences of keyword_tokens_ids within reference_output_tokens_ids
-                #     for i in range(len(reference_output_tokens_ids) - len_keyword_tokens + 1):
-                #         reference_slice = reference_output_tokens_ids[i : i + len_keyword_tokens]
-                #         if reference_slice == keyword_tokens_ids:
-                #             # This is an occurrence. Sum the log_probs of its constituent tokens.
-                #             log_prob_of_this_keyword_occurrence = 0.0
-                #             for k_idx in range(len_keyword_tokens):
-                #                 # all_action_log_probs[0, j] is log P(reference_output_tokens_ids[j] | query, reference_output_tokens_ids[<j])
-                #                 # THIS PART WILL BE REPLACED IN THE NEXT STEP
-                #                 # log_prob_of_this_keyword_occurrence += all_vocab_log_probs_for_target_sequence[0, i + k_idx].item() # Placeholder, needs fix
-                #                 # --- Corrected logic to use appropriate log probs --- 
-                #                 # We should actually sum the logprobs for the specific keyword tokens *at their position* 
-                #                 # This old logic sums the logprob of whatever token *was* in the target sequence at that point.
-                #                 # The revised approach below handles this better.
-                #                 pass # Logic removed, handled by new loops
-                #             
-                #             # Clamp and convert to probability
-                #             # prob_of_this_occurrence = math.exp(max(log_prob_of_this_keyword_occurrence, -700.0))
-                #             # total_probability_sum += prob_of_this_occurrence
-                #             # --- This calculation is replaced by the new loop structure ---
-                #             pass # Logic removed
-                # --- END REMOVED OLD LOGIC --- 
             except Exception as e:
-                # print(f"Error during 'logprob_target_keyword_in_target_seq' (model.forward or token processing) for query: '{query[:100]}...' Sequence: '{reference_output_text[:100]}...' Keywords: {keywords_to_find}\\nError: {e}")
-                print(f"Error during 'logprob_target_keyword_in_target_seq' calculation: {e}", flush=True) # Added flush=True
-                # import traceback
-                # traceback.print_exc()
-                return 0.0 # Return 0 probability on error during calculation
-        p_elicit_val = total_probability_sum
-        # --- DEBUG PRINT FINAL SUM ---
-        print(f"DEBUG: Final total_probability_sum for query '{query[:50]}...': {p_elicit_val}", flush=True)
-        # --- END DEBUG PRINT FINAL SUM ---
+                print(f"Error during 'logprob_target_keyword_in_target_seq' for query: '{query[:100]}...' with reference_output_text (item #{seq_idx}): '{reference_output_text[:100]}...' for behavior '{behavior_definition.id}'. Error: {e}", flush=True)
+                # import traceback; traceback.print_exc() # Uncomment for detailed traceback
+                # Continue to the next reference_output_text in the list
+        
+        p_elicit_val = final_total_probability_sum_across_sequences / total_num_sequences
+        # print(f"DEBUG: Final total_probability_sum for query '{query[:50]}...' (across all reference sequences for behavior '{behavior_definition.id}'): {p_elicit_val}", flush=True)
 
     elif method == 'repeated_sampling':
         success_count = 0
