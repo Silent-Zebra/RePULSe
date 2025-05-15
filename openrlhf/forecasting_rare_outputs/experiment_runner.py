@@ -305,7 +305,7 @@ def main():
             elif tokenizer.eos_token_id is not None:
                 current_generation_kwargs['pad_token_id'] = tokenizer.eos_token_id
 
-        for i, query_text in enumerate(tqdm(eval_queries, desc=f"Estimating p_elicit (Iter {bootstrap_iter+1})", disable=strategy.rank != 0)):
+        for i, query_text in enumerate(tqdm(eval_queries, desc=f"Estimating p_elicit (Iter {bootstrap_iter+1})", disable=False)):
             query_log_entry = {"query_idx_bootstrap": i, "query": query_text, "bootstrap_iteration": bootstrap_iter + 1}
             try:
                 p_val = estimate_p_elicit(

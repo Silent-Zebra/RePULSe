@@ -7,7 +7,7 @@
 #SBATCH --account=ml
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --nodelist=concerto[1-3],overture,quartet[1-3,5],dgx1,sonata[1-2],bulbasaur,charmander,squirtle
+#SBATCH --nodelist=concerto[1-3],overture,quartet[1-3,5],dgx1,sonata2,bulbasaur,charmander,squirtle
 #SBATCH --ntasks-per-node=1         # Number of tasks (processes) per node
 #SBATCH --cpus-per-task=4           # Number of CPU cores per task
 #SBATCH --mem=32G                   # Memory per node (e.g., 32GB)
@@ -26,18 +26,18 @@ CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints"
 CHECKPOINT_SPECIFIC="13-05-2025/p-prop"
 CHECKPOINT_SEED="s1"
 CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}"
-BEHAVIOR_ID="insult_generation"
+BEHAVIOR_ID="fat_keyword"
 
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.forecasting_rare_outputs.experiment_runner \
     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct" \
-    --ckpt_path "${CHECKPOINT_PATH}" \
     --behavior_id "${BEHAVIOR_ID}" \
     --query_file "openrlhf/forecasting_rare_outputs/split_20k_heldout/${BEHAVIOR_ID}_prompts.jsonl" \
     --output_dir "openrlhf/forecasting_rare_outputs/results/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}" \
     --evaluation_set_size 100 \
-    --elicitation_method "repeated_sampling" \
+    --elicitation_method "logprob_target_keyword_in_target_seq" \
+    --num_bootstrap_samples 100 \
     --k_samples 10000 \
-    --elicitation_processing_batch_size 1200 \
+    --elicitation_processing_batch_size 800 \
     --top_k_fit 10 \
     --forecast_scales "1e3,5e3,1e4,5e4,1e5,5e5,1e6,5e6" \
     --bf16 
