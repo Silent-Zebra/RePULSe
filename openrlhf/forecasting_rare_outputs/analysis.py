@@ -6,6 +6,21 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 
+# Attempt to import forecast_worst_query_risk, handle if module not found for standalone execution
+try:
+    from openrlhf.forecasting_rare_outputs.forecasting import forecast_worst_query_risk
+except ImportError:
+    # This is a fallback for cases where the script might be run in an environment
+    # where openrlhf is not in PYTHONPATH, or for a simpler definition if needed.
+    # For the full project, the above import should work.
+    print("Warning: Could not import forecast_worst_query_risk from openrlhf.forecasting. Using a placeholder.")
+    def forecast_worst_query_risk(a, b, n):
+        # Placeholder: -log(-log( (a * (-log(n)) + b) )) -> Q_psi = (-log n -b)/a -> Q_p = exp(-exp(-Q_psi))
+        if a == 0: # Avoid division by zero
+            return np.nan 
+        q_psi_n = (-np.log(n) - b) / a
+        return np.exp(-np.exp(-q_psi_n))
+
 def load_results(base_results_dir: str, specific_run_prefix: str = "") -> pd.DataFrame:
     """Loads summary JSON files from experiments into a pandas DataFrame.
     Recursively searches for _summary.json files within base_results_dir.
@@ -65,23 +80,46 @@ def load_results(base_results_dir: str, specific_run_prefix: str = "") -> pd.Dat
                         print(f"  Behavior ID from path: {behavior_id_from_path}")
                         print(f"  Using behavior ID: {behavior_id}")
                         
+                        # Extract data based on the new bootstrapped summary.json structure
+                        bootstrap_summary = summary_data.get("gumbel_fit_params_bootstrap_summary", {})
+                        
                         flat_data = {
-                            "run_name": filename.replace("_summary.json", "").replace("-summary.json", ""), # Original run_name based on file
-                            "model_name": parsed_model_type, # Using the parsed model_type
-                            "seed_id": parsed_seed_id,       # Using the parsed seed_id
-                            "filepath": filepath, # For debugging/reference
-                            "model_path": summary_data.get("model_path", "N/A"),
+                            "run_name": filename.replace("_summary.json", "").replace("-summary.json", ""),
+                            "model_name": parsed_model_type,
+                            "seed_id": parsed_seed_id,
+                            "filepath": filepath,
+                            "model_path": summary_data.get("pretrain", "N/A"), # Changed from model_path for consistency
                             "behavior_id": behavior_id,
                             "elicitation_method": summary_data.get("elicitation_method", "N/A"),
-                            "m_eval_size": summary_data.get("num_eval_queries_sampled", np.nan),
-                            "num_valid_p": summary_data.get("num_valid_p_elicits", np.nan),
-                            "fit_a": summary_data.get("gumbel_fit_params", {}).get("a_slope", np.nan),
-                            "fit_b": summary_data.get("gumbel_fit_params", {}).get("b_intercept", np.nan),
-                            "fit_r2": summary_data.get("gumbel_fit_params", {}).get("r_squared", np.nan),
-                            "fit_top_k": summary_data.get("gumbel_fit_params", {}).get("top_k_used", np.nan),
+                            # Bootstrap specific metrics
+                            "num_bootstrap_samples_requested": summary_data.get("num_bootstrap_samples_requested", np.nan),
+                            "num_successful_gumbel_fits": summary_data.get("num_successful_gumbel_fits", np.nan),
+                            "m_eval_size_per_bootstrap": summary_data.get("evaluation_set_size_m_per_bootstrap", np.nan), # New name for clarity
+                            "mean_num_valid_p_per_bootstrap": summary_data.get("mean_num_valid_p_elicits_per_bootstrap", np.nan), # New name for clarity
+
+                            # Mean Gumbel fit parameters from bootstrap
+                            "fit_a": bootstrap_summary.get("mean_a_slope", np.nan),
+                            "fit_b": bootstrap_summary.get("mean_b_intercept", np.nan),
+                            "fit_r2": bootstrap_summary.get("mean_r_squared_approx", np.nan), # Using approximated R^2 from mean r_value
+                            "fit_top_k": bootstrap_summary.get("mean_top_k_actually_used", np.nan),
+                            
+                            # Standard deviations of Gumbel fit parameters if needed for advanced analysis (optional for now)
+                            "std_fit_a": bootstrap_summary.get("std_a_slope", np.nan),
+                            "std_fit_b": bootstrap_summary.get("std_b_intercept", np.nan),
+                            "std_fit_r_value": bootstrap_summary.get("std_r_value", np.nan),
+
+                            # Raw bootstrap parameters for CI calculations
+                            "bootstrap_a_slopes": summary_data.get("bootstrap_iterations_data", {}).get("a_slopes", []),
+                            "bootstrap_b_intercepts": summary_data.get("bootstrap_iterations_data", {}).get("b_intercepts", []),
                         }
-                        # Add forecasted risks Q_p(n)
-                        forecasts = summary_data.get("forecasted_worst_query_risks", {})
+                        
+                        # Add forecasted risks Q_p(n) from mean parameters
+                        forecasts = summary_data.get("forecasted_worst_query_risks_from_mean_params", {})
+                        if not forecasts and "forecasted_worst_query_risks" in summary_data:
+                            # Fallback for potentially old files during transition, can be removed later
+                            print(f"  Warning: Using fallback 'forecasted_worst_query_risks' for {filepath}")
+                            forecasts = summary_data.get("forecasted_worst_query_risks", {})
+
                         for key, value in forecasts.items():
                             try:
                                 n_str = key.split('(')[-1].split(')')[0]
@@ -165,19 +203,133 @@ def plot_forecast_comparison(df: pd.DataFrame, behavior_id: str, output_dir: str
         print(f"No valid forecast points to plot for behavior {behavior_id}.")
         return
 
-    plt.figure(figsize=(12, 7)) # Slightly larger figure
-    
-    if aggregate_by_seed:
-        # Plot median across seeds, with error bands for min/max or std dev
-        sns.lineplot(data=plot_df_melt, x='n', y='Q_p(n)', hue='model_name', marker='o', 
-                     estimator=np.median, errorbar=('ci', 95)) # 'ci' for confidence interval
-        legend_title = "Model (Median over seeds)"
-    else:
-        # Plot all individual seeds
-        plot_df_melt['line_hue'] = plot_df_melt['model_name'] + " (" + plot_df_melt['seed_id'] + ")"
-        sns.lineplot(data=plot_df_melt, x='n', y='Q_p(n)', hue='line_hue', marker='o', style='model_name', dashes=True)
-        legend_title = "Model (Seed)"
+    # Prepare a list to collect data for plotting, including CIs
+    plot_data_list = []
 
+    unique_runs = plot_df['run_identifier'].unique() if not aggregate_by_seed else plot_df['model_name'].unique()
+    hue_col_name = 'run_identifier' if not aggregate_by_seed else 'model_name'
+
+    for run_id in unique_runs:
+        if not aggregate_by_seed:
+            run_specific_df = plot_df[plot_df['run_identifier'] == run_id]
+        else:
+            # If aggregating by seed, we'd typically average/median the mean parameters first
+            # For now, let's assume aggregate_by_seed=True uses the existing seaborn CI over seeds.
+            # The complex CI logic is for aggregate_by_seed=False.
+            pass
+
+        if not aggregate_by_seed and not run_specific_df.empty:
+            # Get the first row for this run to access list of a's and b's
+            # (assuming they are the same for all rows of this run_identifier before melting)
+            # This requires that bootstrap_a_slopes and bootstrap_b_intercepts are properly loaded per run_name/seed_id
+            # We should get these from the original plot_df, not the melted one.
+            original_run_row = df[(df['model_name'] + "_" + df['seed_id']) == run_id].iloc[0]
+            
+            bootstrap_as = original_run_row.get('bootstrap_a_slopes', [])
+            bootstrap_bs = original_run_row.get('bootstrap_b_intercepts', [])
+
+            if not isinstance(bootstrap_as, list) or not isinstance(bootstrap_bs, list) or not bootstrap_as or not bootstrap_bs or len(bootstrap_as) != len(bootstrap_bs):
+                print(f"Warning: Missing or mismatched bootstrap_a/b_slopes for run {run_id}. Skipping CI calculation for this run.")
+                # Fallback to plotting the mean Q_p(n) from melted data for this run
+                run_melted_data = plot_df_melt[plot_df_melt[hue_col_name] == run_id]
+                for _, row in run_melted_data.iterrows():
+                    plot_data_list.append({
+                        hue_col_name: run_id,
+                        'n': row['n'],
+                        'Q_p(n)_median': row['Q_p(n)'], # This is Q_p from mean params
+                        'Q_p(n)_lower': row['Q_p(n)'], # No CI, so lower/upper are same as median
+                        'Q_p(n)_upper': row['Q_p(n)'],
+                        'model_name': original_run_row['model_name'] # for styling
+                    })
+                continue
+
+            num_bootstrap_samples = len(bootstrap_as)
+            if num_bootstrap_samples == 0:
+                print(f"Warning: No bootstrap samples found for run {run_id}. Skipping CI.")
+                # Fallback logic as above
+                run_melted_data = plot_df_melt[plot_df_melt[hue_col_name] == run_id]
+                for _, row in run_melted_data.iterrows():
+                     plot_data_list.append({
+                        hue_col_name: run_id,
+                        'n': row['n'],
+                        'Q_p(n)_median': row['Q_p(n)'], 
+                        'Q_p(n)_lower': row['Q_p(n)'], 
+                        'Q_p(n)_upper': row['Q_p(n)'],
+                        'model_name': original_run_row['model_name']
+                    })
+                continue
+
+            # Extract n values from qpn_cols (forecast scales like 1e4, 1e5, etc.)
+            n_values_for_plot = sorted([float(col.split('=')[-1][:-1]) for col in qpn_cols])
+
+            for n_val in n_values_for_plot:
+                bootstrapped_qpn_for_n = []
+                for i in range(num_bootstrap_samples):
+                    a_i = bootstrap_as[i]
+                    b_i = bootstrap_bs[i]
+                    if pd.isna(a_i) or pd.isna(b_i): # Handle None/NaN from JSON if not filtered by experiment_runner
+                        continue
+                    qpn_i = forecast_worst_query_risk(a_i, b_i, n_val)
+                    bootstrapped_qpn_for_n.append(qpn_i)
+                
+                if bootstrapped_qpn_for_n:
+                    qpn_median = np.nanmedian(bootstrapped_qpn_for_n)
+                    qpn_lower = np.nanpercentile(bootstrapped_qpn_for_n, 5)
+                    qpn_upper = np.nanpercentile(bootstrapped_qpn_for_n, 95)
+                    plot_data_list.append({
+                        hue_col_name: run_id,
+                        'n': n_val,
+                        'Q_p(n)_median': qpn_median,
+                        'Q_p(n)_lower': qpn_lower,
+                        'Q_p(n)_upper': qpn_upper,
+                        'model_name': original_run_row['model_name'] # for consistent styling by model
+                    })
+    
+    if not aggregate_by_seed and plot_data_list:
+        ci_plot_df = pd.DataFrame(plot_data_list)
+        if ci_plot_df.empty:
+            print(f"No data for CI plot for behavior {behavior_id}.")
+            return
+            
+        plt.figure(figsize=(14, 8)) # Adjusted size for potentially more complex plot
+        
+        # Plotting each run identifier (model_seed) with its CI
+        for run_id_val, group in ci_plot_df.groupby(hue_col_name):
+            group = group.sort_values(by='n')
+            plt.plot(group['n'], group['Q_p(n)_median'], marker='o', label=run_id_val, linestyle='--', markersize=5) # Dashed for median
+            plt.fill_between(group['n'], group['Q_p(n)_lower'], group['Q_p(n)_upper'], alpha=0.2)
+        
+        legend_title = "Model (Seed) with 90% CI"
+    elif aggregate_by_seed:
+        # Fallback to original seaborn plotting if aggregating seeds (uses Q_p(n) from mean params)
+        # Or, one could aggregate the CIs, but that's more complex.
+        # For now, let seaborn handle CIs across seeds based on the Q_p(n) from mean params.
+        plot_df_melted_for_agg = plot_df.melt(id_vars=['model_name', 'seed_id'], value_vars=qpn_cols, var_name='forecast_scale', value_name='Q_p(n)')
+        plot_df_melted_for_agg['n'] = plot_df_melted_for_agg['forecast_scale'].str.extract(r'Q_p\(n=(\d+\.?\d*[eE]?\d*)\)').astype(float)
+        plot_df_melted_for_agg.dropna(subset=['n', 'Q_p(n)'], inplace=True)
+        
+        if plot_df_melted_for_agg.empty:
+            print(f"No data to plot for behavior {behavior_id} when aggregate_by_seed=True.")
+            return
+            
+        plt.figure(figsize=(12, 7))
+        sns.lineplot(data=plot_df_melted_for_agg, x='n', y='Q_p(n)', hue='model_name', marker='o', 
+                     estimator=np.median, errorbar=('ci', 95)) # Default seaborn CI across seeds
+        legend_title = "Model (Median over seeds, 95% CI on median)"
+    else:
+        # This case might be hit if not aggregate_by_seed but plot_data_list is empty
+        print(f"No data processed for plotting for behavior {behavior_id}. This might be due to missing bootstrap data or other issues.")
+        # Optionally, fall back to the old plotting method without CIs if desired.
+        # For now, just return if no CI data was generated.
+        if not plot_df_melt.empty:
+            print("Falling back to plotting mean Q_p(n) without CIs as bootstrap data was insufficient.")
+            plt.figure(figsize=(12,7))
+            plot_df_melt['line_hue'] = plot_df_melt['model_name'] + " (" + plot_df_melt['seed_id'] + ")"
+            sns.lineplot(data=plot_df_melt, x='n', y='Q_p(n)', hue='line_hue', marker='o', style='model_name', dashes=True)
+            legend_title = "Model (Seed) - Mean Q_p(n)"
+        else:
+            print(f"No data available to plot for behavior {behavior_id}.")
+            return
 
     # Customize plot
     plt.xscale('log')
@@ -428,26 +580,45 @@ def main():
         return
         
     # Filter by evaluation size if specified
-    eval_size_filter = 100 if args.filter_eval_size is None else args.filter_eval_size
-    filtered_df = results_df[results_df['m_eval_size'] >= eval_size_filter]
-    
-    if len(filtered_df) < len(results_df):
-        print(f"\nFiltered data to only include rows with m_eval_size = {eval_size_filter}")
-        print(f"Original dataset: {len(results_df)} records")
-        print(f"Filtered dataset: {len(filtered_df)} records")
-        
-        # If filtering resulted in empty DataFrame, show what values are available
-        if filtered_df.empty:
-            print(f"Warning: No records found with m_eval_size = {eval_size_filter}")
-            available_sizes = sorted(results_df['m_eval_size'].unique())
-            print(f"Available m_eval_size values: {available_sizes}")
-            return
-            
-        # Replace the original DataFrame with the filtered one
-        results_df = filtered_df
+    # Ensure we are using the correct column name for filtering, which is now 'm_eval_size_per_bootstrap'
+    eval_size_column = 'm_eval_size_per_bootstrap' 
+    if eval_size_column not in results_df.columns and 'm_eval_size' in results_df.columns:
+        # Fallback for older data that might still use 'm_eval_size'
+        print(f"Warning: Column '{eval_size_column}' not found, falling back to 'm_eval_size' for filtering.")
+        eval_size_column = 'm_eval_size'
+    elif eval_size_column not in results_df.columns:
+        print(f"Error: Cannot filter by evaluation size, column '{eval_size_column}' (or fallback 'm_eval_size') not found in loaded data. Skipping filtering.")
+        # Proceed without filtering by eval size if column is missing
+        pass # Or return, or raise error, depending on desired strictness
     else:
-        print(f"\nAll records already have m_eval_size = {eval_size_filter}, no filtering needed")
-    
+        default_eval_size_filter = 100 # Default from experiment_runner args
+        eval_size_filter_to_use = args.filter_eval_size if args.filter_eval_size is not None else default_eval_size_filter
+        
+        # Check if the column contains valid numbers for comparison
+        if pd.api.types.is_numeric_dtype(results_df[eval_size_column]):
+            original_len = len(results_df)
+            results_df = results_df[results_df[eval_size_column] >= eval_size_filter_to_use].copy() # Use .copy() to avoid SettingWithCopyWarning
+            
+            if len(results_df) < original_len:
+                print(f"\nFiltered data to only include rows with {eval_size_column} >= {eval_size_filter_to_use}")
+                print(f"Original dataset: {original_len} records")
+                print(f"Filtered dataset: {len(results_df)} records")
+                
+                if results_df.empty:
+                    print(f"Warning: No records found with {eval_size_column} >= {eval_size_filter_to_use}")
+                    # available_sizes = sorted(results_df[eval_size_column].dropna().unique()) # This would be on the already empty df
+                    # To show available sizes, we'd need the original df before filtering, which is complex here.
+                    # For simplicity, just state that no records were found.
+                    return # Stop if filtering made it empty
+            else:
+                print(f"\nAll records already meet {eval_size_column} >= {eval_size_filter_to_use} criterion, or no filtering applied due to args.")
+        else:
+            print(f"Warning: Column '{eval_size_column}' is not numeric. Skipping filtering by evaluation size.")
+
+    if results_df.empty: # Check again if results_df became empty after potential filtering
+        print("No results remaining after filtering. Exiting analysis.")
+        return
+
     # Print information about unique behavior_ids after filtering
     unique_behaviors_filtered = sorted(results_df['behavior_id'].unique())
     print(f"\nFound {len(unique_behaviors_filtered)} unique behavior_ids after filtering:")

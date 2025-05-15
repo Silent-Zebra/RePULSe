@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration ---
-JOB_NAME="p-prop"
+JOB_NAME="reinforce-reward"
 CHECKPOINT_DIR="/h/liaidan/OpenRLHF/checkpoints"
 CHECKPOINT_SPECIFIC="13-05-2025/${JOB_NAME}" # Update this if needed
 # CHECKPOINT_SEED="s2" # This will be set by the loop
@@ -9,8 +9,8 @@ PROMPT_DIR="openrlhf/forecasting_rare_outputs/split_20k_heldout"
 # OUTPUT_BASE_DIR will be defined inside the loop
 PRETRAIN_MODEL="HuggingFaceTB/SmolLM-135M-Instruct"
 EVALUATION_SET_SIZE=100
-ELICITATION_METHOD="logprob_target_seq" # 'logprob_target_seq', 'logprob_target_keyword_in_target_seq', 'repeated_sampling'
-NUM_BOOTSTRAP_SAMPLES=30
+ELICITATION_METHOD="logprob_target_keyword_in_target_seq" # 'logprob_target_seq', 'logprob_target_keyword_in_target_seq', 'repeated_sampling'
+NUM_BOOTSTRAP_SAMPLES=50
 K_SAMPLES=10000
 BATCH_SIZE=1200
 TOP_K_FIT=10
