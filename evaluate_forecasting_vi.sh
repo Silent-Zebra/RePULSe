@@ -35,6 +35,7 @@ deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.forecastin
     --output_dir "openrlhf/forecasting_rare_outputs/results/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}" \
     --evaluation_set_size 100 \
     --elicitation_method "logprob_target_keyword_in_target_seq" \
+    --num_bootstrap_samples 30 \
     --k_samples 10000 \
     --elicitation_processing_batch_size 1200 \
     --top_k_fit 10 \
