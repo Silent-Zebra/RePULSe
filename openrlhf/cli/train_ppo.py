@@ -1094,6 +1094,7 @@ def get_reward_model(args, strategy):
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
                 tokenizer_base=tokenizer_base, config=config,
+                rm_max_len=args.rm_max_len
             )
 
         elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base",
@@ -1122,7 +1123,7 @@ def get_reward_model(args, strategy):
                 tokenizer_base=tokenizer_base,
                 config=config,
                 separatequeryanswer=True,
-                max_new_tokens=args.generate_max_len,
+                rm_max_len=args.rm_max_len,
                 strip_question_chat_template_fn=strip_question_chat_template_fn,
             )
         elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
@@ -1151,7 +1152,7 @@ def get_reward_model(args, strategy):
                 tokenizer_base=tokenizer_base,
                 config=config,
                 separatequeryanswer=True,
-                max_new_tokens=args.generate_max_len,
+                rm_max_len=args.rm_max_len,
                 strip_question_chat_template_fn=strip_question_chat_template_fn,
             )
 
@@ -1339,6 +1340,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_epochs", type=int, default=1, help="Number of PPO inner loop steps")
     parser.add_argument("--prompt_max_len", type=int, default=1024, help="Max tokens for each prompt")
     parser.add_argument("--generate_max_len", type=int, default=1024, help="Max tokens to generate in PPO")
+    parser.add_argument("--rm_max_len", type=int, default=2048, help="Cut off tokens beyond this limit passed into the RM")
+
     parser.add_argument("--max_len", type=int, default=None, help="deprecated max_len")
     parser.add_argument("--max_samples", type=int, default=1000000)
     parser.add_argument("--max_norm", type=float, default=1.0, help="Gradient clipping")

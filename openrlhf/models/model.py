@@ -242,7 +242,7 @@ def _get_reward_model(base_pretrained_model, base_llm_model, value_head_prefix="
 
 
 def _get_reward_model_custom(
-    base_pretrained_class, rm_name, tokenizer_base, config, separatequeryanswer=False, max_new_tokens=None,
+    base_pretrained_class, rm_name, tokenizer_base, config, separatequeryanswer=False, rm_max_len=None,
     strip_question_chat_template_fn=None
 ):
     class RewardModel(base_pretrained_class):
@@ -258,9 +258,9 @@ def _get_reward_model_custom(
                 rm_name)
             self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
             self.tokenizer_base = tokenizer_base  # TODO ensure this works
-            self.max_new_tokens = max_new_tokens
-            if max_new_tokens is not None:
-                assert self.max_new_tokens > 0
+            self.rm_max_len = rm_max_len
+            if rm_max_len is not None:
+                assert self.rm_max_len > 0
 
 
         def forward(
@@ -274,6 +274,8 @@ def _get_reward_model_custom(
             This method handles two primary modes based on the `separatequeryanswer` flag
             set during initialization:
 
+               - Truncates inputs to `self.rm_max_len` at most.
+
             1. If `separatequeryanswer` is True:
                - Decodes `input_ids` using `self.tokenizer_base`.
                - Splits the decoded text into question and answer pairs using
@@ -282,7 +284,6 @@ def _get_reward_model_custom(
                - Handles specific formatting for "Ray2333/GRM-Llama3.2-3B-rewardmodel-ft".
                - Feeds the processed inputs to the underlying reward model (`self.rm`)
                  to compute scores.
-               - Truncates inputs to `self.max_new_tokens * 2` if not using the Ray model.
                - Prints debug information about inputs and outputs.
 
             2. If `separatequeryanswer` is False:
@@ -307,19 +308,6 @@ def _get_reward_model_custom(
             """
 
             if separatequeryanswer:
-                assert max_new_tokens is not None
-
-                # print("Toy RLHF inspection")
-                # print(input_ids.shape)
-                # print(max_new_tokens)
-
-                # print("input_ids")
-                # print(input_ids)
-
-                # question_seq = input_ids[:, lstrip_from_question_n_tokens : -self.max_new_tokens - rstrip_from_question_n_tokens]
-                # answer_seq = input_ids[:, -self.max_new_tokens + strip_from_answer_n_tokens : ]
-                # question_seq = input_ids[:, : -self.max_new_tokens]
-                # answer_seq = input_ids[:, -self.max_new_tokens : ]
 
 
 
@@ -388,7 +376,7 @@ def _get_reward_model_custom(
                     # print(question_seq.device)
 
 
-                    inputs = {key: value.to(device) for
+                    inputs = {key: value[:, :self.rm_max_len].to(device) for
                               key, value in
                               inputs.items()}
                     # print("inputs to rm 2")
