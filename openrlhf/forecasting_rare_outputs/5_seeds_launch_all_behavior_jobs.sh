@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration ---
-JOB_NAME="ppo"
+JOB_NAME="p-prop"
 CHECKPOINT_DIR="/h/liaidan/OpenRLHF/checkpoints"
 CHECKPOINT_SPECIFIC="13-05-2025/${JOB_NAME}" # Update this if needed
 # CHECKPOINT_SEED="s2" # This will be set by the loop
@@ -9,15 +9,16 @@ PROMPT_DIR="openrlhf/forecasting_rare_outputs/split_20k_heldout"
 # OUTPUT_BASE_DIR will be defined inside the loop
 PRETRAIN_MODEL="HuggingFaceTB/SmolLM-135M-Instruct"
 EVALUATION_SET_SIZE=100
-ELICITATION_METHOD="repeated_sampling" # Or \'repeated_sampling\', \'logprob_target_seq\' etc.
+ELICITATION_METHOD="logprob_target_seq" # 'logprob_target_seq', 'logprob_target_keyword_in_target_seq', 'repeated_sampling'
+NUM_BOOTSTRAP_SAMPLES=30
 K_SAMPLES=10000
 BATCH_SIZE=1200
 TOP_K_FIT=10
 FORECAST_SCALES="1e3,5e3,1e4,5e4,1e5,5e5,1e6,5e6"
 SBATCH_ACCOUNT="deadline" # Or your account
-SBATCH_PARTITION="a40" # Or your partition
+SBATCH_PARTITION="a40,rtx6000,t4v1,t4v2" # Or your partition
 SBATCH_QOS="deadline" # Or your QOS
-SBATCH_TIME="12:00:00"
+SBATCH_TIME="2:00:00"
 SBATCH_MEM="10G"
 SBATCH_CPUS_PER_TASK=4
 SBATCH_GPUS=1
@@ -118,6 +119,7 @@ deepspeed --master_port \$((\$RANDOM % 1000 + 3000))1 --module openrlhf.forecast
     --output_dir "${CURRENT_OUTPUT_BASE_DIR_ABS}/${behavior_id}" \\
     --evaluation_set_size ${EVALUATION_SET_SIZE} \\
     --elicitation_method "${ELICITATION_METHOD}" \\
+    --num_bootstrap_samples ${NUM_BOOTSTRAP_SAMPLES} \\
     --k_samples ${K_SAMPLES} \\
     --elicitation_processing_batch_size ${BATCH_SIZE} \\
     --top_k_fit ${TOP_K_FIT} \\
