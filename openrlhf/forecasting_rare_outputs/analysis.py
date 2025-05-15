@@ -21,7 +21,11 @@ def load_results(base_results_dir: str, specific_run_prefix: str = "") -> pd.Dat
     for root, dirs, files in os.walk(base_results_dir):
         for filename in files:
             # Check for both naming conventions: '_summary.json' and '-summary.json'
-            if (filename.endswith("_summary.json") or filename.endswith("-summary.json")) and filename.startswith(specific_run_prefix):
+            # Options:
+            # logprob_target_keyword_in_target_seq-summary.json
+            # logprob_target_seq-summary.json
+            # repeated_sampling-summary.json
+            if filename.endswith("logprob_target_seq-summary.json") and filename.startswith(specific_run_prefix):
                 filepath = os.path.join(root, filename)
                 print(f"Processing file: {filepath}")
                 processed_files += 1
@@ -189,6 +193,79 @@ def plot_forecast_comparison(df: pd.DataFrame, behavior_id: str, output_dir: str
     plot_filename = os.path.join(output_dir, f"forecast_comparison_{behavior_id}{'_aggregated' if aggregate_by_seed else '_individual_seeds'}.png")
     plt.savefig(plot_filename)
     print(f"Saved comparison plot to {plot_filename}")
+    plt.close()
+
+def plot_model_averaged_forecasts(df: pd.DataFrame, output_dir: str, aggregate_by_seed: bool = True):
+    """Generates a plot showing model forecasts averaged over all behaviors.
+
+    Args:
+        df: DataFrame containing loaded results.
+        output_dir: Directory to save the plot.
+        aggregate_by_seed: If True, plot median over seeds; otherwise, plot individual seeds.
+    """
+    if df.empty:
+        print("Input DataFrame is empty. Skipping model-averaged plot.")
+        return
+
+    qpn_cols = sorted([col for col in df.columns if col.startswith('Q_p(n=')],
+                      key=lambda x: float(x.split('=')[-1][:-1]))
+    if not qpn_cols:
+        print("No Q_p(n) forecast columns found. Skipping model-averaged plot.")
+        return
+
+    id_vars_base = ['model_name', 'seed_id', 'behavior_id'] # Include behavior_id for initial melt
+
+    plot_df_melt = df.melt(id_vars=id_vars_base, value_vars=qpn_cols,
+                           var_name='forecast_scale', value_name='Q_p(n)')
+    
+    plot_df_melt['n'] = plot_df_melt['forecast_scale'].str.extract(r'Q_p\(n=(\d+\.?\d*[eE]?\d*)\)').astype(float)
+    plot_df_melt.dropna(subset=['n', 'Q_p(n)'], inplace=True)
+
+    if plot_df_melt.empty:
+        print("No valid forecast points to plot after melting and initial processing. Skipping model-averaged plot.")
+        return
+
+    # Average Q_p(n) across all behaviors for each model, seed, and n
+    if aggregate_by_seed:
+        # Group by model_name, seed_id, and n, then average Q_p(n) over behaviors
+        # Then, the lineplot will take the median of these per-seed averages for each model
+        averaged_df = plot_df_melt.groupby(['model_name', 'seed_id', 'n'])['Q_p(n)'].mean().reset_index()
+        hue_col = 'model_name'
+        legend_title = "Model (Median over seeds, Avg. over behaviors)"
+        estimator = np.median
+    else:
+        # Group by model_name, seed_id, and n, then average Q_p(n) over behaviors
+        averaged_df = plot_df_melt.groupby(['model_name', 'seed_id', 'n'])['Q_p(n)'].mean().reset_index()
+        averaged_df['line_hue'] = averaged_df['model_name'] + " (" + averaged_df['seed_id'] + ")"
+        hue_col = 'line_hue'
+        legend_title = "Model (Seed, Avg. over behaviors)"
+        estimator = None # Plot individual lines
+
+    if averaged_df.empty:
+        print("No data after averaging over behaviors. Skipping model-averaged plot.")
+        return
+
+    plt.figure(figsize=(12, 7))
+    
+    if estimator: # Using median for aggregated view
+        sns.lineplot(data=averaged_df, x='n', y='Q_p(n)', hue=hue_col, marker='o',
+                     estimator=estimator, errorbar=('ci', 95))
+    else: # Plotting individual lines (already averaged over behavior)
+        sns.lineplot(data=averaged_df, x='n', y='Q_p(n)', hue=hue_col, style='model_name', marker='o', dashes=True)
+
+
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel("Deployment Scale (n queries, log scale)")
+    plt.ylabel("Avg. Forecasted Risk (Q_p(n) over behaviors, log scale)")
+    plt.title("Model-Averaged Forecasted Harmfulness Risk\n(Averaged across all behaviors)")
+    plt.legend(title=legend_title, bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, which="both", ls="--", alpha=0.6)
+    plt.tight_layout(rect=[0, 0, 0.85, 1])
+
+    plot_filename = os.path.join(output_dir, f"model_averaged_forecasts{'_aggregated' if aggregate_by_seed else '_individual_seeds'}.png")
+    plt.savefig(plot_filename)
+    print(f"Saved model-averaged forecast plot to {plot_filename}")
     plt.close()
 
 def generate_qpn_summary_table(df: pd.DataFrame, output_dir: str):
@@ -393,6 +470,10 @@ def main():
     for behavior in unique_behaviors:
         if pd.notna(behavior):
             plot_forecast_comparison(results_df, behavior, output_dir, aggregate_by_seed=not args.plot_individual_seeds)
+
+    # Generate model-averaged plots
+    print("\nGenerating model-averaged forecast plot...")
+    plot_model_averaged_forecasts(results_df, output_dir, aggregate_by_seed=not args.plot_individual_seeds)
 
     print("Analysis complete.")
 
