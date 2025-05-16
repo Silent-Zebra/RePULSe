@@ -161,3 +161,6 @@ lpe_results/mhis/*
 lpe_results/*
 openrlhf/forecasting_rare_outputs/results/*
 /checkpoints/*
+*results.json*
+*summary.json*
+*aggregated.png
