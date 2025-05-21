@@ -394,6 +394,15 @@ class BaseExperienceMaker(ABC):
             print(r)
             print(transformed_reward)
             r = transformed_reward
+        elif self.reward_transform == "minus_alpha_ind":
+            print("REWARD TRANSFORM INSPECTION")
+            print(self.alpha)
+            print(self.threshold)
+            transformed_reward = r - self.alpha * (r < self.threshold)
+            print(r)
+            print(transformed_reward)
+            r = transformed_reward
+
         else:
             assert self.reward_transform is None  # Others not yet implemented
 
