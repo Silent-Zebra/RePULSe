@@ -701,13 +701,19 @@ if do_load:
         # # make_list("info_eval_ind_thresh-3.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
 
         make_list("info_eval_ind_thresh-3.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-        # make_list("info_eval_ind_thresh-4.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
-        make_list("info_eval_ind_thresh-4.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-        # make_list("info_eval_ind_thresh-4.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
+        # make_list("info_eval_ind_thresh-4.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
 
-        make_list("info_eval_ind_thresh-3.0_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-        make_list("info_eval_ind_thresh-4.0_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
+        make_list("info_eval_ind_thresh-3.0_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1, 10),
+        # make_list("info_eval_ind_thresh-4.0_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
 
+        # make_list(
+        #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+        #     1, 5),
+        make_list(
+            "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+            1, 10),
+        # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
+        # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a30.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
     ]
 
     use_handcrafted_labels = False
@@ -785,7 +791,7 @@ if do_load:
 
     inds_to_use = [0, 1, 2, 3, 4]
     # inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-    inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7]
 
     # Maybe leave just the epi 4 ones (make another list)
 
@@ -817,9 +823,10 @@ if do_load:
     figname_modifier = "len20_05_15_final"
 
     figname_modifier = "len20_05_18_ind"
+    figname_modifier = "len20_05_22_ind"
 
 
-    do_gcg = False
+    do_gcg = True # False
     # if not do_gcg:
     #     fontsize = 12
 
@@ -888,7 +895,16 @@ if do_load:
                 "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
                 1, 10),
 
+
+            make_list("gcg_eval_ind_thresh-3.0_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
+            make_list("gcg_eval_ind_thresh-3.0_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta1.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
+            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
+
+
         ]
+
+
+        # for x in result_2025-05-22-15-24_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0*; do tail -n 2 $x; done
 
         # for x in result_2025-05-13-00-17_eval_gcg250_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_s*; do tail -n 2 $x; done
         gcg_logprobs_results_list = [
@@ -910,10 +926,16 @@ if do_load:
 
             [-78.86, -62.08, -124.83, -97.63, -76.06, -2026.25, -59.10, -63.84, -120.35, -684.96],  # ours
             # result_2025-05-15-20-06_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.
+
+            [],
+            [],
+            [-65.80, -58.40, -54.38, -57.06, -56.11, -58.95, -60.93, -49.97, -62.62, -65.22],
+            # result_2025-05-22-15-24_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0*
         ]
 
         figname_modifier = "len20_05_15_bootstrap_gcg"
 
+        figname_modifier = "len20_05_22_bootstrap_gcg"
 
     # print(inds_to_use)
     # print(labels)
