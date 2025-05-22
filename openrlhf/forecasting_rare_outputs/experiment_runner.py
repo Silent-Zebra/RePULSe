@@ -7,15 +7,13 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
-# Imports from this module
 from openrlhf.forecasting_rare_outputs.elicitation import estimate_p_elicit
 from openrlhf.forecasting_rare_outputs.forecasting import fit_gumbel_tail, forecast_worst_query_risk
 from openrlhf.forecasting_rare_outputs.behavior_defs import get_behavior_definition
 
-# Imports from OpenRLHF
 from openrlhf.models import Actor
 from openrlhf.utils import get_tokenizer, load_model_and_tokenizer, get_strategy
-from transformers import PreTrainedModel, PreTrainedTokenizer # Keep for type hints
+from transformers import PreTrainedModel, PreTrainedTokenizer
 import torch
 
 
@@ -30,7 +28,7 @@ def load_queries(query_file: str) -> list[str]:
                 return []
 
             potential_queries = []
-            all_lines_json_parsable_with_key = True # Assume true until proven otherwise
+            all_lines_json_parsable_with_key = True
 
             for i, line_content in enumerate(lines):
                 line_content = line_content.strip()
@@ -70,13 +68,13 @@ def load_queries(query_file: str) -> list[str]:
                 queries = potential_queries
             else:
                 # Fallback: Treat as plain text if any line wasn't JSON or didn't match structure
-                # print(f"Could not parse {query_file} consistently as JSONL with expected keys, attempting to read as plain text lines.")
+                print(f"Could not parse {query_file} consistently as JSONL with expected keys, attempting to read as plain text lines.")
                 queries = [line.strip() for line in lines if line.strip()]
 
         if not queries:
-             print(f"Warning: No queries successfully loaded from {query_file} (checked JSONL types and plain text).")
-        # else:
-        # print(f"Successfully loaded {len(queries)} queries from {query_file}.")
+            print(f"Warning: No queries successfully loaded from {query_file} (checked JSONL types and plain text).")
+        else:
+            print(f"Successfully loaded {len(queries)} queries from {query_file}.")
         return queries
 
     except FileNotFoundError:
@@ -163,7 +161,7 @@ def main():
 
     # --- Setup & Validation ---
     # Ensure seeding happens after strategy setup if it affects randomness
-    strategy.print("Setting random seeds...") # Use strategy print
+    strategy.print("Setting random seeds...")
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
@@ -200,34 +198,27 @@ def main():
 
     print("Loading model and tokenizer...")
     model, tokenizer = load_model_and_tokenizer(args, strategy)
-    # print(f"Model dtype: {model.model.dtype if hasattr(model, 'model') and hasattr(model.model, 'dtype') else 'N/A'}")
-    # Use strategy print for rank 0 logging
+    print(f"Model dtype: {model.module.model.dtype if hasattr(model, 'module') and hasattr(model.module, 'model') and hasattr(model.module.model, 'dtype') else (model.model.dtype if hasattr(model, 'model') and hasattr(model.model, 'dtype') else 'N/A')}")
     strategy.print(f"Model dtype: {model.module.model.dtype if hasattr(model, 'module') and hasattr(model.module, 'model') and hasattr(model.module.model, 'dtype') else (model.model.dtype if hasattr(model, 'model') and hasattr(model.model, 'dtype') else 'N/A')}")
-    # Load checkpoint if provided
+
     if args.ckpt_path:
         load_dir = os.path.dirname(args.ckpt_path)
         tag = os.path.basename(args.ckpt_path)
         strategy.print(f"Attempting to load checkpoint from directory: {load_dir} with tag: {tag}")
-        # Ensure the tag is not empty, which could happen if ckpt_path ends with a slash
         if not tag:
             strategy.print(f"Warning: Tag derived from ckpt_path '{args.ckpt_path}' is empty. Attempting to use the directory name above.")
-            # Attempt to use the directory name of load_dir if tag is empty
-            # This handles cases like /path/to/checkpoint_dir/
             potential_new_tag = os.path.basename(load_dir)
             potential_new_load_dir = os.path.dirname(load_dir)
-            if potential_new_tag: # ensure we don't get another empty tag
+            if potential_new_tag:
                  strategy.print(f"Revised load_dir: {potential_new_load_dir}, revised tag: {potential_new_tag}")
                  load_dir = potential_new_load_dir
                  tag = potential_new_tag
-            else: # If still no valid tag, this is problematic
+            else:
                 strategy.print(f"Error: Could not derive a valid tag from {args.ckpt_path}. Checkpoint loading might fail.")
-                # Fallback to old behavior or raise error, for now, will let deepspeed handle it.
-                # Consider adding more robust error handling or path normalization here.
-        
+                
         strategy.load_ckpt(model.model, load_dir, tag=tag, load_module_strict=True, load_module_only=True)
         strategy.print(f"Checkpoint {args.ckpt_path} (tag: {tag}) loaded successfully.")
 
-    
     print(f"Loading queries from {args.query_file}...")
     all_queries = load_queries(args.query_file)
     if args.max_queries is not None and args.max_queries > 0:
@@ -241,10 +232,7 @@ def main():
     m_eval_size = args.evaluation_set_size
     if len(all_queries) < m_eval_size:
         print(f"Warning: Number of loaded queries ({len(all_queries)}) is less than evaluation_set_size ({m_eval_size}). Using all {len(all_queries)} queries for each bootstrap sample (if bootstrapping).")
-        # If bootstrapping, all_queries will be sampled with replacement up to m_eval_size.
-        # If not bootstrapping and all_queries is smaller, m_eval_size is effectively len(all_queries).
-        # This logic is handled inside the bootstrap loop for clarity if len(all_queries) is the effective cap.
-    
+        
     # Initialize lists to store parameters from each bootstrap iteration
     bootstrap_a_params = []
     bootstrap_b_params = []
@@ -252,6 +240,7 @@ def main():
     bootstrap_num_valid_p_elicits = []
     bootstrap_top_k_actually_used = []
     total_elicitation_time = 0
+    detailed_results_log_iter = [] # Initialize for the first successful bootstrap iteration's log
 
     # --- Bootstrap Loop ---
     num_bootstrap_iterations = args.num_bootstrap_samples
@@ -260,124 +249,129 @@ def main():
     for bootstrap_iter in range(num_bootstrap_iterations):
         strategy.print(f"--- Bootstrap Iteration {bootstrap_iter + 1} / {num_bootstrap_iterations} ---")
 
-        # Initialize iteration-specific Gumbel parameters to NaN
-        a_iter, b_iter, r_value_iter = np.nan, np.nan, np.nan
+        a_iter, b_iter, r_value_iter = np.nan, np.nan, np.nan 
+                                       
+        while True:
+            current_m_eval_size = m_eval_size
 
-        current_m_eval_size = m_eval_size
+            if len(all_queries) == 0:
+                strategy.print(f"CRITICAL Error: all_queries is empty at iter {bootstrap_iter + 1}. Cannot proceed. Check query loading and initial checks.")
+                raise ValueError("all_queries is empty at iter {bootstrap_iter + 1}. Cannot proceed. Check query loading and initial checks.")
 
-        # Sample queries for the current bootstrap iteration
-        if len(all_queries) == 0:
-            strategy.print("Error: No queries available for this bootstrap iteration (all_queries is empty). Skipping.")
-            eval_queries = [] # Ensure eval_queries is defined for the next check
-        elif len(all_queries) < current_m_eval_size:
-            strategy.print(f"  Requested m_eval_size ({current_m_eval_size}) is > total available unique queries ({len(all_queries)}). Sampling {current_m_eval_size} queries with replacement from the {len(all_queries)} available queries.")
+            elif len(all_queries) < current_m_eval_size:
+                strategy.print(f"  Requested m_eval_size ({current_m_eval_size}) is > total available unique queries ({len(all_queries)}). Sampling {current_m_eval_size} queries with replacement from the {len(all_queries)} available queries for iter {bootstrap_iter + 1} attempt.")
 
-
-        eval_queries = random.choices(all_queries, k=current_m_eval_size)
-        
-        if not eval_queries: # This handles the case where all_queries was empty, or if m_eval_size was 0
-            strategy.print("Error: No queries sampled for evaluation in this bootstrap iteration. Skipping.")
-            bootstrap_a_params.append(np.nan)
-            bootstrap_b_params.append(np.nan)
-            bootstrap_r_values.append(np.nan)
-            bootstrap_num_valid_p_elicits.append(0)
-            bootstrap_top_k_actually_used.append(0)
-            continue
-
-        # --- Run Elicitation for the current bootstrap sample ---
-        strategy.print(f"  Estimating p_elicit for {len(eval_queries)} queries using method '{elicitation_method}'...")
-        start_time_iter = time.time()
-        p_elicits_iter = []
-        detailed_results_log_iter = []
-
-        # Initialize generation_params, only populated if needed by the method
-        current_generation_kwargs = {}
-        if elicitation_method == 'repeated_sampling':
-            current_generation_kwargs = {
-                'temperature': args.gen_temperature,
-                'max_new_tokens': args.gen_max_new_tokens,
-                'top_p': args.gen_top_p,
-                'top_k': args.gen_top_k,
-                'do_sample': True,
-            }
-            if tokenizer.pad_token_id is not None:
-                current_generation_kwargs['pad_token_id'] = tokenizer.pad_token_id
-            elif tokenizer.eos_token_id is not None:
-                current_generation_kwargs['pad_token_id'] = tokenizer.eos_token_id
-
-        for i, query_text in enumerate(tqdm(eval_queries, desc=f"Estimating p_elicit (Iter {bootstrap_iter+1})", disable=False)):
-            query_log_entry = {"query_idx_bootstrap": i, "query": query_text, "bootstrap_iteration": bootstrap_iter + 1}
-            try:
-                p_val = estimate_p_elicit(
-                    model=model,
-                    tokenizer=tokenizer,
-                    query=query_text,
-                    behavior_definition=behavior_definition,
-                    method=elicitation_method,
-                    k_samples=args.k_samples if elicitation_method == 'repeated_sampling' else 0,
-                    generation_kwargs=current_generation_kwargs if elicitation_method == 'repeated_sampling' else {},
-                    elicitation_processing_batch_size=args.elicitation_processing_batch_size if elicitation_method == 'repeated_sampling' else 1000
-                )
-                p_elicits_iter.append(p_val)
-                query_log_entry["p_elicit"] = p_val
-            except Exception as e:
-                strategy.print(f"\nError estimating p_elicit for query_idx {i} in bootstrap iter {bootstrap_iter+1}: '{query_text[:100]}...'. Error: {e}")
-                p_elicits_iter.append(np.nan)
-                query_log_entry["p_elicit"] = np.nan
-                query_log_entry["error"] = str(e)
+            eval_queries = random.choices(all_queries, k=current_m_eval_size)
             
-            if bootstrap_iter == 0: # Only save detailed log for the first iteration to prevent huge files
-                detailed_results_log_iter.append(query_log_entry)
+            if not eval_queries:
+                strategy.print(f"Warning: No queries sampled for evaluation in iter {bootstrap_iter + 1} attempt (m_eval_size: {current_m_eval_size}, all_queries_len: {len(all_queries)}). Retrying sampling...")
+                time.sleep(0.1)
+                continue
 
+            # --- Run Elicitation for the current bootstrap sample attempt ---
+            strategy.print(f"  Estimating p_elicit for {len(eval_queries)} queries using method '{elicitation_method}' (Iter {bootstrap_iter + 1} attempt)...")
+            attempt_start_time = time.time() # Time for this attempt's elicitation
+            p_elicits_iter_attempt = []
+            
+            # For storing detailed logs of the first bootstrap iteration's successful attempt
+            current_attempt_detailed_results_log = [] 
 
-        elicitation_time_iter = time.time() - start_time_iter
-        total_elicitation_time += elicitation_time_iter
-        strategy.print(f"  Elicitation for iteration {bootstrap_iter + 1} finished in {elicitation_time_iter:.2f} seconds.")
+            current_generation_kwargs = {}
+            if elicitation_method == 'repeated_sampling':
+                current_generation_kwargs = {
+                    'temperature': args.gen_temperature,
+                    'max_new_tokens': args.gen_max_new_tokens,
+                    'top_p': args.gen_top_p,
+                    'top_k': args.gen_top_k,
+                    'do_sample': True,
+                }
+                if tokenizer.pad_token_id is not None:
+                    current_generation_kwargs['pad_token_id'] = tokenizer.pad_token_id
+                elif tokenizer.eos_token_id is not None:
+                    current_generation_kwargs['pad_token_id'] = tokenizer.eos_token_id
 
-        valid_p_elicits_iter = [p for p in p_elicits_iter if p is not None and not np.isnan(p) and np.isfinite(p)]
-        num_valid_p_iter = len(valid_p_elicits_iter)
-        num_failed_p_iter = len(eval_queries) - num_valid_p_iter
-        bootstrap_num_valid_p_elicits.append(num_valid_p_iter)
-        strategy.print(f"  Got {num_valid_p_iter} valid finite p_elicit values ({num_failed_p_iter} failed or non-finite) for iter {bootstrap_iter + 1}.")
+            for i, query_text in enumerate(tqdm(eval_queries, desc=f"Estimating p_elicit (Iter {bootstrap_iter+1} attempt)", disable=False)):
+                query_log_entry = {"query_idx_bootstrap": i, "query": query_text, "bootstrap_iteration": bootstrap_iter + 1, "attempt_in_iter": "current"} # Placeholder for attempt count if needed
+                try:
+                    p_val = estimate_p_elicit(
+                        model=model,
+                        tokenizer=tokenizer,
+                        query=query_text,
+                        behavior_definition=behavior_definition,
+                        method=elicitation_method,
+                        k_samples=args.k_samples if elicitation_method == 'repeated_sampling' else 0,
+                        generation_kwargs=current_generation_kwargs if elicitation_method == 'repeated_sampling' else {},
+                        elicitation_processing_batch_size=args.elicitation_processing_batch_size if elicitation_method == 'repeated_sampling' else 1000
+                    )
+                    p_elicits_iter_attempt.append(p_val)
+                    query_log_entry["p_elicit"] = p_val
+                except Exception as e:
+                    strategy.print(f"\nError estimating p_elicit for query_idx {i} in bootstrap iter {bootstrap_iter+1} attempt: '{query_text[:100]}...'. Error: {e}")
+                    p_elicits_iter_attempt.append(np.nan) # Append NaN for this query
+                    query_log_entry["p_elicit"] = np.nan
+                    query_log_entry["error"] = str(e)
+                
+                if bootstrap_iter == 0: # Only collect detailed log entries for the first bootstrap iteration
+                    current_attempt_detailed_results_log.append(query_log_entry)
 
-        current_top_k_fit_iter = args.top_k_fit
-        if num_valid_p_iter < current_top_k_fit_iter:
-            strategy.print(f"  Warning: Number of valid p_elicit values ({num_valid_p_iter}) is less than top_k_fit ({current_top_k_fit_iter}) for iter {bootstrap_iter + 1}. Attempting to use all valid points for fitting if >= 2.")
-            current_top_k_fit_iter = num_valid_p_iter
-        
-        bootstrap_top_k_actually_used.append(current_top_k_fit_iter)
+            attempt_elicitation_time = time.time() - attempt_start_time
+            strategy.print(f"  Elicitation for iter {bootstrap_iter + 1} attempt finished in {attempt_elicitation_time:.2f} seconds.")
 
-        if current_top_k_fit_iter < 2:
-            strategy.print(f"  Error: Insufficient valid p_elicit values ({current_top_k_fit_iter}) for Gumbel tail fitting (minimum 2 required) for iter {bootstrap_iter + 1}. Storing NaN for fit params.")
-            bootstrap_a_params.append(np.nan)
-            bootstrap_b_params.append(np.nan)
-            bootstrap_r_values.append(np.nan) # Append np.nan as a_iter,b_iter,r_value_iter are np.nan by default or fit wasn't run
-            continue
+            valid_p_elicits_iter = [p for p in p_elicits_iter_attempt if p is not None and not np.isnan(p) and np.isfinite(p)]
+            num_valid_p_iter = len(valid_p_elicits_iter)
+            num_failed_p_iter = len(eval_queries) - num_valid_p_iter
+            
+            strategy.print(f"  Got {num_valid_p_iter} valid finite p_elicit values ({num_failed_p_iter} failed or non-finite) for iter {bootstrap_iter + 1} attempt.")
 
-        # If we've passed the check, current_top_k_fit_iter >= 2, so proceed with fitting.
-        strategy.print(f"  Fitting Gumbel tail using top {current_top_k_fit_iter} scores for iter {bootstrap_iter + 1}...")
-        # a_iter, b_iter, r_value_iter are re-defined here by the fit function
-        a_iter, b_iter, r_value_iter = fit_gumbel_tail(valid_p_elicits_iter, top_k=current_top_k_fit_iter)
+            current_top_k_fit_iter = args.top_k_fit
+            if num_valid_p_iter < current_top_k_fit_iter:
+                strategy.print(f"  Warning: Number of valid p_elicit values ({num_valid_p_iter}) is less than top_k_fit ({current_top_k_fit_iter}) for iter {bootstrap_iter + 1} attempt. Using all {num_valid_p_iter} valid points for fitting if >= 2.")
+                current_top_k_fit_iter = num_valid_p_iter
+            
+            if current_top_k_fit_iter < 2:
+                strategy.print(f"  Error: Insufficient valid p_elicit values ({current_top_k_fit_iter}) for Gumbel tail fitting (minimum 2 required) for iter {bootstrap_iter + 1} attempt. Retrying this bootstrap sample...")
+                time.sleep(0.1) 
+                continue # Retry the while loop: re-sample, re-elicit
 
-        # Store the results of the Gumbel fit
-        if np.isnan(a_iter) or np.isnan(b_iter) or not (np.isfinite(a_iter) and np.isfinite(b_iter)):
-            # This case means fit_gumbel_tail was called but returned non-finite/NaN a or b
-            strategy.print(f"  Warning: Gumbel tail fitting failed (resulted in NaN/non-finite parameters for a/b) for iter {bootstrap_iter + 1}. Storing NaN for a,b and actual r_value from fit.")
-            bootstrap_a_params.append(np.nan) # Store NaN for a if fit returned NaN/non-finite
-            bootstrap_b_params.append(np.nan) # Store NaN for b if fit returned NaN/non-finite
-            bootstrap_r_values.append(r_value_iter) # Store r_value_iter as returned by fit_gumbel_tail (could be NaN or a number)
-        else:
-            # Successful fit with finite a and b
-            r_squared_iter = r_value_iter**2 if not np.isnan(r_value_iter) else np.nan
-            strategy.print(f"  Fit results for iter {bootstrap_iter + 1}: a = {a_iter:.4f}, b = {b_iter:.4f}, r = {r_value_iter:.4f} (R^2 = {r_squared_iter:.4f})")
-            bootstrap_a_params.append(a_iter)
-            bootstrap_b_params.append(b_iter)
-            bootstrap_r_values.append(r_value_iter)
+            strategy.print(f"  Fitting Gumbel tail using top {current_top_k_fit_iter} scores for iter {bootstrap_iter + 1} attempt...")
+            # These are specific to this attempt
+            a_iter_attempt, b_iter_attempt, r_value_iter_attempt = fit_gumbel_tail(valid_p_elicits_iter, top_k=current_top_k_fit_iter)
+
+            if np.isnan(a_iter_attempt) or np.isnan(b_iter_attempt) or not (np.isfinite(a_iter_attempt) and np.isfinite(b_iter_attempt)):
+                strategy.print(f"  Warning: Gumbel tail fitting for iter {bootstrap_iter + 1} attempt resulted in NaN/non-finite parameters (a={a_iter_attempt}, b={b_iter_attempt}). Retrying this bootstrap sample...")
+                time.sleep(0.1)
+                continue # Retry the while loop: re-sample, re-elicit
+            elif abs(r_value_iter_attempt) < 0.8:
+                r_squared_iter_attempt = r_value_iter_attempt**2 if not np.isnan(r_value_iter_attempt) else np.nan
+                strategy.print(f"  Warning: Fit for Bootstrap Iteration {bootstrap_iter + 1} attempt has R-value ({r_value_iter_attempt:.4f}, abs={abs(r_value_iter_attempt):.4f}, R^2={r_squared_iter_attempt:.4f}) below 0.8. Discarding this Gumbel fit. This iteration will not contribute parameters.")
+                # This attempt's Gumbel parameters are not stored.
+                # total_elicitation_time is not incremented for this discarded fit.
+                # detailed_results_log_iter is not updated with this attempt's log.
+                break # Exit the `while True` loop for this `bootstrap_iter`. Outer loop proceeds to next `bootstrap_iter`.
+            else:
+                # Successful fit for this attempt: parameters are valid AND abs(r_value) >= 0.8.
+                a_iter, b_iter, r_value_iter = a_iter_attempt, b_iter_attempt, r_value_iter_attempt # Assign to outer loop scope vars
+                
+                r_squared_iter = r_value_iter**2 if not np.isnan(r_value_iter) else np.nan
+                strategy.print(f"  SUCCESSFUL Fit for Bootstrap Iteration {bootstrap_iter + 1}: a = {a_iter:.4f}, b = {b_iter:.4f}, r = {r_value_iter:.4f} (R^2 = {r_squared_iter:.4f})")
+                
+                bootstrap_a_params.append(a_iter)
+                bootstrap_b_params.append(b_iter)
+                bootstrap_r_values.append(r_value_iter)
+                bootstrap_num_valid_p_elicits.append(num_valid_p_iter)
+                bootstrap_top_k_actually_used.append(current_top_k_fit_iter)
+                
+                total_elicitation_time += attempt_elicitation_time
+
+                if len(bootstrap_a_params) == 1: 
+                    detailed_results_log_iter = current_attempt_detailed_results_log
+                
+                break
 
     # --- End of Bootstrap Loop ---
 
-    # Save detailed p_elicit results (only from the first iteration if bootstrapping)
-    if detailed_results_log_iter: # Check if it was populated (i.e., at least one bootstrap iter ran and it was the first)
+    # Save detailed p_elicit results (only from the first successful bootstrap iteration)
+    if detailed_results_log_iter: 
         with open(results_file, 'w', encoding='utf-8') as f_out:
             for record in detailed_results_log_iter:
                 f_out.write(json.dumps(record) + '\n')
