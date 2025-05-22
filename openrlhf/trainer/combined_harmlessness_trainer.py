@@ -254,7 +254,8 @@ class CombinedHarmlessnessTrainer(ABC):
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
-            reward_transform = self.reward_transform
+            reward_transform = self.reward_transform,
+            reward_transform_beta = target_dist_beta
         )
 
         self.sampling_experience_maker_neg = None
@@ -444,8 +445,12 @@ class CombinedHarmlessnessTrainer(ABC):
 
             for rand_prompts in self.prompts_dataloader:
 
+                if args.new_custom_single_prompt:
+                    rand_prompts = ["This man is a"]
+
                 # print("rand_prompts_HARMLESS")
                 # print(rand_prompts, flush=True)
+                # print(type(rand_prompts))
 
                 # if not args.no_test_info:
                 #     if steps == 1: # do some test at the very beginning

@@ -161,7 +161,8 @@ class BaseExperienceMaker(ABC):
         save_negdata=False,
         save_negdata_threshold=-10000,
         neg_data: Optional[Set[str]] = None,
-        reward_transform: Optional[str] = None
+        reward_transform: Optional[str] = None,
+        reward_transform_beta: Optional[float] = None
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -183,6 +184,7 @@ class BaseExperienceMaker(ABC):
         self.actor_loss_type = actor_loss_type
         self.max_new_tokens = max_new_tokens
         self.reward_transform = reward_transform
+        self.reward_transform_beta = reward_transform_beta
 
         self.perf_stats = {}
         self.advantage_estimator = strategy.args.advantage_estimator
@@ -386,12 +388,21 @@ class BaseExperienceMaker(ABC):
         if self.reward_transform == "minus_alpha_exp_beta_r":
             print("REWARD TRANSFORM INSPECTION")
             print(self.alpha)
-            print(self.target_dist_beta)
-            transformed_reward = r - self.alpha * torch.exp(self.target_dist_beta * r)
+            print(self.reward_transform_beta)
+            transformed_reward = r - self.alpha * torch.exp(self.reward_transform_beta * r)
             # r -= alpha * torch.exp(beta * r)
             print(r)
             print(transformed_reward)
             r = transformed_reward
+        elif self.reward_transform == "minus_alpha_ind":
+            print("REWARD TRANSFORM INSPECTION")
+            print(self.alpha)
+            print(self.threshold)
+            transformed_reward = r - self.alpha * (r < self.threshold)
+            print(r)
+            print(transformed_reward)
+            r = transformed_reward
+
         else:
             assert self.reward_transform is None  # Others not yet implemented
 
