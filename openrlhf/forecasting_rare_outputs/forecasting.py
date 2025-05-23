@@ -5,9 +5,11 @@ from typing import List, Tuple
 # Extremely small constant to prevent log(0) or log(1) issues
 _LOG_EPSILON = 1e-300
 
-def fit_gumbel_tail(p_elicits: List[float], top_k: int = 10) -> Tuple[float, float, float]:
+def fit_gumbel_tail(p_elicits: List[float], top_k: int = 10) -> Tuple[float, float, float, List[float], List[float], int, List[float], List[float]]:
     """Fits the Gumbel tail linear model (log P(>psi) ~ a*psi + b)
        based on the top_k elicitation scores derived from p_elicits.
+       Returns fit parameters, r_value, the x/y data points used for the fit,
+       the top 10 scores, and their corresponding log survival probabilities.
 
     Args:
         p_elicits: List of elicitation probabilities from the evaluation set (size m).
@@ -16,17 +18,20 @@ def fit_gumbel_tail(p_elicits: List[float], top_k: int = 10) -> Tuple[float, flo
                Must be at least 2.
 
     Returns:
-        Tuple (a, b, r_value) of the linear fit parameters (slope, intercept) and
-        the correlation coefficient (r_value). Returns (nan, nan, nan) on failure
-        (e.g., insufficient valid data points).
+        Tuple (a, b, r_value, top_scores_fitted, log_survival_probs_fitted, actual_top_k_used, top_10_scores, log_survival_probs_top_10) of
+        the linear fit parameters (slope, intercept), the correlation coefficient (r_value),
+        the top scores used for fitting (x-values), the corresponding log survival probabilities (y-values),
+        the actual number of points used for fitting, the top 10 scores (or fewer if not available),
+        and the log survival probabilities for these top 10 scores.
+        Returns (nan, nan, nan, [], [], 0, [], []) on failure.
     """
     if not isinstance(p_elicits, list) or not p_elicits:
         print("Warning: p_elicits must be a non-empty list.")
-        return np.nan, np.nan, np.nan
+        return np.nan, np.nan, np.nan, [], [], 0, [], []
 
     if top_k < 2:
         print("Warning: top_k must be at least 2 for linear regression.")
-        return np.nan, np.nan, np.nan
+        return np.nan, np.nan, np.nan, [], [], 0, [], []
 
     # Calculate scores: psi = -log(-log p)
     scores = []
@@ -46,36 +51,49 @@ def fit_gumbel_tail(p_elicits: List[float], top_k: int = 10) -> Tuple[float, flo
         except ValueError as e:
             print(f"Warning: Skipping p_elicit value {p} due to math error during score calculation: {e}")
 
-    if valid_p_count < 2:
+    if valid_p_count < 2: # Still need at least 2 for the primary regression, even if top_10 related logic could handle fewer.
         print(f"Warning: Only {valid_p_count} valid scores available after processing. Cannot fit line (minimum 2 required).")
-        return np.nan, np.nan, np.nan
+        return np.nan, np.nan, np.nan, [], [], 0, [], []
 
     m = valid_p_count # Effective number of samples is count of valid scores
     scores.sort(reverse=True)
 
-    actual_top_k = min(top_k, len(scores))
-    if actual_top_k < 2:
-        print(f"Warning: Only {actual_top_k} point(s) available for regression after selecting top_k={top_k}. Minimum 2 required.")
-        return np.nan, np.nan, np.nan
+    # Determine top 10 scores and their log survival probabilities
+    num_top_10_to_consider = min(10, len(scores))
+    top_10_scores = scores[:num_top_10_to_consider]
+    log_survival_probs_top_10 = []
+    if num_top_10_to_consider > 0:
+        ranks_top_10 = np.arange(1, num_top_10_to_consider + 1)
+        log_survival_probs_top_10 = np.log(ranks_top_10 / m).tolist()
 
-    top_scores = scores[:actual_top_k]
-    ranks = np.arange(1, actual_top_k + 1)
-    log_survival_probs = np.log(ranks / m)
+
+    # Regression for Gumbel fit (using actual_top_k)
+    actual_top_k_for_regression = min(top_k, len(scores))
+    if actual_top_k_for_regression < 2:
+        print(f"Warning: Only {actual_top_k_for_regression} point(s) available for regression after selecting top_k={top_k}. Minimum 2 required.")
+        # Still return top_10 data if available, even if regression fails
+        return np.nan, np.nan, np.nan, [], [], 0, top_10_scores, log_survival_probs_top_10
+
+    top_scores_for_regression = scores[:actual_top_k_for_regression]
+    ranks_for_regression = np.arange(1, actual_top_k_for_regression + 1)
+    log_survival_probs_for_regression = np.log(ranks_for_regression / m)
 
     try:
-        slope, intercept, r_value, p_value, std_err = linregress(top_scores, log_survival_probs)
+        slope, intercept, r_value, p_value, std_err = linregress(top_scores_for_regression, log_survival_probs_for_regression)
 
         if not np.isfinite(slope) or not np.isfinite(intercept):
             print("Warning: Linear regression resulted in non-finite parameters (slope or intercept).")
-            return np.nan, np.nan, np.nan
+            # Still return top_10 data if available
+            return np.nan, np.nan, np.nan, [], [], 0, top_10_scores, log_survival_probs_top_10
 
-        print(f"Fit Gumbel Tail: a={slope:.4f}, b={intercept:.4f}, R^2={r_value**2:.4f} using top {actual_top_k}/{m} points.")
-        return slope, intercept, r_value # a, b, r
+        # print(f"Fit Gumbel Tail: a={slope:.4f}, b={intercept:.4f}, R^2={r_value**2:.4f} using top {actual_top_k_for_regression}/{m} points.")
+        return slope, intercept, r_value, top_scores_for_regression, log_survival_probs_for_regression.tolist(), actual_top_k_for_regression, top_10_scores, log_survival_probs_top_10
     except ValueError as e:
         print(f"Warning: Linear regression failed. Error: {e}")
-        print(f"  Scores (top {actual_top_k}): {top_scores}")
-        print(f"  Log Survival Probs: {log_survival_probs}")
-        return np.nan, np.nan, np.nan
+        print(f"  Scores (top {actual_top_k_for_regression}): {top_scores_for_regression}")
+        print(f"  Log Survival Probs for regression: {log_survival_probs_for_regression}")
+        # Still return top_10 data if available
+        return np.nan, np.nan, np.nan, [], [], 0, top_10_scores, log_survival_probs_top_10
 
 
 def forecast_worst_query_risk(a: float, b: float, n: int) -> float:

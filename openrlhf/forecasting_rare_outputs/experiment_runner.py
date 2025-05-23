@@ -6,6 +6,7 @@ import time
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+from scipy import stats
 
 from openrlhf.forecasting_rare_outputs.elicitation import estimate_p_elicit
 from openrlhf.forecasting_rare_outputs.forecasting import fit_gumbel_tail, forecast_worst_query_risk
@@ -16,6 +17,22 @@ from openrlhf.utils import get_tokenizer, load_model_and_tokenizer, get_strategy
 from transformers import PreTrainedModel, PreTrainedTokenizer
 import torch
 
+def convert_numpy_to_python(obj):
+    """Convert numpy types to native Python types for JSON serialization."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_numpy_to_python(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_to_python(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_numpy_to_python(item) for item in obj)
+    else:
+        return obj
 
 def load_queries(query_file: str) -> list[str]:
     """Loads queries from a file (JSONL with 'query', 'prompt', or nested 'prompt[0].content' key, or plain text list)."""
@@ -153,6 +170,14 @@ def main():
     parser.add_argument("--num_bootstrap_samples", type=int, default=1,
                         help="Number of bootstrap samples to draw for Gumbel parameter estimation. Default is 1 (no bootstrapping).")
 
+    # --- New parameter for disabling bootstrap and using all queries ---
+    parser.add_argument("--use_all_queries_no_bootstrap", action="store_true", default=False,
+                        help="If True, bypasses bootstrap sampling and uses all loaded queries for a single evaluation run. Overrides --num_bootstrap_samples and --evaluation_set_size for query selection during the run.")
+
+    # --- New parameter for fit visualization ---
+    parser.add_argument("--save_fit_visualization_data", action="store_true", default=True,
+                        help="Whether to save data for visualizing the Gumbel fit (default: True).")
+
     args = parser.parse_args()
 
     # --- Initialize Strategy ---
@@ -241,35 +266,80 @@ def main():
     bootstrap_top_k_actually_used = []
     total_elicitation_time = 0
     detailed_results_log_iter = [] # Initialize for the first successful bootstrap iteration's log
+    
+    # Lists to store the top_k x and y points for the Gumbel fit regression from each successful bootstrap
+    bootstrap_gumbel_fit_top_scores = []
+    bootstrap_gumbel_fit_log_survival_probs = []
+    # Lists to store the top 10 scores and their log survival probabilities from each successful bootstrap
+    bootstrap_top_10_scores_data = []
+    bootstrap_top_10_log_survival_probs_data = []
+    
+    # New variables to store fit visualization data from the first successful bootstrap iteration
+    first_success_fit_data = {
+        "linear_regression_fit": {
+            "top_scores": [],          # x-values (psi)
+            "log_survival_probs": [],  # y-values (log(rank/m))
+            "actual_top_k": 0,         # number of points used
+            "fit_a": np.nan,           # slope
+            "fit_b": np.nan,           # intercept
+            "fit_r": np.nan,           # correlation coefficient
+            "fitted_line": {           # calculated points for the fitted line
+                "x": [],               # x-values (psi)
+                "y": []                # y-values (a*psi + b)
+            }
+        },
+        "all_valid_scores": {
+            "psi_values": [],          # all valid psi values
+            "p_elicit_values": [],     # corresponding p_elicit values
+            "sorted_ranks": [],        # ranks (1-indexed)
+            "empirical_quantiles": [], # empirical quantiles (rank-0.5)/n
+            "gumbel_quantiles": []     # theoretical Gumbel quantiles
+        }
+    }
+    first_success_recorded = False  # Flag to track if we've recorded the first success
 
     # --- Bootstrap Loop ---
     num_bootstrap_iterations = args.num_bootstrap_samples
-    print(f"Starting {num_bootstrap_iterations} bootstrap iterations...")
+    if args.use_all_queries_no_bootstrap:
+        num_bootstrap_iterations = 1
+        strategy.print("INFO: --use_all_queries_no_bootstrap is set. Running a single evaluation pass on all loaded queries.")
+        strategy.print(f"       Bootstrap sampling will be skipped. evaluation_set_size ({args.evaluation_set_size}) will be overridden by total queries ({len(all_queries)}).")
+
+    print(f"Starting {num_bootstrap_iterations} bootstrap iterations..." if not args.use_all_queries_no_bootstrap else "Starting single evaluation run on all queries...")
 
     for bootstrap_iter in range(num_bootstrap_iterations):
-        strategy.print(f"--- Bootstrap Iteration {bootstrap_iter + 1} / {num_bootstrap_iterations} ---")
+        strategy.print(f"--- Bootstrap Iteration {bootstrap_iter + 1} / {num_bootstrap_iterations} ---" if not args.use_all_queries_no_bootstrap else "--- Single Evaluation Run (All Queries) ---")
 
         a_iter, b_iter, r_value_iter = np.nan, np.nan, np.nan 
                                        
         while True:
             current_m_eval_size = m_eval_size
 
-            if len(all_queries) == 0:
-                strategy.print(f"CRITICAL Error: all_queries is empty at iter {bootstrap_iter + 1}. Cannot proceed. Check query loading and initial checks.")
-                raise ValueError("all_queries is empty at iter {bootstrap_iter + 1}. Cannot proceed. Check query loading and initial checks.")
+            if args.use_all_queries_no_bootstrap:
+                eval_queries = all_queries
+                current_m_eval_size = len(all_queries)
+                if not eval_queries: # Should be caught earlier, but as a safeguard
+                    strategy.print(f"CRITICAL Error: all_queries is empty. Cannot proceed with --use_all_queries_no_bootstrap.")
+                    raise ValueError("all_queries is empty. Cannot proceed with --use_all_queries_no_bootstrap.")
+            else:
+                # Original bootstrap sampling logic
+                if len(all_queries) == 0:
+                    strategy.print(f"CRITICAL Error: all_queries is empty at iter {bootstrap_iter + 1}. Cannot proceed. Check query loading and initial checks.")
+                    raise ValueError("all_queries is empty at iter {bootstrap_iter + 1}. Cannot proceed. Check query loading and initial checks.")
 
-            elif len(all_queries) < current_m_eval_size:
-                strategy.print(f"  Requested m_eval_size ({current_m_eval_size}) is > total available unique queries ({len(all_queries)}). Sampling {current_m_eval_size} queries with replacement from the {len(all_queries)} available queries for iter {bootstrap_iter + 1} attempt.")
+                elif len(all_queries) < current_m_eval_size:
+                    strategy.print(f"  Requested m_eval_size ({current_m_eval_size}) is > total available unique queries ({len(all_queries)}). Sampling {current_m_eval_size} queries with replacement from the {len(all_queries)} available queries for iter {bootstrap_iter + 1} attempt.")
 
-            eval_queries = random.choices(all_queries, k=current_m_eval_size)
+                eval_queries = random.choices(all_queries, k=current_m_eval_size)
             
             if not eval_queries:
-                strategy.print(f"Warning: No queries sampled for evaluation in iter {bootstrap_iter + 1} attempt (m_eval_size: {current_m_eval_size}, all_queries_len: {len(all_queries)}). Retrying sampling...")
+                strategy.print(f"Warning: No queries sampled/selected for evaluation in iter {bootstrap_iter + 1} attempt (m_eval_size: {current_m_eval_size}, all_queries_len: {len(all_queries)}). Retrying sampling or checking all_queries...")
                 time.sleep(0.1)
                 continue
 
             # --- Run Elicitation for the current bootstrap sample attempt ---
-            strategy.print(f"  Estimating p_elicit for {len(eval_queries)} queries using method '{elicitation_method}' (Iter {bootstrap_iter + 1} attempt)...")
+            desc_text = f"Estimating p_elicit (Iter {bootstrap_iter+1} attempt)" if not args.use_all_queries_no_bootstrap else f"Estimating p_elicit (All {len(eval_queries)} queries)"
+            strategy.print(f"  Estimating p_elicit for {len(eval_queries)} queries using method '{elicitation_method}' ({'Iter ' + str(bootstrap_iter + 1) + ' attempt' if not args.use_all_queries_no_bootstrap else 'Single Run'})...")
             attempt_start_time = time.time() # Time for this attempt's elicitation
             p_elicits_iter_attempt = []
             
@@ -290,7 +360,7 @@ def main():
                 elif tokenizer.eos_token_id is not None:
                     current_generation_kwargs['pad_token_id'] = tokenizer.eos_token_id
 
-            for i, query_text in enumerate(tqdm(eval_queries, desc=f"Estimating p_elicit (Iter {bootstrap_iter+1} attempt)", disable=False)):
+            for i, query_text in enumerate(tqdm(eval_queries, desc=desc_text, disable=False)):
                 query_log_entry = {"query_idx_bootstrap": i, "query": query_text, "bootstrap_iteration": bootstrap_iter + 1, "attempt_in_iter": "current"} # Placeholder for attempt count if needed
                 try:
                     p_val = estimate_p_elicit(
@@ -321,39 +391,50 @@ def main():
             num_valid_p_iter = len(valid_p_elicits_iter)
             num_failed_p_iter = len(eval_queries) - num_valid_p_iter
             
-            strategy.print(f"  Got {num_valid_p_iter} valid finite p_elicit values ({num_failed_p_iter} failed or non-finite) for iter {bootstrap_iter + 1} attempt.")
+            strategy.print(f"  Got {num_valid_p_iter} valid finite p_elicit values ({num_failed_p_iter} failed or non-finite) for {'iter ' + str(bootstrap_iter + 1) + ' attempt' if not args.use_all_queries_no_bootstrap else 'single run'}.")
 
             current_top_k_fit_iter = args.top_k_fit
             if num_valid_p_iter < current_top_k_fit_iter:
-                strategy.print(f"  Warning: Number of valid p_elicit values ({num_valid_p_iter}) is less than top_k_fit ({current_top_k_fit_iter}) for iter {bootstrap_iter + 1} attempt. Using all {num_valid_p_iter} valid points for fitting if >= 2.")
+                strategy.print(f"  Warning: Number of valid p_elicit values ({num_valid_p_iter}) is less than top_k_fit ({current_top_k_fit_iter}) for {'iter ' + str(bootstrap_iter + 1) + ' attempt' if not args.use_all_queries_no_bootstrap else 'single run'}. Using all {num_valid_p_iter} valid points for fitting if >= 2.")
                 current_top_k_fit_iter = num_valid_p_iter
             
             if current_top_k_fit_iter < 2:
-                strategy.print(f"  Error: Insufficient valid p_elicit values ({current_top_k_fit_iter}) for Gumbel tail fitting (minimum 2 required) for iter {bootstrap_iter + 1} attempt. Retrying this bootstrap sample...")
-                time.sleep(0.1) 
-                continue # Retry the while loop: re-sample, re-elicit
+                strategy.print(f"  Error: Insufficient valid p_elicit values ({current_top_k_fit_iter}) for Gumbel tail fitting (minimum 2 required) for {'iter ' + str(bootstrap_iter + 1) + ' attempt' if not args.use_all_queries_no_bootstrap else 'single run'}. Retrying this bootstrap sample..." if not args.use_all_queries_no_bootstrap else "  Error: Insufficient valid p_elicit values for Gumbel tail fitting. Cannot proceed.")
+                if not args.use_all_queries_no_bootstrap:
+                    time.sleep(0.1) 
+                    continue # Retry the while loop: re-sample, re-elicit
+                else:
+                    # For use_all_queries, if fit fails, we can't really retry. Break and report failure.
+                    a_iter, b_iter, r_value_iter = np.nan, np.nan, np.nan # Ensure they are NaN
+                    break # Exit while True, will lead to overall_error_message in summary
 
-            strategy.print(f"  Fitting Gumbel tail using top {current_top_k_fit_iter} scores for iter {bootstrap_iter + 1} attempt...")
+            strategy.print(f"  Fitting Gumbel tail using top {current_top_k_fit_iter} scores for {'iter ' + str(bootstrap_iter + 1) + ' attempt' if not args.use_all_queries_no_bootstrap else 'single run'}...")
             # These are specific to this attempt
-            a_iter_attempt, b_iter_attempt, r_value_iter_attempt = fit_gumbel_tail(valid_p_elicits_iter, top_k=current_top_k_fit_iter)
+
+            a_iter_attempt, b_iter_attempt, r_value_iter_attempt, top_scores_fit_attempt, log_survival_probs_fit_attempt, actual_top_k_attempt, top_10_scores_attempt, top_10_log_survival_probs_attempt = fit_gumbel_tail(valid_p_elicits_iter, top_k=current_top_k_fit_iter)
 
             if np.isnan(a_iter_attempt) or np.isnan(b_iter_attempt) or not (np.isfinite(a_iter_attempt) and np.isfinite(b_iter_attempt)):
-                strategy.print(f"  Warning: Gumbel tail fitting for iter {bootstrap_iter + 1} attempt resulted in NaN/non-finite parameters (a={a_iter_attempt}, b={b_iter_attempt}). Retrying this bootstrap sample...")
-                time.sleep(0.1)
-                continue # Retry the while loop: re-sample, re-elicit
-            elif abs(r_value_iter_attempt) < 0.8:
+                strategy.print(f"  Warning: Gumbel tail fitting for {'iter ' + str(bootstrap_iter + 1) + ' attempt' if not args.use_all_queries_no_bootstrap else 'single run'} resulted in NaN/non-finite parameters (a={a_iter_attempt}, b={b_iter_attempt}). Retrying this bootstrap sample..." if not args.use_all_queries_no_bootstrap else "  Error: Gumbel tail fitting resulted in NaN/non-finite parameters. Cannot proceed.")
+                if not args.use_all_queries_no_bootstrap:
+                    time.sleep(0.1)
+                    continue # Retry the while loop: re-sample, re-elicit
+                else:
+                    a_iter, b_iter, r_value_iter = np.nan, np.nan, np.nan # Ensure they are NaN
+                    break # Exit while True, will lead to overall_error_message in summary
+            elif abs(r_value_iter_attempt) < 0.8 and not args.use_all_queries_no_bootstrap: # R-value check only for bootstrap
                 r_squared_iter_attempt = r_value_iter_attempt**2 if not np.isnan(r_value_iter_attempt) else np.nan
                 strategy.print(f"  Warning: Fit for Bootstrap Iteration {bootstrap_iter + 1} attempt has R-value ({r_value_iter_attempt:.4f}, abs={abs(r_value_iter_attempt):.4f}, R^2={r_squared_iter_attempt:.4f}) below 0.8. Discarding this Gumbel fit. This iteration will not contribute parameters.")
                 # This attempt's Gumbel parameters are not stored.
                 # total_elicitation_time is not incremented for this discarded fit.
                 # detailed_results_log_iter is not updated with this attempt's log.
                 break # Exit the `while True` loop for this `bootstrap_iter`. Outer loop proceeds to next `bootstrap_iter`.
-            else:
-                # Successful fit for this attempt: parameters are valid AND abs(r_value) >= 0.8.
+            else: # Successful fit or use_all_queries_no_bootstrap mode (where we accept the fit regardless of R-value for now)
+                # Successful fit for this attempt: parameters are valid AND (abs(r_value) >= 0.8 OR use_all_queries_no_bootstrap)
                 a_iter, b_iter, r_value_iter = a_iter_attempt, b_iter_attempt, r_value_iter_attempt # Assign to outer loop scope vars
                 
                 r_squared_iter = r_value_iter**2 if not np.isnan(r_value_iter) else np.nan
-                strategy.print(f"  SUCCESSFUL Fit for Bootstrap Iteration {bootstrap_iter + 1}: a = {a_iter:.4f}, b = {b_iter:.4f}, r = {r_value_iter:.4f} (R^2 = {r_squared_iter:.4f})")
+                success_message_prefix = f"SUCCESSFUL Fit for Bootstrap Iteration {bootstrap_iter + 1}" if not args.use_all_queries_no_bootstrap else "Fit for Single Evaluation Run"
+                strategy.print(f"  {success_message_prefix}: a = {a_iter:.4f}, b = {b_iter:.4f}, r = {r_value_iter:.4f} (R^2 = {r_squared_iter:.4f})")
                 
                 bootstrap_a_params.append(a_iter)
                 bootstrap_b_params.append(b_iter)
@@ -361,10 +442,79 @@ def main():
                 bootstrap_num_valid_p_elicits.append(num_valid_p_iter)
                 bootstrap_top_k_actually_used.append(current_top_k_fit_iter)
                 
+                # Append the x and y data points used for this successful Gumbel fit
+                bootstrap_gumbel_fit_top_scores.append(top_scores_fit_attempt) 
+                bootstrap_gumbel_fit_log_survival_probs.append(log_survival_probs_fit_attempt)
+                
+                # Append the top 10 scores and their log survival probabilities
+                bootstrap_top_10_scores_data.append(top_10_scores_attempt)
+                bootstrap_top_10_log_survival_probs_data.append(top_10_log_survival_probs_attempt)
+                
                 total_elicitation_time += attempt_elicitation_time
 
                 if len(bootstrap_a_params) == 1: 
                     detailed_results_log_iter = current_attempt_detailed_results_log
+                    
+                # Save fit visualization data from the first successful bootstrap iteration
+                if args.save_fit_visualization_data and not first_success_recorded:
+                    # 1. Store linear regression data points
+                    first_success_fit_data["linear_regression_fit"]["top_scores"] = top_scores_fit_attempt
+                    first_success_fit_data["linear_regression_fit"]["log_survival_probs"] = log_survival_probs_fit_attempt
+                    first_success_fit_data["linear_regression_fit"]["actual_top_k"] = actual_top_k_attempt
+                    first_success_fit_data["linear_regression_fit"]["fit_a"] = a_iter
+                    first_success_fit_data["linear_regression_fit"]["fit_b"] = b_iter
+                    first_success_fit_data["linear_regression_fit"]["fit_r"] = r_value_iter
+                    
+                    # 2. Generate points for the fitted line for plotting
+                    x_min = min(top_scores_fit_attempt) if top_scores_fit_attempt else 0
+                    x_max = max(top_scores_fit_attempt) if top_scores_fit_attempt else 1
+                    x_range = np.linspace(x_min - 0.1 * (x_max - x_min), 
+                                          x_max + 0.1 * (x_max - x_min), 
+                                          100).tolist()
+                    y_fitted = [a_iter * x + b_iter for x in x_range]
+                    first_success_fit_data["linear_regression_fit"]["fitted_line"]["x"] = x_range
+                    first_success_fit_data["linear_regression_fit"]["fitted_line"]["y"] = y_fitted
+                    
+                    # 3. Process all valid scores for QQ and Probability plots
+                    # Calculate scores: psi = -log(-log p) for all valid p_elicits
+                    all_psi_values = []
+                    all_p_elicit_values = []
+                    for p in valid_p_elicits_iter:
+                        if p is not None and 0 <= p <= 1 and np.isfinite(p):
+                            # Clip p to avoid infinities at exactly 0 or 1
+                            p_clipped = np.clip(p, 1e-300, 1.0 - 1e-300)
+                            try:
+                                score = -np.log(-np.log(p_clipped))
+                                all_psi_values.append(score)
+                                all_p_elicit_values.append(p)
+                            except (ValueError, OverflowError):
+                                pass  # Skip invalid scores
+                    
+                    # Sort scores in ascending order for ranks and quantiles
+                    sorted_indices = np.argsort(all_psi_values)
+                    sorted_psi_values = [all_psi_values[i] for i in sorted_indices]
+                    sorted_p_elicit_values = [all_p_elicit_values[i] for i in sorted_indices]
+                    
+                    n_scores = len(sorted_psi_values)
+                    if n_scores > 0:
+                        # Calculate ranks (1-indexed) and empirical quantiles
+                        ranks = np.arange(1, n_scores + 1).tolist()
+                        # Empirical quantiles using plotting position formula (i-0.5)/n
+                        empirical_quantiles = [(rank - 0.5) / n_scores for rank in ranks]
+                        
+                        # Calculate theoretical Gumbel quantiles for these empirical quantiles
+                        # Using both general Gumbel parameters (from all data) and our fitted extreme tail parameters
+                        # Method 1: Direct inverse CDF of standard Gumbel distribution
+                        gumbel_quantiles = [stats.gumbel_r.ppf(q) for q in empirical_quantiles]
+                        
+                        # Store all the data for plotting
+                        first_success_fit_data["all_valid_scores"]["psi_values"] = sorted_psi_values
+                        first_success_fit_data["all_valid_scores"]["p_elicit_values"] = sorted_p_elicit_values
+                        first_success_fit_data["all_valid_scores"]["sorted_ranks"] = ranks
+                        first_success_fit_data["all_valid_scores"]["empirical_quantiles"] = empirical_quantiles
+                        first_success_fit_data["all_valid_scores"]["gumbel_quantiles"] = gumbel_quantiles
+                    
+                    first_success_recorded = True
                 
                 break
 
@@ -393,18 +543,27 @@ def main():
     
     num_successful_fits = sum(1 for a, b in zip(bootstrap_a_params, bootstrap_b_params) if not (np.isnan(a) or np.isnan(b)))
 
-    print(f"\n--- Bootstrap Aggregation Results ({num_bootstrap_iterations} iterations) ---")
-    print(f"Number of successful Gumbel fits: {num_successful_fits} / {num_bootstrap_iterations}")
-    if num_successful_fits > 0:
-        print(f"Mean a: {mean_a:.4f} (Std: {std_a:.4f})")
-        print(f"Mean b: {mean_b:.4f} (Std: {std_b:.4f})")
-        mean_r_squared = mean_r_value**2 if not np.isnan(mean_r_value) else np.nan # Note: mean(r^2) is not (mean(r))^2
-                                                                                   # For simplicity, reporting based on mean_r_value
-        print(f"Mean r_value: {mean_r_value:.4f} (Std: {std_r_value:.4f}), Implied Mean R^2: {mean_r_squared:.4f}")
-        print(f"Mean number of valid p_elicits per iteration: {mean_num_valid_p:.2f}")
-        print(f"Mean top_k actually used for fitting per iteration: {mean_top_k_used:.2f}")
+    if args.use_all_queries_no_bootstrap:
+        print(f"\n--- Single Evaluation Run Results (All {len(all_queries)} Queries) ---")
+        if num_successful_fits == 1:
+            print(f"Gumbel Fit Parameters: a = {mean_a:.4f}, b = {mean_b:.4f}, r_value = {mean_r_value:.4f} (R^2 = {mean_r_value**2 if not np.isnan(mean_r_value) else np.nan})")
+            print(f"Number of valid p_elicits: {mean_num_valid_p:.0f}")
+            print(f"Top_k actually used for fitting: {mean_top_k_used:.0f}")
+        else:
+            print("Gumbel fit failed for the single evaluation run.")
     else:
-        print("No successful Gumbel fits across all bootstrap iterations.")
+        print(f"\n--- Bootstrap Aggregation Results ({num_bootstrap_iterations} iterations) ---")
+        print(f"Number of successful Gumbel fits: {num_successful_fits} / {num_bootstrap_iterations}")
+        if num_successful_fits > 0:
+            print(f"Mean a: {mean_a:.4f} (Std: {std_a:.4f})")
+            print(f"Mean b: {mean_b:.4f} (Std: {std_b:.4f})")
+            mean_r_squared = mean_r_value**2 if not np.isnan(mean_r_value) else np.nan # Note: mean(r^2) is not (mean(r))^2
+                                                                                       # For simplicity, reporting based on mean_r_value
+            print(f"Mean r_value: {mean_r_value:.4f} (Std: {std_r_value:.4f}), Implied Mean R^2: {mean_r_squared:.4f}")
+            print(f"Mean number of valid p_elicits per iteration: {mean_num_valid_p:.2f}")
+            print(f"Mean top_k actually used for fitting per iteration: {mean_top_k_used:.2f}")
+        else:
+            print("No successful Gumbel fits across all bootstrap iterations.")
 
     overall_error_message = None
     if num_successful_fits == 0 and num_bootstrap_iterations > 0:
@@ -434,6 +593,8 @@ def main():
     # The critical part is the number of queries from which bootstrap samples were drawn.
     
     actual_m_eval_size_used_per_bootstrap = args.evaluation_set_size # This is the k for random.choices
+    if args.use_all_queries_no_bootstrap:
+        actual_m_eval_size_used_per_bootstrap = len(all_queries) # In this case, it's all queries
 
     summary = {
         "run_args": {k: str(v) if isinstance(v, list) else v for k, v in vars(args).items()},
@@ -442,19 +603,20 @@ def main():
         "query_file": args.query_file,
         "elicitation_method": elicitation_method,
         "num_total_queries_loaded": len(all_queries),
-        "num_bootstrap_samples_requested": num_bootstrap_iterations,
+        "num_bootstrap_samples_requested": num_bootstrap_iterations if not args.use_all_queries_no_bootstrap else 1,
         "num_bootstrap_samples_completed": len(bootstrap_a_params), # Iterations that at least started fitting
         "num_successful_gumbel_fits": num_successful_fits,
         "evaluation_set_size_m_per_bootstrap": actual_m_eval_size_used_per_bootstrap,
+        "evaluation_set_size_m_total_if_no_bootstrap": len(all_queries) if args.use_all_queries_no_bootstrap else None,
         "mean_num_valid_p_elicits_per_bootstrap": mean_num_valid_p if not np.isnan(mean_num_valid_p) else None,
         "total_elicitation_time_seconds": total_elicitation_time,
         "gumbel_fit_params_bootstrap_summary": {
             "mean_a_slope": final_a_for_forecast if not overall_error_message else np.nan,
-            "std_a_slope": std_a if not overall_error_message and not np.isnan(std_a) else np.nan,
+            "std_a_slope": std_a if not overall_error_message and not np.isnan(std_a) and not args.use_all_queries_no_bootstrap else np.nan,
             "mean_b_intercept": final_b_for_forecast if not overall_error_message else np.nan,
-            "std_b_intercept": std_b if not overall_error_message and not np.isnan(std_b) else np.nan,
+            "std_b_intercept": std_b if not overall_error_message and not np.isnan(std_b) and not args.use_all_queries_no_bootstrap else np.nan,
             "mean_r_value": mean_r_value if not overall_error_message and not np.isnan(mean_r_value) else np.nan,
-            "std_r_value": std_r_value if not overall_error_message and not np.isnan(std_r_value) else np.nan,
+            "std_r_value": std_r_value if not overall_error_message and not np.isnan(std_r_value) and not args.use_all_queries_no_bootstrap else np.nan,
             "mean_r_squared_approx": (mean_r_value**2) if not overall_error_message and not np.isnan(mean_r_value) else np.nan,
             "mean_top_k_actually_used": mean_top_k_used if not overall_error_message and not np.isnan(mean_top_k_used) else np.nan
         },
@@ -463,14 +625,37 @@ def main():
             "b_intercepts": [p if not np.isnan(p) else None for p in bootstrap_b_params],
             "r_values": [p if not np.isnan(p) else None for p in bootstrap_r_values],
             "num_valid_p_elicits": bootstrap_num_valid_p_elicits,
-            "top_k_fits": bootstrap_top_k_actually_used
+            "top_k_fits": bootstrap_top_k_actually_used,
+            "gumbel_fit_top_scores": bootstrap_gumbel_fit_top_scores, # Will be handled by convert_numpy_to_python
+            "gumbel_fit_log_survival_probs": bootstrap_gumbel_fit_log_survival_probs, # Will be handled by convert_numpy_to_python
+            "top_10_scores": bootstrap_top_10_scores_data, # Will be handled by convert_numpy_to_python
+            "top_10_log_survival_probs": bootstrap_top_10_log_survival_probs_data # Will be handled by convert_numpy_to_python
+        } if not args.use_all_queries_no_bootstrap else { # Provide minimal data for single run
+             "a_slopes": [final_a_for_forecast] if not np.isnan(final_a_for_forecast) else [None],
+             "b_intercepts": [final_b_for_forecast] if not np.isnan(final_b_for_forecast) else [None],
+             "r_values": [mean_r_value] if not np.isnan(mean_r_value) else [None],
+             "num_valid_p_elicits": [int(mean_num_valid_p)] if not np.isnan(mean_num_valid_p) else [None],
+             "top_k_fits": [int(mean_top_k_used)] if not np.isnan(mean_top_k_used) else [None],
         },
         "forecasted_worst_query_risks_from_mean_params": forecasted_risks if not overall_error_message else {},
-        "overall_error_message": overall_error_message
+        "overall_error_message": overall_error_message,
+        # Add the fit visualization data
+        "fit_visualization_data": first_success_fit_data if first_success_recorded else {"error": "No successful bootstrap iteration recorded"},
+        "gumbel_fit_top_scores": bootstrap_gumbel_fit_top_scores, # Will be handled by convert_numpy_to_python
+        "gumbel_fit_log_survival_probs": bootstrap_gumbel_fit_log_survival_probs # Will be handled by convert_numpy_to_python
     }
 
     with open(summary_file, 'w', encoding='utf-8') as f_summary:
-        json.dump(summary, f_summary, indent=4)
+        summary_converted = convert_numpy_to_python(summary)
+        json.dump(summary_converted, f_summary, indent=4)
+
+    # Save a separate visualization data file (which may be useful for plotting scripts)
+    if first_success_recorded:
+        visualization_file = os.path.join(args.output_dir, f"{run_name}-visualization-data.json")
+        first_success_fit_data_converted = convert_numpy_to_python(first_success_fit_data)
+        with open(visualization_file, 'w', encoding='utf-8') as f_viz:
+            json.dump(first_success_fit_data_converted, f_viz, indent=4)
+        print(f"Fit visualization data saved to {visualization_file}")
 
     print(f"Experiment finished. Summary saved to {summary_file}")
 
