@@ -4,33 +4,7 @@ import pandas as pd
 from transformers import PreTrainedModel, PreTrainedTokenizer
 from typing import Callable, Dict, Any
 from openrlhf.models import Actor, ActorCustom
-from .behavior_defs import Behavior, TARGET_SEQUENCES
-
-def estimate_keyword_probability(
-    model: Actor,
-    tokenizer: PreTrainedTokenizer,
-    query: str,
-    keyword: str,
-    k_samples: int = 100, # Number of samples to generate for repeated sampling.
-    **generation_kwargs
-) -> float:
-    """Estimates the probability of the model generating the keyword in response to the query.
-
-    """
-    print(f"Estimate keyword probability using repeated sampling (k={k_samples}). This can be slow and approximate.")
-
-    outputs = generate_output(model, tokenizer, query, k_samples, **generation_kwargs)
-
-    if not outputs:
-        return 0.0
-
-    output_series = pd.Series(outputs)
-    keyword_lower = keyword.lower()
-    success_count = output_series.str.lower().str.contains(keyword_lower, regex=False).sum()
-
-    if k_samples == 0:
-        return 0.0
-    return success_count / k_samples
+from .behavior_defs import Behavior
 
 
 def generate_output(model: Actor, tokenizer: PreTrainedTokenizer, query: str, k_samples: int, **generation_kwargs) -> list[str]:
@@ -111,14 +85,7 @@ def get_behavior_check_function(behavior_definition: Behavior) -> Callable[[str]
     """Returns a function `check(output) -> bool` implementing the B(o)=1 check."""
     behavior_type = behavior_definition.type
 
-    if behavior_type == 'specific_output':
-        target_output_seq = behavior_definition.target_sequence
-        if not isinstance(target_output_seq, str):
-            raise ValueError("Target sequence must be a string for 'specific_output' type if target_sequence is used.")
-        target_normalized = " ".join(target_output_seq.strip().split())
-        return lambda output: " ".join(output.strip().split()) == target_normalized
-
-    elif behavior_type == 'keyword':
+    if behavior_type == 'keyword':
         targets = behavior_definition.target_keywords
         if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets) or not targets:
             raise ValueError("Target_keywords must be a non-empty list of strings for 'keyword' type.")
