@@ -18,7 +18,7 @@ cat > "$SBATCH_FILE" << EOL
 #SBATCH --mem=64G
 #SBATCH -c 4
 #SBATCH --time=4:00:00
-#SBATCH --partition=a40,t4v2
+#SBATCH --partition=a40
 #SBATCH --qos=m3
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
