@@ -4,66 +4,7 @@ import pandas as pd
 from transformers import PreTrainedModel, PreTrainedTokenizer
 from typing import Callable, Dict, Any
 from openrlhf.models import Actor, ActorCustom
-from .behavior_defs import Behavior, TARGET_SEQUENCES
-
-def estimate_keyword_probability(
-    model: Actor,
-    tokenizer: PreTrainedTokenizer,
-    query: str,
-    keyword: str,
-    k_samples: int = 100, # Use sampling as default estimation method
-    **generation_kwargs
-) -> float:
-    """Estimates the probability of the model generating the keyword in response to the query.
-    
-    NOTE: This is a complex estimation problem. This implementation uses a basic
-    Monte Carlo approach (repeated sampling) as a default. More sophisticated methods
-    (e.g., marginalizing over positions, beam search analysis) could be implemented but
-    are significantly more complex.
-    """
-    print(f"Warning: estimate_keyword_probability using repeated sampling (k={k_samples}). This can be slow and approximate.")
-
-    # Create a temporary behavior definition for the keyword check
-    # temp_behavior_def = { # Old dictionary approach
-    #     'type': 'keyword',
-    #     'target': keyword
-    # }
-    # New approach: Create a Behavior object
-    temp_behavior_obj = Behavior(
-        id='temp_keyword_check', 
-        name='Temporary Keyword Check',
-        description='Internal object for estimate_keyword_probability',
-        type='keyword',
-        target_keywords=[keyword], # Use target_keywords as it's a list
-        goal='Temporary goal for internal check' # Placeholder
-        # default_elicitation_method can be None or omitted if not needed by get_behavior_check_function's path for 'keyword'
-    )
-    keyword_check_fn = get_behavior_check_function(temp_behavior_obj) # Pass the object
-
-    # Generate samples
-    outputs = generate_output(model, tokenizer, query, k_samples, **generation_kwargs)
-
-    if not outputs: # Handle cases where no outputs were generated
-        return 0.0
-
-    # # Old approach to Count successes
-    # success_count = 0
-    # for output in outputs:
-    #     if keyword_check_fn(output):
-    #         success_count += 1
-
-    # Pandas vectorized approach:
-    output_series = pd.Series(outputs)
-    keyword_lower = keyword.lower() # The keyword to check, lowercased once
-
-    # .str.lower() converts all outputs to lowercase
-    # .str.contains(keyword_lower, regex=False) checks for substring presence
-    # .sum() counts boolean True values (which convert to 1)
-    success_count = output_series.str.lower().str.contains(keyword_lower, regex=False).sum()
-
-    if k_samples == 0: # Should ideally not happen if outputs is not empty, but good for safety
-        return 0.0
-    return success_count / k_samples
+from .behavior_defs import Behavior
 
 
 def generate_output(model: Actor, tokenizer: PreTrainedTokenizer, query: str, k_samples: int, **generation_kwargs) -> list[str]:
@@ -80,60 +21,47 @@ def generate_output(model: Actor, tokenizer: PreTrainedTokenizer, query: str, k_
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     input_ids = input_tokens["input_ids"].to(device)
-    attention_mask = input_tokens["attention_mask"].to(device) # Actor.generate can infer this
+    attention_mask = input_tokens["attention_mask"].to(device)
 
     # Base generation args (can be overridden by **generation_kwargs)
-    # num_return_sequences will be set per batch.
     default_gen_params = {
         "max_new_tokens": 50,
         "temperature": 1.0,
         "top_p": 0.9,
         "do_sample": True,
-        # "num_return_sequences": k_samples, # Removed: will be controlled per batch
         "eos_token_id": tokenizer.eos_token_id,
         "pad_token_id": tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id,
     }
     # These parameters are common to all batches, after merging with user's kwargs.
     base_batch_gen_kwargs = {**default_gen_params, **generation_kwargs}
     
-    # Ensure pad_token_id is set if generation needs it (e.g. for batching or beam search)
     if base_batch_gen_kwargs.get("pad_token_id") is None:
         base_batch_gen_kwargs["pad_token_id"] = tokenizer.eos_token_id
-        # print("generate_output: Setting pad_token_id to eos_token_id as it was None.")
 
     all_generated_outputs_decoded = []
     samples_generated_so_far = 0
     
     # Tune this batch size based on your GPU memory.
-    # Starting with a smaller value like 1000 or 5000 might be safer, then increase if possible.
-    # User suggested 10000 for 100k total -> 10 batches.
+    # Starting with a smaller value like 500 or 1000 might be safer, then increase if possible.
     generation_batch_size = k_samples
 
-    with torch.no_grad(): # Single no_grad context for all generation batches
+    with torch.no_grad():
         while samples_generated_so_far < k_samples:
             num_to_generate_this_batch = min(generation_batch_size, k_samples - samples_generated_so_far)
 
             if num_to_generate_this_batch <= 0:
-                break  # Should not be strictly necessary due to while condition but safe
+                break
 
             current_batch_gen_kwargs = base_batch_gen_kwargs.copy()
             current_batch_gen_kwargs["num_return_sequences"] = num_to_generate_this_batch
             
-            # For debugging, you might want to uncomment this:
-            # print(f"DEBUG: Generating batch of {num_to_generate_this_batch}. Args: {current_batch_gen_kwargs}")
-
             try:
-                # Actor.generate returns: sequences, attention_mask, action_mask
-                # sequences are (num_to_generate_this_batch, seq_len)
-                # We are providing batch_size = 1 for input_ids
                 output_sequences, _, _ = model.generate(
                     input_ids,
                     attention_mask=attention_mask, # provided explicitly
                     **current_batch_gen_kwargs
                 )
-                # print(f"output_sequences.shape for batch: {output_sequences.shape}")
                 input_length = input_ids.shape[1]
-                # Decode only the newly generated part
                 generated_tokens_only = output_sequences[:, input_length:]
                 decoded_batch_outputs = tokenizer.batch_decode(generated_tokens_only, skip_special_tokens=True)
 
@@ -142,47 +70,29 @@ def generate_output(model: Actor, tokenizer: PreTrainedTokenizer, query: str, k_
                 actual_generated_in_batch = len(decoded_batch_outputs)
                 samples_generated_so_far += actual_generated_in_batch
 
-                # If the model returns fewer sequences than requested in a batch (without an error)
                 if actual_generated_in_batch < num_to_generate_this_batch:
                     print(f"Warning: Model generated {actual_generated_in_batch} sequences in current batch, but {num_to_generate_this_batch} were requested. Stopping generation for this query.")
-                    break # Exit the while loop for this query; will return what's collected so far.
+                    break
 
             except Exception as e:
                 print(f"Error during model generation batch for query: {query[:100]}... (requested {num_to_generate_this_batch} for this batch)\nError: {e}")
-                # import traceback
-                # traceback.print_exc()
-                return [] # Return empty list on error for the entire query's generation attempt
+                return []
 
-    return all_generated_outputs_decoded[:k_samples] # Ensure we don't return more than k_samples
+    return all_generated_outputs_decoded[:k_samples]
 
 
 def get_behavior_check_function(behavior_definition: Behavior) -> Callable[[str], bool]:
     """Returns a function `check(output) -> bool` implementing the B(o)=1 check."""
     behavior_type = behavior_definition.type
-    # target = behavior_definition.target # This attribute no longer exists on Behavior
 
-    if behavior_type == 'specific_output':
-        # This type is not currently defined or used in behavior_defs.py with the current Behavior structure.
-        # If it were to be used, target_sequence would be the likely field.
-        # For now, let's assume if this type is passed, target_sequence should be checked.
-        target_output_seq = behavior_definition.target_sequence
-        if not isinstance(target_output_seq, str):
-            raise ValueError("Target sequence must be a string for 'specific_output' type if target_sequence is used.")
-        # Normalize whitespace for comparison
-        target_normalized = " ".join(target_output_seq.strip().split())
-        return lambda output: " ".join(output.strip().split()) == target_normalized
-
-    elif behavior_type == 'keyword':
-        # For 'keyword' type, we now use target_keywords attribute from Behavior
+    if behavior_type == 'keyword':
         targets = behavior_definition.target_keywords
         if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets) or not targets:
             raise ValueError("Target_keywords must be a non-empty list of strings for 'keyword' type.")
         
-        # Case-insensitive check for any of the keywords
         targets_lower = [t.lower() for t in targets]
         return lambda output: any(t_lower in output.lower() for t_lower in targets_lower)
 
-    # TODO: Add cases for classifier or other complex checks if needed.
     else:
         raise NotImplementedError(f"Behavior check type '{behavior_type}' not implemented.")
 
@@ -211,11 +121,8 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
     if method == 'logprob_target_seq':
         target_sequences_list = behavior_definition.target_sequence
 
-        # Expect target_sequence to be a list of strings for this method,
-        # based on user request and data examples (e.g., "fat_keyword").
-        # The Behavior dataclass hint is Optional[str], but data often provides List[str].
+        # Expect target_sequence to be a list of strings for this method.
         if not isinstance(target_sequences_list, list) or not target_sequences_list:
-            # Handles None, not a list, or an empty list.
             print(f"Warning: For 'logprob_target_seq', behavior_definition.target_sequence is not a non-empty list for behavior '{behavior_definition.id}'. Value: {target_sequences_list}. Returning 0.0.")
             return 0.0
 
@@ -227,48 +134,9 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
 
             log_prob = calculate_sequence_logprob(model, tokenizer, query, target_output)
             prob = math.exp(log_prob)
-            # print(f"DEBUG: log_prob for target_output '{target_output}' in query '{query[:50]}...': {log_prob}", flush=True)
-            # print(f"DEBUG: prob for target_output '{target_output}' in query '{query[:50]}...': {prob}", flush=True)
             current_total_prob += prob
         
         p_elicit_val = current_total_prob / len(target_sequences_list)
-        # The final result will be clamped to [0, 1] at the end of the function.
-
-        # # <DEBUGGING_CODE_START>
-        # # For debugging logprob_target_seq: Generate and print N samples
-        # print(f"\n\n\n\n\n\n--- DEBUG: Generating 100 samples for query (logprob_target_seq method) ---\nQuery: {query[:200]}...")
-        
-        # debug_sampling_generation_kwargs = {
-        #     'temperature': 1.0,
-        #     'max_new_tokens': 100, # Max length of each sample
-        #     'top_p': 0.9,
-        #     'do_sample': True,
-        # }
-        # if tokenizer.pad_token_id is not None:
-        #     debug_sampling_generation_kwargs['pad_token_id'] = tokenizer.pad_token_id
-        # elif tokenizer.eos_token_id is not None: # Fallback to eos_token_id for padding
-        #     debug_sampling_generation_kwargs['pad_token_id'] = tokenizer.eos_token_id
-        
-        # # 'generation_kwargs' passed to estimate_p_elicit is typically empty for logprob_target_seq method.
-        # # This ensures our debug sampling uses its own defined parameters.
-        # final_debug_gen_kwargs_for_sampling = {**debug_sampling_generation_kwargs, **(generation_kwargs if generation_kwargs else {})}
-
-        # debug_samples = generate_output(
-        #     model=model,
-        #     tokenizer=tokenizer,
-        #     query=query,
-        #     k_samples=100, # Generate 100 samples
-        #     **final_debug_gen_kwargs_for_sampling
-        # )
-        
-        # if debug_samples:
-        #     print(f"--- Samples for query '{query[:100]}...' ---")
-        #     for idx, sample in enumerate(debug_samples):
-        #         print(f"Sample {idx+1:3d}: {sample}")
-        # else:
-        #     print(f"--- No samples generated for query '{query[:100]}...' ---")
-        # print(f"--- End DEBUG samples for query (logprob_target_seq method) ---\n")
-        # # <DEBUGGING_CODE_END>
 
     elif method == 'logprob_target_keyword_in_target_seq':
         target_sequences_list = behavior_definition.target_sequence # Expect a list of strings
@@ -282,13 +150,11 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         
         keywords_to_find = behavior_definition.target_keywords
         if not isinstance(keywords_to_find, list) or not all(isinstance(k, str) for k in keywords_to_find) or not keywords_to_find:
-            # This check might be redundant if behavior_definition.target_keywords is already validated upon Behavior object creation,
-            # but kept for robustness within this function's logic.
             raise ValueError("'target_keywords' must be a non-empty list of strings.")
 
         model.eval()
 
-        # --- ADDED PART: Get all unique token IDs for target keywords (once) ---
+        # --- Get all unique token IDs for target keywords (once) ---
         target_keyword_token_ids = set()
         for keyword_str in keywords_to_find:
             if not keyword_str: continue
@@ -304,11 +170,6 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
         if not target_keyword_token_ids:
             print(f"Warning: No valid token IDs found for any target_keywords: {keywords_to_find} for behavior '{behavior_definition.id}'. Returning 0.0.")
             return 0.0
-        # --- END ADDED PART (modified from original placement) ---
-
-        # --- DEBUG PRINT 1 (moved before loop) ---
-        # print(f"DEBUG: Target Keyword Token IDs for behavior '{behavior_definition.id}': {target_keyword_token_ids}", flush=True)
-        # --- END DEBUG PRINT 1 ---
 
         final_total_probability_sum_across_sequences = 0.0
         total_num_sequences = len(target_sequences_list)
@@ -358,8 +219,6 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
                     
                     all_vocab_log_probs_for_target_sequence = all_vocab_log_probs[:, start_logit_index:end_logit_index, :]
                     
-                    # print(f"Returned all_vocab_log_probs_for_target_sequence.shape for seq_idx {seq_idx}: {all_vocab_log_probs_for_target_sequence.shape}", flush=True)
-
                     if all_vocab_log_probs_for_target_sequence is None or \
                        all_vocab_log_probs_for_target_sequence.ndim != 3 or \
                        all_vocab_log_probs_for_target_sequence.shape[0] != 1 or \
@@ -368,30 +227,21 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
                         continue
 
                     vocab_size = all_vocab_log_probs_for_target_sequence.shape[2]
-                    # print(f"DEBUG: Vocab size for seq_idx {seq_idx}: {vocab_size}", flush=True)
-                    # print(f"DEBUG: num_actions (steps in target_sequence item #{seq_idx}): {num_actions}", flush=True)
 
                     for j in range(num_actions):
                         log_probs_at_step_j = all_vocab_log_probs_for_target_sequence[0, j, :]
-                        # if j == 0 and seq_idx == 0: print(f"DEBUG: Processing step j={j} in target_sequence item #{seq_idx}", flush=True)
                         for token_id in target_keyword_token_ids:
                             if 0 <= token_id < vocab_size:
                                 log_prob_keyword_token = log_probs_at_step_j[token_id].item()
-                                # if j == 0 and seq_idx == 0: print(f"DEBUG:   Keyword Token ID: {token_id}, Log Prob: {log_prob_keyword_token}", flush=True)
                                 prob_keyword_token = math.exp(log_prob_keyword_token)
-                                # if j == 0 and seq_idx == 0: print(f"DEBUG:     Prob for Token ID {token_id}: {prob_keyword_token}", flush=True)
                                 current_sequence_probability_sum += prob_keyword_token
                 
                 final_total_probability_sum_across_sequences += current_sequence_probability_sum
-                # print(f"DEBUG: Prob sum for reference_output_text (item #{seq_idx}) '{reference_output_text[:50]}...': {current_sequence_probability_sum}", flush=True)
 
             except Exception as e:
                 print(f"Error during 'logprob_target_keyword_in_target_seq' for query: '{query[:100]}...' with reference_output_text (item #{seq_idx}): '{reference_output_text[:100]}...' for behavior '{behavior_definition.id}'. Error: {e}", flush=True)
-                # import traceback; traceback.print_exc() # Uncomment for detailed traceback
-                # Continue to the next reference_output_text in the list
         
         p_elicit_val = final_total_probability_sum_across_sequences / total_num_sequences
-        # print(f"DEBUG: Final total_probability_sum for query '{query[:50]}...' (across all reference sequences for behavior '{behavior_definition.id}'): {p_elicit_val}", flush=True)
 
     elif method == 'repeated_sampling':
         success_count = 0
@@ -400,8 +250,6 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
 
         # k_samples is the total number of samples to acquire for this query.
         # elicitation_processing_batch_size is how many we ask generate_output for at a time.
-        # This is now a parameter to the function, with a default.
-
         if k_samples == 0:
             p_elicit_val = 0.0
         else:
@@ -418,29 +266,24 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
                     break
 
                 batch_success_count = 0
-                if outputs: # Process only if there are outputs
+                if outputs:
                     output_series = pd.Series(outputs)
                     
                     if behavior_definition.type == 'keyword':
-                        # Vectorized check for keyword presence (any of the keywords)
                         targets_lower = [t.lower() for t in behavior_definition.target_keywords]
                         if not output_series.empty:
                             output_series_lower = output_series.str.lower()
-                            # Initialize a mask for recording if any keyword is found in an output
                             combined_keyword_mask = pd.Series(False, index=output_series_lower.index, dtype=bool)
                             for t_lower in targets_lower:
                                 combined_keyword_mask |= output_series_lower.str.contains(t_lower, regex=False, na=False)
                             batch_success_count = combined_keyword_mask.sum()
                     else:
-                        # For 'specific_output' or other types, use the pre-defined check_function.
-                        # Series.apply is a vectorized way to apply the function to each element.
                         if not output_series.empty:
                             batch_success_count = output_series.apply(check_function).sum()
                 
                 success_count += batch_success_count
                 
                 total_samples_processed += len(outputs)
-                print(f"DEBUG: Processed {total_samples_processed}/{k_samples} samples for query '{query[:50]}...'")
 
             if total_samples_processed == 0:
                 p_elicit_val = 0.0
@@ -451,23 +294,19 @@ def estimate_p_elicit(model: Actor, tokenizer: PreTrainedTokenizer, query: str, 
     else:
         raise ValueError(f"Unknown elicitation method: {method}")
 
-    return max(0.0, min(p_elicit_val, 1.0)) # Ensure result is strictly in [0, 1]
+    return max(0.0, min(p_elicit_val, 1.0))
 
 
 def calculate_sequence_logprob(model: Actor, tokenizer: PreTrainedTokenizer, query: str, target_output: str) -> float:
     """Calculates the log probability log P(target_output | query) using the Actor model's forward pass.
     """
-    # print(f"[DEBUG calculate_sequence_logprob] Called with query: '{query[:100]}...', target_output: '{target_output[:100]}...'")
-    model.eval() # Ensure model is in evaluation mode
-    # TODO: Check the correctness of this implementation. We should be able to do this in a single forward pass of the model.
+    model.eval()
     
     # 1. Tokenize query and target_output.
     # The Actor.forward method expects the full sequence that includes the "actions" (target tokens).
     # Typically, for P(Y|X), the input to the model should represent X and then Y.
     query_tokens = tokenizer.encode(query, add_special_tokens=False)
     target_tokens = tokenizer.encode(target_output, add_special_tokens=False)
-    # print(f"[DEBUG calculate_sequence_logprob] Query tokens ({len(query_tokens)}): {query_tokens[:20]}...")
-    # print(f"[DEBUG calculate_sequence_logprob] Target tokens ({len(target_tokens)}): {target_tokens[:20]}...")
 
     if not target_tokens:
         print(f"[DEBUG calculate_sequence_logprob] Target output '{target_output[:100]}...' tokenized to an empty sequence. Returning -inf logprob.")
@@ -483,61 +322,36 @@ def calculate_sequence_logprob(model: Actor, tokenizer: PreTrainedTokenizer, que
     input_ids_list = []
     if tokenizer.bos_token_id is not None:
         input_ids_list.append(tokenizer.bos_token_id)
-        # print(f"[DEBUG calculate_sequence_logprob] Added BOS token: {tokenizer.bos_token_id}")
     
     input_ids_list.extend(query_tokens)
     input_ids_list.extend(target_tokens) # These are the "actions"
-    # print(f"[DEBUG calculate_sequence_logprob] Full input_ids_list ({len(input_ids_list)}): {input_ids_list[:30]}...")
 
     # If the model implicitly adds EOS or expects it for full sequence processing,
     # and if num_actions correctly slices *before* any such auto-added EOS, this is fine.
     # Let's assume for now that num_actions targets exactly the target_tokens as appended.
 
     input_ids_tensor = torch.tensor([input_ids_list], dtype=torch.long)
-    # print(f"[DEBUG calculate_sequence_logprob] input_ids_tensor shape: {input_ids_tensor.shape}")
     
     num_actions = len(target_tokens)
-    # print(f"[DEBUG calculate_sequence_logprob] num_actions (length of target_tokens): {num_actions}")
 
     try:
         device = model.model.device if hasattr(model, 'model') and hasattr(model.model, 'device') else next(model.parameters()).device
-        # print(f"[DEBUG calculate_sequence_logprob] Determined model device: {device}")
     except StopIteration: 
         print("[DEBUG calculate_sequence_logprob] Warning: Could not determine model device from parameters, attempting to use cuda if available, else cpu.")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # If the model is on meta, it needs to be moved.
-        # The experiment_runner should handle placing the model on a device.
-        # model.to(device) # This might be problematic if device_map was used.
-    # print(f"[DEBUG calculate_sequence_logprob] Using device: {device}")
 
     input_ids_tensor = input_ids_tensor.to(device)
-    # print(f"[DEBUG calculate_sequence_logprob] input_ids_tensor moved to device {input_ids_tensor.device}")
-
-    # Create an attention mask as the Actor model requires it.
-    # A default mask attending to all tokens.
     attention_mask_tensor = torch.ones_like(input_ids_tensor, device=device)
-    # print(f"[DEBUG calculate_sequence_logprob] Created attention_mask_tensor with shape {attention_mask_tensor.shape} on device {attention_mask_tensor.device}")
 
     # 3. Call model.forward() with the full sequence and num_actions.
     # Actor.forward is expected to return log_probs of shape (batch_size, num_actions)
     # where batch_size is 1 here.
     with torch.no_grad():
         try:
-            # print(f"[DEBUG calculate_sequence_logprob] Calling model.forward with input_ids (shape {input_ids_tensor.shape}), num_actions = {num_actions}, and attention_mask (shape {attention_mask_tensor.shape})")
             # The Actor's forward pass with num_actions should give us the logprobs for the target sequence.
             action_log_probs = model.forward(input_ids_tensor, num_actions=num_actions, attention_mask=attention_mask_tensor) # Pass the created attention_mask
             
-            if action_log_probs is None:
-                print(f"[DEBUG calculate_sequence_logprob] model.forward returned None for action_log_probs.")
-            # else:
-            #     print(f"[DEBUG calculate_sequence_logprob] action_log_probs received from model.forward. Shape: {action_log_probs.shape}, Dtype: {action_log_probs.dtype}")
-            #     if action_log_probs.numel() > 0:
-            #         print(f"[DEBUG calculate_sequence_logprob] action_log_probs values (first 5): {action_log_probs.flatten()[:5]}")
-            #         print(f"[DEBUG calculate_sequence_logprob] action_log_probs min: {action_log_probs.min().item()}, max: {action_log_probs.max().item()}, mean: {action_log_probs.mean().item()}")
-            #     else:
-            #         print(f"[DEBUG calculate_sequence_logprob] action_log_probs is empty.")
-
-            if action_log_probs is None or action_log_probs.ndim == 0 : # Check if it's a scalar or None
+            if action_log_probs is None or action_log_probs.ndim == 0 :
                 print(f"[DEBUG calculate_sequence_logprob] Condition met: action_log_probs is None or scalar. Value: {action_log_probs}. Returning -float('inf').")
                 return -float('inf')
             if action_log_probs.shape[-1] != num_actions:
@@ -546,12 +360,11 @@ def calculate_sequence_logprob(model: Actor, tokenizer: PreTrainedTokenizer, que
 
             # 4. Sum the log probabilities for the target sequence.
             sum_log_probs = action_log_probs.sum().item()
-            # print(f"[DEBUG calculate_sequence_logprob] Sum of action_log_probs: {sum_log_probs}")
             
             return sum_log_probs
 
         except Exception as e:
             print(f"[DEBUG calculate_sequence_logprob] Error during logprob calculation (Actor.forward or summation) for query: '{query[:100]}...' Target: '{target_output[:100]}...'")
             import traceback
-            traceback.print_exc() # Print full traceback for the exception
+            traceback.print_exc()
             return -float('inf') 

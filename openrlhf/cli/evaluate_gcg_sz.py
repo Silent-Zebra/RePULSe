@@ -141,7 +141,7 @@ def evaluate_with_gcg(args):
                 base_class = AutoModel._model_mapping[type(config)]
                 base_pretrained_class = base_class.__base__
                 reward_model = _get_reward_model_custom(base_pretrained_class, rm_name,
-                                                     tokenizer_base=tokenizer_base, config=config)
+                                                     tokenizer_base=tokenizer_base, config=config, rm_max_len=args.rm_max_len)
 
             elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base", "OpenAssistant/reward-model-deberta-v3-large-v2"]:
                 strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
@@ -184,7 +184,7 @@ def evaluate_with_gcg(args):
                     config=config,
                     # Setting separatequeryanswer=True and using max_new_tokens like train_ppo.py
                     separatequeryanswer=True,
-                    max_new_tokens=args.max_new_tokens, # Using generation max tokens from eval args
+                    rm_max_len=args.rm_max_len, # Using generation max tokens from eval args
                     strip_question_chat_template_fn=strip_question_chat_template_fn
                 )
 
@@ -218,7 +218,7 @@ def evaluate_with_gcg(args):
                     config=config,
                     # Setting separatequeryanswer=True and using max_new_tokens like train_ppo.py
                     separatequeryanswer=True,
-                    max_new_tokens=args.max_new_tokens, # Using generation max tokens from eval args
+                    rm_max_len=args.rm_max_len, # Using generation max tokens from eval args
                     strip_question_chat_template_fn=strip_question_chat_template_fn
                 )
 
@@ -778,7 +778,9 @@ if __name__ == "__main__":
     parser.add_argument("--zpg", type=int, default=1, help="ZeRO++ max partition size")
     parser.add_argument("--grad_accum_dtype", type=str, default=None, help="Adam grad accum data type")
     parser.add_argument("--disable_trace_cache", action="store_true", default=False)
-    
+
+    parser.add_argument("--rm_max_len", type=int, default=2048, help="Cut off tokens beyond this limit passed into the RM")
+
     # Reward Model based Success Arguments
     parser.add_argument("--atk_success_criteria", type=str, default="prefix", choices=["prefix", "reward"], help="Method to determine attack success.")
     parser.add_argument("--reward_pretrain", type=str, default="OpenAssistant/reward-model-deberta-v3-large-v2", help="HF model name or path")

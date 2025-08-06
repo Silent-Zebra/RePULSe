@@ -10,10 +10,10 @@ PROMPT_DIR="openrlhf/forecasting_rare_outputs/split_20k_heldout"
 PRETRAIN_MODEL="HuggingFaceTB/SmolLM-135M-Instruct"
 EVALUATION_SET_SIZE=150
 ELICITATION_METHOD="logprob_target_seq" # 'logprob_target_seq', 'logprob_target_keyword_in_target_seq', 'repeated_sampling'
-NUM_BOOTSTRAP_SAMPLES=30
+NUM_BOOTSTRAP_SAMPLES=20
 K_SAMPLES=10000
 BATCH_SIZE=1200
-TOP_K_FIT=10
+TOP_K_FIT=4
 FORECAST_SCALES="1e3,5e3,1e4,5e4,1e5,5e5,1e6,5e6"
 SBATCH_ACCOUNT="ml" # Or your account
 SBATCH_PARTITION="ml" # Or your partition
@@ -43,7 +43,7 @@ for CURRENT_CHECKPOINT_SEED in "${SEEDS[@]}"; do
 
     CHECKPOINT_SEED="${CURRENT_CHECKPOINT_SEED}" # Set the current seed
     CHECKPOINT_PATH="${CHECKPOINT_DIR}/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}"
-    CURRENT_OUTPUT_BASE_DIR_REL="openrlhf/forecasting_rare_outputs/results/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}"
+    CURRENT_OUTPUT_BASE_DIR_REL="openrlhf/forecasting_rare_outputs/results/nobootstrap_top${TOP_K_FIT}_fit/${CHECKPOINT_SPECIFIC}/${CHECKPOINT_SEED}"
     CURRENT_OUTPUT_BASE_DIR_ABS="${WORKSPACE_ROOT}/${CURRENT_OUTPUT_BASE_DIR_REL}"
 
     echo "  Checkpoint Path: ${CHECKPOINT_PATH}"
@@ -88,7 +88,6 @@ for CURRENT_CHECKPOINT_SEED in "${SEEDS[@]}"; do
 #SBATCH --time=${SBATCH_TIME}
 #SBATCH --partition=${SBATCH_PARTITION}
 #SBATCH --qos=${SBATCH_QOS}
-#SBATCH --account=${SBATCH_ACCOUNT}
 #SBATCH --nodes=${SBATCH_NODES}
 #SBATCH --gres=gpu:${SBATCH_GPUS}
 #SBATCH --nodelist=concerto[1-3],overture,quartet[1-3,5],dgx1,sonata2,bulbasaur,charmander,squirtle
@@ -121,6 +120,7 @@ deepspeed --master_port \$((\$RANDOM % 1000 + 3000))1 --module openrlhf.forecast
     --evaluation_set_size ${EVALUATION_SET_SIZE} \\
     --elicitation_method "${ELICITATION_METHOD}" \\
     --num_bootstrap_samples ${NUM_BOOTSTRAP_SAMPLES} \\
+    --use_all_queries_no_bootstrap \\
     --k_samples ${K_SAMPLES} \\
     --elicitation_processing_batch_size ${BATCH_SIZE} \\
     --top_k_fit ${TOP_K_FIT} \\

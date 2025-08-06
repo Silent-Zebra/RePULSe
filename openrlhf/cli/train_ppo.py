@@ -21,6 +21,10 @@ from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
 from openrlhf.models.model import _get_reward_model_custom
 from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list
 
+from typing import List, Union
+import torch.nn.functional as F
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 
 def train(args):
     # configure strategy
@@ -419,6 +423,7 @@ def train(args):
     #     print(param)
     #     break
 
+
     if args.do_harmlessness_training:
         estimates_list = None
         # # old setup below
@@ -584,96 +589,120 @@ def train(args):
             reward_transform=args.reward_transform,
             use_base_as_proposal=args.use_base_as_proposal
         )
-        strategy.print("-----HARMLESSNESS TRAINING-----")
-        # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
-        if args.harmlessness_training_num_episodes > 0:
-            assert args.num_episodes == 1 # Right now only supports 1 twist/proposal update per base_actor update
-            estimates_list = harmlessness_trainer.fit(
-                args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-                num_update_steps_per_episodes, true_posterior_samples
-            )
+
 
     else:
         trainer = get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, critic, critic_optim,
                                        critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
                                        true_posterior_samples, vf_coef)
-        if args.num_episodes > 0:
-            estimates_list = trainer.fit(
-                args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-                num_update_steps_per_episodes, true_posterior_samples
-            )
+
+    total_log_prob_bad_list = []
+    rew_over_time_list = []
+
+    for fit_step in range(args.fit_steps):
+        if fit_step == 0 and args.analytic_bad_word_calc:
+            prompt = "This man is a"
+            bad_word_tokens_ids = [
+                5089, 9372, 20654, 25617, 30998, 31699, 34094, 46733,
+                21551, 40267, 7510, 16211, 20041, 32574, 41356,
+                31030, 47209, 18185, 29836
+            ]
+            do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                      total_log_prob_bad_list)
+
+        if args.do_harmlessness_training:
+            strategy.print("-----HARMLESSNESS TRAINING-----")
+            # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
+            if args.harmlessness_training_num_episodes > 0:
+                assert args.num_episodes == 1  # Right now only supports 1 twist/proposal update per base_actor update
+                estimates_list = harmlessness_trainer.fit(
+                    args, prompts_dataloader, pretrain_dataloader, consumed_samples,
+                    num_update_steps_per_episodes, true_posterior_samples
+                )
+        else:
+            if args.num_episodes > 0:
+                estimates_list = trainer.fit(
+                    args, prompts_dataloader, pretrain_dataloader, consumed_samples,
+                    num_update_steps_per_episodes, true_posterior_samples
+                )
+
+        rewards_list = None
+
+        if estimates_list is not None:
+            if args.custom_single_prompt:
+                iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = estimates_list
+                print("FINAL RESULTS IWAE LB LIST", flush=True)
+                print(iwae_lbs_list)
+                print("FINAL RESULTS IWAE UB LIST", flush=True)
+                print(iwae_ubs_list)
+                print("FINAL RESULTS F_Q", flush=True)
+                print(f_q_estimates_list)
+                print("FINAL RESULTS G_Q", flush=True)
+                print(g_q_estimates_list)
+
+                print("SAVING RESULTS", flush=True)
+
+                target_to_save = (
+                    f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
+                )
+                save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
+                torch.save(target_to_save, save_str)
+
+            else:
+                f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
+                print("FINAL RESULTS F_Q", flush=True)
+                print(f_q_estimates_list)
+                print("FINAL RESULTS REWARD", flush=True)
+                print(rewards_list)
+                print("FINAL RESULTS KL TO PRIOR", flush=True)
+                print(kl_vals_list)
+                print("FINAL RESULTS ENTROPY", flush=True)
+                print(entropy_list)
+                print("SAVING RESULTS", flush=True)
+
+                target_to_save = (
+                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
+                )
+                save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
+                torch.save(target_to_save, save_str)
+
+                inspect_rewards_list(rewards_list)
+
+        if args.save_negdata:
+            strategy.print("SAVING NEG DATA")
+            strategy.print(len(neg_data))
+            # Save to file
+            with open(f"{args.save_path}/neg_data_{info_name_str}_thr{args.save_negdata_threshold}.pkl", "wb") as f:
+                pickle.dump(neg_data, f)
+
+        if args.analytic_bad_word_calc:
+            do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                      total_log_prob_bad_list)
+
+        if rewards_list is not None:
+            rewards_tensor = torch.tensor(rewards_list)
+            if fit_step == 0:
+                rew_over_time_list.append(rewards_tensor[0].item()) # Get value at start of training
+            rew_over_time_list.append(rewards_tensor[-1].item())
+
+
+    if args.analytic_bad_word_calc:
+        save_str = f"{args.save_info_path}/analyticlogprob_rewsample_{info_name_str}"
+        torch.save((total_log_prob_bad_list, rew_over_time_list), save_str)
+        print(total_log_prob_bad_list)
+        print(rew_over_time_list)
 
     # for param in base_actor.model.parameters():
     #     print("PARAM CHECK 3")
     #     print(param)
     #     break
 
-
-    if estimates_list is not None:
-        if args.custom_single_prompt:
-            iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = estimates_list
-            print("FINAL RESULTS IWAE LB LIST", flush=True)
-            print(iwae_lbs_list)
-            print("FINAL RESULTS IWAE UB LIST", flush=True)
-            print(iwae_ubs_list)
-            print("FINAL RESULTS F_Q", flush=True)
-            print(f_q_estimates_list)
-            print("FINAL RESULTS G_Q", flush=True)
-            print(g_q_estimates_list)
-
-            print("SAVING RESULTS", flush=True)
-
-            target_to_save = (
-                f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
-            )
-            save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
-            torch.save(target_to_save, save_str)
-
-        else:
-            f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
-            print("FINAL RESULTS F_Q", flush=True)
-            print(f_q_estimates_list)
-            print("FINAL RESULTS REWARD", flush=True)
-            print(rewards_list)
-            print("FINAL RESULTS KL TO PRIOR", flush=True)
-            print(kl_vals_list)
-            print("FINAL RESULTS ENTROPY", flush=True)
-            print(entropy_list)
-            print("SAVING RESULTS", flush=True)
-
-            target_to_save = (
-                f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
-            )
-            save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
-            torch.save(target_to_save, save_str)
-
-            inspect_rewards_list(rewards_list)
-
-    if args.save_negdata:
-        strategy.print("SAVING NEG DATA")
-        strategy.print(len(neg_data))
-        # Save to file
-        with open(f"{args.save_path}/neg_data_{info_name_str}_thr{args.save_negdata_threshold}.pkl", "wb") as f:
-            pickle.dump(neg_data, f)
-
-
-
-    # ppo_trainer will do saving...
-    # if args.save_actor:
-    #     # save model checkpoint after fitting on only rank0
-    #     strategy.save_model(
-    #         ema_model if args.enable_ema else actor,
-    #         tokenizer,
-    #         args.save_path,
-    #     )
-    #
-    # if args.save_value_network:
-    #     strategy.save_model(
-    #         critic,
-    #         tokenizer,
-    #         args.save_path + "_critic",
-    #     )
-
+    if args.do_harmlessness_training:
+        actor_to_test = base_actor
+        initial_model = static_initial_model
+    else:
+        actor_to_test = actor
+        initial_model = base_actor
     if args.evaluate_heldout_sampling or args.evaluate_on_neg_data:
         args.rm_type = "rlhf"
         args.target_dist_beta = 1
@@ -700,13 +729,6 @@ def train(args):
         strategy = get_strategy(args)
         strategy.setup_distributed()
 
-        if args.do_harmlessness_training:
-            actor_to_test = base_actor
-            initial_model = static_initial_model
-        else:
-            actor_to_test = actor
-            initial_model = base_actor
-
         if args.evaluate_heldout_sampling:
             strategy.print("DOING evaluate_heldout_sampling")
             do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
@@ -719,9 +741,172 @@ def train(args):
 
         # raise SystemExit(0)  # Finished
 
+
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
 
+
+def do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer, total_log_prob_bad_list):
+    if args.do_harmlessness_training:
+        actor_to_test = base_actor
+    else:
+        actor_to_test = actor
+    # Calculate the log probability
+    total_log_prob = calculate_bad_word_log_prob_pytorch(
+        model=actor_to_test.model,
+        tokenizer=tokenizer,
+        prompt_text=prompt,
+        bad_word_indices=bad_word_tokens_ids,
+        batch_size=args.train_batch_size,  # Adjust batch size based on GPU memory
+    )
+    total_log_prob_bad_list.append(total_log_prob)
+
+
+@torch.no_grad() # Ensure no gradients are computed during evaluation
+def calculate_bad_word_log_prob_pytorch(
+    model: AutoModelForCausalLM,
+    tokenizer: AutoTokenizer,
+    prompt_text: str,
+    bad_word_indices: Union[List[int], torch.Tensor],
+    batch_size: int,
+) -> float:
+    """
+    Calculates the total log probability of generating a sequence of length 2
+    (after the prompt) that contains at least one "bad word".
+
+    This is done by summing the probabilities of two disjoint cases:
+    1. P(bad_word at t=0 | prompt)
+    2. P(good_word at t=0, bad_word at t=1 | prompt)
+
+    Args:
+        model: The Hugging Face causal language model (e.g., GPT2LMHeadModel).
+        tokenizer: The corresponding tokenizer.
+        prompt_text: The input prompt string.
+        bad_word_indices: A list or tensor of token IDs considered "bad words".
+        batch_size: Batch size for processing vocabulary in the second case
+                    to manage memory usage.
+        device: The device to run the calculations on ('cuda', 'cpu', etc.).
+                If None, uses model's device or defaults to 'cuda' if available.
+
+    Returns:
+        The total log probability (float) of a bad word appearing in the
+        first or second generated token position.
+    """
+
+    device = model.device if hasattr(model, 'device') else \
+             torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model.eval() # Set model to evaluation mode
+    model.to(device)
+
+    # --- Preprocessing ---
+    inputs = tokenizer(prompt_text, return_tensors="pt")
+    prompt_ids = inputs["input_ids"].to(device)
+    prompt_len = prompt_ids.shape[1]
+
+    if isinstance(bad_word_indices, list):
+        bad_word_indices_tensor = torch.tensor(bad_word_indices, dtype=torch.long, device=device)
+    elif isinstance(bad_word_indices, torch.Tensor):
+        bad_word_indices_tensor = bad_word_indices.to(device=device, dtype=torch.long)
+    else:
+        raise TypeError("bad_word_indices must be a list or torch.Tensor")
+
+    n_vocab = 50257
+
+    # --- Case 1: Bad word at t=0 ---
+    # Get logits for the token immediately following the prompt
+    outputs_t0 = model(prompt_ids)
+    logits_t0 = outputs_t0.logits[:, -1, :] # Shape: (1, n_vocab)
+    log_probs_t0 = F.log_softmax(logits_t0.squeeze(0), dim=-1) # Shape: (n_vocab,)
+
+    # Select log probabilities of bad words at t=0
+    log_probs_bad_at_t0 = log_probs_t0[bad_word_indices_tensor]
+
+    # Calculate total log probability for Case 1 using logsumexp
+    # log P(any bad_word at t=0 | prompt)
+    total_log_prob_case1 = torch.logsumexp(log_probs_bad_at_t0, dim=0)
+
+    # --- Case 2: Good word at t=0, Bad word at t=1 ---
+    # We need log P(good_j at t=0, bad_k at t=1 | prompt)
+    # = log P(good_j at t=0 | prompt) + log P(bad_k at t=1 | prompt, good_j)
+    # We sum the probabilities (logsumexp the log probs) over all good_j and bad_k.
+
+    # Identify indices of "good" words (all vocab except bad words)
+    all_indices = torch.arange(n_vocab, device=device)
+    # Create a mask for bad words
+    bad_word_mask = torch.zeros(n_vocab, dtype=torch.bool, device=device)
+    bad_word_mask[bad_word_indices_tensor] = True
+    # Get indices of good words
+    good_word_indices = all_indices[~bad_word_mask]
+    n_good_words = len(good_word_indices)
+
+    # Get log probabilities of good words at t=0
+    log_probs_good_at_t0 = log_probs_t0[good_word_indices] # Shape: (n_good_words,)
+
+    # Accumulate log probabilities for Case 2 across all good words j
+    # We want logsumexp_{j in good_indices} [ log P(good_j | prompt) + log P(any_bad_k | prompt, good_j) ]
+    # where log P(any_bad_k | prompt, good_j) = logsumexp_{k in bad_indices} [ log P(bad_k | prompt, good_j) ]
+
+    batch_log_probs_case2_terms = [] # Stores log P(good_j, any_bad_k | prompt) for each j
+
+    for i in range(0, n_good_words, batch_size):
+        # print(i)
+        batch_good_indices = good_word_indices[i : i + batch_size]
+        current_batch_size = len(batch_good_indices)
+
+        # Log probabilities of these specific good words at t=0
+        batch_log_probs_good_t0 = log_probs_good_at_t0[i : i + batch_size] # Shape: (current_batch_size,)
+
+        # Construct input sequences: prompt + good_word_j
+        # Shape: (current_batch_size, prompt_len + 1)
+        batch_inputs_t1 = torch.cat(
+            (prompt_ids.repeat(current_batch_size, 1), batch_good_indices.unsqueeze(1)),
+            dim=1
+        )
+
+        # Get logits for the *next* token (t=1)
+        outputs_t1 = model(batch_inputs_t1)
+        logits_t1 = outputs_t1.logits[:, -1, :] # Shape: (current_batch_size, n_vocab)
+
+        # Get log probabilities for all tokens at t=1, conditioned on (prompt + good_word_j)
+        log_probs_t1 = F.log_softmax(logits_t1, dim=-1) # Shape: (current_batch_size, n_vocab)
+
+        # Select log probabilities of bad words at t=1
+        log_probs_bad_at_t1 = log_probs_t1[:, bad_word_indices_tensor] # Shape: (current_batch_size, n_bad_words)
+
+        # Calculate log P(any bad_k at t=1 | prompt, good_j) for each j in the batch
+        log_prob_any_bad_at_t1_given_good_t0 = torch.logsumexp(log_probs_bad_at_t1, dim=1) # Shape: (current_batch_size,)
+
+        # Calculate log P(good_j at t=0, any_bad_k at t=1 | prompt) for the batch
+        # log P(good_j | prompt) + log P(any_bad_k | prompt, good_j)
+        batch_joint_log_probs = batch_log_probs_good_t0 + log_prob_any_bad_at_t1_given_good_t0
+
+        batch_log_probs_case2_terms.append(batch_joint_log_probs)
+
+    # Concatenate results from all batches
+    all_log_probs_case2_terms = torch.cat(batch_log_probs_case2_terms) # Shape: (n_good_words,)
+
+    # Calculate total log probability for Case 2 by summing probabilities over all good_j
+    # logsumexp_{j in good_indices} [ log P(good_j, any_bad_k | prompt) ]
+    total_log_prob_case2 = torch.logsumexp(all_log_probs_case2_terms, dim=0)
+
+
+    # --- Combine Case 1 and Case 2 ---
+    # The cases are disjoint (bad at t=0 vs. good at t=0 & bad at t=1).
+    # Total Probability = P(Case 1) + P(Case 2)
+    # Total Log Probability = log ( P(Case 1) + P(Case 2) )
+    #                     = log ( exp(log P(Case 1)) + exp(log P(Case 2)) )
+    #                     = logsumexp ( log P(Case 1), log P(Case 2) )
+
+    final_combined_log_probs = torch.stack([total_log_prob_case1, total_log_prob_case2])
+    print("log prob by cases")
+    print(total_log_prob_case1)
+    print(total_log_prob_case2)
+    total_log_prob = torch.logsumexp(final_combined_log_probs, dim=0).item()
+    print(f"Total log prob of bad word: {total_log_prob}")
+
+
+    return total_log_prob # Return as a standard Python float
 
 
 def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
@@ -909,6 +1094,7 @@ def get_reward_model(args, strategy):
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
                 tokenizer_base=tokenizer_base, config=config,
+                rm_max_len=args.rm_max_len
             )
 
         elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base",
@@ -937,7 +1123,7 @@ def get_reward_model(args, strategy):
                 tokenizer_base=tokenizer_base,
                 config=config,
                 separatequeryanswer=True,
-                max_new_tokens=args.generate_max_len,
+                rm_max_len=args.rm_max_len,
                 strip_question_chat_template_fn=strip_question_chat_template_fn,
             )
         elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
@@ -966,7 +1152,7 @@ def get_reward_model(args, strategy):
                 tokenizer_base=tokenizer_base,
                 config=config,
                 separatequeryanswer=True,
-                max_new_tokens=args.generate_max_len,
+                rm_max_len=args.rm_max_len,
                 strip_question_chat_template_fn=strip_question_chat_template_fn,
             )
 
@@ -1147,11 +1333,15 @@ if __name__ == "__main__":
 
     # PPO
     parser.add_argument("--num_episodes", type=int, default=1)
+    parser.add_argument("--fit_steps", type=int, default=1, help="Used only for the toy environment setting for now, otherwise leave at 1")
+
     parser.add_argument("--rollout_batch_size", type=int, default=512)
     parser.add_argument("--micro_rollout_batch_size", type=int, default=8)
     parser.add_argument("--max_epochs", type=int, default=1, help="Number of PPO inner loop steps")
     parser.add_argument("--prompt_max_len", type=int, default=1024, help="Max tokens for each prompt")
     parser.add_argument("--generate_max_len", type=int, default=1024, help="Max tokens to generate in PPO")
+    parser.add_argument("--rm_max_len", type=int, default=2048, help="Cut off tokens beyond this limit passed into the RM")
+
     parser.add_argument("--max_len", type=int, default=None, help="deprecated max_len")
     parser.add_argument("--max_samples", type=int, default=1000000)
     parser.add_argument("--max_norm", type=float, default=1.0, help="Gradient clipping")
@@ -1245,6 +1435,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
+    )
+    parser.add_argument(
+        "--new_custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
     )
 
     parser.add_argument("--heldout_prompt_data", type=str, default=None, help="HF dataset name or path")
@@ -1354,6 +1547,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--evaluate_heldout_sampling", action="store_true", help="Evaluate by doing sampling on prompts on heldout data after the training is done")
     parser.add_argument("--evaluate_on_neg_data", action="store_true", help="Evaluate on neg data (must provide --neg_data_load_path)")
+    parser.add_argument("--analytic_bad_word_calc", action="store_true", help="Do analytic evaluation of bad word probabilities")
+
 
     parser.add_argument("--sampling_iters", type=int, default=1, help="Do this many iterations of sampling over the whole dataset (only for evaluate_heldout_sampling)")
 
@@ -1383,7 +1578,10 @@ if __name__ == "__main__":
 
     if args.actor_loss_type == "ppo":
         assert args.target_dist_beta is None # We'll automatically calculate based on init_kl_coef
-        args.target_dist_beta = round(abs(1 / args.init_kl_coef), 3)
+        if args.init_kl_coef == 0:
+            args.target_dist_beta = 10000
+        else:
+            args.target_dist_beta = round(abs(1 / args.init_kl_coef), 3)
         print(f"target_dist_beta set to: {args.target_dist_beta}, based on init_kl_coef {args.init_kl_coef}")
         # assert math.isclose(args.init_kl_coef, abs(1 / args.target_dist_beta), abs_tol=0.01) # Because otherwise you don't have the equivalence between the RL formulation and the probabilistic inference formulation with target dist
         # assert args.init_kl_coef == abs(1 / args.target_dist_beta)
@@ -1438,6 +1636,18 @@ if __name__ == "__main__":
     if args.only_evaluate_on_neg_data:
         assert args.parameterization == "policy"
         args.no_critic = True
+
+    if args.analytic_bad_word_calc:
+        assert args.reward_pretrain == "nicholasKluge/ToxicityModel"
+        assert args.rm_type == "rlhf"
+        assert "gpt" in args.pretrain
+        # others not yet implemented/tested
+        assert args.generate_max_len <= 2
+        assert args.new_custom_single_prompt
+
+    if args.fit_steps != 1:
+        assert args.new_custom_single_prompt
+        assert args.analytic_bad_word_calc # otherwise not yet tested
 
 
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset

@@ -1,6 +1,6 @@
 import json
 import os
-from behavior_defs import get_behaviors, Behavior # Make sure behavior_defs.py is in the same directory or your PYTHONPATH
+from behavior_defs import get_behaviors, Behavior
 from collections import defaultdict
 from typing import List, Dict
 
@@ -10,7 +10,7 @@ def get_user_prompt_content(prompt_list: List[Dict[str, str]]) -> str:
     for message in prompt_list:
         if message.get("role") == "user":
             content.append(message.get("content", ""))
-    return " ".join(content).lower() # Combine and lowercase
+    return " ".join(content).lower()
 
 def classify_and_separate_prompts(input_jsonl_path: str, output_dir: str):
     """
@@ -22,11 +22,9 @@ def classify_and_separate_prompts(input_jsonl_path: str, output_dir: str):
         print("No behaviors defined. Exiting.")
         return
 
-    # Prepare a dictionary to hold lists of prompts for each behavior ID
     categorized_prompts_lines = defaultdict(list)
     unclassified_prompts_lines = []
 
-    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output directory: {os.path.abspath(output_dir)}")
 
@@ -57,14 +55,10 @@ def classify_and_separate_prompts(input_jsonl_path: str, output_dir: str):
                     for behavior in behaviors:
                         # target_keywords are already lowercased in behavior_defs
                         for keyword in behavior.target_keywords:
-                            # Using " in " for substring matching.
-                            # For whole word matching, you might use regex:
-                            # if re.search(r'\b' + re.escape(keyword) + r'\b', user_content_lower):
                             if keyword in user_content_lower:
                                 categorized_prompts_lines[behavior.id].append(line_content_str.strip())
                                 matched_at_least_one_behavior = True
-                                break # Matched this behavior, no need to check its other keywords
-                    
+                                break 
                     if not matched_at_least_one_behavior:
                         unclassified_prompts_lines.append(line_content_str.strip())
                     
@@ -91,16 +85,15 @@ def classify_and_separate_prompts(input_jsonl_path: str, output_dir: str):
     print(f"Successfully processed: {processed_count} prompts.")
     print(f"Could not process (errors/skipped): {error_count} lines.")
 
-    # Write categorized prompts to their respective files
+    
     for behavior_id, lines in categorized_prompts_lines.items():
-        if lines: # Only create a file if there are prompts for this behavior
+        if lines:
             output_file_path = os.path.join(output_dir, f"{behavior_id}_prompts.jsonl")
             with open(output_file_path, 'w', encoding='utf-8') as outfile:
                 for prompt_line in lines:
                     outfile.write(prompt_line + '\n')
             print(f"Wrote {len(lines)} prompts to {output_file_path}")
 
-    # Write unclassified prompts
     if unclassified_prompts_lines:
         unclassified_file_path = os.path.join(output_dir, "unclassified_prompts.jsonl")
         with open(unclassified_file_path, 'w', encoding='utf-8') as outfile:
@@ -112,8 +105,8 @@ def classify_and_separate_prompts(input_jsonl_path: str, output_dir: str):
 
 if __name__ == "__main__":
     # --- Configuration ---
-    INPUT_FILE = "/h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/a20k_2_heldout.jsonl"
-    OUTPUT_DIRECTORY = "/h/liaidan/OpenRLHF/openrlhf/forecasting_rare_outputs/split_20k_heldout"
+    INPUT_FILE = "./openrlhf/forecasting_rare_outputs/a20k_2_heldout.jsonl"
+    OUTPUT_DIRECTORY = "./openrlhf/forecasting_rare_outputs/split_20k_heldout"
     # --- End Configuration ---
 
     if not os.path.exists(INPUT_FILE):
