@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # --- Configuration ---
-JOB_NAME="main-q-prop"
-CHECKPOINT_DIR="/h/liaidan/OpenRLHF/checkpoints"
+JOB_NAME="reinforce-reward"
+CHECKPOINT_DIR="/mfs1/u/aidanl/openrlhf/checkpoints"
 CHECKPOINT_SPECIFIC="13-05-2025/${JOB_NAME}" # Update this if needed
 # CHECKPOINT_SEED="s2" # This will be set by the loop
 PROMPT_DIR="openrlhf/forecasting_rare_outputs/split_20k_heldout"
@@ -15,10 +15,10 @@ K_SAMPLES=10000
 BATCH_SIZE=1200
 TOP_K_FIT=10
 FORECAST_SCALES="1e3,5e3,1e4,5e4,1e5,5e5,1e6,5e6"
-SBATCH_ACCOUNT="deadline" # Or your account
-SBATCH_PARTITION="a40,rtx6000,t4v1,t4v2" # Or your partition
-SBATCH_QOS="deadline" # Or your QOS
-SBATCH_TIME="1:00:00"
+SBATCH_ACCOUNT="ml" # Or your account
+SBATCH_PARTITION="ml" # Or your partition
+SBATCH_QOS="ml" # Or your QOS
+SBATCH_TIME="01:00:00"
 SBATCH_MEM="10G"
 SBATCH_CPUS_PER_TASK=4
 SBATCH_GPUS=1
@@ -91,6 +91,7 @@ for CURRENT_CHECKPOINT_SEED in "${SEEDS[@]}"; do
 #SBATCH --account=${SBATCH_ACCOUNT}
 #SBATCH --nodes=${SBATCH_NODES}
 #SBATCH --gres=gpu:${SBATCH_GPUS}
+#SBATCH --nodelist=concerto[1-3],overture,quartet[1-3,5],dgx1,sonata2,bulbasaur,charmander,squirtle
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=${SBATCH_CPUS_PER_TASK}
 #SBATCH --mem=${SBATCH_MEM}
@@ -99,7 +100,7 @@ for CURRENT_CHECKPOINT_SEED in "${SEEDS[@]}"; do
 # Activate your conda environment if needed
 # conda activate OpenRLHF
 # Or source your environment setup script
-source "${WORKSPACE_ROOT}/newenv/bin/activate" 
+. /mfs1/u/$USER/envs/OpenRLHF 
 
 echo "Starting experiment run for behavior: ${behavior_id}, SEED: ${CHECKPOINT_SEED}"
 echo "Job ID: \$SLURM_JOB_ID"
