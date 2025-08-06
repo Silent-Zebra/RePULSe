@@ -22,7 +22,7 @@ from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list
 
-from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
+from openrlhf.trainer.ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
 
 
@@ -437,18 +437,6 @@ class HarmlessnessTrainer(ABC):
             #                 num_twist_updates_to_do = 2
             #             else:
             #                 num_twist_updates_to_do = 2 ** episode
-            #
-            #         # if self.shared_actorcritic:
-            #         #     vhead_weight = torch.load(
-            #         #         f"/h/zhaostep/twisted-smc-lm/vhead_weight_0.pt",
-            #         #         weights_only=True)
-            #         #     vhead_bias = torch.load(
-            #         #         f"/h/zhaostep/twisted-smc-lm/vhead_bias_0.pt",
-            #         #         weights_only=True)
-            #         #
-            #         #     self.actor.critic_head.weight.data = vhead_weight
-            #         #     self.actor.critic_head.bias.data = vhead_bias
-            #         #     # TODO REMOVE LATER DEBUG ONLY
             #
             #         # print(self.generate_kwargs)
             #         # print(self.generate_kwargs['attention_mask'])
