@@ -106,9 +106,9 @@ cat > "$SBATCH_FILE" << EOL
 #SBATCH --ntasks=1
 #SBATCH --mem=64G
 #SBATCH -c 4
-#SBATCH --time=4:00:00
+#SBATCH --time=5:00:00
 #SBATCH --partition=a40
-#SBATCH --qos=m3
+#SBATCH --qos=m2
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
 #SBATCH --gres=gpu:1
@@ -118,6 +118,7 @@ ln -s /usr/bin/g++-10 .local/bin/g++
 export PATH=\$HOME/.local/bin/:\$PATH
 cd ~/OpenRLHF
 source newenv/bin/activate
+source ~/.hf_token
 module load cuda-12.3
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
 EOL
