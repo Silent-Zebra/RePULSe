@@ -1278,7 +1278,7 @@ def get_strip_question_chat_template_fn(args):
     if args.pretrain in [
         "HuggingFaceTB/SmolLM-135M-Instruct", "HuggingFaceTB/SmolLM2-135M-Instruct", "HuggingFaceTB/SmolLM2-360M-Instruct",
         "Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct",
-        "meta-llama/Llama-3.2-3B-Instruct"
+        "meta-llama/Llama-3.2-1B-Instruct", "meta-llama/Llama-3.2-3B-Instruct"
     ]:
         def strip_question_chat_template_fn(text, additional_split=False):
             question, answer = text.split('assistant\n',
