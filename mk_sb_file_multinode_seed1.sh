@@ -72,36 +72,28 @@ OUTPUT_FILE="result_multinode_${PATTERN}_s1.txt"
 cat > "$SBATCH_FILE" << EOL
 #!/bin/bash
 #SBATCH -J s1_$(($RANDOM % 100000))
-#SBATCH --nodes=1
-#SBATCH --mem=0
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=24
-#SBATCH --gres=gpu:a40:2
+#SBATCH --mem=48G
+#SBATCH --time=4:00:00
 #SBATCH --export=ALL
-#SBATCH --partition=a40
-#SBATCH --qos=m
-#SBATCH --open-mode=append
-#SBATCH --wait-all-nodes=1
-#SBATCH --time=2:00:00
 #SBATCH --output=$OUTPUT_FILE
-export MASTER_ADDR="\$(hostname --fqdn)"
-export MASTER_PORT="\$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1])')"
-export RDVZ_ID=\$RANDOM
-echo "RDZV Endpoint \$MASTER_ADDR:\$MASTER_PORT"
-
-srun -p \$SLURM_JOB_PARTITION \\
-    -c \$SLURM_CPUS_ON_NODE \\
-    -N \$SLURM_JOB_NUM_NODES \\
-    --mem=0 \\
-    --gres=gpu:\$SLURM_JOB_PARTITION:\$SLURM_GPUS_ON_NODE \\
-    bash -c 'cd ~
-ln -s /usr/bin/gcc-10 .local/bin/gcc
-ln -s /usr/bin/g++-10 .local/bin/g++
-export PATH=\$HOME/.local/bin/:\$PATH
-cd ~/OpenRLHF
-source newenv/bin/activate
-module load cuda-12.3
-deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND '
+#SBATCH --nodes 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=4
+#SBATCH --cpus-per-task=4
+cd ~
+#ln -s /usr/bin/gcc-10 .local/bin/gcc
+#ln -s /usr/bin/g++-10 .local/bin/g++
+export PATH=$HOME/.local/bin/:$PATH
+cd ~/projects/aip-rgrosse/zhaostep/OpenRLHF
+module load StdEnv/2023  gcc/12.3  openmpi/4.1.5
+module load cuda/12.6
+module load scipy-stack/2024a
+module load gcc arrow/18.1.0
+module load opencv/4.12.0
+module load rust
+source ENV/bin/activate
+source ~/.hf_token
+deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
 EOL
 
 # Make the sbatch file executable
