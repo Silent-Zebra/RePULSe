@@ -349,6 +349,9 @@ def _get_reward_model_custom(
                         ]
                         messages.append(self.tokenizer_RM.apply_chat_template(message, tokenize=False))
 
+                    print("RM MESSAGES")
+                    print(messages, flush=True)
+
                     kwargs = {"padding": 'longest', "truncation": True, "return_tensors": "pt"}
                     tokens = self.tokenizer_RM(messages, **kwargs)
 

@@ -1286,6 +1286,10 @@ def get_strip_question_chat_template_fn(args):
             question = question.split('user\n')[-1].strip('\n')
             # return text.removeprefix('user\n').removesuffix('\nassistant\n')
 
+            print("STRIP Q A")
+            print(question)
+            print(answer, flush=True)
+
             if additional_split:  # Used for the neg_data right now, kind of hacky
                 question = question.split('<|im_end|>')[0]
 
