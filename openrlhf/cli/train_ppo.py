@@ -1299,9 +1299,9 @@ def get_strip_question_chat_template_fn(args):
             question = question.split('user\n\n',
                                           maxsplit=1)[-1].strip('\n')
 
-            print("STRIP Q A")
-            print(question)
-            print(answer, flush=True)
+            # print("STRIP Q A")
+            # print(question)
+            # print(answer, flush=True)
 
             if additional_split:  # Used for the neg_data right now, kind of hacky
                 raise NotImplementedError # not tested
