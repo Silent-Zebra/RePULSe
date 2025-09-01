@@ -355,14 +355,14 @@ def _get_reward_model_custom(
 
                         messages.append(templated_message)
 
-                    print("RM MESSAGES")
-                    print(messages, flush=True)
+                    # print("RM MESSAGES")
+                    # print(messages, flush=True)
 
                     kwargs = {"padding": 'longest', "truncation": True, "return_tensors": "pt"}
                     tokens = self.tokenizer_RM(messages, **kwargs)
 
-                    print("RM TOKENS")
-                    print(tokens, flush=True)
+                    # print("RM TOKENS")
+                    # print(tokens, flush=True)
 
                     input_ids = tokens["input_ids"].to(device)
                     attention_mask = tokens["attention_mask"].to(device)
