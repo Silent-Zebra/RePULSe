@@ -350,8 +350,8 @@ def _get_reward_model_custom(
                         templated_message = self.tokenizer_RM.apply_chat_template(message, tokenize=False)
 
                         if rm_name in ["Skywork/Skywork-Reward-V2-Llama-3.2-1B"]:
-                            if tokenizer.bos_token is not None and templated_message.startswith(tokenizer.bos_token):
-                                templated_message = templated_message[len(tokenizer.bos_token):]
+                            if self.tokenizer_RM.bos_token is not None and templated_message.startswith(self.tokenizer_RM.bos_token):
+                                templated_message = templated_message[len(self.tokenizer_RM.bos_token):]
 
                         messages.append(templated_message)
 
