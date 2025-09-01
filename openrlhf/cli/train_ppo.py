@@ -1099,7 +1099,7 @@ def get_reward_model(args, strategy):
 
         elif args.reward_pretrain in [
             "OpenAssistant/reward-model-deberta-v3-base", "OpenAssistant/reward-model-deberta-v3-large-v2",
-            "Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", "Skywork/Skywork-Reward-V2-Llama-3.2-1B"
+            "Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", "Skywork/Skywork-Reward-V2-Llama-3.2-1B", "meta-llama/Llama-Guard-3-1B"
         ]:
             strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
             from transformers import AutoTokenizer, AutoConfig, AutoModel
