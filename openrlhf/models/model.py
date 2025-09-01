@@ -262,6 +262,10 @@ def _get_reward_model_custom(
             if rm_max_len is not None:
                 assert self.rm_max_len > 0
 
+            if rm_name in ["meta-llama/Llama-Guard-3-1B"]:
+                self.tokenizer_RM.pad_token = self.tokenizer_RM.eos_token
+
+
 
         def forward(
             self,
@@ -394,6 +398,7 @@ def _get_reward_model_custom(
                             }
                         ]
                         messages.append(message)
+
 
                     input_ids = self.tokenizer_RM.apply_chat_template(
                         messages, return_tensors="pt", padding='longest', truncation=True,
