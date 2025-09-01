@@ -103,23 +103,25 @@ OUTPUT_FILE="result_${PATTERN}_s1.txt"
 cat > "$SBATCH_FILE" << EOL
 #!/bin/bash
 #SBATCH -J s1_$(($RANDOM % 100000))
-#SBATCH --ntasks=1
-#SBATCH --mem=64G
-#SBATCH -c 4
-#SBATCH --time=5:00:00
-#SBATCH --partition=a40
-#SBATCH --qos=m2
+#SBATCH --mem=48G
+#SBATCH --time=4:00:00
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
-#SBATCH --gres=gpu:1
+#SBATCH --nodes 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=1
 cd ~
-ln -s /usr/bin/gcc-10 .local/bin/gcc
-ln -s /usr/bin/g++-10 .local/bin/g++
 export PATH=\$HOME/.local/bin/:\$PATH
-cd ~/OpenRLHF
-source newenv/bin/activate
+cd ~/projects/aip-rgrosse/zhaostep/OpenRLHF
+module load StdEnv/2023  gcc/12.3  openmpi/4.1.5
+module load cuda/12.6
+module load scipy-stack/2024a
+module load gcc arrow/18.1.0
+module load opencv/4.12.0
+module load rust
+source ENV/bin/activate
 source ~/.hf_token
-module load cuda-12.3
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
 EOL
 
