@@ -251,20 +251,28 @@ def _get_reward_model_custom(
         def __init__(self):
             super().__init__(config)
 
-            from transformers import AutoModelForSequenceClassification, \
-                AutoTokenizer
+            if rm_name in ["meta-llama/Llama-Guard-3-1B"]:
+                from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            self.rm = AutoModelForSequenceClassification.from_pretrained(
-                rm_name)
-            self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
+                self.rm = AutoModelForCausalLM.from_pretrained(
+                    rm_name,
+                    torch_dtype=torch.bfloat16,
+                    device_map="auto",
+                )
+                self.tokenizer_RM.pad_token = self.tokenizer_RM.eos_token
+
+            else:
+                from transformers import AutoModelForSequenceClassification, \
+                    AutoTokenizer
+
+                self.rm = AutoModelForSequenceClassification.from_pretrained(
+                    rm_name)
+                self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
+
             self.tokenizer_base = tokenizer_base  # TODO ensure this works
             self.rm_max_len = rm_max_len
             if rm_max_len is not None:
                 assert self.rm_max_len > 0
-
-            if rm_name in ["meta-llama/Llama-Guard-3-1B"]:
-                self.tokenizer_RM.pad_token = self.tokenizer_RM.eos_token
-
 
 
         def forward(
@@ -402,9 +410,9 @@ def _get_reward_model_custom(
 
                     input_ids = self.tokenizer_RM.apply_chat_template(
                         messages, return_tensors="pt", padding='longest', truncation=True,
-                    ).to(model.device)
+                    ).to(device)
 
-                    output = model.generate(
+                    output = self.rm.generate(
                         input_ids,
                         max_new_tokens=2,
                         # pad_token_id=0,
