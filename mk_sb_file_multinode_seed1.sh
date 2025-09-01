@@ -45,16 +45,16 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--pretrain") {
             abbrev = ""
             n = split(gensub(".*/", "", "g", $(i+1)), arr, "-")
-            for (i = 1; i <= n; i++) {
-                abbrev = abbrev substr(arr[i], 1, 2)  # Append first 2 characters of each word
+            for (j = 1; j <= n; j++) {
+                abbrev = abbrev substr(arr[j], 1, 2)  # Append first 2 characters of each word
             }
             pretrain = abbrev
         }
         if($i == "--reward_pretrain") {
             abbrev = ""
             n = split(gensub(".*/", "", "g", $(i+1)), arr, "-")
-            for (i = 1; i <= n; i++) {
-                abbrev = abbrev substr(arr[i], 1, 2)  # Append first 2 characters of each word
+            for (j = 1; j <= n; j++) {
+                abbrev = abbrev substr(arr[j], 1, 2)  # Append first 2 characters of each word
             }
             reward_pretrain = abbrev
         }
