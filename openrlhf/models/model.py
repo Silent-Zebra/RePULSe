@@ -353,7 +353,13 @@ def _get_reward_model_custom(
                     print(messages, flush=True)
 
                     kwargs = {"padding": 'longest', "truncation": True, "return_tensors": "pt"}
-                    tokens = self.tokenizer_RM(messages, **kwargs)
+                    tokens = self.tokenizer_RM.encode_plus(messages, **kwargs)
+
+                    # tokens = self.tokenizer_RM(messages, **kwargs)
+                    # tokens = tokenizer.apply_chat_template(message, tokenize=True, return_dict=True, **kwargs)
+
+                    print("RM TOKENS")
+                    print(tokens, flush=True)
 
                     input_ids = tokens["input_ids"].to(device)
                     attention_mask = tokens["attention_mask"].to(device)
