@@ -340,23 +340,29 @@ def _get_reward_model_custom(
 
                 device = self.rm.device
 
-                if rm_name == "Ray2333/GRM-Llama3.2-3B-rewardmodel-ft":
+                if rm_name in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", "Skywork/Skywork-Reward-V2-Llama-3.2-1B"]:
                     messages = []
                     for q, a in zip(text_question, text_answer):
                         message = [
                             {'role': 'user', 'content': q},
                             {'role': 'assistant', 'content': a}
                         ]
-                        messages.append(self.tokenizer_RM.apply_chat_template(message, tokenize=False))
+                        templated_message = self.tokenizer_RM.apply_chat_template(message, tokenize=False)
 
-                    # print("RM MESSAGES")
-                    # print(messages, flush=True)
+                        if rm_name in ["Skywork/Skywork-Reward-V2-Llama-3.2-1B"]:
+                            if tokenizer.bos_token is not None and templated_message.startswith(tokenizer.bos_token):
+                                templated_message = templated_message[len(tokenizer.bos_token):]
+
+                        messages.append(templated_message)
+
+                    print("RM MESSAGES")
+                    print(messages, flush=True)
 
                     kwargs = {"padding": 'longest', "truncation": True, "return_tensors": "pt"}
                     tokens = self.tokenizer_RM(messages, **kwargs)
 
-                    # print("RM TOKENS")
-                    # print(tokens, flush=True)
+                    print("RM TOKENS")
+                    print(tokens, flush=True)
 
                     input_ids = tokens["input_ids"].to(device)
                     attention_mask = tokens["attention_mask"].to(device)

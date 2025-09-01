@@ -1097,8 +1097,10 @@ def get_reward_model(args, strategy):
                 rm_max_len=args.rm_max_len
             )
 
-        elif args.reward_pretrain in ["OpenAssistant/reward-model-deberta-v3-base",
-                                      "OpenAssistant/reward-model-deberta-v3-large-v2"]:
+        elif args.reward_pretrain in [
+            "OpenAssistant/reward-model-deberta-v3-base", "OpenAssistant/reward-model-deberta-v3-large-v2",
+            "Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", "Skywork/Skywork-Reward-V2-Llama-3.2-1B"
+        ]:
             strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
             from transformers import AutoTokenizer, AutoConfig, AutoModel
 
@@ -1110,35 +1112,6 @@ def get_reward_model(args, strategy):
             tokenizer_base = get_tokenizer_custom(args.pretrain)
 
             rm_name = args.reward_pretrain
-            config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
-            config.normalize_reward = False
-            assert not args.normalize_reward  # Not yet implemented
-            base_class = AutoModel._model_mapping[type(config)]
-            base_pretrained_class = base_class.__base__
-            strip_question_chat_template_fn = None
-            if args.apply_chat_template:
-                strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
-            reward_model = _get_reward_model_custom(
-                base_pretrained_class, rm_name,
-                tokenizer_base=tokenizer_base,
-                config=config,
-                separatequeryanswer=True,
-                rm_max_len=args.rm_max_len,
-                strip_question_chat_template_fn=strip_question_chat_template_fn,
-            )
-        elif args.reward_pretrain in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft"]:
-            strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
-            from transformers import AutoTokenizer, AutoConfig, AutoModel
-
-            def get_tokenizer_custom(model_config):
-                tokenizer = AutoTokenizer.from_pretrained(model_config)
-                tokenizer.pad_token = tokenizer.eos_token
-                return tokenizer
-
-            tokenizer_base = get_tokenizer_custom(args.pretrain)
-
-            rm_name = args.reward_pretrain
-
             config = AutoConfig.from_pretrained(rm_name, trust_remote_code=True)
             config.normalize_reward = False
             assert not args.normalize_reward  # Not yet implemented
