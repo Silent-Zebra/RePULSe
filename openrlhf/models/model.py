@@ -353,13 +353,36 @@ def _get_reward_model_custom(
 
                 device = self.rm.device
 
-                if rm_name in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", "Skywork/Skywork-Reward-V2-Llama-3.2-1B"]:
+                if rm_name in ["Ray2333/GRM-Llama3.2-3B-rewardmodel-ft", "Skywork/Skywork-Reward-V2-Llama-3.2-1B", "meta-llama/Llama-Guard-3-1B"]:
                     messages = []
                     for q, a in zip(text_question, text_answer):
-                        message = [
-                            {'role': 'user', 'content': q},
-                            {'role': 'assistant', 'content': a}
-                        ]
+                        if rm_name in ["meta-llama/Llama-Guard-3-1B"]:
+                            message = [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": q
+                                        },
+                                    ],
+                                },
+                                {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": a
+                                        }
+                                    ],
+                                }
+                            ]
+                        else:
+                            message = [
+                                {'role': 'user', 'content': q},
+                                {'role': 'assistant', 'content': a}
+                            ]
+
                         templated_message = self.tokenizer_RM.apply_chat_template(message, tokenize=False)
 
                         if rm_name in ["Skywork/Skywork-Reward-V2-Llama-3.2-1B"]:
@@ -380,50 +403,17 @@ def _get_reward_model_custom(
                     input_ids = tokens["input_ids"].to(device)
                     attention_mask = tokens["attention_mask"].to(device)
 
+
                     with torch.no_grad():
-                        rewards_tensor = self.rm(input_ids=input_ids, attention_mask=attention_mask)[0]
-                        r = rewards_tensor.detach().squeeze(-1)  # squeeze last dim if needed
-                elif rm_name in ["meta-llama/Llama-Guard-3-1B"]:
-                    messages = []
-                    for q, a in zip(text_question, text_answer):
-                        message = [
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": q
-                                    },
-                                ],
-                            },
-                            {
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": a
-                                    }
-                                ],
-                            }
-                        ]
-                        messages.append(message)
-
-
-                    input_ids = self.tokenizer_RM.apply_chat_template(
-                        messages, return_tensors="pt", padding='longest', truncation=True,
-                    ).to(device)
-
-                    output = self.rm.generate(
-                        input_ids,
-                        max_new_tokens=2,
-                        # pad_token_id=0,
-                        output_logits=True,
-                        return_dict_in_generate=True
-                    )
-
-                    r = output.logits[1][:, 19193] - output.logits[1][:, 39257] # Skip the first output which is a newline, then take the "safe" logit - the "unsafe" logit as log odds
-
-
+                        if rm_name in ["meta-llama/Llama-Guard-3-1B"]:
+                            input_ids_new = torch.cat(
+                                (input_ids, torch.ones(input_ids.shape[0], 1, dtype=int).to(input_ids.device) * 271), # Fill in this \n instead of generating it
+                                dim=-1)
+                            rewards_tensor = self.rm(input_ids=input_ids_new, attention_mask=attention_mask)[0]
+                            r = rewards_tensor[:, -1, 19193] - rewards_tensor[:, -1, 39257]  # Take the "safe" logit - the "unsafe" logit as log odds
+                        else:
+                            rewards_tensor = self.rm(input_ids=input_ids, attention_mask=attention_mask)[0]
+                            r = rewards_tensor.detach().squeeze(-1)  # squeeze last dim if needed
 
                 else:
                     inputs = self.tokenizer_RM(text_question, text_answer,
