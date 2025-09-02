@@ -257,7 +257,7 @@ def _get_reward_model_custom(
                 self.rm = AutoModelForCausalLM.from_pretrained(
                     rm_name,
                     torch_dtype=torch.bfloat16,
-                    device_map="auto",
+                    # device_map="auto",
                 )
                 self.tokenizer_RM = AutoTokenizer.from_pretrained(rm_name)
                 self.tokenizer_RM.pad_token = self.tokenizer_RM.eos_token
