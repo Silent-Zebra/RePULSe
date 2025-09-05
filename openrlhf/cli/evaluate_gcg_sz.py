@@ -118,12 +118,6 @@ def evaluate_with_gcg(args):
             return
         strategy.print(f"Loading reward model from: {args.reward_pretrain}")
 
-        # Helper function to get tokenizer for custom reward models (mirrors train_ppo.py)
-        def get_tokenizer_custom(model_config):
-            local_tokenizer = AutoTokenizer.from_pretrained(model_config)
-            local_tokenizer.pad_token = local_tokenizer.eos_token
-            return local_tokenizer
-
         try:
             args.remote_rm_url = False
             args.apply_chat_template = True
@@ -200,7 +194,7 @@ def evaluate_with_gcg(args):
     # GCG Configuration
     gcg_config = nanogcg.GCGConfig(
         num_steps=args.gcg_steps,
-        optim_str_init="! ! ! ! ! ! ! ! ! !",
+        optim_str_init="x x x x x x x x x x",
         search_width=args.gcg_search_width,
         batch_size=args.gcg_batch_size,
         topk=args.gcg_topk,
