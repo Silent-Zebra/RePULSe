@@ -1,10 +1,11 @@
 STEPS=$1
-CKPT_PATH=$2
+OUT_LEN=$2
+CKPT_PATH=$3
 CKPT_ABBREV="${CKPT_PATH##*/}"
-MODEL=$3
-RM=$4
-THRESHOLD=$5
-DATA_CSV=$6
+MODEL=$4
+RM=$5
+THRESHOLD=$6
+DATA_CSV=$7
 
 # Get current date in required format
 CURRENT_DATE=$(date +%Y-%m-%d-%H-%M)
@@ -50,6 +51,7 @@ deepspeed --master_port $(($RANDOM % 1000 + 3000))1 --module openrlhf.cli.evalua
     --adam_offload \
     --parameterization policy \
     --max_targets 100 \
+    --max_new_tokens ${OUT_LEN} \
     --scenario behaviors \
     --gcg_steps ${STEPS} \
     --gcg_search_width 512 \
