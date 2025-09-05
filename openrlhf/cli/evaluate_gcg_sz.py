@@ -10,6 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, 
 from openrlhf.utils import get_strategy, get_tokenizer, tile_prompts, load_model_and_tokenizer
 from openrlhf.models import get_llm_for_sequence_regression
 from openrlhf.models.model import _get_reward_model_custom
+from openrlhf.cli.train_ppo import get_reward_model
 
 # TODO: check for success using the reward model. If the reward of the output is below a certain negative threshold, then the attack is considered successful.
 # TODO: add a flag to use the reward or the prefix success definition
@@ -129,7 +130,7 @@ def evaluate_with_gcg(args):
             return local_tokenizer
 
         try:
-            from train_ppo import get_reward_model
+
             reward_model, strip_question_chat_template_fn = get_reward_model(args, strategy)
 
             assert reward_model is not None, f"Reward model {args.reward_pretrain} is not loaded"
