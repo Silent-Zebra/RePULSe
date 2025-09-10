@@ -216,8 +216,11 @@ def get_info_name_str(args):
     if args.use_base_as_proposal:
         rm_type_str += "_baseprop"
 
+    rew_trans_str = ""
+    if args.reward_transform:
+        rew_trans_str = f"rta{args.rew_trans_alpha}_b{args.rew_trans_beta}"
 
-    info_name_str = f"{rm_type_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_beta{args.target_dist_beta}_kl{args.init_kl_coef}{harmlessness_train_str}_{args.parameterization}_{args.actor_loss_type}_epo{args.max_epochs}_epi{n_episodes}{eval_str}_sch{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}_s{args.seed}"
+    info_name_str = f"{rm_type_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_kl{args.init_kl_coef}_beta{args.target_dist_beta}{harmlessness_train_str}{rew_trans_str}_{args.parameterization}_{args.actor_loss_type}_epo{args.max_epochs}_epi{n_episodes}{eval_str}_sch{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}_s{args.seed}"
 
     return info_name_str
 

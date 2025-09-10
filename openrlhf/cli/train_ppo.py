@@ -587,6 +587,8 @@ def train(args):
             hardcoded_baseline_neg=args.neg_hardcoded_baseline,
             neg_data=neg_data,
             reward_transform=args.reward_transform,
+            rew_trans_alpha=args.rew_trans_alpha,
+            rew_trans_beta=args.rew_trans_beta,
             use_base_as_proposal=args.use_base_as_proposal
         )
 
@@ -1369,7 +1371,9 @@ if __name__ == "__main__":
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
 
 
-    parser.add_argument("--alpha", type=float, default=0.5, help="Only for use in mixed_ctl_mse or harmlessness training loss; choose how much to prioritize ctl (or the harmlessness objective vs. standard RL)")
+    parser.add_argument("--alpha", type=float, default=0.5, help="Choose how much to prioritize the harmlessness objective vs. standard RL (or for use in reward transformations)")
+    parser.add_argument("--rew_trans_alpha", type=float, default=None, help="Only for reward transforms. To maintain compatibility with old commands, pick up from alpha if set to None")
+    parser.add_argument("--rew_trans_beta", type=float, default=None, help="Only for reward transforms. To maintain compatibility with old commands, pick up from target_dist_beta if set to None")
 
     # DeepSpeed
     parser.add_argument("--seed", type=int, default=42)
@@ -1473,7 +1477,7 @@ if __name__ == "__main__":
         default="ppo_%s" % datetime.now().strftime("%m%dT%H:%M"),
     )
 
-    parser.add_argument("--target_dist_beta", type=float, default=None, help="Beta in our SMC formulation of the target distribution of p_0 e^{beta r}. Auto-calculated based on KL coef for PPO. For harmlessness training, this is for the sigma target distribution for negative training/whatever unlearning method")
+    parser.add_argument("--target_dist_beta", type=float, default=None, help="Beta in our SMC formulation of the target distribution of p_0 e^{beta r}. Auto-calculated based on KL coef for PPO. For harmlessness training, this is for the sigma target distribution for negative training/whatever unlearning method. Also used in reward transformations")
     parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
     parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
     parser.add_argument("--save_info_path", type=str, default="./info")
@@ -1642,5 +1646,13 @@ if __name__ == "__main__":
 
 
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
+
+    if args.reward_transform is not None:
+        # To maintain compatibility with old setup where I would only have alpha and beta and did not separate these
+        if args.rew_trans_alpha is None:
+            args.rew_trans_alpha = args.alpha
+        if args.rew_trans_beta is None:
+            args.rew_trans_beta = args.target_dist_beta
+
 
     train(args)

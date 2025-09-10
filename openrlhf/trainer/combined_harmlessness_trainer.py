@@ -104,6 +104,8 @@ class CombinedHarmlessnessTrainer(ABC):
         baseline_type_neg: Optional[str] = None,
         hardcoded_baseline_neg: Optional[float] = None,
         reward_transform: Optional[str] = None,
+        rew_trans_alpha: Optional[float] = None,
+        rew_trans_beta: Optional[float] = None,
         use_base_as_proposal: bool = False,
         **generate_kwargs,
     ) -> None:
@@ -131,6 +133,8 @@ class CombinedHarmlessnessTrainer(ABC):
         self.gradient_checkpointing = gradient_checkpointing
         self.reward_fn = reward_fn
         self.reward_transform = reward_transform
+        self.rew_trans_alpha = rew_trans_alpha
+        self.rew_trans_beta = rew_trans_beta
 
         self.neg_data = neg_data
 
@@ -247,7 +251,7 @@ class CombinedHarmlessnessTrainer(ABC):
             threshold,
             reward_cap,
             1, # target_dist_beta 1 here, because this is just going to need regular rewards for REINFORCE
-            alpha,
+            self.rew_trans_alpha,
             "rlhf", # Use this to ensure the standard reward formulation
             base_actor_loss_type, # Does not matter, when the target_dist_beta is 1
             self.generate_kwargs['max_new_tokens'],
@@ -255,37 +259,37 @@ class CombinedHarmlessnessTrainer(ABC):
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
             reward_transform = self.reward_transform,
-            reward_transform_beta = target_dist_beta
+            reward_transform_beta = self.rew_trans_beta
         )
 
         self.sampling_experience_maker_neg = None
-        # if self.separate_neg_samples:
-        # Sampling actor experience maker (for approximate sigma samples)
-        # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
-        self.sampling_experience_maker_neg = BaseExperienceMaker(
-            sampling_actor,
-            sampling_critic,
-            reward_model,
-            base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
-            tokenizer,
-            prompt_max_len,
-            self.kl_ctl,
-            strategy,
-            remote_rm_url,
-            reward_fn,
-            shared_actorcritic,
-            threshold,
-            reward_cap,
-            target_dist_beta,
-            alpha,
-            rm_type,
-            sampling_actor_loss_type,
-            self.generate_kwargs['max_new_tokens'],
-            save_negdata=save_negdata,
-            save_negdata_threshold=save_negdata_threshold,
-            neg_data=self.neg_data,
-            reward_transform=self.reward_transform
-        )
+        if self.separate_neg_samples:
+            # Sampling actor experience maker (for approximate sigma samples)
+            # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
+            self.sampling_experience_maker_neg = BaseExperienceMaker(
+                sampling_actor,
+                sampling_critic,
+                reward_model,
+                base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
+                tokenizer,
+                prompt_max_len,
+                self.kl_ctl,
+                strategy,
+                remote_rm_url,
+                reward_fn,
+                shared_actorcritic,
+                threshold,
+                reward_cap,
+                target_dist_beta,
+                self.rew_trans_alpha,
+                rm_type,
+                sampling_actor_loss_type,
+                self.generate_kwargs['max_new_tokens'],
+                save_negdata=save_negdata,
+                save_negdata_threshold=save_negdata_threshold,
+                neg_data=self.neg_data,
+                # reward_transform=self.reward_transform # Don't use reward transform on the SMC part. Of course this is a choice, you could if you wanted to, but I think let's avoid this for now to keep things simpler.
+            )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
         self.sampling_replay_buffer_neg = None

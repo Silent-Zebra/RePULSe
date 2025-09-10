@@ -17,7 +17,7 @@ def make_list(name, first_seed, last_seed):
     ]
 
 
-def do_load_prefixes(results_list, load_prefixes_to_use):
+def do_load_prefixes(results_list, load_prefixes_to_use, map_location=None):
     for i in range(len(load_prefixes_to_use)):
 
         load_prefixes = load_prefixes_to_use[i]
@@ -25,7 +25,11 @@ def do_load_prefixes(results_list, load_prefixes_to_use):
         for load_prefix in load_prefixes:
             # print(load_prefix)
             try:
-                x = torch.load(f'./info/{load_prefix}')
+                if map_location is None:
+                    x = torch.load(f'./info/{load_prefix}')
+                else:
+                    x = torch.load(f'./info/{load_prefix}', map_location=map_location)
                 results_list[i].append(x)
-            except:
+            except Exception as e:
                 print(f"Warning: Failed to load {load_prefix}")
+                print(e)
