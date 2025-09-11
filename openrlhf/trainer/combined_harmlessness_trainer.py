@@ -263,33 +263,33 @@ class CombinedHarmlessnessTrainer(ABC):
         )
 
         self.sampling_experience_maker_neg = None
-        if self.separate_neg_samples:
-            # Sampling actor experience maker (for approximate sigma samples)
-            # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
-            self.sampling_experience_maker_neg = BaseExperienceMaker(
-                sampling_actor,
-                sampling_critic,
-                reward_model,
-                base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
-                tokenizer,
-                prompt_max_len,
-                self.kl_ctl,
-                strategy,
-                remote_rm_url,
-                reward_fn,
-                shared_actorcritic,
-                threshold,
-                reward_cap,
-                target_dist_beta,
-                self.rew_trans_alpha,
-                rm_type,
-                sampling_actor_loss_type,
-                self.generate_kwargs['max_new_tokens'],
-                save_negdata=save_negdata,
-                save_negdata_threshold=save_negdata_threshold,
-                neg_data=self.neg_data,
-                # reward_transform=self.reward_transform # Don't use reward transform on the SMC part. Of course this is a choice, you could if you wanted to, but I think let's avoid this for now to keep things simpler.
-            )
+        # Below is needed for base proposal... cannot just make it None always
+        # Sampling actor experience maker (for approximate sigma samples)
+        # This one needs SMC (or SIS) sampling from the approx target so we need the target_dist_beta here
+        self.sampling_experience_maker_neg = BaseExperienceMaker(
+            sampling_actor,
+            sampling_critic,
+            reward_model,
+            base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
+            tokenizer,
+            prompt_max_len,
+            self.kl_ctl,
+            strategy,
+            remote_rm_url,
+            reward_fn,
+            shared_actorcritic,
+            threshold,
+            reward_cap,
+            target_dist_beta,
+            self.rew_trans_alpha,
+            rm_type,
+            sampling_actor_loss_type,
+            self.generate_kwargs['max_new_tokens'],
+            save_negdata=save_negdata,
+            save_negdata_threshold=save_negdata_threshold,
+            neg_data=self.neg_data,
+            # reward_transform=self.reward_transform # Don't use reward transform on the SMC part. Of course this is a choice, you could if you wanted to, but I think let's avoid this for now to keep things simpler.
+        )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
         self.sampling_replay_buffer_neg = None
