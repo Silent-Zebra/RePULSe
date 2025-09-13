@@ -208,7 +208,7 @@ class NegREINFORCELoss(nn.Module):
         log_probs: torch.Tensor,
         log_probs_neg: torch.Tensor,
         rewards: torch.Tensor,
-        rewards_neg: torch.Tensor,
+        untransformed_rewards_neg: torch.Tensor,
         normalized_w_t_approx_sigma_samples: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         action_mask_neg: Optional[torch.Tensor] = None,
@@ -228,7 +228,7 @@ class NegREINFORCELoss(nn.Module):
         if self.baseline_type_neg == "other_expectation":
             assert standard_final_reward_no_kl is not None
 
-        neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg, other_reward=standard_final_reward_no_kl)
+        neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, untransformed_rewards_neg, action_mask_neg, other_reward=standard_final_reward_no_kl)
 
         # return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
         return reinforce_loss + self.alpha * neg_reinforce_loss

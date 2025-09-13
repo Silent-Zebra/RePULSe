@@ -1549,7 +1549,7 @@ if __name__ == "__main__":
 
 
     parser.add_argument(
-        "--harmlessness_training_loss_type", type=str, default="neg_reinforce",
+        "--harmlessness_training_loss_type", type=str, default=None,
         choices=[
             "reinforce", "neg_training", "neg_reinforce"
         ]
