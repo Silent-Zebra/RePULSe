@@ -63,6 +63,7 @@ class REINFORCELoss(nn.Module):
         log_probs: torch.Tensor,
         final_reward: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
+        other_reward: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
 
         if len(log_probs.shape) == 3:
@@ -72,12 +73,12 @@ class REINFORCELoss(nn.Module):
         else:
             raise NotImplementedError
 
-        # print("REINFORCE LOSS INSPECTION")
-        # print(final_reward.shape)
-        # print(log_probs.shape)
-        #
-        # print("REWARDS")
-        # print(final_reward)
+        print("REINFORCE LOSS INSPECTION")
+        print(final_reward.shape)
+        print(log_probs.shape)
+
+        print("REWARDS")
+        print(final_reward)
 
         if self.baseline_type is not None:
             if self.baseline_type == "expectation":
@@ -92,18 +93,24 @@ class REINFORCELoss(nn.Module):
                 assert self.hardcoded_baseline is not None
                 rewards_baseline = self.hardcoded_baseline
 
+            elif self.baseline_type == "other_expectation":
+                # Do expectation based on a different set of rewards; may be useful for neg_reinforce with a baseline
+                # that is determined by the positive (standard) sample reward expectation
+                assert other_reward is not None
+                rewards_baseline = other_reward.mean(dim=1).unsqueeze(1)
+
             else:
                 raise NotImplementedError
 
             final_reward = final_reward - rewards_baseline
 
-        # print("REWARDS AFTER BASELINE")
-        # print(final_reward)
-        # print("SHAPES")
-        # print(final_reward.shape)
-        # print(action_mask.shape)
-        # print((log_probs * action_mask).shape)
-        # print((log_probs * action_mask).sum(-1).shape)
+        print("REWARDS AFTER BASELINE")
+        print(final_reward)
+        print("SHAPES")
+        print(final_reward.shape)
+        print(action_mask.shape)
+        print((log_probs * action_mask).shape)
+        print((log_probs * action_mask).sum(-1).shape)
 
         loss = (masked_mean(- log_probs, action_mask, -1) * final_reward).mean() # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
         # masked sum would be mathematically correct instead of masked mean, but is just a scalar shift for SGD, and for Adam, only affects early parts of training before the moments are learned
@@ -194,6 +201,8 @@ class NegREINFORCELoss(nn.Module):
 
         self.alpha = alpha
 
+        self.baseline_type_neg = baseline_type_neg
+
     def forward(
         self,
         log_probs: torch.Tensor,
@@ -203,6 +212,7 @@ class NegREINFORCELoss(nn.Module):
         normalized_w_t_approx_sigma_samples: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         action_mask_neg: Optional[torch.Tensor] = None,
+        standard_final_reward_no_kl: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
 
         reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask)
@@ -215,7 +225,10 @@ class NegREINFORCELoss(nn.Module):
         # print(normalized_w_t_approx_sigma_samples)
         # 1/0
 
-        neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg)
+        if self.baseline_type_neg == "other_expectation":
+            assert standard_final_reward_no_kl is not None
+
+        neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg, other_reward=standard_final_reward_no_kl)
 
         # return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
         return reinforce_loss + self.alpha * neg_reinforce_loss
