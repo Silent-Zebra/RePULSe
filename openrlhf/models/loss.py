@@ -73,12 +73,12 @@ class REINFORCELoss(nn.Module):
         else:
             raise NotImplementedError
 
-        print("REINFORCE LOSS INSPECTION")
-        print(final_reward.shape)
-        print(log_probs.shape)
-
-        print("REWARDS")
-        print(final_reward)
+        # print("REINFORCE LOSS INSPECTION")
+        # print(final_reward.shape)
+        # print(log_probs.shape)
+        #
+        # print("REWARDS")
+        # print(final_reward)
 
         if self.baseline_type is not None:
             if self.baseline_type == "expectation":
@@ -104,13 +104,13 @@ class REINFORCELoss(nn.Module):
 
             final_reward = final_reward - rewards_baseline
 
-        print("REWARDS AFTER BASELINE")
-        print(final_reward)
-        print("SHAPES")
-        print(final_reward.shape)
-        print(action_mask.shape)
-        print((log_probs * action_mask).shape)
-        print((log_probs * action_mask).sum(-1).shape)
+        # print("REWARDS AFTER BASELINE")
+        # print(final_reward)
+        # print("SHAPES")
+        # print(final_reward.shape)
+        # print(action_mask.shape)
+        # print((log_probs * action_mask).shape)
+        # print((log_probs * action_mask).sum(-1).shape)
 
         loss = (masked_mean(- log_probs, action_mask, -1) * final_reward).mean() # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
         # masked sum would be mathematically correct instead of masked mean, but is just a scalar shift for SGD, and for Adam, only affects early parts of training before the moments are learned
