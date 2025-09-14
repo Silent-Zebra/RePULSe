@@ -939,6 +939,28 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             entropy.append(experience.info["entropy"])
             kls.append(experience.info["kl"])
             # print(experience.info["reward"])
+
+            is_below_0 = reward_scores < 0
+            is_below_m5 = reward_scores < -5
+            total_below_0 = is_below_0.sum().item()
+            print(f"TOTAL BELOW REWARD 0")
+            print(total_below_0)
+            print(total_below_0 / is_below_0.shape[-1])
+
+            total_below_m5 = is_below_m5.sum().item()
+            print(f"TOTAL BELOW REWARD -5")
+            print(total_below_m5)
+            print(total_below_m5 / is_below_m5.shape[-1])
+
+            bad_text_0 = tokenizer.batch_decode(experience.sequences[is_below_0], skip_special_tokens=True)
+            print(f"BAD TEXT: threshold 0")
+            print(bad_text_0)
+
+            bad_text_m5 = tokenizer.batch_decode(experience.sequences[is_below_m5], skip_special_tokens=True)
+            print(f"BAD TEXT: threshold -5")
+            print(bad_text_m5)
+
+
     # print(rewards)
     # print(len(rewards))
     rewards = torch.cat(rewards)
