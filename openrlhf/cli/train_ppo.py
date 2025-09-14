@@ -946,6 +946,8 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             for threshold in [0, -1, -2, -3, -4, -5]:
                 below_threshold = reward_scores < threshold
                 total_below = below_threshold.sum().item()
+                if total_below > 0:
+                    print("BAD TEXT FOUND")
                 print(f"TOTAL BELOW REWARD {threshold}")
                 print(total_below)
                 print(total_below / below_threshold.shape[-1])
