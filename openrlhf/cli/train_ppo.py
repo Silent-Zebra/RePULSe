@@ -353,9 +353,10 @@ def train(args):
         ema_model = strategy.prepare(ema_model, is_rlhf=True,
                                      gradient_accumulation_steps=args.gradient_accumulation_steps)
 
-
-
-    consumed_samples = do_load_checkpoints(args, actor, critic, strategy)
+    if args.do_harmlessness_training:
+        consumed_samples = do_load_checkpoints(args, base_actor, None, strategy)
+    else:
+        consumed_samples = do_load_checkpoints(args, actor, critic, strategy)
 
     os.makedirs(args.save_path, exist_ok=True)
     os.makedirs(args.save_info_path, exist_ok=True)
@@ -1307,19 +1308,28 @@ def do_load_checkpoints(args, actor, critic, strategy):
     consumed_samples = 0
     # if args.load_checkpoint and os.path.exists(os.path.join(args.ckpt_path, "_actor")):
     if args.load_checkpoint:
-        if os.path.exists(f"{args.ckpt_path}_actor"):
+        if os.path.exists(f"{args.ckpt_path}"):
             # _, states = strategy.load_ckpt(actor.model, os.path.join(args.ckpt_path, "_actor"))
-            _, states = strategy.load_ckpt(actor.model, f"{args.ckpt_path}_actor")
+            _, states = strategy.load_ckpt(actor.model, f"{args.ckpt_path}")
             if critic is not None:
                 # strategy.load_ckpt(critic, os.path.join(args.ckpt_path, "_critic"))
-
-                strategy.load_ckpt(critic, f"{args.ckpt_path}_critic")
+                base_path = args.ckpt_path.split("_actor")[0]
+                strategy.load_ckpt(critic, f"{base_path}_critic")
             consumed_samples = states["consumed_samples"]
             strategy.print(f"Loaded the checkpoint: {args.ckpt_path}, consumed_samples: {consumed_samples}")
         else:
             raise Exception("Checkpoint not found")
+    else:
+        print("Skipping checkpoint loading. Use --load_checkpoint to load checkpoint.")
 
     return consumed_samples
+
+def update_beta(args, harmlessness_trainer, new_beta):
+    args.target_dist_beta = new_beta
+    harmlessness_trainer.target_dist_beta = new_beta
+    harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta = new_beta
+
+
 
 
 if __name__ == "__main__":
