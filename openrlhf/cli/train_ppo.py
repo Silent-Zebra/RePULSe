@@ -950,7 +950,7 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
     strategy.print(f"Average reward: {rewards.mean().item()}")
     total_samples = rewards.shape[0]
     strategy.print(f"Total number of samples drawn: {total_samples}")
-    for threshold in range(-6, -1):
+    for threshold in range(-6, 1):
         outputs_below_threshold = (rewards < threshold).sum()
         strategy.print(f"Number of outputs below threshold {threshold}: {outputs_below_threshold.item()}")
         strategy.print(f"Estimate of probability of bad outputs: {(outputs_below_threshold / total_samples).item()}")
