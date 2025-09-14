@@ -940,6 +940,8 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             kls.append(experience.info["kl"])
             # print(experience.info["reward"])
 
+            reward_scores = experience.info["reward"]
+
             is_below_0 = reward_scores < 0
             is_below_m5 = reward_scores < -5
             total_below_0 = is_below_0.sum().item()
