@@ -954,11 +954,11 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             print(total_below_m5)
             print(total_below_m5 / is_below_m5.shape[-1])
 
-            print("SHAPES")
-            print(experience.sequences.shape)
-            print(reward_scores.shape)
-            print(is_below_0.shape)
-            print(is_below_m5.shape)
+            # print("SHAPES")
+            # print(experience.sequences.shape)
+            # print(reward_scores.shape)
+            # print(is_below_0.shape)
+            # print(is_below_m5.shape)
 
             bad_text_0 = tokenizer.batch_decode(experience.sequences[is_below_0], skip_special_tokens=True)
             print(f"BAD TEXT: threshold 0")
