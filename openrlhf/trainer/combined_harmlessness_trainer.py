@@ -19,7 +19,7 @@ from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss, CTLLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
-from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list
+from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list, log_sequence_for_negatives
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
@@ -431,6 +431,14 @@ class CombinedHarmlessnessTrainer(ABC):
         # else:
         assert start_episode < args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop # Otherwise no updates done; this might be ok depending on setup, but for now this would be unexpected behaviour.
 
+        total_update_steps = self.prompts_dataloader.__len__() * args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop
+
+        beta_schedule = None
+        if args.anneal_target_dist_beta:
+            beta_schedule = log_sequence_for_negatives(args.start_target_dist_beta, args.target_dist_beta, total_update_steps)
+            print("BETA SCHEDULE:")
+            print(beta_schedule)
+
         for episode in range(start_episode, args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop): # Actually with this current setup is kind of redundant to have these 2 hyperparameters, loops here or in the outer loop, just pick one, doesn't really matter with 1 update each...
             print(f"HARMLESSNESS TRAINING EPISODE {episode}", flush=True)
             if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
@@ -448,6 +456,10 @@ class CombinedHarmlessnessTrainer(ABC):
             # print(self.prompts_dataloader.__len__(), flush=True)
 
             for rand_prompts in self.prompts_dataloader:
+                if args.anneal_target_dist_beta:
+                    new_beta = beta_schedule[self.total_steps]
+                    self.sampling_experience_maker_neg.target_dist_beta = new_beta
+                    print(f"Using new beta: {new_beta}")
 
                 if args.new_custom_single_prompt:
                     rand_prompts = ["This man is a"]

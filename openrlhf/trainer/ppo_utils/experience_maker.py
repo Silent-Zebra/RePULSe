@@ -227,6 +227,7 @@ class BaseExperienceMaker(ABC):
 
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, **generate_kwargs) -> Experience:
+        print(f"Current target_dist_beta: {self.target_dist_beta}")
         expanded_prompts = tile_prompts(prompts, samples_per_prompt)
 
 

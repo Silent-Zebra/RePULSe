@@ -1334,14 +1334,7 @@ def update_beta(args, harmlessness_trainer, new_beta):
     harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta = new_beta
 
 
-def log_sequence_for_negatives(start, end, steps):
-    assert start < 0 and end < 0
-    sign = -1
-    start_abs, end_abs = abs(start), abs(end)
-    # Using natural logs (ln) and exp
-    logs = np.linspace(np.log(start_abs), np.log(end_abs), steps)
-    seq = np.exp(logs)
-    return (sign * seq).tolist()
+
 
 
 if __name__ == "__main__":
