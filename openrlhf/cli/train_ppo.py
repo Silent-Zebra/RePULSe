@@ -1327,16 +1327,6 @@ def do_load_checkpoints(args, actor, critic, strategy):
     return consumed_samples
 
 
-# TODO this probably needs to go in the fit function instead, e.g. line 621 here. Also figure out the log sequence based on number of updates there too.
-def update_beta(args, harmlessness_trainer, new_beta):
-    args.target_dist_beta = new_beta
-    harmlessness_trainer.target_dist_beta = new_beta
-    harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta = new_beta
-
-
-
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # Checkpoint
