@@ -6,5 +6,6 @@ do
 	sed -i "s@seed 1@seed $i@" $1_s$i
 	sed -i "s@-J s1@-J s$i@" $1_s$i
 	sed -i "s@1.txt@$i.txt@" $1_s$i
+	sed -i "s@_s1_@_s${i}_@" $1_s$i
 	sed -i "s@master_port \(....\)1@master_port \1$i@" $1_s$i
 done

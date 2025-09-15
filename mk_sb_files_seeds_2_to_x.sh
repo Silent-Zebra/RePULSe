@@ -49,5 +49,6 @@ do
     # If it's just "J s1", use "s@J s1@J s$i@"
     sed -i "s@J s1@J s$i@" "$output_file"
     sed -i "s@1.txt@$i.txt@" "$output_file"
+    sed -i "s@_s1_@_s${i}_@" "$output_file"
 
 done
