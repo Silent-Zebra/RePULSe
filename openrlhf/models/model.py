@@ -409,7 +409,9 @@ def _get_reward_model_custom(
                             input_ids_new = torch.cat(
                                 (input_ids, torch.ones(input_ids.shape[0], 1, dtype=int).to(input_ids.device) * 271), # Fill in this \n instead of generating it
                                 dim=-1)
-                            rewards_tensor = self.rm(input_ids=input_ids_new, attention_mask=attention_mask)[0]
+                            attention_mask_new = torch.cat((attention_mask, torch.ones_like(attention_mask[:, :1])), dim=-1)
+
+                            rewards_tensor = self.rm(input_ids=input_ids_new, attention_mask=attention_mask_new)[0]
                             r = rewards_tensor[:, -1, 19193] - rewards_tensor[:, -1, 39257]  # Take the "safe" logit - the "unsafe" logit as log odds
                         else:
                             rewards_tensor = self.rm(input_ids=input_ids, attention_mask=attention_mask)[0]

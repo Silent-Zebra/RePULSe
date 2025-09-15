@@ -1326,12 +1326,22 @@ def do_load_checkpoints(args, actor, critic, strategy):
 
     return consumed_samples
 
+
+# TODO this probably needs to go in the fit function instead, e.g. line 621 here. Also figure out the log sequence based on number of updates there too.
 def update_beta(args, harmlessness_trainer, new_beta):
     args.target_dist_beta = new_beta
     harmlessness_trainer.target_dist_beta = new_beta
     harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta = new_beta
 
 
+def log_sequence_for_negatives(start, end, steps):
+    assert start < 0 and end < 0
+    sign = -1
+    start_abs, end_abs = abs(start), abs(end)
+    # Using natural logs (ln) and exp
+    logs = np.linspace(np.log(start_abs), np.log(end_abs), steps)
+    seq = np.exp(logs)
+    return (sign * seq).tolist()
 
 
 if __name__ == "__main__":
@@ -1504,6 +1514,10 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--target_dist_beta", type=float, default=None, help="Beta in our SMC formulation of the target distribution of p_0 e^{beta r}. Auto-calculated based on KL coef for PPO. For harmlessness training, this is for the sigma target distribution for negative training/whatever unlearning method. Also used in reward transformations")
+
+    parser.add_argument("--anneal_target_dist_beta", action="store_true", help="if set, anneal target_dist_beta")
+    parser.add_argument("--start_target_dist_beta", type=float, default=None, help="Only used for annealing. Start at this beta value and anneal to final target_dist_beta value")
+
     parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
     parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
     parser.add_argument("--save_info_path", type=str, default="./info")
@@ -1680,5 +1694,7 @@ if __name__ == "__main__":
         if args.rew_trans_beta is None:
             args.rew_trans_beta = args.target_dist_beta
 
+    if args.anneal_target_dist_beta:
+        assert args.start_target_dist_beta is not None
 
     train(args)
