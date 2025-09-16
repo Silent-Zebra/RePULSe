@@ -314,8 +314,11 @@ def load_model_and_tokenizer(args, strategy):
 
 
 def log_sequence_for_negatives(start, end, steps):
-    assert start < 0 and end < 0
-    sign = -1
+    if start < 0 and end < 0:
+        sign = -1
+    else:
+        assert start > 0 and end > 0
+        sign = 1
     start_abs, end_abs = abs(start), abs(end)
     # Using natural logs (ln) and exp
     logs = np.linspace(np.log(start_abs), np.log(end_abs), steps)
