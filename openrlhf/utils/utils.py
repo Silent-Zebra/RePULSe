@@ -190,7 +190,12 @@ def get_info_name_str(args):
     harmlessness_train_str = ""
     if args.do_harmlessness_training:
         lr_str += f"_blr{args.base_actor_learning_rate}"
-        harmlessness_train_str = f"_harml_{args.harmlessness_training_loss_type}_a{args.alpha}"
+
+        start_alpha_str = ""
+        if args.start_alpha is not None:
+            start_alpha_str = f"_start{args.start_alpha}"
+
+        harmlessness_train_str = f"_harml_{args.harmlessness_training_loss_type}{start_alpha_str}_a{args.alpha}"
 
     # pretrain_str = args.pretrain.split("/")[-1]
     pretrain_str = "".join([x[:2] for x in re.split(r"[-_]", args.pretrain.split("/")[-1])])

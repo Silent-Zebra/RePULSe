@@ -172,17 +172,12 @@ class CombinedHarmlessnessTrainer(ABC):
         # Then have the ability to combine the above ones (we need REINFORCE on base samples, what is "actor" here, plus with either neg train or reinforce on bad (sigma) samples)
 
         self.base_actor_loss_type = base_actor_loss_type
-        if self.base_actor_loss_type == "reinforce":
-            self.base_actor_loss_fn = REINFORCELoss(baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline) # PolicyLoss(eps_clip)
-        elif self.base_actor_loss_type == "neg_training":
-            self.base_actor_loss_fn = NegTrainingLoss(alpha=alpha, baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline)
-        elif self.base_actor_loss_type == "neg_reinforce":
-            self.base_actor_loss_fn = NegREINFORCELoss(
-                alpha=alpha, baseline_type=baseline_type, hardcoded_baseline=hardcoded_baseline,
-                baseline_type_neg=baseline_type_neg, hardcoded_baseline_neg=hardcoded_baseline_neg,
-            )
-        else:
-            raise NotImplementedError
+        self.alpha = alpha
+        self.hardcoded_baseline = hardcoded_baseline
+        self.baseline_type_neg = baseline_type_neg
+        self.hardcoded_baseline_neg = hardcoded_baseline_neg
+
+        self.base_actor_loss_fn = self.get_base_actor_loss_fn()
 
         self.sampling_actor_loss_type = sampling_actor_loss_type
         # if self.sampling_actor_loss_type == "ppo":
@@ -322,6 +317,23 @@ class CombinedHarmlessnessTrainer(ABC):
 
         self.total_steps = 0
 
+    def get_base_actor_loss_fn(self):
+        if self.base_actor_loss_type == "reinforce":
+            base_actor_loss_fn = REINFORCELoss(baseline_type=self.baseline_type,
+                                                    hardcoded_baseline=self.hardcoded_baseline)  # PolicyLoss(eps_clip)
+        elif self.base_actor_loss_type == "neg_training":
+            base_actor_loss_fn = NegTrainingLoss(alpha=self.alpha, baseline_type=self.baseline_type,
+                                                      hardcoded_baseline=self.hardcoded_baseline)
+        elif self.base_actor_loss_type == "neg_reinforce":
+            base_actor_loss_fn = NegREINFORCELoss(
+                alpha=self.alpha, baseline_type=self.baseline_type, hardcoded_baseline=self.hardcoded_baseline,
+                baseline_type_neg=self.baseline_type_neg, hardcoded_baseline_neg=self.hardcoded_baseline_neg,
+            )
+        else:
+            raise NotImplementedError
+
+        return base_actor_loss_fn
+
     def fit(
         self,
         args,
@@ -442,6 +454,12 @@ class CombinedHarmlessnessTrainer(ABC):
             print("BETA SCHEDULE:")
             print(beta_schedule)
 
+        alpha_schedule = None
+        if args.start_alpha is not None:
+            alpha_schedule = log_sequence_for_negatives(args.start_alpha, args.alpha, total_update_steps)
+            print("ALPHA SCHEDULE:")
+            print(alpha_schedule)
+
         for episode in range(start_episode, args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop): # Actually with this current setup is kind of redundant to have these 2 hyperparameters, loops here or in the outer loop, just pick one, doesn't really matter with 1 update each...
             print(f"HARMLESSNESS TRAINING EPISODE {episode}", flush=True)
             if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
@@ -463,6 +481,11 @@ class CombinedHarmlessnessTrainer(ABC):
                     new_beta = beta_schedule[self.total_steps]
                     self.sampling_experience_maker_neg.target_dist_beta = new_beta
                     print(f"Using new beta: {new_beta}")
+                if args.start_alpha is not None:
+                    new_alpha = alpha_schedule[self.total_steps]
+                    self.alpha = new_alpha
+                    self.base_actor_loss_fn = self.get_base_actor_loss_fn()
+                    print(f"Using new alpha: {new_alpha}")
 
                 if args.new_custom_single_prompt:
                     rand_prompts = ["This man is a"]

@@ -1501,6 +1501,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--anneal_target_dist_beta", action="store_true", help="if set, anneal target_dist_beta")
     parser.add_argument("--start_target_dist_beta", type=float, default=None, help="Only used for annealing. Start at this beta value and anneal to final target_dist_beta value")
+    parser.add_argument("--start_alpha", type=float, default=None, help="Only used for annealing alpha. Start at this alpha value and anneal to final alpha value")
 
     parser.add_argument("--separate_reweighting_beta", type=float, default=None, help="if set, use this instead of the target_dist_beta for reweighting samples for sigma only. Still use the target_dist_beta for training the proposal q")
 
