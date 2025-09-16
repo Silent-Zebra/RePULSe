@@ -107,6 +107,7 @@ class CombinedHarmlessnessTrainer(ABC):
         rew_trans_alpha: Optional[float] = None,
         rew_trans_beta: Optional[float] = None,
         use_base_as_proposal: bool = False,
+        separate_reweighting_beta: Optional[float] = None,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -164,6 +165,8 @@ class CombinedHarmlessnessTrainer(ABC):
         self.threshold = threshold
 
         self.use_base_as_proposal = use_base_as_proposal
+
+        self.separate_reweighting_beta = separate_reweighting_beta
 
         # Just do very simple negative training, REINFORCE (on base samples), and REINFORCE (on sigma samples)
         # Then have the ability to combine the above ones (we need REINFORCE on base samples, what is "actor" here, plus with either neg train or reinforce on bad (sigma) samples)
@@ -927,11 +930,20 @@ class CombinedHarmlessnessTrainer(ABC):
             # print(experience_neg_sampling.returns)
             # print(experience_neg_sampling.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
 
-            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
-                action_log_probs_neg,
-                experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
-                final_reward_neg
-            )
+            if self.separate_reweighting_beta is not None:
+                # Just use untransformed reward * the sampling beta. Keep the target_dist_beta as the one for training
+                # And use the separate beta for the reweighting of samples for the base actor loss
+                normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
+                    action_log_probs_neg,
+                    experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
+                    experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device) * self.separate_reweighting_beta
+                )
+            else:
+                normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
+                    action_log_probs_neg,
+                    experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
+                    final_reward_neg
+                )
 
             if self.rm_type == "indicator_below_threshold":
                 # Only have any weight (do the negative training/gradient ascent/-SFT) on any samples that satisfy the indicator function
@@ -978,11 +990,20 @@ class CombinedHarmlessnessTrainer(ABC):
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg_sampling.action_mask.view(num_prompts, samples_per_prompt, -1)
 
-            normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
-                action_log_probs_neg,
-                experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
-                final_reward_neg
-            )
+            if self.separate_reweighting_beta is not None:
+                # Just use untransformed reward * the sampling beta. Keep the target_dist_beta as the one for training
+                # And use the separate beta for the reweighting of samples for the base actor loss
+                normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
+                    action_log_probs_neg,
+                    experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
+                    experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device) * self.separate_reweighting_beta
+                )
+            else:
+                normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
+                    action_log_probs_neg,
+                    experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
+                    final_reward_neg
+                )
 
             # TODO fill out all the arguments below correctly, check each one
             actor_loss = self.base_actor_loss_fn(

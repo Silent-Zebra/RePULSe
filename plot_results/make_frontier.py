@@ -674,16 +674,24 @@ if do_load:
 
     ]
 
-    load_prefixes_to_use = [
-        make_list(
-            "special/info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-            1, 10),
+    # load_prefixes_to_use = [
+    #     make_list(
+    #         "special/info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
+    #         1, 10),
+    #
+    #     make_list(
+    #         "special/info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
+    #         1, 10),
+    #
+    # ]
 
-        make_list(
-            "special/info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            1, 10),
-
-    ]
+    # load_prefixes_to_use = [
+    #     make_list("special/info_eval_rlhf_Ll3.1BIn_LlGu31B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s6",6,10),
+    #     make_list(
+    #         "special/info_eval_rlhf_Ll3.1BIn_LlGu31B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s6",
+    #         6, 10),
+    #
+    # ]
 
     use_handcrafted_labels = False
 
@@ -750,6 +758,10 @@ if do_load:
     figname_modifier = "1B_len100_09_14_kl0_1"
 
     figname_modifier = "1B_len100_09_14_kl0_1_badonlyeval"
+    figname_modifier = "1B_len100_09_14_kl0_1_llamaguardbadonlyeval"
+    # figname_modifier = "len20_09_15_kl0_03"
+
+    figname_modifier = "1B_len100_09_15_kl0_1"
 
 
     do_gcg = False # True

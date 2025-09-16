@@ -192,7 +192,7 @@ class BaseExperienceMaker(ABC):
 
         assert actor_loss_type is not None
 
-        if self.actor_loss_type == "ppo" or "reinforce" in actor_loss_type:
+        if self.actor_loss_type == "ppo" or actor_loss_type == "reinforce":
             self.multiply_by_beta = False
         else:
             self.multiply_by_beta = True

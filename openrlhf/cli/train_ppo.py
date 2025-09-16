@@ -590,7 +590,8 @@ def train(args):
             reward_transform=args.reward_transform,
             rew_trans_alpha=args.rew_trans_alpha,
             rew_trans_beta=args.rew_trans_beta,
-            use_base_as_proposal=args.use_base_as_proposal
+            use_base_as_proposal=args.use_base_as_proposal,
+            separate_reweighting_beta=args.separate_reweighting_beta,
         )
 
 
@@ -1500,6 +1501,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--anneal_target_dist_beta", action="store_true", help="if set, anneal target_dist_beta")
     parser.add_argument("--start_target_dist_beta", type=float, default=None, help="Only used for annealing. Start at this beta value and anneal to final target_dist_beta value")
+
+    parser.add_argument("--separate_reweighting_beta", type=float, default=None, help="if set, use this instead of the target_dist_beta for reweighting samples for sigma only. Still use the target_dist_beta for training the proposal q")
+
 
     parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
     parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
