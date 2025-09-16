@@ -174,6 +174,7 @@ class CombinedHarmlessnessTrainer(ABC):
         self.base_actor_loss_type = base_actor_loss_type
         self.alpha = alpha
         self.hardcoded_baseline = hardcoded_baseline
+        self.baseline_type = baseline_type
         self.baseline_type_neg = baseline_type_neg
         self.hardcoded_baseline_neg = hardcoded_baseline_neg
 
