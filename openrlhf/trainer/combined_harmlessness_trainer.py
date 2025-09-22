@@ -17,9 +17,9 @@ import torch.nn.functional as F
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss, CTLLoss, DPGLoss
-from openrlhf.models.utils import masked_mean, compute_approx_kl
+from openrlhf.models.utils import masked_mean, compute_approx_kl, compute_reward
 from openrlhf.utils.distributed_sampler import DistributedSampler
-from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list, log_sequence_for_negatives
+from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
@@ -969,6 +969,9 @@ class CombinedHarmlessnessTrainer(ABC):
                     final_reward_neg
                 )
 
+            print("NORMALIZED POSITIVE WEIGHTS")
+            print(normalized_w_t_approx_sigma_samples)
+
             if self.rm_type == "indicator_below_threshold":
                 # Only have any weight (do the negative training/gradient ascent/-SFT) on any samples that satisfy the indicator function
                 # print(final_reward_neg)
@@ -1001,6 +1004,12 @@ class CombinedHarmlessnessTrainer(ABC):
                 attention_mask=experience_neg_sampling.attention_mask, return_output=False
             )
 
+            with torch.no_grad():
+                base_action_log_probs_neg = self.static_initial_model(
+                    experience_neg_sampling.sequences, experience_neg_sampling.action_mask.size(1),
+                    attention_mask=experience_neg_sampling.attention_mask, return_output=False
+                )
+
 
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
             action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
@@ -1008,8 +1017,17 @@ class CombinedHarmlessnessTrainer(ABC):
             final_reward_no_kl = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             final_reward_including_kl = experience.info["return"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
 
+
             final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
-            untransformed_rewards_neg = experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+            # untransformed_rewards_neg = experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+            return_neg, _ = compute_reward(
+                final_reward_neg,
+                self.kl_ctl.value,
+                action_log_probs_neg,
+                base_action_log_probs_neg,
+                action_mask=experience_neg_sampling.action_mask,
+            )
+
 
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg_sampling.action_mask.view(num_prompts, samples_per_prompt, -1)
@@ -1029,16 +1047,19 @@ class CombinedHarmlessnessTrainer(ABC):
                     final_reward_neg
                 )
 
+            print("NORMALIZED POSITIVE WEIGHTS")
+            print(normalized_w_t_approx_sigma_samples)
+
             # TODO fill out all the arguments below correctly, check each one
             actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
                 final_reward_including_kl,
-                untransformed_rewards_neg=untransformed_rewards_neg,
+                rewards_neg=return_neg,
                 normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=exper_action_mask,
                 action_mask_neg=exper_neg_action_mask,
-                standard_final_reward_no_kl=final_reward_no_kl
+                # standard_final_reward_no_kl=final_reward_no_kl
             )
 
         else:
