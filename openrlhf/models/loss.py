@@ -224,9 +224,6 @@ class NegREINFORCELoss(nn.Module):
         # print(normalized_w_t_approx_sigma_samples)
         # 1/0
 
-        if self.baseline_type_neg == "other_expectation":
-            assert standard_final_reward_no_kl is not None
-
         neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg, other_reward=rewards)
 
         # return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
