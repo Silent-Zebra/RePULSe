@@ -1011,27 +1011,27 @@ class CombinedHarmlessnessTrainer(ABC):
                 )
 
 
+            return_neg, _ = compute_reward(
+                experience_neg_sampling.info["reward"],
+                self.kl_ctl.value,
+                action_log_probs_neg,
+                base_action_log_probs_neg,
+                action_mask=experience_neg_sampling.action_mask,
+            )
+
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
             action_log_probs_neg = action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
-            base_action_log_probs_neg = base_action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
+            # base_action_log_probs_neg = base_action_log_probs_neg.view(num_prompts, samples_per_prompt, -1)
 
             final_reward_no_kl = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             final_reward_including_kl = experience.info["return"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
 
-
             final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
             # untransformed_rewards_neg = experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
 
+
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg_sampling.action_mask.view(num_prompts, samples_per_prompt, -1)
-
-            return_neg, _ = compute_reward(
-                final_reward_neg,
-                self.kl_ctl.value,
-                action_log_probs_neg,
-                base_action_log_probs_neg,
-                action_mask=exper_neg_action_mask,
-            )
 
 
             if self.separate_reweighting_beta is not None:
