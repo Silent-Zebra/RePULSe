@@ -1021,6 +1021,9 @@ class CombinedHarmlessnessTrainer(ABC):
 
             final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
             # untransformed_rewards_neg = experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+
+
+
             return_neg, _ = compute_reward(
                 final_reward_neg,
                 self.kl_ctl.value,
