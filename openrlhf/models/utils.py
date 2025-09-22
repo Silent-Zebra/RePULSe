@@ -22,10 +22,6 @@ def compute_approx_kl(
         action_mask: Mask for actions.
     """
 
-    print(log_probs.shape)
-    print(log_probs_base.shape)
-    print(action_mask.shape)
-
     if kl_estimator == "k1":
         log_ratio = log_probs.float() - log_probs_base.float()
         if action_mask is not None:
