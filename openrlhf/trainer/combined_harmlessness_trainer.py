@@ -1011,7 +1011,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 )
 
 
-            return_neg, _ = compute_reward(
+            reward_neg, _ = compute_reward(
                 experience_neg_sampling.info["reward"],
                 self.kl_ctl.value,
                 action_log_probs_neg,
@@ -1057,7 +1057,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 action_log_probs,
                 action_log_probs_neg,
                 final_reward_including_kl,
-                rewards_neg=return_neg.view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device),
+                rewards_neg=reward_neg.sum(dim=-1).view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device),
                 normalized_w_t_approx_sigma_samples=normalized_w_t_approx_sigma_samples, # TODO fill in with maybe the log p phi / q calculation. p has to be using what, using the base_actor I guess, whereas q is the proposal or sampling actor now.
                 action_mask=exper_action_mask,
                 action_mask_neg=exper_neg_action_mask,

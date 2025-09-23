@@ -323,6 +323,7 @@ class BaseExperienceMaker(ABC):
             "kl": masked_mean(kl, action_mask, dim=-1),
             "reward": r,
             "return": rewards.sum(dim=-1),
+            "return2": returns.sum(dim=-1),
             "response_length": action_mask.float().sum(dim=-1),
             "total_length": attention_mask.float().sum(dim=-1),
             "f_q": f_q,
