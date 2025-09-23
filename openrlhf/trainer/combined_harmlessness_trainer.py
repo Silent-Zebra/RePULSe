@@ -108,6 +108,7 @@ class CombinedHarmlessnessTrainer(ABC):
         rew_trans_beta: Optional[float] = None,
         use_base_as_proposal: bool = False,
         separate_reweighting_beta: Optional[float] = None,
+        uniform_reweight: bool = False,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -167,6 +168,7 @@ class CombinedHarmlessnessTrainer(ABC):
         self.use_base_as_proposal = use_base_as_proposal
 
         self.separate_reweighting_beta = separate_reweighting_beta
+        self.uniform_reweight = uniform_reweight
 
         # Just do very simple negative training, REINFORCE (on base samples), and REINFORCE (on sigma samples)
         # Then have the ability to combine the above ones (we need REINFORCE on base samples, what is "actor" here, plus with either neg train or reinforce on bad (sigma) samples)
@@ -954,7 +956,10 @@ class CombinedHarmlessnessTrainer(ABC):
             # print(experience_neg_sampling.returns)
             # print(experience_neg_sampling.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
 
-            if self.separate_reweighting_beta is not None:
+            if self.uniform_reweight:
+                log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt))
+                normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=-1)
+            elif self.separate_reweighting_beta is not None:
                 # Just use untransformed reward * the sampling beta. Keep the target_dist_beta as the one for training
                 # And use the separate beta for the reweighting of samples for the base actor loss
                 normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
@@ -1033,8 +1038,10 @@ class CombinedHarmlessnessTrainer(ABC):
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg_sampling.action_mask.view(num_prompts, samples_per_prompt, -1)
 
-
-            if self.separate_reweighting_beta is not None:
+            if self.uniform_reweight:
+                log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt))
+                normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=-1)
+            elif self.separate_reweighting_beta is not None:
                 # Just use untransformed reward * the sampling beta. Keep the target_dist_beta as the one for training
                 # And use the separate beta for the reweighting of samples for the base actor loss
                 normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(

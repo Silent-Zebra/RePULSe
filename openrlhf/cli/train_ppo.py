@@ -592,6 +592,7 @@ def train(args):
             rew_trans_beta=args.rew_trans_beta,
             use_base_as_proposal=args.use_base_as_proposal,
             separate_reweighting_beta=args.separate_reweighting_beta,
+            uniform_reweight=args.uniform_reweight,
         )
 
 
@@ -1504,6 +1505,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_alpha", type=float, default=None, help="Only used for annealing alpha. Start at this alpha value and anneal to final alpha value")
 
     parser.add_argument("--separate_reweighting_beta", type=float, default=None, help="if set, use this instead of the target_dist_beta for reweighting samples for sigma only. Still use the target_dist_beta for training the proposal q")
+    parser.add_argument("--uniform_reweight", action="store_true", help="if set, use uniform weights for reweighting. Basically skips the reweighting operation.")
 
 
     parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
