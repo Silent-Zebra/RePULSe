@@ -957,7 +957,7 @@ class CombinedHarmlessnessTrainer(ABC):
             # print(experience_neg_sampling.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
 
             if self.uniform_reweight:
-                log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt))
+                log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt)).to(action_log_probs.device)
                 normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=-1)
             elif self.separate_reweighting_beta is not None:
                 # Just use untransformed reward * the sampling beta. Keep the target_dist_beta as the one for training
@@ -1039,7 +1039,7 @@ class CombinedHarmlessnessTrainer(ABC):
             exper_neg_action_mask = experience_neg_sampling.action_mask.view(num_prompts, samples_per_prompt, -1)
 
             if self.uniform_reweight:
-                log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt))
+                log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt)).to(action_log_probs.device)
                 normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=-1)
             elif self.separate_reweighting_beta is not None:
                 # Just use untransformed reward * the sampling beta. Keep the target_dist_beta as the one for training
