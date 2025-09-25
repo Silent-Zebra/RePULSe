@@ -19,7 +19,7 @@ from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss, CTLLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl, compute_reward
 from openrlhf.utils.distributed_sampler import DistributedSampler
-from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list
+from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list, log_sequence_for_negatives
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
