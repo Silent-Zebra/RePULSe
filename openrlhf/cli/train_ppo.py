@@ -603,6 +603,7 @@ def train(args):
 
     total_log_prob_bad_list = []
     rew_over_time_list = []
+    untrans_ret_over_time_list = []
 
     for fit_step in range(args.fit_steps):
         if fit_step == 0 and args.analytic_bad_word_calc:
@@ -654,7 +655,8 @@ def train(args):
                 torch.save(target_to_save, save_str)
 
             else:
-                f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
+                # Also true for new_custom_single_prompt
+                f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_list
                 print("FINAL RESULTS F_Q", flush=True)
                 print(f_q_estimates_list)
                 print("FINAL RESULTS REWARD", flush=True)
@@ -663,6 +665,8 @@ def train(args):
                 print(kl_vals_list)
                 print("FINAL RESULTS ENTROPY", flush=True)
                 print(entropy_list)
+                print("FINAL RESULTS UNTRANSFORMED RETURN (Including KL)", flush=True)
+                print(untrans_ret_list)
                 print("SAVING RESULTS", flush=True)
 
                 target_to_save = (
@@ -690,12 +694,19 @@ def train(args):
                 rew_over_time_list.append(rewards_tensor[0].item()) # Get value at start of training
             rew_over_time_list.append(rewards_tensor[-1].item())
 
+        if untrans_ret_list is not None:
+            untrans_ret_tensor = torch.tensor(untrans_ret_list)
+            if fit_step == 0:
+                untrans_ret_over_time_list.append(untrans_ret_tensor[0].item()) # Get value at start of training
+            untrans_ret_over_time_list.append(untrans_ret_tensor[-1].item())
+
 
     if args.analytic_bad_word_calc:
         save_str = f"{args.save_info_path}/analyticlogprob_rewsample_{info_name_str}"
-        torch.save((total_log_prob_bad_list, rew_over_time_list), save_str)
+        torch.save((total_log_prob_bad_list, rew_over_time_list, untrans_ret_over_time_list), save_str)
         print(total_log_prob_bad_list)
         print(rew_over_time_list)
+        print(untrans_ret_over_time_list)
 
     # for param in base_actor.model.parameters():
     #     print("PARAM CHECK 3")

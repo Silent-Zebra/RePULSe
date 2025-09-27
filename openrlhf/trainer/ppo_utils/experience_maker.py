@@ -328,7 +328,8 @@ class BaseExperienceMaker(ABC):
             "total_length": attention_mask.float().sum(dim=-1),
             "f_q": f_q,
             "entropy": -log_q,
-            "untransformed_reward": untransformed_reward
+            "untransformed_reward": untransformed_reward,
+            "untransformed_ret": untransformed_reward - self.kl_ctl.value * masked_sum(kl, action_mask, dim=-1) # includes KL but uses untransformed reward
         }
         # reset model state
         self.actor.train()

@@ -183,6 +183,13 @@ def masked_mean(tensor: torch.Tensor, mask: torch.Tensor, dim: int = None) -> to
         return (tensor * mask).sum() / mask.sum()
 
 
+def masked_sum(tensor: torch.Tensor, mask: torch.Tensor, dim: int = None) -> torch.Tensor:
+    if dim is not None:
+        return (tensor * mask).sum(axis=dim)
+    else:
+        return (tensor * mask).sum()
+
+
 def masked_normalize(tensor: torch.Tensor, mask: torch.Tensor, dim: int = 1, eps: float = 1e-8) -> torch.Tensor:
     tensor = tensor * mask
     mean = masked_mean(tensor, mask, dim=dim)

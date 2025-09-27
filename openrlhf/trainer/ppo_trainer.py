@@ -629,7 +629,7 @@ class BasePPOTrainer(ABC):
         print(f"Avg KL to Prior: {total_kl_vals.mean()}")
         print(f"Avg Ent: {total_entropy.mean()}")
 
-        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_lists
+        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_lists
 
         f_q_estimates_list.append(total_f_qs.cpu())
         rewards_list.append(total_rewards.cpu())

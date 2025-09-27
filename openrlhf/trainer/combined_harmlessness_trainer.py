@@ -433,6 +433,7 @@ class CombinedHarmlessnessTrainer(ABC):
         rewards_list = []
         kl_vals_list = []
         entropy_list = []
+        untrans_ret_list = []
 
 
         # if true_posterior_samples is not None:
@@ -441,7 +442,7 @@ class CombinedHarmlessnessTrainer(ABC):
         # rewards_list = []
         # kl_to_prior_list = []
 
-        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list)
+        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list)
 
         custom_prompt = None
         # if args.custom_single_prompt:
@@ -582,11 +583,13 @@ class CombinedHarmlessnessTrainer(ABC):
                 # else:
 
                 rewards_list.append(experience.info["untransformed_reward"].mean().item())
+                untrans_ret_list.append(experience.info["untransformed_ret"].mean().item())
 
                 # print(rewards_list)
                 # print(estimates_list)
                 # 1 / 0
                 inspect_rewards_list(rewards_list)
+                inspect_rewards_list(untrans_ret_list)
 
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
