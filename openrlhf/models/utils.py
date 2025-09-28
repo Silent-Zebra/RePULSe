@@ -77,14 +77,14 @@ def compute_reward(
     if kl_coef <= 0.0:
         kl_coef = 0.0
 
-    # print("action_mask")
-    # print(action_mask)
+    print("action_mask")
+    print(action_mask)
 
     kl = compute_approx_kl(log_probs, log_probs_base, action_mask=action_mask)
     kl_reward = -kl_coef * kl
-    # print("--KL REWARD--")
-    # print(kl_reward.mean())
-    # print(kl_reward)
+    print("--KL REWARD--")
+    print(kl_reward.mean())
+    print(kl_reward)
 
 
     # print("REWARD BEFORE CLAMP")
@@ -110,16 +110,16 @@ def compute_reward(
     print("--EOS INDICES--")
     print(eos_indices.squeeze(-1))
 
-    # print("--LAST REWARD--")
-    # # print(last_reward.mean())
-    # print(last_reward.shape)
-    # print(last_reward.sum(-1))
-    # print(last_reward)
-    #
-    # print("--KL REWARD--")
-    # print(kl_reward.shape)
-    # print(kl_reward.sum(-1))
-    # print(kl_reward)
+    print("--LAST REWARD--")
+    # print(last_reward.mean())
+    print(last_reward.shape)
+    print(last_reward.sum(-1))
+    print(last_reward)
+
+    print("--KL REWARD--")
+    print(kl_reward.shape)
+    print(kl_reward.sum(-1))
+    print(kl_reward)
 
     reward = last_reward + kl_reward
     return reward, kl
