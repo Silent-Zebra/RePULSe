@@ -96,12 +96,93 @@ make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl100.0_beta-1.0_ha
 ]
 
 
+# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 | grep "kl1\.0" | grep analytic | grep _s2 ); do echo make_list\(\"$x\", 1, 5\),; done
+load_prefixes_to_use = [
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2", 1, 1),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl1.0_beta-10.0_harml_neg_training_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl1.0_beta-10.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl1.0_beta-1.0_harml_reinforce_a10.0rta10.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl1.0_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+
+]
+
+
+# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 | grep "kl10\.0" | grep blr1e-05 | grep analytic | grep _s2 ); do echo make_list\(\"$x\", 1, 5\),; done
+load_prefixes_to_use = [
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 5),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 5),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 5),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a10.0rta10.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 5),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 5),
+
+]
+
+# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 | grep "kl10\.0" | grep -v blr1e-04 | grep analytic | grep _s2 ); do echo make_list\(\"$x\", 1, 3\),; done
+load_prefixes_to_use = [
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-0.3_harml_reinforce_a10.0rta10.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a0.9_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a100.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_neg_training_a100.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a100.0rta100.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a10.0rta10.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a10.0rta10.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a10.0rta10.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a10.0rta10.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-3.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+
+]
+
+# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 | grep "kl10\.0" | grep -v blr1e-04 | grep analytic | grep _s2 ); do echo make_list\(\"$x\", 1, 3\),; done
+load_prefixes_to_use = [
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-0.3_harml_reinforce_a10.0rta10.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+# make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a100.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+# make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-10.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_neg_training_a100.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+# make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+# make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a100.0rta100.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a10.0rta10.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a10.0rta10.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s2", 1, 3),
+# make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_kl10.0_beta-3.0_harml_neg_training_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr1e-05_policy_psi_q_p_s_t_s2", 1, 3),
+
+]
+
+
+
 figname_modifier = "toyrlhf"
 figname_modifier = "toyrlhf_kl0_01"
 figname_modifier = "toyrlhf_kl0_1"
 figname_modifier = "toyrlhf_kl1"
 figname_modifier = "toyrlhf_kl10"
 figname_modifier = "toyrlhf_kl100"
+
+figname_modifier = "toyrlhf_kl1_v2"
+figname_modifier = "toyrlhf_kl10_v2"
+figname_modifier = "toyrlhf_kl10_v3"
+figname_modifier = "toyrlhf_kl10_v3_clean"
+
 
 results_list = [[] for i in range(len(load_prefixes_to_use))]
 
@@ -129,76 +210,52 @@ fontsize = 6
 
 x_range = np.arange(51) * 10 * 500
 
-fig, ax1 = plt.subplots()
-
-color_list_for_variances = ['xkcd:light blue', 'xkcd:light green', 'xkcd:light orange', 'xkcd:light red', 'xkcd:light purple', 'xkcd:dark grey', 'xkcd:light brown', 'xkcd:light lime green', 'xkcd:light navy blue', 'xkcd:light indigo', 'xkcd:olive yellow', 'xkcd:peach', 'xkcd:light lavender', 'xkcd:bright pink' ]
-color_list_for_fqs = ['xkcd:blue', 'xkcd:green', 'xkcd:orange', 'xkcd:red', 'xkcd:purple', 'xkcd:black', 'xkcd:brown', 'xkcd:lime green', 'xkcd:navy blue', 'xkcd:indigo', 'xkcd:dark yellow', 'xkcd:dark peach', 'xkcd:lavender', 'xkcd:hot pink']
+color_list_for_variances = ['xkcd:light blue', 'xkcd:light green', 'xkcd:light orange', 'xkcd:light red',
+                            'xkcd:light purple', 'xkcd:dark grey', 'xkcd:light brown', 'xkcd:light lime green',
+                            'xkcd:light navy blue', 'xkcd:light indigo', 'xkcd:olive yellow', 'xkcd:peach',
+                            'xkcd:light lavender', 'xkcd:bright pink']
+color_list_for_fqs = [
+    'xkcd:orange', 'xkcd:red', 'xkcd:purple', 'xkcd:green', 'xkcd:blue',
+    'xkcd:black',  'xkcd:gray',  'xkcd:light brown',
+    'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:magenta',
+] * 5
 linestyle_list = ['solid', 'dashed', 'dotted', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))] * 5
 
 
-for i in range(len(results_list)):
-    np_results = np.stack([x[0] for x in results_list[i]])
-    # print(np_results)
-    print(np_results.shape)
-    plot_with_conf_bounds(
-        ax1, np_results, x_range, label=labels[i],
-        color=color_list_for_fqs[i],
-        linestyle=linestyle_list[i],
-    )
+def plot_results_over_time(index_to_use=0, plot_name="logprobbad", ylabel=r"Log Total Probability of Bad Output"):
+    fig, ax1 = plt.subplots()
 
-ax1.set_xlabel("Number of Samples", fontsize=fontsize)
-ax1.set_ylabel(r"Log Total Probability of Bad Output", fontsize=fontsize)
-# ax1.set_ylim(top=15)
-
-# Adjust tick colors
-# ax1.tick_params(axis="y", colors=color_list_for_fqs[0])
-# ax2.tick_params(axis="y", colors=color_list_for_variances[0])
-ax1.tick_params(axis='both', labelsize=fontsize)
-
-
-# Combine legends
-# fig.legend(fontsize=7, loc="center left", bbox_to_anchor=(0.45, 0.5))
-plt.legend(fontsize=fontsize)
-
-
-# plt.legend()
-plt.tight_layout()
-
-figname = f"./{figname_modifier}_logprobbad.pdf"
-plt.savefig(figname)
+    for i in range(len(results_list)):
+        np_results = np.stack([x[index_to_use] for x in results_list[i]])
+        # print(np_results)
+        print(np_results.shape)
+        plot_with_conf_bounds(
+            ax1, np_results, x_range, label=labels[i],
+            color=color_list_for_fqs[i],
+            linestyle=linestyle_list[i],
+        )
+    ax1.set_xlabel("Number of Samples", fontsize=fontsize)
+    ax1.set_ylabel(ylabel, fontsize=fontsize)
+    # ax1.set_ylim(top=15)
+    # Adjust tick colors
+    # ax1.tick_params(axis="y", colors=color_list_for_fqs[0])
+    # ax2.tick_params(axis="y", colors=color_list_for_variances[0])
+    ax1.tick_params(axis='both', labelsize=fontsize)
+    # Combine legends
+    # fig.legend(fontsize=7, loc="center left", bbox_to_anchor=(0.45, 0.5))
+    plt.legend(fontsize=fontsize)
+    # plt.legend()
+    plt.tight_layout()
+    figname = f"./{figname_modifier}_{plot_name}.pdf"
+    plt.savefig(figname)
+    plt.clf()
 
 
-plt.clf()
+plot_results_over_time(index_to_use=0, plot_name="logprobbad", ylabel=r"Log Total Probability of Bad Output")
 
-fig, ax1 = plt.subplots()
+plot_results_over_time(index_to_use=1, plot_name="rew", ylabel=r"Average Reward")
 
-for i in range(len(results_list)):
-    np_results = np.stack([x[1] for x in results_list[i]])
-    # print(np_results)
-    print(np_results.shape)
-    plot_with_conf_bounds(
-        ax1, np_results, x_range, label=labels[i],
-        color=color_list_for_fqs[i],
-        linestyle=linestyle_list[i],
-    )
-
-ax1.set_xlabel("Number of Samples", fontsize=fontsize)
-ax1.set_ylabel(r"Average Reward", fontsize=fontsize)
-ax1.tick_params(axis='both', labelsize=fontsize)
-
-# Adjust tick colors
-# ax1.tick_params(axis="y", colors=color_list_for_fqs[0])
-# ax2.tick_params(axis="y", colors=color_list_for_variances[0])
-
-# Combine legends
-# fig.legend(fontsize=7, loc="center left", bbox_to_anchor=(0.45, 0.5))
-plt.legend(fontsize=fontsize)
-
-# plt.legend()
-plt.tight_layout()
-
-figname = f"./{figname_modifier}_rew.pdf"
-plt.savefig(figname)
+plot_results_over_time(index_to_use=-1, plot_name="untransformed_ret", ylabel=r"Average Return")
 
 
 raise SystemExit(0)
