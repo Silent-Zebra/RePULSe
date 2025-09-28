@@ -84,10 +84,18 @@ class REINFORCELoss(nn.Module):
             if self.baseline_type == "expectation":
                 assert reduce_mean_per_prompt
                 assert final_reward.shape[1] > 1 # this will do nothing if there is only 1 batch size/sample per prompt
-                rewards_baseline = final_reward.mean(dim=1)  # mean along the batch dimension not the prompt dimension
-                # print(rewards_baseline.shape)
-                rewards_baseline = rewards_baseline.unsqueeze(1)
-                # print(rewards_baseline.shape)
+
+                # rewards_baseline = final_reward.mean(dim=1)  # mean along the batch dimension not the prompt dimension
+                # # print(rewards_baseline.shape)
+                # rewards_baseline = rewards_baseline.unsqueeze(1)
+                # # print(rewards_baseline.shape)
+
+                # RLOO estimator
+                N = final_reward.size(1)
+                # Sum across the sample dimension
+                sum_rewards = final_reward.sum(dim=1, keepdim=True)  # shape (P, 1, L)
+                # For each sample i, subtract its own reward and divide by (N-1)
+                rewards_baseline = (sum_rewards - final_reward) / (N - 1)  # shape (P, N, L)
 
             elif self.baseline_type == "hardcoded":
                 assert self.hardcoded_baseline is not None

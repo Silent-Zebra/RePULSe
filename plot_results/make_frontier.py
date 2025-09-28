@@ -228,7 +228,7 @@ def make_frontier_bootstrap(
     print(f"Figure saved to {figname}")
 
 
-do_1B_experiments = False
+do_1B_experiments = True
 
 figname_modifier = "len20_05_15_final"
 figname_modifier = "len20_05_23"
@@ -362,7 +362,10 @@ if do_1B_experiments:
     figname_modifier = "1B_len100_09_26_kl0_2"
     figname_modifier = "1B_len100_09_26_kl0_2_v2"
 
+    figname_modifier = "1B_len100_09_26_kl0_01"
+    figname_modifier = "1B_len100_09_26_kl0_03"
 
+    figname_modifier = "1B_len100_09_27_kl0_2"
 
 
 linestyle_list = ['solid'] * 30
