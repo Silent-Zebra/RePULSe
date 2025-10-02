@@ -656,7 +656,11 @@ def train(args):
 
             else:
                 # Also true for new_custom_single_prompt
-                f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_list
+                if args.do_harmlessness_training:
+                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_list
+                else:
+                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
+                    untrans_ret_list = None
                 print("FINAL RESULTS F_Q", flush=True)
                 print(f_q_estimates_list)
                 print("FINAL RESULTS REWARD", flush=True)
