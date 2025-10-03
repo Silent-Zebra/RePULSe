@@ -142,10 +142,19 @@ def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_typ
     # print(log_probs_all_vocab[:, :, 3350])
     # print(log_probs_all_vocab[:, :, 359])
 
-    # print("log probs full")
-    # print(log_probs)
-    # print("log probs max")
-    # print(log_probs.max(dim=-1))
+    # TODO DEBUG REMOVE LATER
+    print("logits full")
+    print(logits)
+    print("logits max")
+    print(logits.max(dim=-1))
+
+    print("log probs full")
+    print(log_probs)
+    print("log probs max")
+    print(log_probs.max(dim=-1))
+
+
+
     return return_or_gather_then_return(labels, log_probs_all_vocab, return_type)
 
 
