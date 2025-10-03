@@ -224,7 +224,10 @@ def get_info_name_str(args):
 
     rew_trans_str = ""
     if args.reward_transform:
-        rew_trans_str = f"rta{args.rew_trans_alpha}_b{args.rew_trans_beta}"
+        if self.reward_transform == "minus_alpha_exp_beta_r":
+            rew_trans_str = f"rta{args.rew_trans_alpha}_b{args.rew_trans_beta}"
+        elif self.reward_transform == "minus_alpha_ind":
+            rew_trans_str = f"rta{args.rew_trans_alpha}_t{args.threshold}"
 
     start_beta_str = ""
     if args.anneal_target_dist_beta:
