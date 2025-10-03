@@ -147,11 +147,15 @@ def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_typ
     print(logits)
     print("logits max")
     print(logits.max(dim=-1))
+    print("logits min")
+    print(logits.min(dim=-1))
 
     print("log probs full")
     print(log_probs_all_vocab)
     print("log probs max")
     print(log_probs_all_vocab.max(dim=-1))
+    print("log probs min")
+    print(logits.min(dim=-1))
 
 
 
