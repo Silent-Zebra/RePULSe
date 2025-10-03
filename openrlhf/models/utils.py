@@ -57,11 +57,13 @@ def compute_approx_kl(
         # print(log_probs)
         print("--LOG PROBS BASE--")
         print(log_probs_base.mean())
-        # for i in range(1):
-        #     print(f"---{i}--")
-        #     print(log_probs[i])
-        #     print(log_probs_base[i])
-            # print(action_mask[i])
+        for i in range(len(log_probs)):
+            print(f"---{i}--")
+            print(log_probs[i])
+            print(log_probs_base[i])
+            print(action_mask[i])
+            print(log_probs[i].float() - log_probs_base[i].float())
+            print((log_probs.float() - log_probs_base.float() * action_mask)[i])
 
     return log_ratio
 
