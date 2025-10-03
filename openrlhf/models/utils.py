@@ -64,6 +64,7 @@ def compute_approx_kl(
             print(action_mask[i])
             print(log_probs[i].float() - log_probs_base[i].float())
             print((log_probs.float() - log_probs_base.float() * action_mask)[i])
+            print((log_probs.float() - log_probs_base.float() * action_mask)[i].sum())
 
     return log_ratio
 
