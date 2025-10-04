@@ -501,7 +501,6 @@ class BaseExperienceMaker(ABC):
     def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
         self.set_all_eval()
         # generate seq
-
         # print("prompts")
         # print(prompts)
 
@@ -571,7 +570,6 @@ class BaseExperienceMaker(ABC):
             # print(sequences.shape)
 
             self.set_all_policies_train()
-
 
             action_log_probs, values = self.actor(sequences, num_actions, attention_mask)
             return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
