@@ -576,17 +576,16 @@ class BaseExperienceMaker(ABC):
             action_log_probs, values = self.actor(sequences, num_actions, attention_mask)
             return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
         else:
-            action_log_probs = self.actor(sequences, num_actions, attention_mask)
-            # print("SEQUENCES")
-            # print(sequences[0,-20:])
-            # print(sequences[:,-20:])
-            # print(sequences)
-            # TODO REMOVE LATER DEBUG
-            print("--ACTION LOG PROBS--")
-            print(action_log_probs[0])
-            print(action_log_probs[0,-20:])
-            print(action_log_probs.mean())
-            # print(action_log_probs)
+            # action_log_probs = self.actor(sequences, num_actions, attention_mask)
+            # # print("SEQUENCES")
+            # # print(sequences[0,-20:])
+            # # print(sequences[:,-20:])
+            # # print(sequences)
+            # # print("--ACTION LOG PROBS--")
+            # # print(action_log_probs[0])
+            # # print(action_log_probs[0,-20:])
+            # # print(action_log_probs.mean())
+            # # print(action_log_probs)
 
             self.set_all_policies_train()
 
@@ -595,10 +594,10 @@ class BaseExperienceMaker(ABC):
             # print(sequences[0,-20:])
             # print(sequences[:,-20:])
             # print(sequences)
-            print("--ACTION LOG PROBS TRAIN--")
-            print(action_log_probs[0])
-            print(action_log_probs[0, -20:])
-            print(action_log_probs.mean())
+            # print("--ACTION LOG PROBS TRAIN--")
+            # print(action_log_probs[0])
+            # print(action_log_probs[0, -20:])
+            # print(action_log_probs.mean())
             # print(action_log_probs)
 
             # 1/0

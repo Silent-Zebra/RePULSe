@@ -51,8 +51,7 @@ def compute_approx_kl(
         # print(log_ratio.mean())
         # print(log_ratio)
 
-    # TODO REMOVE LATER
-    if log_ratio.mean() < 0:  # Diagnostic
+    if log_ratio.mean() < -0.1:  # Diagnostic
         print("--LOG PROBS DIAGNOSTIC--")
         print(log_probs.mean())
         # print(log_probs)
@@ -142,20 +141,19 @@ def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_typ
     # print(log_probs_all_vocab[:, :, 3350])
     # print(log_probs_all_vocab[:, :, 359])
 
-    # TODO DEBUG REMOVE LATER
-    print("logits full")
-    print(logits)
-    print("logits max")
-    print(logits.max(dim=-1))
-    print("logits min")
-    print(logits.min(dim=-1))
-
-    print("log probs full")
-    print(log_probs_all_vocab)
-    print("log probs max")
-    print(log_probs_all_vocab.max(dim=-1))
-    print("log probs min")
-    print(log_probs_all_vocab.min(dim=-1))
+    # print("logits full")
+    # print(logits)
+    # print("logits max")
+    # print(logits.max(dim=-1))
+    # print("logits min")
+    # print(logits.min(dim=-1))
+    #
+    # print("log probs full")
+    # print(log_probs_all_vocab)
+    # print("log probs max")
+    # print(log_probs_all_vocab.max(dim=-1))
+    # print("log probs min")
+    # print(log_probs_all_vocab.min(dim=-1))
 
 
 
