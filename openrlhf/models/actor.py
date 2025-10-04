@@ -153,7 +153,7 @@ class Actor(nn.Module):
             "attention_mask": kwargs.get("attention_mask"),
             "eos_token_id": kwargs.get("eos_token_id"),
             "pad_token_id": kwargs.get("pad_token_id"),
-            "min_new_tokens": kwargs.get("min_new_tokens", 1),
+            "min_new_tokens": kwargs.get("min_new_tokens", 0), # Use 0 instead of 1; because with 0, if you force first token to not be EOS, this screws up the KL div if the policy places any reasonably high amount of probability mass on the EOS token such that the EOS token would appear in the first token generation. I'd rather have this fail noisily (e.g. if reward model needs non-empty generation) than subtly wrong KL values.
         }
 
         if kwargs.get("max_new_tokens", None):

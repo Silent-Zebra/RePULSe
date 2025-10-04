@@ -809,7 +809,7 @@ class RemoteExperienceMaker(BaseExperienceMaker):
             top_p=kwargs.get("top_p", 1.0),
             top_k=kwargs.get("top_k", -1),
             max_tokens=kwargs.get("max_new_tokens", 1024),
-            min_tokens=kwargs.get("min_new_tokens", 1),
+            min_tokens=kwargs.get("min_new_tokens", 0), # Use 0 instead of 1; because with 0, if you force first token to not be EOS, this screws up the KL div if the policy places any reasonably high amount of probability mass on the EOS token such that the EOS token would appear in the first token generation. I'd rather have this fail noisily (e.g. if reward model needs non-empty generation) than subtly wrong KL values.
             skip_special_tokens=kwargs.get("skip_special_tokens", False),
         )
 
