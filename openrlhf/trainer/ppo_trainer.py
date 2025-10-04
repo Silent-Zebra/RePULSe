@@ -814,6 +814,8 @@ class BasePPOTrainer(ABC):
             # print(f_qs)
             # print(f_qs.shape)
 
+        self.experience_maker.set_all_policies_train()
+
         return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
 
     @torch.no_grad()
@@ -867,6 +869,8 @@ class BasePPOTrainer(ABC):
                                     attention_mask, action_mask,
                                     num_actions, sequences)
             log_tilde_sigma = log_tilde_sigma.float() # more precision
+
+        self.experience_maker.set_all_policies_train()
 
         return log_tilde_sigma - log_q
 

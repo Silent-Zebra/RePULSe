@@ -233,12 +233,12 @@ def make_frontier_bootstrap(
     plt.legend(fontsize=fontsize)
 
 
-    indices = [1,2,3,4,5,6]
-    plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="red", alpha=0.3)
-    indices = [7,8,9]
-    plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3)
-    indices = [10,11]
-    plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="green", alpha=0.3)
+    # indices = [1,2,3,4,5,6]
+    # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="red", alpha=0.3)
+    # indices = [7,8,9]
+    # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3)
+    # indices = [10,11]
+    # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="green", alpha=0.3)
 
     plt.savefig(figname)
     print(f"Figure saved to {figname}")
@@ -424,6 +424,8 @@ figname_modifier = "len20_10_01_kl0_2_epi2_clean_v2"
 
 figname_modifier = "len20_10_01_kl0_2_epi2_w_epi1"
 
+figname_modifier = "1B_len100_10_01_kl0_5"
+figname_modifier = "1B_len100_10_01_kl1"
 
 
 do_1B_experiments = False
@@ -3119,6 +3121,52 @@ if do_load:
                 1, 5),
 
         ]
+
+    elif do_1B_experiments and "kl0_5" in figname_modifier and "len100" in figname_modifier:
+        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl5 | grep info_eval | grep _s1  ); do echo make_list\(\"$x\",1,5\),; done
+        load_prefixes_to_use = [
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
+    ]
+    elif do_1B_experiments and "kl1" in figname_modifier and "len100" in figname_modifier:
+        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl10 | grep info_eval | grep _s1  ); do echo make_list\(\"$x\",1,5\),; done
+        load_prefixes_to_use = [
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
+        ]
+
 
     else:
         raise Exception("Figname does not correspond to any set of data")

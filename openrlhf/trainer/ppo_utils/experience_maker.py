@@ -490,6 +490,14 @@ class BaseExperienceMaker(ABC):
         if self.reward_model is not None:
             self.reward_model.eval()
 
+    def set_all_policies_train(self):
+        # not currently training reward model
+        self.actor.train()
+        if self.critic is not None:
+            self.critic.train()
+        self.initial_model.train()
+
+
     def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
         self.set_all_eval()
         # generate seq
@@ -562,6 +570,9 @@ class BaseExperienceMaker(ABC):
             # print(attention_mask.shape)
             # print(sequences.shape)
 
+            self.set_all_policies_train()
+
+
             action_log_probs, values = self.actor(sequences, num_actions, attention_mask)
             return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
         else:
@@ -570,11 +581,26 @@ class BaseExperienceMaker(ABC):
             # print(sequences[0,-20:])
             # print(sequences[:,-20:])
             # print(sequences)
-            # print("--ACTION LOG PROBS--")
-            # print(action_log_probs[0])
-            # print(action_log_probs[0,-20:])
-            # print(action_log_probs.mean())
+            # TODO REMOVE LATER DEBUG
+            print("--ACTION LOG PROBS--")
+            print(action_log_probs[0])
+            print(action_log_probs[0,-20:])
+            print(action_log_probs.mean())
             # print(action_log_probs)
+
+            self.set_all_policies_train()
+
+            action_log_probs = self.actor(sequences, num_actions, attention_mask)
+            # print("SEQUENCES")
+            # print(sequences[0,-20:])
+            # print(sequences[:,-20:])
+            # print(sequences)
+            print("--ACTION LOG PROBS TRAIN--")
+            print(action_log_probs[0])
+            print(action_log_probs[0, -20:])
+            print(action_log_probs.mean())
+            # print(action_log_probs)
+
             # 1/0
             return action_log_probs, action_mask, attention_mask, num_actions, sequences
 
