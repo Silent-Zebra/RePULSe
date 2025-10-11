@@ -109,7 +109,7 @@ cat > "$SBATCH_FILE" << EOL
 #!/bin/bash
 #SBATCH -J s1_$(($RANDOM % 100000))
 #SBATCH --mem=48G
-#SBATCH --time=4:00:00
+#SBATCH --time=5:00:00
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
 #SBATCH --nodes 1
