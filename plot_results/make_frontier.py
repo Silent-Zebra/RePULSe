@@ -233,199 +233,87 @@ def make_frontier_bootstrap(
     plt.legend(fontsize=fontsize)
 
 
-    # indices = [1,2,3,4,5,6]
-    # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="red", alpha=0.3)
-    # indices = [7,8,9]
-    # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3)
-    # indices = [10,11]
-    # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="green", alpha=0.3)
+    if "final" in figname:
+        if "1B" in figname:
+            indices = [0, 1, 2, 3, 4]
+            plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="red", alpha=0.3, linestyle='--')
+
+            # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3, linestyle=":")
+            indices = [5, 6]
+            plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="teal", alpha=0.3, linestyle='-.')
+
+        else:
+            indices = [1,2,3,4,5]
+            plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="red", alpha=0.3, linestyle='--')
+            indices = [6,7]
+            plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3, linestyle=":")
+            indices = [8,9,10]
+            plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="teal", alpha=0.3, linestyle='-.')
+            # indices = [12,13,14,15,16]
+            # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="red", alpha=0.3)
+            # indices = [17,18]
+            # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="green", alpha=0.3)
 
     plt.savefig(figname)
     print(f"Figure saved to {figname}")
 
 
 
-figname_modifier = "len20_05_15_final"
-figname_modifier = "len20_05_23"
-figname_modifier = "len20_05_23_kl0_1"
-figname_modifier = "len20_05_23_kl0_01"
-figname_modifier = "len20_05_24_kl0_1"
-figname_modifier = "len20_05_25_kl0_01"
-figname_modifier = "len20_05_26_kl0_01"
-
-figname_modifier = "len20_05_26_kl0_03"
-figname_modifier = "len20_05_27_kl0_03"
-figname_modifier = "len20_05_28_kl0_01"
-figname_modifier = "len20_05_28_kl0_03"
-figname_modifier = "len20_05_28_2_kl0_01"
-figname_modifier = "len20_05_31_kl0_01"
-figname_modifier = "len20_06_01_kl0_01"
-figname_modifier = "len20_06_03_kl0_01"
-figname_modifier = "len20_06_04_kl0_03"
-figname_modifier = "len20_06_05_kl0_03"
-
-figname_modifier = "len20_07_26_kl0_03"
-
-figname_modifier = "len20_09_13_kl0_03"
-figname_modifier = "len20_09_14_kl0_03"
-
-figname_modifier = "len20_09_15_kl0_03"
-
-# figname_modifier = "len20_09_16_kl0_03_epi1"
-
-figname_modifier = "len20_09_16_kl0_03_epi2"
-
-figname_modifier = "len20_09_17_kl0_03_epi2"
-figname_modifier = "len20_09_18_kl0_03_epi2"
-
-figname_modifier = "len20_09_18_kl0_03_epi1"
-
-figname_modifier = "len20_09_18_kl0_05_epi1"
-
-figname_modifier = "len50_09_18_kl0_05_epi1"
-
-figname_modifier = "len50_09_19_kl0_05_epi1"
-
-# figname_modifier = "len20_09_19_kl0_01_epi2"
-figname_modifier = "len50_09_20_kl0_05_epi1"
-
-# figname_modifier = "len20_09_20_kl0_01_epi2"
-# figname_modifier = "len50_09_21_kl0_05_epi1"
-
-figname_modifier = "len20_09_20_kl0_01_epi1"
-
-figname_modifier = "len20_09_20_kl0_03_epi1"
-figname_modifier = "len20_09_21_kl0_01_epi1"
-
-figname_modifier = "len20_09_22_kl0_01_epi1"
-
-figname_modifier = "len20_09_23_kl0_01_epi1"
-figname_modifier = "len20_09_23_kl0_01_epi1_v5"
-figname_modifier = "len20_09_24_kl0_01_epi1"
-figname_modifier = "len50_09_24_kl0_05_epi1"
-figname_modifier = "len50_09_24_kl0_05_epi1_v2"
-figname_modifier = "len20_09_24_kl0_1_epi2"
-figname_modifier = "len50_09_24_kl0_05_epi1_v5"
-figname_modifier = "len50_09_24_kl0_05_epi1_v6"
-
-figname_modifier = "len20_09_24_kl0_03_epi1"
-figname_modifier = "len20_09_24_kl0_03_epi1_v2"
-figname_modifier = "len20_09_25_kl0_03_epi1_clean"
-# figname_modifier = "len20_09_25_kl0_1_epi2"
-# figname_modifier = "len50_09_25_kl0_05_epi1"
-figname_modifier = "len20_09_26_kl0_03_epi1"
-figname_modifier = "len20_09_26_kl0_03_epi1_v2"
-figname_modifier = "len20_09_26_kl0_03_epi1_v3"
-
-figname_modifier = "len50_09_26_kl0_05_epi1"
-figname_modifier = "len20_09_26_kl0_03_epi1_v4"
-# Ok, pretty sure nothing to be done here on this setting... do a different setting instead...
-figname_modifier = "len50_09_26_kl0_05_epi1_v2"
-
-figname_modifier = "len50_09_26_kl0_05_epi1_v4"
-
-figname_modifier = "len50_09_26_kl0_05_epi1_v3"
-
-figname_modifier = "len20_09_28_kl0_2_epi1"
-figname_modifier = "len20_09_28_kl0_2_epi1_v2"
-figname_modifier = "len20_09_28_kl0_2_epi1_v3"
-figname_modifier = "len20_09_28_kl0_2_epi1_v4"
-figname_modifier = "len20_09_28_kl0_2_epi1_v5"
-
-
-figname_modifier = "1B_len100_09_08_kl0_03"
-figname_modifier = "1B_len100_09_08_kl0_1"
-
-figname_modifier = "1B_len100_09_11_kl0_1"
-figname_modifier = "1B_len100_09_12_kl0_1"
-
-figname_modifier = "1B_len100_09_14_kl0_1"
-
-figname_modifier = "1B_len100_09_14_kl0_1_badonlyeval"
-figname_modifier = "1B_len100_09_14_kl0_1_llamaguardbadonlyeval"
-
-figname_modifier = "1B_len100_09_15_kl0_1"
-
-figname_modifier = "1B_len100_09_16_kl0_1"
-figname_modifier = "1B_len100_09_17_kl0_1"
-figname_modifier = "1B_len100_09_17_kl0_1v2"
 
 figname_modifier = "1B_len100_09_14_kl0_1_llamaguardbadonlyeval"
 figname_modifier = "1B_len100_09_14_kl0_1_badonlyeval"
 
 figname_modifier = "1B_len100_09_18_kl0_1_llamaguardbadonlyeval"
 
-figname_modifier = "1B_len100_09_18_kl0_1"
-figname_modifier = "1B_len100_09_19_kl0_1"
+# After changes
+figname_modifier = "1B_len100_10_03_kl1"
+figname_modifier = "1B_len100_10_03_kl2"
+figname_modifier = "len20_10_03_kl0_2_epi2_w_epi1_s10"
+figname_modifier = "len20_10_04_kl0_2_epi2_w_epi1_s10"
+figname_modifier = "1B_len100_10_04_kl2"
+figname_modifier = "len20_10_04_kl0_2_epi2_w_epi1_s10"
+figname_modifier = "len20_10_05_kl0_2_epi2_w_epi1_s10"
+figname_modifier = "1B_len100_10_05_kl2"
+figname_modifier = "1B_len100_10_05_kl3"
+figname_modifier = "len20_10_06_kl0_2_epi2_w_epi1_s10"
+figname_modifier = "len20_10_06_kl0_2_epi2_w_epi1"
+figname_modifier = "1B_len100_10_06_kl2"
+figname_modifier = "1B_len100_10_06_kl2_v2"
+figname_modifier = "1B_len100_10_07_kl2"
+figname_modifier = "len20_10_06_kl0_2_epi2_w_epi1_gcg"
+figname_modifier = "1B_len100_10_07_kl2_v2_s3"
+figname_modifier = "1B_len100_10_07_kl2_v2"
+figname_modifier = "len20_10_07_kl0_2_epi2_w_epi1_gcg"
+figname_modifier = "1B_len100_10_08_kl2"
+figname_modifier = "len20_10_08_kl0_2_epi2_w_epi1_and_ind"
+figname_modifier = "len20_10_08_kl0_2_epi2_w_epi1_and_ind_s10"
+figname_modifier = "1B_len100_10_08_kl2_v2"
+figname_modifier = "len20_10_08_kl0_2_epi2_w_epi1_and_ind_s10_clean"
+figname_modifier = "len20_10_08_kl0_2_epi2_w_epi1_s10_clean"
+figname_modifier = "len20_10_08_kl0_2_epi2_w_epi1_gcg"
+figname_modifier = "len20_10_09_kl0_2_epi2_w_epi1_s10_final"
 
-figname_modifier = "1B_len100_09_19_kl0_03"
-# figname_modifier = "1B_len100_09_19_kl0_01"
-figname_modifier = "1B_len100_09_20_kl0_03"
-figname_modifier = "1B_len100_09_20_kl0_01"
 
-# figname_modifier = "1B_len100_09_20_kl0_1"
+figname_modifier = "1B_len100_10_09_kl2"
 
-figname_modifier = "1B_len100_09_21_kl0_1"
-# figname_modifier = "1B_len100_09_21_kl0_01"
+figname_modifier = "len20_10_09_kl0_2_epi2_s10_final"
 
-figname_modifier = "1B_len100_09_22_kl0_01"
-figname_modifier = "1B_len100_09_22_kl0_03"
-figname_modifier = "1B_len100_09_22_kl0_1"
-figname_modifier = "1B_len100_09_23_kl0_1"
-figname_modifier = "1B_len100_09_23_kl0_1v2"
-figname_modifier = "1B_len100_09_24_kl0_1"
-figname_modifier = "1B_len100_09_24_kl0_1v3"
-figname_modifier = "1B_len100_09_25_kl0_1_clean"
-figname_modifier = "1B_len100_09_25_kl0_1_epi2"
+figname_modifier = "len20_10_09_kl0_2_epi2_sameepicomparison_s10_final"
 
-figname_modifier = "1B_len100_09_25_kl0_2"
-figname_modifier = "1B_len100_09_26_kl0_2"
-figname_modifier = "1B_len100_09_26_kl0_2_v2"
+figname_modifier = "len20_10_09_kl0_2_epi2_s10_gcg_final"
 
-figname_modifier = "1B_len100_09_26_kl0_01"
-figname_modifier = "1B_len100_09_26_kl0_03"
+figname_modifier = "1B_len100_10_09_kl2_v2"
 
-figname_modifier = "1B_len100_09_27_kl0_2"
+figname_modifier = "1B_len100_10_09_kl2_final"
 
-figname_modifier = "1B_len100_09_28_kl0_4"
+figname_modifier = "1B_len100_10_09_kl2_v3"
+figname_modifier = "1B_len100_10_10_kl2_v2"
+figname_modifier = "1B_len100_10_10_kl2_v3"
+figname_modifier = "1B_len100_10_10_kl2_v4"
 
-figname_modifier = "len20_09_29_kl0_2_epi1"
-figname_modifier = "len20_09_29_kl0_2_epi1_v2"
-figname_modifier = "len20_09_29_kl0_2_epi2"
-figname_modifier = "len20_09_29_kl0_2_epi1_v3"
 
-figname_modifier = "len20_09_29_kl0_2_epi2_v2"
-figname_modifier = "len20_09_29_kl0_2_epi2_v3"
-
-figname_modifier = "1B_len100_09_29_kl0_4"
-
-figname_modifier = "len20_09_30_kl0_2_epi2"
-figname_modifier = "len20_09_30_kl0_2_epi2_v2"
-
-figname_modifier = "1B_len100_09_30_kl0_4"
-
-# figname_modifier = "1B_len100_09_30_kl0_2"
-# figname_modifier = "1B_len100_09_30_kl0_1_epi1"
-# figname_modifier = "1B_len100_09_30_kl0_1_epi2"
-
-figname_modifier = "len20_09_30_kl0_2_epi2_v2"
-figname_modifier = "len20_09_30_kl0_2_epi2_v3"
-figname_modifier = "len20_09_30_kl0_2_epi2_v4"
-
-figname_modifier = "1B_len100_09_30_kl0_4_v2"
-
-figname_modifier = "len20_10_01_kl0_2_epi2"
-figname_modifier = "len20_10_01_kl0_2_epi2_v2"
-
-figname_modifier = "len20_10_01_kl0_2_epi2_clean"
-figname_modifier = "len20_10_01_kl0_2_epi2_clean_v2"
-
-# figname_modifier = "1B_len100_10_01_kl0_4"
-
-figname_modifier = "len20_10_01_kl0_2_epi2_w_epi1"
-
-figname_modifier = "1B_len100_10_01_kl0_5"
-figname_modifier = "1B_len100_10_01_kl1"
+figname_modifier = "1B_len100_10_10_kl2_v5"
+figname_modifier = "1B_len100_10_11_kl2"
 
 
 do_1B_experiments = False
@@ -456,7 +344,7 @@ marker_list.extend(["x"] * 12)
 
 # xlimlow = 2
 # xlimhigh = 10
-fontsize = 11
+fontsize = 9
 
 
 compare_to_reference = False
@@ -468,2726 +356,321 @@ do_load = True # False
 
 threshold = -5 # Check diff values here too
 if do_1B_experiments:
-    threshold = -5
+    threshold = -7
 
 figname_modifier += f"_thr{threshold}"
+
+if "final" in figname_modifier:
+
+    if "1B" in figname_modifier:
+        pass
+
+    else:
+        color_list = [
+                         'xkcd:light brown',
+                         'xkcd:orange', 'xkcd:red', 'xkcd:pink', 'xkcd:magenta', 'xkcd:purple',
+                         'xkcd:black', 'xkcd:gray',
+                          'xkcd:green', 'xkcd:teal', 'xkcd:blue',
+                         # 'xkcd:gold',
+
+                     ] * 2
+        marker_list = ["D", "^", "^", "^", "^", "^",
+                       "o", "o",
+                       "P", "P", "P",
+                       # "P", "v", "v", "v", "P", "o", "o",
+                       # "P", "o", "o", "P", "^", "^", "P", "v", "v", "v",
+                       # "v", "v", "^", "P", "v", "D", "v", "v", "x", "v",
+                      ] * 2
+
 
 
 if do_load:
     n_epochs = 100
 
-    if "kl0_2" in figname_modifier and "len20" in figname_modifier and "epi2" in figname_modifier and "epi1" in figname_modifier:
+    if "kl0_2" in figname_modifier and "len20" in figname_modifier:
         load_prefixes_to_use = [
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi4_schconstant_alr3e-05_clr3e-05_clossmse_policy_s1",
-                1, 5),
+                1, 10),
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+                1, 10),
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.1_harml_reinforce_a1.0rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
+                1, 10),
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a0.3rta0.3_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+                1, 10),
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
+                1, 10),
 
-
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
-                1, 5),
+            # make_list(
+            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
+            #     1, 10),
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+                1, 10),
+
+            make_list(
+                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
+                1, 10),
+            make_list(
+                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
+                1, 10),
+
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+                1, 10),
 
+            # make_list(
+            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1",
+            #     1, 10),
             make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-
+                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr2e-05_blr3e-05_policy_psi_q_p_s_t_s1",
+                1, 10),
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-
+                1, 10),
 
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi2_schconstant_alr3e-05_clr3e-05_clossmse_policy_s1",
-                1, 5),
+                1, 10),
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+                1, 10),
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.1_harml_reinforce_a1.0rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
+                1, 10),
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a0.3rta0.3_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+                1, 10),
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
+                1, 10),
 
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
-                1, 5),
+            # make_list(
+            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
+            #     1, 10),
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+                1, 10),
 
             make_list(
                 "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+                1, 10),
 
             make_list(
                 "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-
-        ]
-
-    elif "kl0_03" in figname_modifier and "len20" in figname_modifier and "epi2" in figname_modifier:
-
-
-        load_prefixes_to_use = [
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1",
                 1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
+            # for x in $(ls info/rlhfmultilen20kl2 | grep neg_tr | grep info | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
 
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            make_list(
-                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            # # Stuff from 07-26
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi2_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1", 1, 10),
             # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
             #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list("info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
 
-
-
-
-
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1", 1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            #
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,5),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,5),
-            #
-            #
-            # # Below did not really work well
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-20.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.002_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0002_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0005_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-50.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            #
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",1,10),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",1,10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
+            # # for x in $(ls info/rlhfmultilen20kl2ind |  grep info_eval | grep t-3  | grep _s2); do echo make_list\(\"$x\", 1, 5\),; done
             # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta5.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta5.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-
-            # for x in $(ls /scratch/zhaostep/OpenRLHF/info/rlhfmultismol/ | grep neg_tr | grep info | grep epi1 | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-
-            # # for x in $(ls info/rlhfmultinew2/ | grep neg_tr | grep info | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.01_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-50.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-
-            # for x in $(ls info/rlhfmultinew2/ | grep neg_tr | grep info | grep _s1); do echo make_list\(\"$x\", 1, 10\),; done
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s10",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.01_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.01_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-50.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a0.5rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-        ]
-
-    elif "kl0_03" in figname_modifier and "len20" in figname_modifier and "epi1" in figname_modifier:
-
-        # # Len20 epi1 list
-        # load_prefixes_to_use = [
-        #
-        #     # Stuff from 07-26
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi2_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1",
-        #         1, 10),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #     make_list(
-        #         "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #
-        #
-        #
-        #     # for x in $(ls /scratch/zhaostep/OpenRLHF/info/rlhfmultismol/ | grep neg_tr | grep info | grep epi1 | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-        #
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5), #10
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-40.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.001_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.003_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.003_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.01_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.01_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.03_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.03_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     # make_list(
-        #     #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-50.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #     #     1, 10),
-        #
-        #     # for x in $(ls info/rlhfmultilen20kl03 | grep info_eval | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0003_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a2.0rta2.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a5.0rta5.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a5.0rta5.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #
-        #     # for x in $(ls /mfs1/u/stephenzhao/OpenRLHF/info/rlhfmulti | grep neg_tr | grep info | grep epi1 | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #
-        #     # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl03test | grep neg_tr | grep info | grep epi1 | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-15.0_beta-60.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #     make_list(
-        #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-3.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-        #         1, 5),
-        #
-        # ]
-
-        # Cleaner version of the above:
-        # Cleaner version of the above:
-        load_prefixes_to_use = [
-
-            # Stuff from 07-26
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi2_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0003_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a2.0rta2.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a5.0rta5.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-0.5_harml_reinforce_a5.0rta5.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),  # 10
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.001_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.01_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_start0.01_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # for x in $(ls info/rlhfmultilen20kl03 | grep info_eval | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # for x in $(ls /mfs1/u/stephenzhao/OpenRLHF/info/rlhfmulti | grep neg_tr | grep info | grep epi1 | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-0.1_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl03test | grep neg_tr | grep info | grep epi1 | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-15.0_beta-60.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-3.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl03test | grep neg_tr | grep info | grep epi1 | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-10.0_beta-300.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-15.0_beta-60.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-3.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-3.0_beta-100.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_start-3.0_beta-300.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl03rt | grep neg_tr | grep info | grep epi1 | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultikl030926 | grep info | grep _s1); do echo make_list\(\"$x\", 1, 10\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.03_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr5e-05_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-        ]
-
-    elif "kl0_1" in figname_modifier and "len20" in figname_modifier and "epi2" in figname_modifier:
-
-
-        load_prefixes_to_use = [
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1, 10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.1_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.1_harml_reinforce_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.1_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1, 10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1", 1, 10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1", 1, 10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1, 10),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1, 5),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr3e-05_policy_psi_q_p_s_t_s1",1,5),
-
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",1,5),
-
-            make_list("info_eval_rlhf_tu_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1", 1, 10),
-
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1,5),
-            #
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            #
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            #
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1,5),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1,5),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.1_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1,5),
-
-
-        ]
-
-
-
-
-    # load_prefixes_to_use = [
-    #     make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-    #     make_list(
-    #         "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-    #         1, 5),
-    #
-    #     make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1", 1, 5),
-    #     make_list(
-    #         "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-    #         1, 5),
-    # ]
-
-    # load_prefixes_to_use = [
-    #     make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1", 1, 5),
-    #     make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1, 5),
-    #
-    # ]
-
-    # load_prefixes_to_use = [
-    #     make_list(
-    #         "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-    #         1, 10),
-    #     make_list(
-    #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-    #         1, 10),
-    #     make_list(
-    #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.05_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-    #         1, 10),
-    #     make_list(
-    #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.05_beta20.0_policy_ppo_epo1_epi2_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1",
-    #         1, 10),
-    #     make_list(
-    #         "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-    #         1, 10),
-    #
-    # ]
-
-
-
-    elif "kl0_01" in figname_modifier and "len20" in figname_modifier and "epi1" in figname_modifier:
-
-        # for x in $(ls info/rlhfmultilen20kl01 | grep info_eval | grep _s1 | grep -v _s10); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.01_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,20),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.01_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.01_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,20),
-
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0003_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1", 1, 10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 1, 10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1", 1, 10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 20),
-            # # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1", 1, 10),
-            #
-            # # make_list("", 1, 10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-50.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-100.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-10.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-20.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1,10),
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi3_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1,10),
-            #
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",1,10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-20.0_kl0.01_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-20.0_kl0.01_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-20.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-20.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-20.0_kl0.01_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-20.0_kl0.01_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-
-            # # for x in $(ls info/rlhfmulti | grep epi4 | grep kl0.01 | grep info_eval | grep _s1 | grep -v _s10); do echo make_list\(\"$x\",1,10\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.5_harml_reinforce_a2.0rta2.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_reinforce_a3.0rta3.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            # #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # for x in $(ls info/rlhfmultilen20kl01test | grep kl0.01 | grep info_eval | grep _s1 | grep -v _s10); do echo make_list\(\"$x\",1,5\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_harml_neg_reinforce_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.3_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.3_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.3_uniwgt_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.3_uniwgt_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-10.0_harml_neg_reinforce_a0.0001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-10.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-10.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-10.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.0001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a3e-05_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_uniwgt_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_uniwgt_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-3.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-3.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # for x in $(ls info/rlhfmultilen20kl01test2 | grep kl0.01 | grep info_eval | grep _s1 | grep -v _s10); do echo make_list\(\"$x\",1,5\),; done
-
-            # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta0.0_uniwgt_harml_neg_reinforce_a0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-
-            # # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl01 | grep kl0.01 | grep info_eval | grep _s2 | grep -v _s10 | grep uniw); do echo make_list\(\"$x\",1,5\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_uniwgt_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-                1, 10),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_uniwgt_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
-            # #     1, 10),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_uniwgt_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-            # #     1, 10),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_uniwgt_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
-            # #     1, 10),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_uniwgt_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-            # #     1, 10),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_uniwgt_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s2",
-            # #     1, 10),
-
-            # # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl01test | grep kl0.01 | grep info_eval | grep _s2 | grep -v _s10 | grep neg_reinf); do echo make_list\(\"$x\",1,10\),; done
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.3_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-0.3_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-3.0_harml_neg_reinforce_a0.0001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-3.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 5),
-
-            # # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl01 | grep kl0.01 | grep info_eval | grep _s2 | grep -v _s10 | grep neg_tr | grep rta); do echo make_list\(\"$x\",1,10\),; done
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003rta2.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003rta2.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s2",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-30.0_harml_neg_training_a0.003rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s2",
-                1, 10),
-
-            # # # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl01test3 | grep kl0.01 | grep info_eval | grep _s1 | grep -v _s10 ); do echo make_list\(\"$x\",1,10\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.003rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.003rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.01_beta-1.0_harml_neg_reinforce_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-
-        ]
-
-    elif "kl0_05" in figname_modifier and "len50" in figname_modifier and "epi1" in figname_modifier:
-
-        # for x in $(ls info/rlhfmultilen50kl5 | grep info_eval | grep _s1); do echo make_list\(\"$x\", 1, 10\),; done
-        load_prefixes_to_use = [
-
-            make_list(
-                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0003_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5) + make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                8, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                6, 7),
-            # Use below as example of why 0.0001 is unstable
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                6, 7),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a2.0rta2.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a2.0rta2.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a5.0rta5.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_reinforce_a5.0rta5.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
-                1, 10),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-1.0_harml_reinforce_a3.0rta3.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            make_list(
-                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5) + make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1", 8, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                6, 7),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5) + make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                8, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                6, 7),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0003_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.005rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr0.0001_policy_psi_q_p_s_t_s1",
+            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a1.0rta1.0_t-0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
             # #     1, 10),
             # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a1.0rta1.0_t-3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
             #     1, 10),
+            # # make_list(
+            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a1.0rta1.0_t-5.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
+            # #     1, 10),
+            # # make_list(
+            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a3.0rta3.0_t-0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
+            # #     1, 10),
             # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a3.0rta3.0_t-3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
             #     1, 10),
+            # # make_list(
+            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a3.0rta3.0_t-5.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
+            # #     1, 10),
             # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0002_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.01rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0003_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # for x in $(ls info/rlhfmultilen50kl5 | grep info_eval | grep _s1 | grep neg_reinf | grep -v blr3e-05 | grep -v beta-10 | grep -v a0.001); do echo make_list\(\"$x\", 1, 10\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.1_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.3_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.3_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.3_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.3_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-0.5_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-1.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-1.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-1.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-1.0_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-3.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-5.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-
-            # # for x in $(ls info/rlhfmultilen50kl5 | grep info_eval | grep _s1 | grep neg_tr | grep rta | grep -v _s10); do echo make_list\(\"$x\", 1, 10\),; done
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.003rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.005rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 10),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len50_kl0.05_beta-30.0_harml_neg_training_a0.005rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a5.0rta5.0_t-3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s2",
             #     1, 10),
 
         ]
 
-    elif "kl0_2" in figname_modifier and "len20" in figname_modifier and "epi1" in figname_modifier:
-        # for x in $( ls info/rlhfmultilen20kl2 | grep kl0.2 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
 
-            # for x in $( ls info/rlhfmultilen20kl2 | grep kl0.2 | grep reinf | grep epi1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_reinforce_a3.0rta3.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_reinforce_a3.0rta3.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # for x in $( ls info/rlhfmultilen20kl2 | grep kl0.2 | grep reinf | grep "beta-0\.3" | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.1_harml_reinforce_a0.3rta0.3_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.1_harml_reinforce_a1.0rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
+        if "sameepi" in figname_modifier:
+            load_prefixes_to_use = load_prefixes_to_use[11:] + load_prefixes_to_use[8:11]
+        elif "epi2" in figname_modifier and "epi1" in figname_modifier:
+            pass
+        elif "epi2" in figname_modifier:
+            load_prefixes_to_use = load_prefixes_to_use[:11]
 
 
 
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
 
 
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-3.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-3.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-3.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-3.0_harml_neg_training_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-3.0_harml_neg_training_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
 
 
-            # for x in $( ls info/rlhfmultilen20kl2 | grep kl0.2 | grep beta-10 | grep epi1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # for x in $( ls info/rlhfmultilen20kl2 | grep kl0.2 | grep "beta-30" | grep -v a1 | grep -v a3 | grep epi1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 3),
-
-
-            # for x in $( ls info/rlhfmultilen20kl2 | grep kl0.2 | grep "beta-40\|beta-50" | grep epi1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-40.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-40.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-50.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-50.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-            # for x in $( ls info/rlhfmultilen20kl20929 | grep kl0.2 |  grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.1_harml_reinforce_a1.0rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0003_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr0.0001_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-
-
-        ]
-
-
-    elif "kl0_2" in figname_modifier and "len20" in figname_modifier and "epi2" in figname_modifier:
-        if "clean" in figname_modifier:
-            # color_list = [
-            #                  'xkcd:orange', 'xkcd:red', 'xkcd:purple', 'xkcd:green', 'xkcd:blue',
-            #                  'xkcd:black', 'xkcd:gray', 'xkcd:light brown',
-            #                  'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:magenta',
-            #              ] * 5
-            marker_list = ["D", "^", "^", "^", "^", "^", "^",
-                           "P", "P", "P",
-                           "o", "o",
-                           # "P", "v", "v", "v", "P", "o", "o",
-                           # "P", "o", "o", "P", "^", "^", "P", "v", "v", "v",
-                           # "v", "v", "^", "P", "v", "D", "v", "v", "x", "v",
-                          ]
+    elif do_1B_experiments and "kl2" in figname_modifier and "len100" in figname_modifier and "1B" in figname_modifier:
+        # load_dir = "./info_10_09"
+        # load_dir = "./info_10_10"
 
         load_prefixes_to_use = [
 
-            # for x in $( ls info/rlhfmultilen20kl20930 | grep kl0.2 | grep ppo | grep epi4 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi4_schconstant_alr1e-05_clr1e-05_clossmse_policy_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi4_schconstant_alr3e-05_clr0.0001_clossmse_policy_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi4_schconstant_alr3e-05_clr1e-05_clossmse_policy_s1",
-            #     1, 5),
             make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi4_schconstant_alr3e-05_clr3e-05_clossmse_policy_s1",
-                1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.1_harml_reinforce_a1.0rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.1_harml_reinforce_a1.0rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a0.3rta0.3_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
-                1, 5),
-
-            # for x in $( ls info/rlhfmultilen20kl20930 | grep kl0.2 |  grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
 
             make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s5",
-            #     1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s5",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s5",
-            # #     1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s5",
-            #     1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s5",
-            #     1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_reinforce_a3.0rta3.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s5",
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
 
-            # for x in $( ls info/rlhfmultilen20kl20930 | grep kl0.2 | grep baseprop | grep -v a3 | grep -v a10 |  grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
+                1, 5),
 
-            # make_list(
-            #     "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-1.0_harml_neg_training_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
             make_list(
-                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
-            # make_list(
-            #     "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
 
-            # make_list(
-            #     "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-3.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-3.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-3.0_harml_neg_training_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
+            make_list(
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
+                1,5),
 
-        ]
 
-    elif do_1B_experiments and "kl0_1" in figname_modifier and "len100" in figname_modifier and "epi1" in figname_modifier:
-        load_dir = "./info/info_old"
-        # New experiments
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmulti | grep kl0.1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl1 | grep kl0.1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr3e-06_clr3e-06_clossmse_policy_s1",1,5),
-
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-05_clr1e-05_clossmse_policy_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-05_clr1e-06_clossmse_policy_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-05_clr3e-06_clossmse_policy_s1",
-            #     1, 5),
             make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-06_clr1e-05_clossmse_policy_s1",
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-5.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-07_blr3e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
             make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-06_clr1e-06_clossmse_policy_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-06_clr3e-06_clossmse_policy_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr3e-06_clr3e-06_clossmse_policy_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
 
 
             make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta0.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
+                "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
 
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",1,5),
-
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
             make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
+                "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-10.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
 
-            # # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1", 1, 5),
+            # # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl20 | grep kl2 | grep info_eval | grep -v beta-10 | grep _s1 | grep baseprop ); do echo make_list\(\"$x\",1,5\),; done
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-30.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-30.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 1),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 2) + make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1", 3, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.02_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-20.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-30.0_kl0.1_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 1) + make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-30.0_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",2,5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-5.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 2) + make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-5.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1", 3, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-5.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-7.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-3.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1", 1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-3.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-5.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1", 1,5),
-            # make_list(
-            #     "",
-            #     1, 5),
-
-            make_list(
-                "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                      1, 5),
-                      # 1,10)
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta5.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-3.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-3.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-3.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-5.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-5.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta5.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-3.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-            make_list(
-                    "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                    1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5,),
-            # # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_reinforce_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.3_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-3.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-3.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s2",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_reinforce_a0.0003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-
-
-
-
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.3_kl0.1_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.3_kl0.1_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,2)
-            + make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",3,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a10.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-1.0_kl0.1_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a0.5rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-
-
-            # make_list("info_eval_ind_thresh0.0_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta1.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # # # make_list("info_eval_ind_thresh0.0_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta1.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-05_policy_psi_q_p_s_t_s1",1,5),
-            # # make_list("info_eval_ind_thresh0.0_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta1.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_ind_thresh0.0_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta1.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_ind_thresh0.0_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta1.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-
-
-            # make_list("info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # TODO later add back the below
-            make_list("info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.3_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.3_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.3_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.1_beta-50.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.3_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.3_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.3_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.3_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-0.3_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-10.0_beta-1.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-1.0_beta-100.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-1.0_beta-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-1.0_beta-30.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-1.0_beta-50.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-30.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_start-30.0_beta-1.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-
-            # for x in $(ls /scratch/zhaostep/OpenRLHF/info/rlhfmultialphaanneal/ | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.001_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.003_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.003_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.003_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.003_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.01_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.01_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.01_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.01_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_start0.03_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-
-
-
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_sepb-3.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_sepb-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-30.0_sepb-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-3.0_sepb-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-3.0_sepb-30.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
-
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
-        ]
-
-    elif do_1B_experiments and "kl0_1" in figname_modifier and "len100" in figname_modifier and "epi2" in figname_modifier:
-        load_dir = "./info/info_old"
-
-        # 2 epi experiments
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmulti | grep kl0.1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl1 | grep kl0.1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr3e-06_clr3e-06_clossmse_policy_s1",1,5),
-            #
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-06_clr1e-05_clossmse_policy_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-06_clr1e-06_clossmse_policy_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr1e-06_clr3e-06_clossmse_policy_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta10.0_policy_ppo_epo1_epi2_schconstant_alr3e-06_clr3e-06_clossmse_policy_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta0.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-5.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
             #     1, 5),
             #
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",1,5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-
-
-
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.3_kl0.1_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.3_kl0.1_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,2)
-            # + make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",3,5),
-
-            # make_list("info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-            # TODO later add back the below
-            # make_list("info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",1,5),
-
-
-            # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl1 | grep kl0.1 | grep -v epi1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-
-            # # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl1 | grep kl0.1 | grep info_eval | grep _s1 | grep neg_tr | grep epi2 ); do echo make_list\(\"$x\",1,5\),; done
-
+            #
+            # # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl20 | grep kl2 | grep info_eval | grep _s1 | grep ppo | grep epi4 ); do echo make_list\(\"$x\",1,5\),; done
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.5_policy_ppo_epo1_epi4_schconstant_alr1e-06_clr1e-06_clossmse_policy_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.5_policy_ppo_epo1_epi4_schconstant_alr1e-06_clr3e-06_clossmse_policy_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-5.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-5.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",1,5),
-
-            # # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl1kl1 | grep kl0.1 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",1,5),
-            # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",1,5),
-
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",1,5),
-            make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.003rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",1,5),
-            # # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl1 | grep kl0.1 | grep info_eval | grep neg_rein | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.3_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.5_policy_ppo_epo1_epi4_schconstant_alr1e-07_clr3e-07_clossmse_policy_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.3_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.5_policy_ppo_epo1_epi4_schconstant_alr3e-07_clr1e-06_clossmse_policy_s1",
             #     1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.3_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.5_policy_ppo_epo1_epi4_schconstant_alr3e-07_clr1e-07_clossmse_policy_s1",
             #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # # make_list(
-            # #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            # #     1, 5),
             make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.3_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.3_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
+                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.5_policy_ppo_epo1_epi4_schconstant_alr3e-07_clr3e-06_clossmse_policy_s1",
                 1, 5),
             # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.3_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
+            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.5_policy_ppo_epo1_epi4_schconstant_alr3e-07_clr3e-07_clossmse_policy_s1",
             #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.3_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-1.0_harml_neg_reinforce_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-3.0_harml_neg_reinforce_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-        ]
-
-    elif do_1B_experiments and "kl0_03" in figname_modifier and "len100" in figname_modifier:
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl03 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.03_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-        ]
-
-    elif do_1B_experiments and "kl0_01" in figname_modifier and "len100" in figname_modifier:
-
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl01 | grep info_eval | grep _s1 ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr1e-05_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-05_blr3e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.01_beta-20.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-            #     1, 5),
-
 
         ]
-
-
-
-        # load_prefixes_to_use = [
-        #     make_list(
-        #         "special/info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #
-        #     make_list(
-        #         "special/info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #
-        # ]
-
-        # load_prefixes_to_use = [
-        #     make_list("special/info_eval_rlhf_Ll3.1BIn_LlGu31B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s6",6,10),
-        #     make_list(
-        #         "special/info_eval_rlhf_Ll3.1BIn_LlGu31B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi0_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s6",
-        #         6, 10),
-        #
-        # ]
-
-    elif do_1B_experiments and "kl0_2" in figname_modifier and "len100" in figname_modifier:
-        load_dir = "./info/info_old"
-
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl2 | grep info_eval | grep _s1 | grep -v lhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_po ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-0.5_harml_reinforce_a3.0rta3.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-1.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-20.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-3.0_harml_neg_training_a0.001_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-3.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-3.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-3.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-07_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-3.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-3.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-3.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-3.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-5.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.2_beta-5.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-        ]
-    elif do_1B_experiments and "kl0_4" in figname_modifier and "len100" in figname_modifier:
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl4 | grep info_eval | grep _s1  ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-07_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-07_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-07_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-07_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-1.0_harml_reinforce_a1.0rta1.0_b-1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.03_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-07_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-3.0_harml_neg_training_a0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.4_beta-5.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-06_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-
-        ]
-
-    elif do_1B_experiments and "kl0_5" in figname_modifier and "len100" in figname_modifier:
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl5 | grep info_eval | grep _s1  ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.5_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-    ]
-    elif do_1B_experiments and "kl1" in figname_modifier and "len100" in figname_modifier:
-        # for x in $( ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl10 | grep info_eval | grep _s1  ); do echo make_list\(\"$x\",1,5\),; done
-        load_prefixes_to_use = [
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-06_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-            make_list(
-                "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl1.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-                1, 5),
-        ]
-
 
     else:
         raise Exception("Figname does not correspond to any set of data")
 
     use_handcrafted_labels = False
 
+    if "final" in figname_modifier:
+        use_handcrafted_labels = True
 
-    if use_handcrafted_labels:
+        if "kl0_2" in figname_modifier and "len20" in figname_modifier:
 
-        labels = [
-            r"PPO (4 Episodes)",
-            r"REINFORCE (4 Episodes)",
-            r"REINFORCE, $r(s) - 3 e^{-0.5 r(s)}$ (4 Episodes)",
-            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (4 Episodes)",
-            r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (2 Episodes)",
-        ]
+            if "sameepi" in figname_modifier:
+                more_eps_str = " (2 Episodes)"
+                less_eps_str = " (2 Episodes)"
+            elif "epi2" in figname_modifier:
+                more_eps_str = " (4 Episodes)"
+                less_eps_str = " (2 Episodes)"
+            else:
+                raise NotImplementedError
+
+            labels = [
+                # All baselr3e-5
+                r"PPO" + more_eps_str,
+                r"REINFORCE" + more_eps_str,
+                r"REINFORCE, $r(s) - e^{-0.1 r(s)}$" + more_eps_str,
+                r"REINFORCE, $r(s) - 0.3 e^{-0.5 r(s)}$" + more_eps_str,
+                r"REINFORCE, $r(s) - e^{-0.3 r(s)}$" + more_eps_str,
+                r"REINFORCE, $r(s) - e^{-0.5 r(s)}$" + more_eps_str,
+                r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.1$" + more_eps_str,
+                r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 1$" + more_eps_str,
+                r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.1$" + less_eps_str, # alr3e-05
+                r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-20 r(s)}$, $\alpha = 0.1$" + less_eps_str, # alr2e-05
+                r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.1$" + less_eps_str, # alr1e-05
+            ]
+        elif "kl2" in figname_modifier and "len100" and "1B" in figname_modifier:
+            more_eps_str = " (4 Episodes)"
+            less_eps_str = " (2 Episodes)"
+            labels = [
+                # All baselr3e-5
+                # r"PPO" + more_eps_str,
+                r"REINFORCE" + more_eps_str,
+                r"REINFORCE, $r(s) - 3 e^{-0.3 r(s)}$, lr 1e-7" + more_eps_str,
+                r"REINFORCE, $r(s) - 1 e^{-r(s)}$, lr 1e-7" + more_eps_str,
+                r"REINFORCE, $r(s) - 3 e^{-0.3 r(s)}$, lr 3e-7" + more_eps_str,
+                r"REINFORCE, $r(s) - 1 e^{-r(s)}$, lr 3e-7" + more_eps_str,
+                # r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.1$" + more_eps_str,
+                # r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 1$" + more_eps_str,
+                r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-5 r(s)}$, $\alpha = 0.1$" + less_eps_str,
+                r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.1$" + less_eps_str,
+                # alr3e-05
+                # r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-20 r(s)}$, $\alpha = 0.1$" + less_eps_str,
+                # # alr2e-05
+                # r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.1$" + less_eps_str,
+                # # alr1e-05
+            ]
+
+        else:
+            raise NotImplementedError
+
 
     else:
         # labels = ['_'.join(a[0].split('len20_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for a in load_prefixes_to_use]
-        labels = ['_'.join(a[0].split('len100_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for a in load_prefixes_to_use]
-
+        labels = [
+            '_'.join(a[0].split('len100_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0]
+            for a in load_prefixes_to_use]
 
     # inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
 
@@ -3202,9 +685,9 @@ if do_load:
     inds_to_use = None
 
 
-
-
-    do_gcg = False # True
+    do_gcg = False
+    if "gcg" in figname_modifier:
+        do_gcg = True
     # if not do_gcg:
     #     fontsize = 12
 
@@ -3218,116 +701,176 @@ if do_load:
         inds_to_use = None
         # inds_to_use = [0,1,2,3,4,5,6]
 
-        # TODO have to sync this with the results before
 
+        # TODO copy over results
+        #  for x in $(ls /mfs1/u/stephenzhao/OpenRLHF/checkpoint/rlhfmultilen20kl2/ | grep gcg); do \cp -rf  /mfs1/u/stephenzhao/OpenRLHF/checkpoint/rlhfmultilen20kl2/$x gcginfo/; done
+
+        load_prefixes_to_use = load_prefixes_to_use
+
+        # for x in $(ls gcginfo | grep _s1); do echo make_list\(\"$x\", 1, 5\),; done
         gcg_prefixes = [
             make_list(
-                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1_actor",
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi4_schconstant_alr3e-05_clr3e-05_clossmse_policy_s1_actor",
                 1, 10),
 
             make_list(
-                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
+                1, 10),
+            make_list(
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.1_harml_reinforce_a1.0rta1.0_b-0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
+                1, 10),
+            make_list(
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a0.3rta0.3_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
+                1, 10),
+            make_list(
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
+                1, 10),
+            make_list(
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
                 1, 10),
 
             make_list(
-                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+                "gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
                 1, 10),
             make_list(
-                "gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+                "gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
                 1, 10),
-            # make_list("20prompts_gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
-
-
             make_list(
-                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
                 1, 10),
-            # make_list("20prompts_gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",1,10),
-
-            # make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
-            # make_list(
-            #     "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
-            #     1, 10),
-
-            # 07-26 Stuff
-            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi2_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1_actor", 1, 10),
-            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",1,10),
-            make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
-            make_list("gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",1,10),
-
-
-        #     # TODO ensure this matches, and add the neg_tr one as well
-        #     make_list(
-        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
-        #         1, 10),
-        #     make_list(
-        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
-        #         1, 10),
-        #     make_list(
-        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
-        #         1, 10),
-        #     # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
-        #     make_list(
-        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
-        #         1, 10),
+            make_list(
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr2e-05_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
+                1, 10),
+            make_list(
+                "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
+                1, 10),
 
         ]
 
-        # # gcg_prefixes = [
+        # if use_handcrafted_labels:
+        #     labels = [
+        #         r"PPO (4 Episodes)",
+        #         r"REINFORCE (4 Episodes)",
+        #         r"REINFORCE, $r(s) - 3 e^{-0.5 r(s)}$ (4 Episodes)",
+        #         r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (4 Episodes)",
+        #         r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.003$ (2 Episodes)",
+        #     ]
+        # else:
+        #     # labels = ['_'.join(a[0].split('len20_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for a in load_prefixes_to_use]
+        #     labels = [
+        #         '_'.join(a[0].split('len100_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[
+        #             0] for a in load_prefixes_to_use]
+
+
+
+        # gcg_prefixes = [
+        #     make_list(
+        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1_actor",
+        #         1, 10),
+        #
+        #     make_list(
+        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        #         1, 10),
+        #
+        #     make_list(
+        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        #         1, 10),
+        #     make_list(
+        #         "gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        #         1, 10),
+        #     # make_list("20prompts_gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
+        #
+        #
+        #     make_list(
+        #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        #         1, 10),
+        #     # make_list("20prompts_gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",1,10),
+        #
+        #     # make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0001_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
+        #     # make_list(
+        #     #     "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        #     #     1, 10),
+        #
+        #     # 07-26 Stuff
+        #     make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi2_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1_actor", 1, 10),
+        #     make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",1,10),
+        #     make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor", 1, 10),
+        #     make_list("gcg_eval_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0001_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",1,10),
+        #
+        #
+        # #     # TODO ensure this matches, and add the neg_tr one as well
         # #     make_list(
-        # #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.01_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s6_harml_actor",
-        # #         1, 15),
-        # #
-        # #     make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
-        # #               1,15),
-        # #
-        # # ]
-
-        gcg_prefixes = [
-            make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
-            make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
-            make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5)
-        ]
-
-        gcg_prefixes = [
-            make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta0.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1,5),
-            make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
-            # make_list(
-            #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
-            #     1, 2) + make_list(
-            #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
-            #     3, 5),
-            # make_list(
-            #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-30.0_kl0.1_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
-            #     1, 1) + make_list(
-            #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-30.0_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
-            #     2, 5),
-            # make_list(
-            #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-5.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
-            #     1, 2) + make_list(
-            #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-5.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
-            #     3, 5),
-
-            make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",1,5),
-            make_list(
-                "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
-                1, 5),
-            make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",1,5),
-
-
-            make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta5.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
-
-            # make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",1,5),
-
-
-
-            make_list(
-                "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
-                1, 2)
-            + make_list("rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 3,5)
-            ,
-            # TODO CHECK THIS ENSURE CORRECT
-
-        ]
+        # #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        # #         1, 10),
+        # #     make_list(
+        # #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        # #         1, 10),
+        # #     make_list(
+        # #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
+        # #         1, 10),
+        # #     # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",1,10),
+        # #     make_list(
+        # #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi8_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
+        # #         1, 10),
+        #
+        # ]
+        #
+        # # # gcg_prefixes = [
+        # # #     make_list(
+        # # #         "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.01_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s6_harml_actor",
+        # # #         1, 15),
+        # # #
+        # # #     make_list("gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.01_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1_harml_actor",
+        # # #               1,15),
+        # # #
+        # # # ]
+        #
+        # gcg_prefixes = [
+        #     make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.03_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #     make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #     make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5)
+        # ]
+        #
+        # gcg_prefixes = [
+        #     make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta0.0_kl0.1_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1,5),
+        #     make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #     # make_list(
+        #     #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-10.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
+        #     #     1, 2) + make_list(
+        #     #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
+        #     #     3, 5),
+        #     # make_list(
+        #     #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-30.0_kl0.1_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
+        #     #     1, 1) + make_list(
+        #     #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-30.0_harml_neg_training_a0.005_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
+        #     #     2, 5),
+        #     # make_list(
+        #     #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-5.0_kl0.1_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
+        #     #     1, 2) + make_list(
+        #     #     "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-5.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
+        #     #     3, 5),
+        #
+        #     make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr1e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",1,5),
+        #     make_list(
+        #         "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta0.5_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
+        #         1, 5),
+        #     make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",1,5),
+        #
+        #
+        #     make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-10.0_harml_neg_training_a0.01rta5.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi1_schconstant_alr3e-06_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 1, 5),
+        #
+        #     # make_list("gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",1,5),
+        #
+        #
+        #
+        #     make_list(
+        #         "gcg_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_beta-0.5_kl0.1_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor",
+        #         1, 2)
+        #     + make_list("rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl0.1_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-06_policy_psi_q_p_s_t_s1_harml_actor", 3,5)
+        #     ,
+        #     # TODO CHECK THIS ENSURE CORRECT
+        #
+        # ]
 
 
         # for x in result_2025-05-13-00-17_eval_gcg250_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_s*; do tail -n 2 $x; done
@@ -3350,26 +893,10 @@ if do_load:
 
             [-78.86, -62.08, -124.83, -97.63, -76.06, -2026.25, -59.10, -63.84, -120.35, -684.96],  # ours
             # result_2025-05-15-20-06_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.
+            [-78.86, -62.08, -124.83, -97.63, -76.06, -2026.25, -59.10, -63.84, -120.35, -684.96],  # ours
+            # result_2025-05-15-20-06_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.
 
         ]
-
-        figname_modifier = "len20_05_15_bootstrap_gcg"
-        figname_modifier = "len20_05_23_bootstrap_gcg"
-        figname_modifier = "len20_05_23_bootstrap_kl0_1"
-        figname_modifier = "len20_05_25_bootstrap_kl0_01"
-        figname_modifier = "len20_05_26_bootstrap_gcg_kl0_01"
-        figname_modifier = "len20_05_26_bootstrap_gcg_kl0_03"
-        figname_modifier = "len20_05_27_bootstrap_gcg_kl0_03"
-        figname_modifier = "len20_05_28_bootstrap_gcg_kl0_01"
-        figname_modifier = "len20_05_28_bootstrap_gcg_kl0_03"
-        figname_modifier = "len20_06_06_bootstrap_gcg_kl0_03"
-        figname_modifier = "len20_07_26_bootstrap_gcg_kl0_03"
-        figname_modifier = "len20_07_29_20prompts_gcg_kl0_03"
-        figname_modifier = "len20_07_29_10prompts_gcg_kl0_03"
-        figname_modifier = "1B_len100_09_08_10prompts_gcg_kl0_03"
-        figname_modifier = "1B_len100_09_08_10prompts_gcg_kl0_1"
-        figname_modifier = "1B_len100_09_11_10prompts_gcg_kl0_1"
-        figname_modifier = "1B_len100_09_12_10prompts_gcg_kl0_1"
 
 
     if inds_to_use is None:
@@ -3405,7 +932,7 @@ if do_gcg:
         # xlimlow=xlimlow, xlimhigh=xlimhigh,
         fontsize=fontsize, aggregate_seeds=True,
         tuple_index=1,
-        tuple_index_gcg=0, # 1 originally TODO change back if need the old plots
+        tuple_index_gcg=1, # 1 originally TODO change back if need the old plots
         compare_to_reference=compare_to_reference,
         threshold=threshold,
         gcg_results_list=gcg_results_list
