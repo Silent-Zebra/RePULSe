@@ -1,3 +1,7 @@
+# TODO ITEMS
+
+Update with new commands. No adam offload. Ensure 1b gcg commands also point to csv file.
+
 # Setup Notes:
 
 On cluster: first consider deleting cache if the below commands don't work: ```rm -rf ~/.cache```
