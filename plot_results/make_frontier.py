@@ -15,9 +15,6 @@ import torch
 
 import scipy.stats as stats
 
-n_epochs = 80
-policy_updates_per_epoch = 5
-
 
 from scipy.stats import norm
 # from scipy import stats
@@ -46,29 +43,8 @@ def make_frontier_bootstrap(
 
     for i in range(len(labels)):
 
-        # print(f"Processing: {labels[i]}")  # Changed to f-string for clarity
-        # print(results_list[i]) # Original print, can be verbose
-
-
-
         if isinstance(results_list[i], tuple):
             raise NotImplementedError # hasn't been used/tested in a while
-            # # This case seems to assume pre-processed x and y, no aggregation
-            # # If aggregation is needed here too, this part would also need modification
-            # to_plot_x_agg = results_list[i][0]  # Assuming these are already aggregated means
-            # to_plot_y_agg = results_list[i][1]
-            # # No error bars defined for this case in original or new logic
-            # # If this branch should also have error bars with bootstrapping, it needs similar logic
-            # # based on the raw data that would lead to these tuple values.
-            # # For now, plotting as a single point if not aggregate_seeds, or if aggregate_seeds
-            # # and it's a tuple, it plots the pre-aggregated point without error bars.
-            # if not aggregate_seeds:
-            #     plt.scatter(to_plot_x_agg, to_plot_y_agg, label=labels[i], c=color_list[i], marker=marker_list[i])
-            # else:  # aggregate_seeds is True but data is a pre-aggregated tuple
-            #     # Plotting the point, but can't compute CI without per-seed data
-            #     plt.scatter(to_plot_x_agg, to_plot_y_agg, label=labels[i], c=color_list[i], marker=marker_list[i])
-            #     print(
-            #         f"Warning: aggregate_seeds is True for {labels[i]}, but data is a pre-aggregated tuple. Plotting point without error bars.")
 
 
         else:  # results_list[i] is a list of tensors (per-seed data)
@@ -153,6 +129,7 @@ def make_frontier_bootstrap(
 
 
             if compare_to_reference:
+                print("Warning: compare_to_reference not tested in quite a while")
                 if i == 0:
                     reference_x = x_values_all_seeds
                     reference_y = y_values_all_seeds
@@ -174,8 +151,6 @@ def make_frontier_bootstrap(
                 x_observed_mean = np.mean(x_values_all_seeds)
                 y_observed_mean = np.mean(y_values_all_seeds)
 
-                # print(
-                #     f"  {labels[i]}: Num seeds = {n_seeds}, Observed X-mean = {x_observed_mean:.3f}, Observed Y-mean (Prob Bad) = {y_observed_mean:.6f}")
 
                 if n_seeds < 2:
                     print(f"  Warning: Only {n_seeds} seed for {labels[i]}. Plotting mean without error bars.")
@@ -252,10 +227,8 @@ def make_frontier_bootstrap(
         if "1B" in figname:
             indices = [1, 2, 3, 4, 5]
             plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="red", alpha=0.3, linestyle='--')
-
-            # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3, linestyle=":")
             indices = [6, 7]
-            plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3, linestyle='-.')
+            plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3, linestyle=':')
             indices = [8,9]
             plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="teal", alpha=0.3, linestyle='-.')
 
@@ -266,79 +239,23 @@ def make_frontier_bootstrap(
             plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="black", alpha=0.3, linestyle=":")
             indices = [8,9,10]
             plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="teal", alpha=0.3, linestyle='-.')
-            # indices = [12,13,14,15,16]
-            # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="red", alpha=0.3)
-            # indices = [17,18]
-            # plt.plot([all_x[i] for i in indices], [all_y[i] for i in indices], color="green", alpha=0.3)
+
 
     plt.savefig(figname)
     print(f"Figure saved to {figname}")
 
 
 
+# Comment out/select as needed
+figname_modifier = "len20_10_18_kl0_2_epi2_s10_final"
+figname_modifier = "len20_10_18_kl0_2_epi2_s10_gcg_final"
+figname_modifier = "len20_10_18_kl0_2_epi2_s10_cvar_final"
+figname_modifier = "len20_10_18_kl0_2_epi2_s10_sameepi_final"
 
-figname_modifier = "len20_10_08_kl0_2_epi2_w_epi1_s10_clean"
-figname_modifier = "len20_10_08_kl0_2_epi2_w_epi1_gcg"
-figname_modifier = "len20_10_09_kl0_2_epi2_w_epi1_s10_final"
-
-
-figname_modifier = "1B_len100_10_09_kl2"
-
-figname_modifier = "len20_10_09_kl0_2_epi2_s10_final"
-
-figname_modifier = "len20_10_09_kl0_2_epi2_sameepicomparison_s10_final"
-
-figname_modifier = "len20_10_09_kl0_2_epi2_s10_gcg_final"
-
-figname_modifier = "1B_len100_10_09_kl2_v2"
-
-figname_modifier = "1B_len100_10_09_kl2_final"
-
-figname_modifier = "1B_len100_10_09_kl2_v3"
-figname_modifier = "1B_len100_10_10_kl2_v2"
-figname_modifier = "1B_len100_10_10_kl2_v3"
-figname_modifier = "1B_len100_10_10_kl2_v4"
-
-
-figname_modifier = "1B_len100_10_10_kl2_v5"
-figname_modifier = "1B_len100_10_11_kl2"
-figname_modifier = "1B_len100_10_11_kl2_v2"
-figname_modifier = "1B_len100_10_11_kl2_gcg"
-figname_modifier = "1B_len100_10_11_kl2_v3"
-figname_modifier = "1B_len100_10_12_kl2_gcg"
-figname_modifier = "1B_len100_10_12_kl2"
-figname_modifier = "1B_len100_10_12_kl2_v2"
-figname_modifier = "1B_len100_10_13_kl2"
-
-figname_modifier = "1B_len100_10_13_kl2_gcg"
-
-figname_modifier = "1B_len100_10_14_kl2"
-
-figname_modifier = "1B_len100_10_14_kl2"
-figname_modifier = "1B_len100_10_14_kl2_final"
-figname_modifier = "1B_len100_10_14_kl2_gcg_final"
-
-
-
-figname_modifier = "1B_len100_10_14_kl2_wepi1"
-
-figname_modifier = "1B_len100_10_14_kl2_epi2_final"
-
-figname_modifier = "1B_len100_10_14_kl2_sameepi_final"
-
-figname_modifier = "len20_10_09_kl0_2_epi2_s10_cvar_final"
-
-figname_modifier = "1B_len100_10_14_kl2_cvar_final"
-
-figname_modifier = "1B_len100_10_14_kl2_gcg_final_v2"
-
-
-
-figname_modifier = "1B_len100_10_14_kl2_epi2_final"
-
-figname_modifier = "1B_len100_10_14_kl2_gcg_final"
-
-figname_modifier = "len20_10_14_kl0_2_epi2_s10_gcg_final"
+figname_modifier = "1B_len100_10_18_kl2_epi2_final"
+figname_modifier = "1B_len100_10_18_kl2_gcg_final"
+figname_modifier = "1B_len100_10_18_kl2_cvar_final"
+figname_modifier = "1B_len100_10_18_kl2_sameepi_final"
 
 
 
@@ -381,7 +298,7 @@ if compare_to_reference:
 
 do_load = True # False
 
-threshold = -5 # Check diff values here too
+threshold = -5
 if do_1B_experiments:
     threshold = -7
 
@@ -400,20 +317,13 @@ if "final" in figname_modifier:
     marker_list = ["D", "^", "^", "^", "^", "^",
                    "o", "o",
                    "P", "P", "P",
-                   # "P", "v", "v", "v", "P", "o", "o",
-                   # "P", "o", "o", "P", "^", "^", "P", "v", "v", "v",
                    # "v", "v", "^", "P", "v", "D", "v", "v", "x", "v",
                    ] * 2
 
 
-
-
 if do_load:
-    n_epochs = 100
 
     if "kl0_2" in figname_modifier and "len20" in figname_modifier:
-        # load_dir = "./info_10_09"
-        # load_dir = "./info_10_10"
         load_prefixes_to_use = [
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi4_schconstant_alr3e-05_clr3e-05_clossmse_policy_s1",
@@ -434,10 +344,6 @@ if do_load:
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
                 1, 10),
 
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
-            #     1, 10),
-
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
                 1, 10),
@@ -454,16 +360,12 @@ if do_load:
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-10.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
                 1, 10),
 
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1",
-            #     1, 10),
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-20.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr2e-05_blr3e-05_policy_psi_q_p_s_t_s1",
                 1, 10),
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s5",
                 1, 10),
-
 
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta5.0_policy_ppo_epo1_epi2_schconstant_alr3e-05_clr3e-05_clossmse_policy_s1",
@@ -484,10 +386,6 @@ if do_load:
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a1.0rta1.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s5",
                 1, 10),
 
-            # make_list(
-            #     "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.3_harml_reinforce_a0.3rta0.3_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s5",
-            #     1, 10),
-
             make_list(
                 "info_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-0.5_harml_reinforce_a1.0rta1.0_b-0.5_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-05_policy_psi_q_p_s_t_s1",
                 1, 10),
@@ -504,7 +402,6 @@ if do_load:
 
         ]
 
-
         if "sameepi" in figname_modifier:
             load_prefixes_to_use = load_prefixes_to_use[11:] + load_prefixes_to_use[8:11]
         elif "epi2" in figname_modifier and "epi1" in figname_modifier:
@@ -513,14 +410,7 @@ if do_load:
             load_prefixes_to_use = load_prefixes_to_use[:11]
 
 
-
-
-
-
-
     elif do_1B_experiments and "kl2" in figname_modifier and "len100" in figname_modifier and "1B" in figname_modifier:
-        # load_dir = "./info_10_09"
-        # load_dir = "./info_10_10"
 
         load_prefixes_to_use = [
             make_list(
@@ -564,10 +454,6 @@ if do_load:
                 1, 5),
 
 
-
-
-
-
             # Epi1/epi2 stuff
             make_list(
                 "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.5_policy_ppo_epo1_epi2_schconstant_alr3e-07_clr3e-06_clossmse_policy_s1",
@@ -576,10 +462,6 @@ if do_load:
             make_list(
                 "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
-
-            # make_list(
-            #     "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr3e-07_policy_psi_q_p_s_t_s1",
-            #     1, 5),
 
             make_list(
                 "info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-0.3_harml_reinforce_a3.0rta3.0_b-0.3_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
@@ -605,21 +487,12 @@ if do_load:
                 "info_eval_rlhf_baseprop_Ll3.1BIn_SkReV2Ll3.1B_20misi1_len100_kl2.0_beta-10.0_harml_neg_training_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr0.0_blr1e-07_policy_psi_q_p_s_t_s1",
                 1, 5),
 
-
-
-
-
         ]
 
         if "wepi1" in figname_modifier:
             pass
         elif "sameepi" in figname_modifier:
             load_prefixes_to_use = load_prefixes_to_use[10:] + load_prefixes_to_use[8:10]
-
-            # for x in load_prefixes_to_use:
-            #     print(x[0])
-            # 1/0
-
         else:
             load_prefixes_to_use = load_prefixes_to_use[:10]
 
@@ -628,18 +501,6 @@ if do_load:
     else:
         raise Exception("Figname does not correspond to any set of data")
 
-
-
-    # inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
-
-    # inds_to_use = [0, 1, 2, 3, 4]
-    # inds_to_use = [0, 1, 2, 3]
-
-    inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
-    # inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ,13]
-    # inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7]
-    inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    inds_to_use = [0, 1, 2, 3, 4, 5, 6, 7, 8]
     inds_to_use = None
 
 
@@ -650,12 +511,7 @@ if do_load:
     #     fontsize = 12
 
     if do_gcg:
-        inds_to_use = [0, 10]
-        inds_to_use = [0,1,2,3,4,5,6]
         inds_to_use = None
-        # inds_to_use = [0,1,2,3,4,5,6]
-
-
 
         if "1B" in figname_modifier:
 
@@ -793,37 +649,10 @@ if do_load:
                 # for x in $(ls | grep result | grep eval_gcg | grep neg_tr | grep beta-20 | grep kl0.2 | grep -v basepro); do tail -n 3 $x; done
                 [-11.34, -12.43, -13.23, -13.80, -9.73, -10.21, -12.78 , -10.95, -11.91, -10.14],
 
-
                 # for x in $(ls | grep result | grep eval_gcg | grep basepro | grep kl0.2 ); do tail -n 3 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
 
             ]
 
-
-
-        # # for x in result_2025-05-13-00-17_eval_gcg250_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_s*; do tail -n 2 $x; done
-        # gcg_logprobs_results_list = [
-        #     [-60.90, -54.80, -55.77, -49.74, -60.50, -53.38, -40.51, -47.87, -61.19, -47.33],  # ppo
-        #     # result_2025-05-13-00-15_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy
-        #
-        #     [-55.98, -55.18, -50.66, -56.32, -55.45, -62.03, -48.08, -52.74, -61.27, -52.06], # regular reinforce
-        #     # result_2025-05-13-00-20_eval_gc
-        #     # result_2025-05-15-21-52_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta0.0_kl0.03_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.
-        #
-        #     [-64.51, -51.60, -58.95, -45.33, -69.47, -57.84, -66.63, -48.76, -58.48, -108.19],
-        #     # reinf with reward transf
-        #     # result_2025-05-15-17-09_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-0.5_kl0.03_harml_reinforce_a3.0_policy_psi_q_p_s_t_ctl_epo1_epi4_schconstant_alr0.0_blr0.0001_poli
-        #
-        #     [-54.94, -59.82, -51.30, -49.71, -62.02, -72.24, -54.40, -50.12, -64.69, -58.72], # baseprop
-        #     # result_2025-05-13-00-17_eval_gcg250_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_p_s_t_ctl_epo1_epi4_s
-        #     # result_2025-05-15-20-31_eval_gcg250_rlhf_baseprop_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.003_policy_psi_q_
-        #
-        #
-        #     [-78.86, -62.08, -124.83, -97.63, -76.06, -2026.25, -59.10, -63.84, -120.35, -684.96],  # ours
-        #     # result_2025-05-15-20-06_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.
-        #     [-78.86, -62.08, -124.83, -97.63, -76.06, -2026.25, -59.10, -63.84, -120.35, -684.96],  # ours
-        #     # result_2025-05-15-20-06_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_beta-30.0_kl0.03_harml_neg_training_a0.
-        #
-        # ]
 
     calculate_cvar = False
     if "cvar" in figname_modifier:
@@ -870,7 +699,6 @@ if do_load:
                 fontsize -= 2
 
             labels = [
-                # All baselr3e-5
                 r"PPO" + more_eps_str,
                 r"REINFORCE" + more_eps_str,
                 r"REINFORCE, $r(s) - 3 e^{-0.3 r(s)}$, lr 1e-7" + more_eps_str,
@@ -880,12 +708,7 @@ if do_load:
                 r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.1$" + more_eps_str,
                 r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 1$" + more_eps_str,
                 r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-5 r(s)}$, $\alpha = 0.1$" + less_eps_str,
-                r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.1$" + less_eps_str,
-                # alr3e-05
-                # r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-20 r(s)}$, $\alpha = 0.1$" + less_eps_str,
-                # # alr2e-05
-                # r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.1$" + less_eps_str,
-                # # alr1e-05
+                r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-5 r(s)}$, $\alpha = 0.2$" + less_eps_str,
             ]
 
         else:
