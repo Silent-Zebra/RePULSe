@@ -558,36 +558,6 @@ if do_load:
 
             ]
 
-            gcg_logprobs_results_list = [
-                #  for x in $(ls | grep result | grep eval_gcg | grep ppo | grep kl2 ); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-16.56, -16.83, -17.57, -15.90, -16.86],
-
-                #  for x in $(ls | grep result | grep eval_gcg | grep reinf | grep beta0 | grep kl2 | grep 1e-07 ); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-15.99, -16.72, -15.36, -16.42, -16.08],
-
-                #  for x in $(ls | grep result | grep eval_gcg | grep reinf | grep beta-0.3 | grep kl2 | grep a3 | grep 1e-07 ); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-16.06, -16.59, -17.05, -15.96, -17.11],
-
-                #  for x in $(ls | grep result | grep eval_gcg | grep reinf | grep beta-1 | grep kl2 | grep a1 | grep 1e-07 ); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-16.62, -18.50, -16.53, -17.36, -16.08],
-                #  for x in $(ls | grep result | grep eval_gcg | grep reinf | grep beta-0.3 | grep kl2 | grep a3 | grep 3e-07 ); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-15.89, -16.41, -16.18, -15.22, -17.14],
-                #  for x in $(ls | grep result | grep eval_gcg | grep reinf | grep beta-1 | grep kl2 | grep a1 | grep 3e-07 ); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-15.20, -15.22, -15.74, -17.11, -16.69],
-
-                #  for x in $(ls | grep result | grep eval_gcg | grep neg_tr | grep kl2 | grep a0.1 |  grep basepro); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-19.18, -15.01, -16.03, -14.27, -14.77],
-                #  for x in $(ls | grep result | grep eval_gcg | grep neg_tr | grep kl2 | grep a1 |  grep basepro); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-17.38, -13.96, -17.67, -17.22, -16.46],
-
-                #  for x in $(ls | grep result | grep eval_gcg | grep neg_tr | grep beta-5 | grep kl2 | grep a0.1 | grep _alr3e-07 | grep -v basepro); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-17.22, -18.00, -17.55, -16.42, -15.85],
-                # for x in $(ls | grep result | grep eval_gcg | grep neg_tr | grep beta-5 | grep kl2 | grep a0.2 | grep _alr3e-07 | grep -v basepro); do tail -n 13 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-16.13, -17.25, -17.03, -19.99, -15.43],
-
-            ]
-
-
         else:
 
             # TODO copy over results
@@ -634,22 +604,6 @@ if do_load:
                 make_list(
                     "gcg_eval_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor",
                     1, 10),
-
-            ]
-
-            gcg_logprobs_results_list = [
-                # for x in $(ls | grep result | grep eval_gcg | grep ppo | grep kl0.2 ); do tail -n 3 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
-                [-11.62, -10.73, -12.45, -11.24, -11.41, -11.07, -11.63, -11.25, -13.39, -12.22],
-
-
-                # for x in $(ls | grep result | grep eval_gcg | grep neg_tr | grep beta-30 | grep kl0.2 | grep -v basepro); do tail -n 3 $x; done
-                # result_2025-10-07-00-53_eval_gcg250_rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor.txt
-                [ -50.34, -51.41, -49.90, -45.96, -49.65, -12.73, -19.52, -14.63, -15.07, -13.01],  #
-
-                # for x in $(ls | grep result | grep eval_gcg | grep neg_tr | grep beta-20 | grep kl0.2 | grep -v basepro); do tail -n 3 $x; done
-                [-11.34, -12.43, -13.23, -13.80, -9.73, -10.21, -12.78 , -10.95, -11.91, -10.14],
-
-                # for x in $(ls | grep result | grep eval_gcg | grep basepro | grep kl0.2 ); do tail -n 3 "$x" | head -n 1 | grep "Average Log Prob of Target After Attack" | awk -F': ' '{print $2}'; done | paste -sd, - | sed 's/^/[/' | sed 's/$/]/'
 
             ]
 
@@ -767,27 +721,6 @@ if do_gcg:
         gcg_results_list=gcg_results_list,
         calculate_cvar=calculate_cvar
     )
-
-    # TODO This one below goes better in a table instead...
-
-    ylabel_bad = f"Log Prob of Target Sequence After GCG Attack"
-
-    make_frontier_bootstrap(
-        xlabel="Average Reward", ylabel=ylabel_bad,
-        figname=f"{figname_modifier}_frontier_logprob",
-        labels=labels, results_list=results_list,
-        color_list=color_list, marker_list=marker_list,
-        ylimlow=-600,
-        # xlimhigh=xlimhigh,
-        fontsize=fontsize, aggregate_seeds=True,
-        tuple_index=1,
-        tuple_index_gcg=1,
-        compare_to_reference=compare_to_reference,
-        threshold=threshold,
-        gcg_results_list=gcg_logprobs_results_list,
-        gcg_results_type="log_probs"
-    )
-
 
     raise SystemExit(0)
 
