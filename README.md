@@ -232,6 +232,22 @@ Sbatch file with the above command can be created using:
 bash mk_eval_gcg_file_dcs.sh 250 20 /mfs1/u/stephenzhao/OpenRLHF/checkpoint/rlhfmultilen20kl2/rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor HuggingFaceTB/SmolLM-135M-Instruct OpenAssistant/reward-model-deberta-v3-large-v2 -4.0  harmful_behaviors_custom.csv
 ```
 
+Yes, threshold -4.0 is correct here. I set this up in a kind of stupid way where for whatever threshold x you pass in, I calculate the samples with reward < x and with reward < x-1, and then my plotting code takes the x-1 results. A smarter way would be to just save the rewards of samples, and then dynamically set the threshold when plotting. I have this setup for the main frontier results (probability of bad output/CVaR) but didn't have time to change it for the GCG attacks yet.
+
+## Plotting Results
+
+To generate the plots of training over time (Sec 4.2), use: 
+```
+python plot_results/plot_results.py
+```
+The main thing to change in the plot_results.py file is "figname_modifier", to choose what plot to build. Of course, if you rerun my commands with different settings and want to plot those, you'd have to modify the "labels" and "load_prefixes_to_use".
+
+To generat the frontiers (Sec 4.3), use:
+```
+python plot_results/make_frontier.py
+```
+Again, "figname_modifier" is the main thing to change; use "cvar" in the modifier if you want CVaR on the y-axis instead, use "gcg" if you want to plot the GCG attack success rate. If you use your own runs, you need to modify "labels", "load_prefixes_to_use", and "gcg_prefixes" for GCG attacks. 
+
 
 # NOTE: Since this is a fork of the OpenRLHF repo, most of the commands are built on top of the OpenRLHF pipeline (but since this was forked many months ago, things are now slightly outdated, and I have not merged all of the newest OpenRLHF changes into this repo). The rest of the below is from the original OpenRLHF repo when it was forked.
 
