@@ -633,12 +633,12 @@ if do_load:
         if "kl0_2" in figname_modifier and "len20" in figname_modifier:
             labels = [
                 # All baselr3e-5
-                r"PPO" + more_eps_str,
-                r"REINFORCE" + more_eps_str,
-                r"REINFORCE, $r(s) - e^{-0.1 r(s)}$" + more_eps_str,
-                r"REINFORCE, $r(s) - 0.3 e^{-0.5 r(s)}$" + more_eps_str,
-                r"REINFORCE, $r(s) - e^{-0.3 r(s)}$" + more_eps_str,
-                r"REINFORCE, $r(s) - e^{-0.5 r(s)}$" + more_eps_str,
+                r"PPO, no reward transformation" + more_eps_str,
+                r"REINFORCE, no reward transformation" + more_eps_str,
+                r"REINFORCE, $r'(s) = r(s) - e^{-0.1 r(s)}$" + more_eps_str,
+                r"REINFORCE, $r'(s) = r(s) - 0.3 e^{-0.5 r(s)}$" + more_eps_str,
+                r"REINFORCE, $r'(s) = r(s) - e^{-0.3 r(s)}$" + more_eps_str,
+                r"REINFORCE, $r'(s) = r(s) - e^{-0.5 r(s)}$" + more_eps_str,
                 r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 0.1$" + more_eps_str,
                 r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-30 r(s)}$, $\alpha = 1$" + more_eps_str,
                 r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.1$" + less_eps_str,
@@ -653,12 +653,12 @@ if do_load:
                 fontsize -= 2
 
             labels = [
-                r"PPO" + more_eps_str,
-                r"REINFORCE" + more_eps_str,
-                r"REINFORCE, $r(s) - 3 e^{-0.3 r(s)}$, lr 1e-7" + more_eps_str,
-                r"REINFORCE, $r(s) - 1 e^{-r(s)}$, lr 1e-7" + more_eps_str,
-                r"REINFORCE, $r(s) - 3 e^{-0.3 r(s)}$, lr 3e-7" + more_eps_str,
-                r"REINFORCE, $r(s) - 1 e^{-r(s)}$, lr 3e-7" + more_eps_str,
+                r"PPO, no reward transformation" + more_eps_str,
+                r"REINFORCE, no reward transformation" + more_eps_str,
+                r"REINFORCE, $r'(s) = r(s) - 3 e^{-0.3 r(s)}$, lr 1e-7" + more_eps_str,
+                r"REINFORCE, $r'(s) = r(s) - 1 e^{-r(s)}$, lr 1e-7" + more_eps_str,
+                r"REINFORCE, $r'(s) = r(s) - 3 e^{-0.3 r(s)}$, lr 3e-7" + more_eps_str,
+                r"REINFORCE, $r'(s) = r(s) - 1 e^{-r(s)}$, lr 3e-7" + more_eps_str,
                 r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.1$" + more_eps_str,
                 r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 1$" + more_eps_str,
                 r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-5 r(s)}$, $\alpha = 0.1$" + less_eps_str,

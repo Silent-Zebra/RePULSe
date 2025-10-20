@@ -35,34 +35,9 @@ def plot_with_conf_bounds(ax, record, x_range, label, **kwargs):
     return avg[-1], conf_bound[-1]
 
 
-load_prefixes_to_use = [
-make_list(
-    "analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_beta-10.0_kl0.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
-    1, 5),
-make_list("analyticlogprob_rewsample_rlhf_baseprop_di_To_thmaisa_len2_beta-10.0_kl0.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
-make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_beta10000_kl0.0_policy_ppo_epo1_epi10_schconstant_alr0.0001_clr3e-05_clossmse_policy_s1", 1, 5),
-make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_beta-10.0_kl0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
-make_list("analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_beta-1.0_kl0.0_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1", 1, 5),
-]
-
-
-figname_modifier = "toyrlhf"
-figname_modifier = "toyrlhf_kl0_01"
-figname_modifier = "toyrlhf_kl0_1"
-figname_modifier = "toyrlhf_kl1"
-figname_modifier = "toyrlhf_kl10"
-figname_modifier = "toyrlhf_kl100"
-
-figname_modifier = "toyrlhf_kl1_v2"
-figname_modifier = "toyrlhf_kl10_v2"
-figname_modifier = "toyrlhf_kl10_v3"
-figname_modifier = "toyrlhf_kl10_v3_clean"
-figname_modifier = "toyrlhf_kl10_v4"
-
-figname_modifier = "toyrlhf_kl10_final"
-
-figname_modifier = "toyrlhf_kl10_10_15_final"
-figname_modifier = "toyrlhf_kl1_10_15_final"
+# Comment out/select as needed
+figname_modifier = "toyrlhf_kl10_10_18_final"
+figname_modifier = "toyrlhf_10_18_final"
 
 
 if "final" in figname_modifier:
@@ -72,9 +47,9 @@ if "final" in figname_modifier:
         labels = [
             # r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$",
             # r"PPO",
-            r"REINFORCE",
-            r"REINFORCE, $r(s) - e^{- r(s)}$",
-            r"REINFORCE, $r(s) - 10 e^{- r(s)}$",
+            r"REINFORCE, no reward transformation",
+            r"REINFORCE, $r'(s) = r(s) - e^{- r(s)}$",
+            r"REINFORCE, $r'(s) = r(s) - 10 e^{- r(s)}$",
             r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{- r(s)}$, $\alpha = 100$",
             r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 100$",
 
@@ -115,8 +90,8 @@ if "final" in figname_modifier:
             # r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$",
             # r"PPO",
             r"REINFORCE",
-            r"REINFORCE, $r(s) - e^{- r(s)}$",
-            r"REINFORCE, $r(s) - 10 e^{- r(s)}$",
+            r"REINFORCE, $r'(s) = r(s) - e^{- r(s)}$",
+            r"REINFORCE, $r'(s) = r(s) - 10 e^{- r(s)}$",
             r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{- r(s)}$, $\alpha = 100$",
             r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 100$",
 
@@ -143,6 +118,38 @@ if "final" in figname_modifier:
         labels = ['_'.join(a[0].split('len2_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for
                   a in load_prefixes_to_use]
         fontsize = 5
+
+    elif "kl" not in figname_modifier:
+
+        labels = [
+            r"PPO, no reward transformation",
+            r"REINFORCE, no reward transformation",
+            r"REINFORCE, $r'(s) = r(s) - e^{- r(s)}$",
+            r"$p_\theta$ proposal, $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$",
+            r"RePULSe ($q_\xi$), $\sigma_\theta(s) \propto p_\theta(s) e^{-10 r(s)}$, $\alpha = 0.01$",
+        ]
+        fontsize = 11
+        load_prefixes_to_use = [
+            make_list(
+                "analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_beta10000_kl0.0_policy_ppo_epo1_epi10_schconstant_alr0.0001_clr3e-05_clossmse_policy_s1",
+                1, 5),
+
+            make_list(
+                "analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_beta-10.0_kl0.0_harml_reinforce_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+                1, 5),
+            make_list(
+                "analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_beta-1.0_kl0.0_harml_reinforce_a1.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0_blr0.0001_policy_psi_q_p_s_t_s1",
+                1, 5),
+
+            make_list(
+                "analyticlogprob_rewsample_rlhf_baseprop_di_To_thmaisa_len2_beta-10.0_kl0.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
+                1, 5),
+
+            make_list(
+                "analyticlogprob_rewsample_rlhf_di_To_thmaisa_len2_beta-10.0_kl0.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr0.0003_blr0.0001_policy_psi_q_p_s_t_s1",
+                1, 5),
+
+        ]
 
 
     else:

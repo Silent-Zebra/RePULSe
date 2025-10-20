@@ -423,10 +423,10 @@ def train(args):
     #     print("PARAM CHECK 1")
     #     print(param)
     #     break
+    estimates_list = None
 
 
     if args.do_harmlessness_training:
-        estimates_list = None
         # # old setup below
         # base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
         #                           use_fast=not args.disable_fast_tokenizer)
