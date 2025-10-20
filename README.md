@@ -63,22 +63,16 @@ pip install flash-attn --no-build-isolation
 
 ## Toy Experiment (Sec 4.2)
 
-Below I provide the deepspeed training commands, although these were auto-generated using my scripts. To use the sbatch-generating scripts, use commands like the following:
-
-```
+Below I provide the deepspeed training commands, although these were auto-generated using my scripts. To use the sbatch-generating scripts, use commands like:
+`
 bash mk_sb_file_seed1_dcs_simple.sh $x
-```
-
-where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx"
-
-Replace paths --save_path, --ckpt_path, --save_info_path, with your folder paths.
+`
+where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace paths --save_path, --ckpt_path, --save_info_path, with your folder paths.
 
 You may then use 
-
-```
+`
 bash mk_sb_files_seeds_2_to_x.sh 5 $x
-```
-
+`
 where $x should be the generated sbatch file, to generate sbatch files for seeds 2 to 5 for the same setting.
 
 ### Example commands with 0 KL penalty (main paper figure)
@@ -146,30 +140,22 @@ deepspeed --master_port 34881 --module openrlhf.cli.train_ppo --pretrain distilg
 
 General workflow: first run the training commands below. Then run GCG evaluation.
 
-Below I provide the deepspeed training commands, although these were auto-generated using my scripts. To use the sbatch-generating scripts, use commands like the following:
-
-```
+Below I provide the deepspeed training commands, although these were auto-generated using my scripts. To use the sbatch-generating scripts, use commands like:
+`
 bash mk_sb_file_seed1_dcs.sh $x
-```
+`
 or 
-```
+`
 bash mk_sb_file_multinode_seed1.sh $x
-```
-for multinode/distributed training experiments
+`
+for multinode/distributed training experiments, where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace paths --save_path, --ckpt_path, --save_info_path, with your folder paths.
 
-where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx"
-
-Replace paths --save_path, --ckpt_path, --save_info_path, with your folder paths.
-
-You may then use 
-
-```
+You may then use `
 bash mk_sb_files_seeds_2_to_x.sh 10 $x
-```
-
+`
 where $x should be the generated sbatch file, to generate sbatch files for seeds 2 to 10 for the same setting.
 
-For the Appendix experiments (same number of updates for the LM p), replace --harmlessness_training_num_episodes 4 with --harmlessness_training_num_episodes 2, or --num_episodes 4 with --num_episodes 2 for PPO.
+For the Appendix experiments (same number of updates for the LM p), replace `--harmlessness_training_num_episodes 4` with `--harmlessness_training_num_episodes 2`, or `--num_episodes 4` with `--num_episodes 2` for PPO.
 
 ### Setting 1: SmolLM-135M-Instruct as the LM and Deberta-v3-large-v2 as the RM
 
