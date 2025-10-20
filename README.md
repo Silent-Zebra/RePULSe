@@ -242,7 +242,7 @@ python plot_results/plot_results.py
 ```
 The main thing to change in the plot_results.py file is "figname_modifier", to choose what plot to build. Of course, if you rerun my commands with different settings and want to plot those, you'd have to modify the "labels" and "load_prefixes_to_use".
 
-To generat the frontiers (Sec 4.3), use:
+To generate the frontiers (Sec 4.3), use:
 ```
 python plot_results/make_frontier.py
 ```
