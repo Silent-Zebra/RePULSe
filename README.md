@@ -4,6 +4,10 @@ Update with new commands. No adam offload. Ensure 1b gcg commands also point to 
 
 # Setup Notes:
 
+Will vary depending on your setup/cluster.
+
+## Example commands for Vector cluster
+
 On cluster: first consider deleting cache if the below commands don't work: ```rm -rf ~/.cache```
 
 Then run the following commands (this does setup on a GPU which is useful for linking certain things):
@@ -22,6 +26,34 @@ Check that the installation works as expected:
 python
 from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
 ```
+
+## Example commands for Compute Canada cluster:
+
+```
+rm -rf ~/.cache
+
+module --force purge
+
+module load StdEnv/2023  gcc/12.3  openmpi/4.1.5
+module load cuda/12.6
+module load scipy-stack/2024a
+module load gcc arrow/18.1.0 
+module load opencv/4.12.0
+module load rust
+
+virtualenv --no-download ENV
+
+source ENV/bin/activate
+
+pip install --no-index --upgrade pip
+
+pip install --no-index torch deepspeed
+
+pip install -r requirements.txt --no-index
+
+pip install flash-attn --no-build-isolation
+```
+
 
 # Commands Used in Experiments
 
@@ -151,7 +183,7 @@ bash mk_eval_gcg_file_deadline.sh 250  /h/zhaostep/OpenRLHF/checkpoint/rlhfmulti
 ```
 
 
-# NOTE: Since this is a fork of the OpenRLHF repo, most of the commands are built on top of the OpenRLHF pipeline (but since this was forked several months ago, things are now slightly outdated, and I have not merged all of the newest OpenRLHF changes into this repo). The rest of the below is from the original OpenRLHF repo when it was forked.
+# NOTE: Since this is a fork of the OpenRLHF repo, most of the commands are built on top of the OpenRLHF pipeline (but since this was forked many months ago, things are now slightly outdated, and I have not merged all of the newest OpenRLHF changes into this repo). The rest of the below is from the original OpenRLHF repo when it was forked.
 
 
 
