@@ -153,6 +153,8 @@ where $x should be the generated sbatch file, to generate sbatch files for seeds
 
 For the Appendix experiments (same number of updates for the LM p), replace `--harmlessness_training_num_episodes 4` with `--harmlessness_training_num_episodes 2`, or `--num_episodes 4` with `--num_episodes 2` for PPO.
 
+You may change `--heldout_prompt_data Silent-Zebra/10k_mixed_singleturn_2_1`, for example, to `--heldout_prompt_data Silent-Zebra/10k_mixed_singleturn_2_2`, for val/test split from a similar data source.
+
 ### Setting 1: SmolLM-135M-Instruct as the LM and Deberta-v3-large-v2 as the RM
 
 #### PPO
