@@ -8,7 +8,7 @@ TODO: Update with link to paper (Arxiv?), and brief description of the paper
 
 # Setup Notes:
 
-Will vary depending on your setup/cluster.
+Will vary depending on your setup/cluster. When running commands, can avoid using the --adam_offload flag, if you run into issues with building DeepSpeedCPUAdam.
 
 ## Example commands for Vector cluster
 
@@ -63,7 +63,6 @@ pip install flash-attn --no-build-isolation
 
 ## Toy Experiment (Sec 4.2)
 
-
 Below I provide the deepspeed training commands, although these were auto-generated using my scripts. To use the sbatch-generating scripts, use commands like the following:
 
 ```
@@ -82,41 +81,66 @@ bash mk_sb_files_seeds_2_to_5.sh $x
 
 where $x should be the generated sbatch file, to generate sbatch files for seeds 2 to 5 for the same setting.
 
-### PPO
+### Example commands with 0 KL penalty (main paper figure)
+
+#### PPO
 
 ```
 deepspeed --master_port 39225 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --adam_offload --gradient_checkpointing --num_episodes 10 --fit_steps 50 --init_kl_coef 0 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmulti --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --test_info_every 100 --n_seeds_f_q 1 --no_test_info --seed 1 --parameterization policy --actor_loss_type ppo --actor_learning_rate 1e-4 --critic_learning_rate 3e-5 --analytic_bad_word_calc --new_custom_single_prompt
 ```
 
-### REINFORCE
+#### REINFORCE
 
 ```
 deepspeed --master_port 39845 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --adam_offload --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 10 --fit_steps 50 --target_dist_beta -10 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmulti --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 0 --critic_learning_rate 0 --base_actor_learning_rate 1e-4 --harmlessness_training_loss_type reinforce --reinforce_baseline_type expectation --alpha 0 --init_kl_coef 0 --analytic_bad_word_calc --new_custom_single_prompt
 ```
 
 
-### REINFORCE with Reward Transformation
+#### REINFORCE with reward transformation
 
 ```
 deepspeed --master_port 36595 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --adam_offload --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 10 --fit_steps 50 --target_dist_beta -1 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmulti --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 0 --critic_learning_rate 0 --base_actor_learning_rate 1e-4 --harmlessness_training_loss_type reinforce --reinforce_baseline_type expectation --alpha 1 --init_kl_coef 0 --analytic_bad_word_calc --new_custom_single_prompt --reward_transform minus_alpha_exp_beta_r
 ```
 
 
-### Base model proposal
+#### Base model proposal
 
 ```
 deepspeed --master_port 33215 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --adam_offload --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 10 --fit_steps 50 --target_dist_beta -10 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmulti --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 3e-4 --critic_learning_rate 0 --base_actor_learning_rate 1e-4 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 0.01 --init_kl_coef 0 --analytic_bad_word_calc --new_custom_single_prompt --use_base_as_proposal
 ```
 
 
-### RePULSe
+#### RePULSe
 
 ```
 deepspeed --master_port 38115 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --adam_offload --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 5 --fit_steps 50 --target_dist_beta -10 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmulti --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 5 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 3e-4 --critic_learning_rate 0 --base_actor_learning_rate 1e-4 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 0.01 --init_kl_coef 0 --analytic_bad_word_calc --new_custom_single_prompt
 ```
 
+### Example commands with 10 KL penalty (Appendix figure)
 
+#### REINFORCE
 
+```
+deepspeed --master_port 35171 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 10 --fit_steps 50 --target_dist_beta 0 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 0 --critic_learning_rate 0 --base_actor_learning_rate 1e-5 --harmlessness_training_loss_type reinforce --reinforce_baseline_type expectation --alpha 0 --init_kl_coef 10 --analytic_bad_word_calc --new_custom_single_prompt
+```
+
+#### REINFORCE with reward transformation
+
+```
+deepspeed --master_port 35861 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 10 --fit_steps 50 --target_dist_beta -1 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 0 --critic_learning_rate 0 --base_actor_learning_rate 1e-5 --harmlessness_training_loss_type reinforce --reinforce_baseline_type expectation --alpha 1 --init_kl_coef 10 --analytic_bad_word_calc --new_custom_single_prompt --reward_transform minus_alpha_exp_beta_r
+```
+```
+deepspeed --master_port 33631 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 10 --fit_steps 50 --target_dist_beta -1 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 0 --critic_learning_rate 0 --base_actor_learning_rate 1e-5 --harmlessness_training_loss_type reinforce --reinforce_baseline_type expectation --alpha 10 --init_kl_coef 10 --analytic_bad_word_calc --new_custom_single_prompt --reward_transform minus_alpha_exp_beta_r
+```
+
+#### RePULSe
+
+```
+deepspeed --master_port 37441 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 5 --fit_steps 50 --target_dist_beta -1 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 3e-4 --critic_learning_rate 0 --base_actor_learning_rate 1e-5 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 100 --init_kl_coef 10 --analytic_bad_word_calc --new_custom_single_prompt
+```
+```
+deepspeed --master_port 34881 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 5 --fit_steps 50 --target_dist_beta -10 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmultikl1 --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 3e-4 --critic_learning_rate 0 --base_actor_learning_rate 1e-5 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 100 --init_kl_coef 10 --analytic_bad_word_calc --new_custom_single_prompt
+```
 
 ## More Realistic Experiment (Sec 4.3)
 
