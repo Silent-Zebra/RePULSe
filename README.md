@@ -76,7 +76,7 @@ Replace paths --save_path, --ckpt_path, --save_info_path, with your folder paths
 You may then use 
 
 ```
-bash mk_sb_files_seeds_2_to_5.sh $x
+bash mk_sb_files_seeds_2_to_x.sh 5 $x
 ```
 
 where $x should be the generated sbatch file, to generate sbatch files for seeds 2 to 5 for the same setting.
