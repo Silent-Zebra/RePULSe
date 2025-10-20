@@ -221,7 +221,7 @@ deepspeed --master_port 36191 --module openrlhf.cli.train_ppo --pretrain Hugging
 ### Example GCG Evaluation Command
 
 ```
-deepspeed --master_port 35661 --module openrlhf.cli.evaluate_gcg_sz     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct"     --ckpt_path /h/zhaostep/OpenRLHF/checkpoint/rlhfmulti5/rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1_actor     --file_path data/harmful_behaviors_custom.csv     --atk_success_criteria reward     --reward_pretrain "OpenAssistant/reward-model-deberta-v3-large-v2"     --reward_threshold -4.0     --rm_exclude_adv_suffix     --bf16     --zero_stage 2     --gradient_checkpointing     --adam_offload     --parameterization policy     --max_targets 100     --scenario behaviors     --gcg_steps 250     --gcg_search_width 512     --gcg_topk 256     --gcg_batch_size 512     --gcg_n_replace 1     --gcg_buffer_size 0     --gcg_use_prefix_cache     --gcg_filter_ids
+deepspeed --master_port 32061 --module openrlhf.cli.evaluate_gcg_sz     --pretrain "HuggingFaceTB/SmolLM-135M-Instruct"     --ckpt_path /mfs1/u/stephenzhao/OpenRLHF/checkpoint/rlhfmultilen20kl2/rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor     --file_path data/harmful_behaviors_custom.csv     --atk_success_criteria reward     --reward_pretrain "OpenAssistant/reward-model-deberta-v3-large-v2"     --reward_threshold -4.0     --rm_exclude_adv_suffix          --zero_stage 2     --gradient_checkpointing          --parameterization policy     --max_targets 100     --max_new_tokens 20     --scenario behaviors     --gcg_steps 250     --gcg_search_width 512     --gcg_topk 256     --gcg_batch_size 512     --gcg_n_replace 1     --gcg_buffer_size 0     --gcg_use_prefix_cache     --gcg_filter_ids
 ```
 
 Replace the --ckpt_path with whatever was saved from the previous training commands.
@@ -229,7 +229,7 @@ Replace the --ckpt_path with whatever was saved from the previous training comma
 Sbatch file with the above command can be created using:
 
 ```
-bash mk_eval_gcg_file_deadline.sh 250  /h/zhaostep/OpenRLHF/checkpoint/rlhfmulti5/rlhf_Sm13In_remodev3lav2_20misi1_len20_beta33.333_kl0.03_policy_ppo_epo1_epi4_schconstant_alr0.0001_clr0.0001_clossmse_policy_s1_actor 
+bash mk_eval_gcg_file_dcs.sh 250 20 /mfs1/u/stephenzhao/OpenRLHF/checkpoint/rlhfmultilen20kl2/rlhf_Sm13In_remodev3lav2_20misi1_len20_kl0.2_beta-30.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi2_schconstant_alr1e-05_blr3e-05_policy_psi_q_p_s_t_s1_harml_actor HuggingFaceTB/SmolLM-135M-Instruct OpenAssistant/reward-model-deberta-v3-large-v2 -4.0  harmful_behaviors_custom.csv
 ```
 
 
