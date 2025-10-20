@@ -144,7 +144,7 @@ or
 `
 bash mk_sb_file_multinode_seed1.sh $x
 `
-for multinode/distributed training experiments, where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace paths --save_path, --ckpt_path, --save_info_path, with your folder paths. Note that multinode training introduces nondeterminism, such that even setting the seed does not guarantee exact reproducibility. There are ways to improve determinism but this typically comes at a cost to efficiency/speed, so I avoid making that tradeoff. Unfortunately, this means that if you run my exact commands (for the 1B model experiments), you may get different results. You should get exactly the same results for the smaller models. 
+for multinode/distributed training experiments, where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace paths --save_path, --ckpt_path, --save_info_path, with your folder paths. Note that multinode training introduces nondeterminism, such that even setting the seed does not guarantee exact reproducibility. There are ways to improve determinism but this typically comes at a cost to efficiency/speed, so I avoid making that tradeoff. Unfortunately, this means that if you run my exact commands (for the 1B model experiments), you may get different results. You should get (almost) exactly the same results for the smaller models. 
 
 You may then use `
 bash mk_sb_files_seeds_2_to_x.sh 10 $x
