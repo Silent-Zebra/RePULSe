@@ -2,6 +2,10 @@
 
 Update with new commands. No adam offload. Ensure 1b gcg commands also point to csv file.
 
+# RePULSe 
+
+TODO: Update with link to paper (Arxiv?), and brief description of the paper
+
 # Setup Notes:
 
 Will vary depending on your setup/cluster.
