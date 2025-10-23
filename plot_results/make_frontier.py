@@ -257,9 +257,8 @@ figname_modifier = "len20_10_23_kl0_2_epi2_s10_sameepi_final"
 #
 figname_modifier = "1B_len100_10_23_kl2_epi2_final"
 figname_modifier = "1B_len100_10_23_kl2_gcg_final"
-figname_modifier = "1B_len100_10_23_kl2_cvar_final"
 figname_modifier = "1B_len100_10_23_kl2_sameepi_final"
-
+figname_modifier = "1B_len100_10_23_kl2_cvar_final"
 
 
 do_1B_experiments = False
@@ -614,7 +613,7 @@ if "cvar" in figname_modifier:
     calculate_cvar = True
     threshold = 0.0001
     if "1B" in figname_modifier:
-        threshold = 0.002
+        threshold = 0.003
         legendfontsize -= 1
 
 use_handcrafted_labels = False
