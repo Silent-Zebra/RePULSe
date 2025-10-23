@@ -717,7 +717,7 @@ if do_gcg:
         fontsize=fontsize, legendfontsize=legendfontsize,
         aggregate_seeds=True,
         tuple_index=1,
-        tuple_index_gcg=1, # 1 originally TODO change back if need the old plots
+        tuple_index_gcg=1,
         compare_to_reference=compare_to_reference,
         threshold=threshold,
         gcg_results_list=gcg_results_list,
