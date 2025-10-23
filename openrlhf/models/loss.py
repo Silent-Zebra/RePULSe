@@ -73,22 +73,10 @@ class REINFORCELoss(nn.Module):
         else:
             raise NotImplementedError
 
-        # print("REINFORCE LOSS INSPECTION")
-        # print(final_reward.shape)
-        # print(log_probs.shape)
-        #
-        # print("REWARDS")
-        # print(final_reward)
-
         if self.baseline_type is not None:
             if self.baseline_type == "expectation":
                 assert reduce_mean_per_prompt
                 assert final_reward.shape[1] > 1 # this will do nothing if there is only 1 batch size/sample per prompt
-
-                # rewards_baseline = final_reward.mean(dim=1)  # mean along the batch dimension not the prompt dimension
-                # # print(rewards_baseline.shape)
-                # rewards_baseline = rewards_baseline.unsqueeze(1)
-                # # print(rewards_baseline.shape)
 
                 # RLOO estimator
                 N = final_reward.size(1)
@@ -112,27 +100,10 @@ class REINFORCELoss(nn.Module):
 
             final_reward = final_reward - rewards_baseline
 
-        # print("REWARDS AFTER BASELINE")
-        # print(final_reward)
-        # print("SHAPES")
-        # print(final_reward.shape)
-        # print(action_mask.shape)
-        # print((log_probs * action_mask).shape)
-        # print((log_probs * action_mask).sum(-1).shape)
 
         loss = (masked_mean(- log_probs, action_mask, -1) * final_reward).mean() # go from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
         # masked sum would be mathematically correct instead of masked mean, but is just a scalar shift for SGD, and for Adam, only affects early parts of training before the moments are learned
         # average may be more numerically stable over longer sequences (e.g., Adam would have larger moments for sum)
-
-        # loss = (- (log_probs * action_mask).mean(-1) * final_reward.squeeze(-1)).mean() # final_reward.squeeze(-1) goes from (prompts, batch_per_prompt, 1) to just (prompts, batch_per_prompt)
-        # loss2 = (masked_mean(- log_probs, action_mask, -1) * final_reward.squeeze(-1)).mean()
-        # loss3 = masked_mean(- log_probs * final_reward, action_mask, -1).mean()
-        # print(loss)
-        # print(loss2)
-        # print(loss3)
-        # print(loss2 - loss)
-        # print(loss3 - loss)
-        # print(loss3 - loss2)
 
         return loss
 
@@ -154,44 +125,13 @@ class NegTrainingLoss(nn.Module):
 
         reinforce_loss = self.reinforce_loss_fn(log_probs, final_reward, action_mask)
 
-        # print("REWARDS AFTER BASELINE")
-        # print(log_probs_neg.shape)
-        # print(final_reward.shape)
-        #
-        # print("WEIGHTS SHAPE")
-        # print(normalized_w_t_approx_sigma_samples.shape)
-        # print(normalized_w_t_approx_sigma_samples)
-
-
-        # loss = log_probs_neg * normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1) # Negative training loss: just push down on log probs. Therefore reduce loss: reduce log probs
-        # # TODO check weighting is correct, also normalize with softmax if necessary
-        #
-        # loss = masked_mean(loss, action_mask, dim=-1).mean()
-        # loss2 = ((log_probs_neg * action_mask).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
-        # print(loss)
-        # print(loss2)
-        # print(loss2 - loss)
-
-
         # Just reduce log probs on all of the negative samples (approximate sigma samples)
         # The multiplication by normalized_w_t_approx_sigma_samples is because we have approximate sigma samples
         # And since I didn't do resampling, just doing reweighting, then normalized_w_t_approx_sigma_samples are the weights
         # So we need to multiply by those weights to get the approximate sigma samples
 
-
         # loss_old = ((log_probs_neg * action_mask_neg).mean(-1) * normalized_w_t_approx_sigma_samples.detach()).mean() # mean instead of masked mean has issues - problems with reweighting on the masked things
         loss = (masked_mean(log_probs_neg, action_mask_neg, dim=-1) * normalized_w_t_approx_sigma_samples.detach()).mean()
-        # print(loss - loss_old)
-
-        # print("NEG TRAIN LOSS")
-        # print(loss)
-        # print(masked_mean(log_probs_neg, action_mask_neg, dim=-1))
-        # print(normalized_w_t_approx_sigma_samples.detach())
-        #
-        # print("FINAL LOSS")
-        # print(self.alpha * loss)
-        # print((1 - self.alpha) * reinforce_loss + self.alpha * loss)
-
 
         # Weighting here controls how much to emphasize the negative training (reduce probability on negative samples) loss vs. the standard REINFORCE/RL loss
         # return (1 - self.alpha) * reinforce_loss + self.alpha * loss
@@ -226,15 +166,8 @@ class NegREINFORCELoss(nn.Module):
 
         log_probs_neg *= normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1)
 
-        # print(log_probs_neg.shape)
-        # print(normalized_w_t_approx_sigma_samples.shape)
-        # print(normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1).shape)
-        # print(normalized_w_t_approx_sigma_samples)
-        # 1/0
-
         neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg, other_reward=rewards)
 
-        # return (1 - self.alpha) * reinforce_loss + self.alpha * neg_reinforce_loss
         return reinforce_loss + self.alpha * neg_reinforce_loss
 
 
@@ -255,34 +188,11 @@ class PolicyLoss(nn.Module):
         action_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
 
-        # print("PPO ACTOR LOSS STUFF")
-        # print(log_probs.shape)
-        # print(log_probs)
-        # print(old_log_probs.shape)
-        # print(old_log_probs)
-        # print(advantages.shape)
-        # print(advantages)
-        # print(action_mask.shape)
-        # print(action_mask)
-
-
         ratio = (log_probs - old_log_probs).exp()
         surr1 = ratio * advantages
         surr2 = ratio.clamp(1 - self.clip_eps, 1 + self.clip_eps) * advantages
         loss = -torch.min(surr1, surr2)
-        # print("RATIO")
-        # print(ratio)
-        # print("ADVANTAGES")
-        # print(advantages)
-        #
-        # print("ACTOR LOSS DETAILS")
-        # print(surr1)
-        # print(surr2)
-        # print(loss)
-        # print(loss.abs())
-        # print(masked_mean(loss.abs(), action_mask, dim=-1).mean())
         loss = masked_mean(loss, action_mask, dim=-1).mean()
-        # print(loss)
         return loss
 
 
@@ -310,16 +220,7 @@ class ValueLoss(nn.Module):
         else:
             loss = (values - returns) ** 2
 
-        # print("--VALUE LOSS--")
-        # print("--values--")
-        # print(values)
-        # print("--returns--")
-        # print(returns)
-        # print("--loss--")
-        # print(loss)
         loss = masked_mean(loss, action_mask, dim=-1).mean()
-        # print("--masked mean--")
-        # print(masked_mean(loss, action_mask, dim=-1))
         return 0.5 * loss
 
 
@@ -328,22 +229,12 @@ def get_positive_and_negative_weights_detached(base_action_log_probs, curr_log_p
     # Now let's just do the standard CTL loss... all we have is just the p * phi / q for reweighting here...
     # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
     log_w_t_approx_sigma_samples = get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward)
-    # print(log_psi_t_eval_list_proposal_samples)
-    # print(log_psi_t_eval_list_proposal_samples.shape)
-    # print(base_action_log_probs.cumsum(dim=1).shape)
-    # print(curr_log_probs.cumsum(dim=1).shape)
+
     log_w_t_approx_pi_samples = base_action_log_probs.cumsum(
         dim=1) + log_psi_t_eval_list_proposal_samples - curr_log_probs.cumsum(
         dim=1)  # because here our IS weights are p * psi in numerator, as in our previous paper, divided by q. And with values = log psi, and us working in log space, this is what we get. Note that we are reweighting according to p(s_1:t) psi_t(s_1:t) / q(s_1:t) which is why we have cumsum
     log_w_t_approx_pi_samples = log_w_t_approx_pi_samples.detach()
-    # print(log_psi_t_eval_list_proposal_samples.shape) # EXPECTED: (batch_size, seq_len)
-    # print("Log Wgt shapes")
-    # print(log_w_t_approx_sigma_samples.shape) # Expected: (batch_size)
-    # print(log_w_t_approx_pi_samples.shape) # Expected: (batch_size, seq_len)
-    # normalized_w_t_sigma_samples = F.softmax(
-    #     log_w_t_approx_sigma_samples.detach())
-    # log_psi_on_truncated_proposal_samples = values
-    # print("Wgt shapes")
+
     if len(log_w_t_approx_sigma_samples.shape) > 1:
         raise NotImplementedError # dim 0 will be wrong if you use this with batch over diff prompts.
 
@@ -370,49 +261,6 @@ def get_normalized_positive_weights_detached(base_action_log_probs, curr_log_pro
                                                     dim=-1)  # do softmax along the batch dimension
 
     return normalized_w_t_approx_sigma_samples
-
-
-
-def get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples):
-    log_p_1_to_t_psi_1_to_t = base_action_log_probs.cumsum(dim=1) + log_psi_t_eval_list_proposal_samples
-    log_w_t = 0
-    negative_weights = []
-
-    # log_w_t_approx_pi_samples_ref = base_action_log_probs.cumsum(
-    #     dim=1) + log_psi_t_eval_list_proposal_samples - curr_log_probs.cumsum(
-    #     dim=1)
-
-    for i in range(base_action_log_probs.shape[-1]):
-        if i == 0:
-            incremental_w_t = log_p_1_to_t_psi_1_to_t[:, 0] - curr_log_probs[:, 0]
-            log_w_t += incremental_w_t # BE CAREFUL - THIS IN-PLACE OPERATION MODIFIES MUTABLE STRUCTURES LIKE LISTS; THIS IS WHY JAX DOESN'T ALLOW THIS KIND OF STUFF
-        elif i == base_action_log_probs.shape[-1] - 1:
-            incremental_w_t = base_action_log_probs.cumsum(dim=1)[:, -1] + final_reward - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
-            positive_total_weight = incremental_w_t + log_w_t
-            negative_incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
-            log_w_t += negative_incremental_w_t # BE CAREFUL - THIS IN-PLACE OPERATION MODIFIES MUTABLE STRUCTURES LIKE LISTS; THIS IS WHY JAX DOESN'T ALLOW THIS KIND OF STUFF
-        else:
-            incremental_w_t = log_p_1_to_t_psi_1_to_t[:, i] - curr_log_probs[:, i] - log_p_1_to_t_psi_1_to_t[:, i - 1]
-            log_w_t += incremental_w_t # BE CAREFUL - THIS IN-PLACE OPERATION MODIFIES MUTABLE STRUCTURES LIKE LISTS; THIS IS WHY JAX DOESN'T ALLOW THIS KIND OF STUFF
-
-        # print(f'iter {i}')
-        # print(log_w_t)
-        # print(log_w_t_approx_pi_samples_ref[:, i])
-        # print(torch.abs(log_w_t_approx_pi_samples_ref[:, i] - log_w_t).mean())
-
-        negative_weights.append(log_w_t.detach().clone()) # CLONE IS VERY IMPORTANT HERE
-    normalized_w_t_approx_sigma_samples = F.softmax(positive_total_weight, dim=0).detach()  # do softmax along the batch dimension
-
-    # # DETACH ON WEIGHTS IS IMPORTANT FOR THE RIGHT GRADIENTS
-    # print("final comparison")
-    negative_weights = torch.stack(negative_weights, dim=1).detach()
-    # print(negative_weights - log_w_t_approx_pi_samples_ref)
-    # print(torch.abs(negative_weights - log_w_t_approx_pi_samples_ref).mean())
-
-    # print("Final val 2")
-    # print(negative_weights)
-
-    return negative_weights, normalized_w_t_approx_sigma_samples
 
 
 class CTLLoss(nn.Module):
@@ -448,30 +296,11 @@ class CTLLoss(nn.Module):
         else:
             raise NotImplementedError
 
-        # print(reduce_mean_per_prompt)
-
-        # print("CTLLOSS INSPECTION")
-        # print(action_mask.shape)
-        # print(action_mask)
-        # print(curr_log_probs.shape)
-        # print(curr_log_probs)
-        # print(curr_log_probs.sum(-1))
-        # print(base_action_log_probs.shape)
-        # print(base_action_log_probs)
-        # print(values.shape)
-        # print(values)
-
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
         curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
         base_action_log_probs *= action_mask
         values *= action_mask # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
-        # But I'm leaving the above just to be safe; TODO later can test to ensure this is the case.
-
-        # print("After mask")
-        # print(curr_log_probs.sum(-1))
-
-        # if action_mask.shape[-1] > 100:
-        #     raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
+        # But I'm leaving the above just to be safe
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
@@ -487,44 +316,14 @@ class CTLLoss(nn.Module):
             # Compute terms using the vectorized weights
             positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * values
 
-
-            # print("weight inspection")
-            # print(log_w_t_approx_pi_samples)
-            # print(normalized_w_t_approx_pi_samples)
-
-            # print('wgts')
-            # print(normalized_w_t_approx_sigma_samples)
-            # print(normalized_w_t_approx_pi_samples)
-            #
-            # print('comparison')
-            # print(torch.exp(curr_log_probs - base_action_log_probs))
-            #
-            # print('shapes')
-            # print(action_mask.shape)
-            # print(positive_samples_term.shape)
-            # print(negative_samples_term.shape)
-            # print(log_w_t_approx_pi_samples.shape)
-            # print(normalized_w_t_approx_sigma_samples.shape)
-
-
             if self.no_second_term:
                 loss = - positive_samples_term
             else:
                 normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=1)
                 negative_samples_term = normalized_w_t_approx_pi_samples * values
                 loss = -(positive_samples_term - negative_samples_term)
-            # print(loss.shape)
 
             loss = masked_mean(loss, action_mask, dim=-1).mean()
-            # print(loss)
-
-            # 1/0
-            # TODO March 8 after this, try running the previous experiments (custom single prompt) except now just use
-            # these vmapped losses instead. First try exact reproduction, but use format below
-            # Try: even if prompt repeated, put it into batches, and softmax/weights over each of those individual batches
-            # As you set the prompt batch size to 1 and n_samples_per_prompt to previous batch size, it should reproduce
-            # As you set prompt batch size bigger and n_samples_per_prompt to smaller, the loss should get more and more noisy and worse performance. 1 sample per prompt should totally fail.
-            # TODO LATER test also the SIXO loss formulation
 
 
             return loss
@@ -536,23 +335,9 @@ class CTLLoss(nn.Module):
         # Therefore, to calculate positive weights, we just need p * phi / q (in log terms, log p + log phi - log q)
         # For negative weights, we need p * psi / q (in log space, log p + log psi - log q)
 
-        # print("CTL ACTOR LOSS FUNCTION")
-        # print(final_reward.shape)
-        # print(base_action_log_probs.sum(dim=-1).shape)
-
-        # print("CTL LOSS STUFF")
         log_psi_t_eval_list_proposal_samples = values
         log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
-
-        # log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(
-        #     base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
-        # TODO REMOVE ABOVE LATER COMPARISON ONLY
-        # print("FINAL")
-        # print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples))
-        # print(torch.abs(log_w_t_approx_pi_samples2 - log_w_t_approx_pi_samples).mean())
-        # print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).mean())
-        # 1/0
 
         positive_samples_term_new = normalized_w_t_approx_sigma_samples[:, None] * log_psi_t_eval_list_proposal_samples
         # print(positive_samples_term_new.shape)
@@ -561,6 +346,7 @@ class CTLLoss(nn.Module):
         normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=0) # do softmax along the batch dimension
         # print(normalized_w_t_approx_pi_samples.shape)
         # EXPECTED: above has shape (batch_size, seq_len)
+
         negative_samples_term_new = normalized_w_t_approx_pi_samples * log_psi_t_eval_list_proposal_samples
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
@@ -573,39 +359,14 @@ class CTLLoss(nn.Module):
         #         # IMPORTANT!! We should not have gradients flowing through these weights. Compare e.g. vs resampling
         # negative_samples_term /= log_w_t_approx_pi_samples.shape[1]
 
-        # TODO Consider doing this
-        # Why? Because: multiplying by normalized weights, we are already reducing each value. For the weighted mean, we multiply by weights, then add up. So if I multiply by weights, then do mean, I'm dividing by the batch size twice, which seems undesirable
-        # Of course here for CTL it doesn't really matter, because this is just a constant rescaling of the loss which can be absorbed into the learning rate. But still, maybe is good to just keep it consistent with the math and with the previous implementation
-        # print(positive_samples_term_new.shape[0])
-        # print(negative_samples_term_new.shape[0])
-        # positive_samples_term_new *= positive_samples_term_new.shape[0]
-        # negative_samples_term_new *= negative_samples_term_new.shape[0]
-        # Arguably this makes things worse; arguably you would rather not rescale e.g. * 100 and then have a 100x lower lr, you'd rather just have the 100x higher lr and avoid the *100/100 calculation which maybe loses precision
-        # ACTUALLY all of this logic is not correct. It is correct for simple SGD, but for Adam, since it scales by moments, in the limit,
-        # you actually get the same behaviour regardless of sum or avg or scaling by a factor of 100.
-        # HOWEVER you may have different behaviour at the beginning, before Adam has learned the moments well
-        # So with sum instead of avg you may have more instability and more aggressive gradient updates at the start of training
-        # Maybe this is bad for SIXO? Or rather, less aggressive updates/scaled down values at the beginning is better?
-
-        # print("Negative term check")
-        # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
-        # print(negative_samples_term) # check, these should match each other
-
         if self.no_second_term:
             loss = - positive_samples_term_new
         else:
             loss = -(positive_samples_term_new - negative_samples_term_new)
 
-        # print(loss.shape)
-        # print(action_mask.shape)
-
         loss = masked_mean(loss, action_mask, dim=-1).mean()
-        # loss = masked_mean(loss, action_mask, dim=-1).sum()
 
-        # print("--masked mean--")
-        # print(masked_mean(loss, action_mask, dim=-1))
         return loss
-
 
 
 
@@ -678,14 +439,7 @@ class SIXOLoss(nn.Module):
         # curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
         base_action_log_probs *= action_mask
         values *= action_mask  # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
-        # But I'm leaving the above just to be safe; TODO later can test to ensure this is the case.
-
-        # print("After mask")
-        # print(curr_log_probs.sum(-1))
-
-        # if action_mask.shape[-1] > 100:
-        #     raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
-
+        # But I'm leaving the above just to be safe
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
@@ -707,30 +461,16 @@ class SIXOLoss(nn.Module):
             # Compute positive term with batched weights
             positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * F.logsigmoid(values)
 
-            # print('shapes')
-            # print(action_mask.shape)
-            # print(positive_samples_term.shape)
-            # print(log_w_t_approx_pi_samples.shape)
-            # print(normalized_w_t_approx_sigma_samples.shape)
-            # if values_on_base_samples is not None:
-            #     print(values_on_base_samples.shape)
 
             if self.approx_neg:
                 # For approximate negative samples, compute weights based on p/q ratio for each prompt
                 log_w_t_approx_p_samples = base_action_log_probs.sum(dim=-1) - curr_log_probs.sum(dim=-1)
                 log_w_t_approx_p_samples = log_w_t_approx_p_samples.detach()
 
-                # print("approx neg inspection")
-                # print(log_w_t_approx_p_samples.shape)
-
                 # Normalize weights per prompt batch
                 normalized_w_t_approx_p_samples = F.softmax(log_w_t_approx_p_samples, dim=1)  # softmax over samples within each prompt
 
-                # print(normalized_w_t_approx_p_samples.shape)
-
                 negative_samples_term = normalized_w_t_approx_p_samples.unsqueeze(-1) * torch.log(1 - F.sigmoid(values))
-
-                # print(negative_samples_term.shape)
 
 
             else:
@@ -739,25 +479,18 @@ class SIXOLoss(nn.Module):
                 # Average across samples within each prompt batch
                 negative_samples_term = negative_samples_term / negative_samples_term.shape[1]
 
-            # print(negative_samples_term.shape)
-
 
             # Compute final loss with negative term
             loss = -(positive_samples_term + negative_samples_term)
             
             # Apply action mask and sum across prompts
-            # loss = masked_mean(loss, action_mask, dim=-1).sum()
             loss = masked_mean(loss, action_mask, dim=-1).mean()
 
             return loss
 
-
-        # print("SIXO LOSS STUFF")
         # First step is the same as in CTL; get the approx sigma samples based on p * phi / q on the FULL SEQUENCE then truncating
         # Sum across the t dimension to ensure we have the log prob of the FULL SEQUENCE
         # Again I use q as the proposal and do SIS reweighting
-        # print(final_reward.shape)
-        # print(base_action_log_probs.sum(dim=-1).shape)
 
         log_psi_t_eval_list_proposal_samples = values
         # log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached(
@@ -765,26 +498,6 @@ class SIXOLoss(nn.Module):
         normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
             base_action_log_probs, curr_log_probs, final_reward)
 
-        # _, normalized_w_t_approx_sigma_samples = get_positive_and_negative_weights_detached_incremental(base_action_log_probs, curr_log_probs, final_reward, log_psi_t_eval_list_proposal_samples)
-        # # TODO REMOVE ABOVE LATER COMPARISON ONLY
-
-        # print("HIHI")
-        # print(normalized_w_t_approx_sigma_samples2)
-        # print(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples)
-        # print(torch.abs(normalized_w_t_approx_sigma_samples2 - normalized_w_t_approx_sigma_samples).mean())
-        # 1/0
-
-        # positive_samples_term_new = normalized_w_t_approx_sigma_samples[:,
-        #                         None] * F.logsigmoid(values)
-        #
-        # log_w_t_approx_sigma_samples = base_action_log_probs.sum(
-        #     dim=-1) + final_reward - curr_log_probs.sum(
-        #     dim=-1)  # why this: well, the target is base * phi, then denom for IS is q.
-        # log_w_t_approx_sigma_samples = log_w_t_approx_sigma_samples.detach()
-        #
-        # normalized_w_t_approx_sigma_samples = F.softmax(
-        #     log_w_t_approx_sigma_samples,
-        #     dim=0)  # do softmax along the batch dimension
 
         positive_samples_term = normalized_w_t_approx_sigma_samples[:, None] * F.logsigmoid(log_psi_t_eval_list_proposal_samples)
 
@@ -808,46 +521,16 @@ class SIXOLoss(nn.Module):
                                     None] * torch.log(1 - F.sigmoid(values))
         else: # use exact p samples
 
-            # print("positive weights")
-            # print(normalized_w_t_approx_sigma_samples[:,None])
-            # print(normalized_w_t_approx_sigma_samples[:,None].shape)
-            # print("logisgmoid values")
-            # print(F.logsigmoid(values))
-            # print(F.logsigmoid(values).shape)
-            # print("positive sample terms")
-            # print(positive_samples_term)
-            # print(positive_samples_term.shape)
-
             negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
-
-            # print("negative sample terms")
-            # print(negative_samples_term)
-            # print(negative_samples_term.shape)
-
-            # positive_samples_term *= positive_samples_term.shape[0]
-            # Should actually do the above on CTL too (for both on CTL). Why? Because: multiplying by normalized weights, we are already reducing each value. For the weighted mean, we multiply by weights, then add up. So if I multiply by weights, then do mean, I'm dividing by the batch size twice, which is undesirable
-            # The negative term here doesn't need this multiplication since it's not being multiplied by the normalized weights
 
             negative_samples_term /= negative_samples_term.shape[0]
             # Alternatively: I can do this to make things the same... now this is consistent with mean on top of mean (which I believe does too much dividing... but oh well.
             # At least this now makes sixoloss and sixoloss using approx p samples based on IS reweighting of q samples, have the same scale
 
-            # print("negative sample terms 2")
-            # print(negative_samples_term)
-            # print(negative_samples_term.shape)
-
-        # print("Negative term check")
-        # print(negative_samples_term_new.sum(dim=0).mean(dim=-1))
-        # print(negative_samples_term) # check, these should match each other
-
         # This is the first term calculation, but really should do a similar kind of thing here as above
         loss = - (positive_samples_term + negative_samples_term) # see my new derivation; the KL divergence/loss has the negative term
 
-        # print(loss.shape)
-        # print(action_mask.shape)
-
         loss = masked_mean(loss, action_mask, dim=-1).mean()
-        # loss = masked_mean(loss, action_mask, dim=-1).sum()
 
         return loss.float()
 
@@ -878,16 +561,11 @@ class DPGLoss(nn.Module):
         else:
             raise NotImplementedError
 
-        # raise NotImplementedError # not yet done
-
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
         # curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
         base_action_log_probs *= action_mask
         values *= action_mask # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
-        # But I'm leaving the above just to be safe; TODO later can test to ensure this is the case.
-
-        # if action_mask.shape[-1] > 100:
-        #     raise Exception("CHECK THE EOS AND PADDING AND ACTION MASK CAREFULLY, ENSURE IT WORKS AS EXPECTED. Should work, but just confirm and test")
+        # But I'm leaving the above just to be safe
 
         if reduce_mean_per_prompt:
             # This version is for batching over different prompts
@@ -900,30 +578,11 @@ class DPGLoss(nn.Module):
                 # values
             )
 
-            # # Compute terms using the vectorized weights
-            # positive_samples_term = normalized_w_t_approx_sigma_samples.unsqueeze(-1) * values
-            #
-            # normalized_p_psi_all_vocab = torch.softmax(base_action_log_probs_all_vocab + log_psi_all_vocab, dim=-1)
-            # # get all logits - a bit annoying since you have to modify the forward calls in both actor and actor_custom to produce all logits, and then do the sum/reduce over them
-            # negative_samples_term = (
-            #     normalized_p_psi_all_vocab * log_psi_all_vocab).sum(
-            #     axis=-1)
-            #
-            # loss = -(positive_samples_term - negative_samples_term)
-            #
-            # loss = masked_mean(loss, action_mask, dim=-1).sum()
-            #
-            # return loss
         else:
             normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
                 base_action_log_probs, curr_log_probs, final_reward)
 
         log_psi_t_eval_list_proposal_samples = values
-
-        # print(normalized_w_t_approx_sigma_samples.shape)
-        # print(normalized_w_t_approx_sigma_samples[:, None].shape)
-        # print(log_psi_t_eval_list_proposal_samples.shape)
-
 
         positive_samples_term = log_psi_t_eval_list_proposal_samples
 
@@ -936,14 +595,11 @@ class DPGLoss(nn.Module):
             axis=-1)  # The log psi is where we'll get the gradient (grad Q), and then the sum does the expectation over q(s_t | s_1:t-1)
         # Mean along the time dimension, again we can debate if we want to use sum. Just be consistent, that's the most important.
 
-
         loss = -normalized_w_t_approx_sigma_samples.unsqueeze(-1) * (positive_samples_term - negative_samples_term)
 
-        # loss = masked_mean(loss, action_mask, dim=-1).sum()
         loss = masked_mean(loss, action_mask, dim=-1).mean()
 
         return loss
-
 
 
 

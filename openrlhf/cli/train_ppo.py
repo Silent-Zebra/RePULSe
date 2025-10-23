@@ -53,16 +53,8 @@ def train(args):
         # and F_q and G_q evaluations are all messed up.
         for param in base_actor.parameters():
             param.requires_grad = False
-        # NOTE: now I have with torch.no_grad() on initial model calls for the twist/proposal learning
-        # For harmlessness training, we are going to need to update the initial_model.parameters()
+
     else:
-        # base_actor = Actor(
-        #     args.pretrain,
-        #     use_flash_attention_2=args.flash_attn,
-        #     bf16=args.bf16,
-        #     load_in_4bit=args.load_in_4bit,
-        #     ds_config=strategy.get_ds_eval_config(offload=False),
-        # )
         base_actor = Actor(
             args.pretrain,
             use_flash_attention_2=args.flash_attn,
@@ -210,9 +202,6 @@ def train(args):
         actor_optim = strategy.create_optimizer(
             actor, lr=args.actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
         )
-    # Try deepseek suggestions: try creating optimizer only for the modulation component. It's possible this is causing issues with resetting stuff.
-    # TODO anyway, still check every step along the way to figure out the issues
-    # Can try the deepcopy approach after if this one doesn't work. CHECK EVERYTHING WORKS AS EXPECTED EVEN IN THE OTHER POLICY CASE. ENSURE CORRECTNESS.
 
     critic_optim = None
     if critic is not None:
@@ -375,9 +364,6 @@ def train(args):
 
 
 
-
-
-
     if args.actor_learning_rate == 0:
         assert not args.shared_actorcritic # Should not do this with shared actor critic
         vf_coef = 100000 # Dummy value
@@ -397,129 +383,13 @@ def train(args):
             true_posterior_samples,
             dtype=torch.int64)
 
-        # print("--DEVICE CHECK--")
-        # print(next(actor.parameters()).device)
-        # print(true_posterior_samples.device)
         true_posterior_samples = true_posterior_samples.to(next(actor.parameters()).device)
-        # print(true_posterior_samples.device)
 
 
-
-
-
-
-
-    # TODO: Idea here is: just set up an outer loop over which we can run trainer.fit which basically does the twist learning
-    # or essentially the proposal learning; basically the learning for the sampling method
-    # Then after that, we can run some iterations of the policy learning fro the base/initial model
-    # Need to remove grad on the base/initial model
-    # Then check that the proposal learning does indeed update towards the new/updated base model
-    # Do some inspection to make sure this is the case; for example, can check base model samples and reward under base model samples WITHIN the trainer.fit() loop
-    # and then do some simple optimization on the base model; need to set up an optimizer for that, need to be able to draw samples using the proposal model/modulated base model which should be fine using the actor_custom
-    # But we also need to be able to do simple reinforce or something like that from the base model
-    # This shouldn't be too hard to do...
-
-    # for param in base_actor.model.parameters():
-    #     print("PARAM CHECK 1")
-    #     print(param)
-    #     break
     estimates_list = None
     untrans_ret_list = None
 
     if args.do_harmlessness_training:
-        # # old setup below
-        # base_tokenizer = get_tokenizer(args.pretrain, base_actor.model, "left", strategy,
-        #                           use_fast=not args.disable_fast_tokenizer)
-        #
-        # harmlessness_trainer = HarmlessnessTrainer(
-        #     strategy,
-        #     base_actor=base_actor,
-        #     sampling_actor=actor,
-        #     critic=None,
-        #     reward_model=reward_model,
-        #     initial_model=static_initial_model,
-        #     ema_model=None,
-        #     actor_optim=base_actor_optim,
-        #     critic_optim=None,
-        #     actor_scheduler=base_actor_scheduler,
-        #     critic_scheduler=None,
-        #     max_epochs=args.max_epochs,
-        #     micro_train_batch_size=args.micro_train_batch_size,
-        #     micro_rollout_batch_size=args.micro_rollout_batch_size,
-        #     gradient_checkpointing=args.gradient_checkpointing,
-        #     tokenizer=base_tokenizer,
-        #     prompt_max_len=args.prompt_max_len,
-        #     value_clip=args.value_clip,
-        #     eps_clip=args.eps_clip,
-        #     gamma=args.gamma,
-        #     lambd=args.lambd,
-        #     init_kl_coef=0,
-        #     kl_target=args.kl_target,
-        #     target_dist_beta=args.target_dist_beta, # TODO later check to make sure this is desired
-        #     ema_beta=0.992,
-        #     ptx_coef=args.ptx_coef,
-        #     max_norm=args.max_norm,
-        #     # fro GPT generation
-        #     do_sample=True,
-        #     max_new_tokens=args.generate_max_len,
-        #     max_length=args.max_len,
-        #     temperature=args.temperature,
-        #     top_p=args.top_p,
-        #     top_k=args.top_k,
-        #     pad_token_id=base_tokenizer.pad_token_id,
-        #     eos_token_id=base_tokenizer.eos_token_id,
-        #     # remote reward model
-        #     remote_rm_url=args.remote_rm_url,
-        #     shared_actorcritic=args.shared_actorcritic,
-        #     vf_coef=vf_coef,
-        #     model_eval=args.model_eval,
-        #     threshold=args.threshold,
-        #     reward_cap=args.reward_cap,
-        #     n_seeds_f_q=args.n_seeds_f_q,
-        #     rm_type=args.rm_type,
-        #     bc_coef=args.bc_coef,
-        #     bc_steps=args.bc_steps,
-        #     true_posterior_samples=true_posterior_samples,
-        #     actor_loss_type=args.harmlessness_training_loss_type,
-        #     critic_loss_type=args.critic_loss_type,
-        #     alpha=args.alpha,
-        #     parameterization=args.parameterization,
-        #     save_negdata=args.save_negdata,
-        #     save_negdata_threshold=args.save_negdata_threshold,
-        #     baseline_type=args.reinforce_baseline_type,
-        #     hardcoded_baseline=args.reinforce_hardcoded_baseline,
-        #     baseline_type_neg=args.neg_baseline_type,
-        #     hardcoded_baseline_neg=args.neg_hardcoded_baseline,
-        #     neg_data=neg_data,
-        # reward_transform=args.reward_transform
-        # )
-        #
-        # # print("device check")
-        # # print(actor.model.device)
-        # # print(base_model.model.device)
-        # # print(static_initial_model.model.device)
-        #
-        # for i in range(args.harmlessness_training_num_episodes):
-        #
-        #     print(f"OUTER LOOP {i}", flush=True)
-        #     print("-----TWIST OR PROPOSAL TRAINING-----", flush=True)
-        #
-        #     # Do the training for the actor/sampling_actor which is trying to generate approximate samples from sigma = p * phi = p e^{beta r} for the RLHF formulation (or -beta for harmlessness)
-        #     # This trains actor/sampling_actor, does not train base_actor, but should use the updated base_actor from harmlessness training below
-        #     if args.num_episodes > 0:
-        #         estimates_list = trainer.fit(
-        #             args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-        #             num_update_steps_per_episodes, true_posterior_samples
-        #         )
-        #
-        #     print("-----POLICY HARMLESSNESS TRAINING-----", flush=True)
-        #     # Do the harmlessness training: use samples from the actor/sampling_actor trained by the PPOTrainer above to generate approximate sigma samples, and then reduce probability on those samples
-        #     # This trains base_actor, does not train actor, but should use the updated actor from the training above.
-        #     # TODO Update the initial model, and check that the trainer is now using the updated model version.
-        #     harmlessness_trainer.fit( # TODO check that these arguments are the right ones
-        #         args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-        #         num_update_steps_per_episodes, true_posterior_samples
-        #     )
         harmlessness_trainer = CombinedHarmlessnessTrainer(
             sampling_target_updated_base=args.sampling_target_updated_base,
             strategy=strategy,
@@ -550,7 +420,7 @@ def train(args):
             lambd=args.lambd,
             init_kl_coef=args.init_kl_coef,
             kl_target=args.kl_target,
-            target_dist_beta=args.target_dist_beta, # TODO later check to make sure this is desired
+            target_dist_beta=args.target_dist_beta,
             ema_beta=0.992,
             ptx_coef=args.ptx_coef,
             max_norm=args.max_norm,
@@ -711,10 +581,6 @@ def train(args):
         print(rew_over_time_list)
         print(untrans_ret_over_time_list)
 
-    # for param in base_actor.model.parameters():
-    #     print("PARAM CHECK 3")
-    #     print(param)
-    #     break
 
     if args.do_harmlessness_training:
         actor_to_test = base_actor
@@ -757,8 +623,6 @@ def train(args):
         if args.evaluate_on_neg_data:
             strategy.print("DOING evaluate_on_neg_data")
             do_evaluate_on_neg_data(actor_to_test, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy)
-
-        # raise SystemExit(0)  # Finished
 
 
     if torch.distributed.is_initialized():
@@ -869,7 +733,6 @@ def calculate_bad_word_log_prob_pytorch(
     batch_log_probs_case2_terms = [] # Stores log P(good_j, any_bad_k | prompt) for each j
 
     for i in range(0, n_good_words, batch_size):
-        # print(i)
         batch_good_indices = good_word_indices[i : i + batch_size]
         current_batch_size = len(batch_good_indices)
 
@@ -972,14 +835,11 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
                 print(f"BAD TEXT: threshold {threshold}")
                 print(bad_text)
 
-    # print(rewards)
-    # print(len(rewards))
     rewards = torch.cat(rewards)
     returns = torch.cat(returns)
     entropy = torch.cat(entropy)
     kls = torch.cat(kls)
-    # print(rewards)
-    # print(rewards.shape)
+
     strategy.print(f"Average reward: {rewards.mean().item()}")
     total_samples = rewards.shape[0]
     strategy.print(f"Total number of samples drawn: {total_samples}")
@@ -1027,12 +887,8 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
             strategy.print(f"BATCH {i + 1}")
 
         batch = neg_data[i * args.train_batch_size: (i + 1) * args.train_batch_size]
-        # print("BATCH")
-        # print(batch)
-        # cleaned_batch = re.sub(r'^(<\|im_end\|>)+', '', s)
+
         cleaned_batch = list(map(strip_leading_im_end, batch))
-        # print("BATCH CLEANED")
-        # print(cleaned_batch)
 
         strip_question_chat_template_fn_for_neg_data = partial(strip_question_chat_template_fn, additional_split=True)
 
@@ -1040,19 +896,13 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
         text_question, text_answer = map(list, zip(*qa_list))
 
         inputs = tokenize_fn(cleaned_batch)
-        # print("INPUTS")
-        # print(inputs)
+
         sequences = inputs["input_ids"]
-        # print("Shapes")
-        # print(sequences.size(1) - args.generate_max_len)
-        # print(sequences.shape)
+
         sequences, attention_mask, action_mask = actor.process_sequences(sequences,
                                                                          sequences.size(1) - args.generate_max_len,
                                                                          tokenizer.eos_token_id, tokenizer.pad_token_id)
 
-        # print("ATTENTION MASK CHECK")
-        # print(attention_mask)
-        # print((inputs["attention_mask"] - attention_mask).abs().sum())
 
         with torch.no_grad():
             log_probs = actor(
@@ -1061,13 +911,6 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
                 attention_mask=attention_mask,
             )
 
-        # print(log_probs) # need to multiply by attention mask? Also, how to exclude the prompts?
-        # print(inputs["attention_mask"])
-        # print(log_probs.shape)
-        # print(inputs["attention_mask"].shape)
-
-        # print("ACTION MASK")
-        # print(action_mask)
 
         total_log_prob = (log_probs * action_mask).sum(-1)
 
@@ -1076,7 +919,6 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
         prompts.extend(text_question)
     result_stack = torch.cat(results, dim=0)
     strategy.print(result_stack.shape)
-    # print(result_stack)
     detailed_dict = {}
     for prompt, log_prob in zip(prompts, result_stack):
         if prompt not in detailed_dict.keys():
@@ -1085,7 +927,6 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
     mean_log_prob_by_prompt = []
     total_log_prob_by_prompt = []
     for prompt in detailed_dict.keys():
-        # print(detailed_dict[prompt])
         detailed_dict[prompt] = torch.tensor(detailed_dict[prompt])
         strategy.print(f"Prompt: {prompt}")
         strategy.print(f"Number of bad sequences for this prompt: {len(detailed_dict[prompt])}")
@@ -1307,10 +1148,6 @@ def get_strip_question_chat_template_fn(args):
             question = question.split('user\n\n',
                                           maxsplit=1)[-1].strip('\n')
 
-            # print("STRIP Q A")
-            # print(question)
-            # print(answer, flush=True)
-
             if additional_split:  # Used for the neg_data right now, kind of hacky
                 raise NotImplementedError # not tested
                 question = question.split('<|im_end|>')[0]
@@ -1324,13 +1161,10 @@ def get_strip_question_chat_template_fn(args):
 def do_load_checkpoints(args, actor, critic, strategy):
     # load checkpoint
     consumed_samples = 0
-    # if args.load_checkpoint and os.path.exists(os.path.join(args.ckpt_path, "_actor")):
     if args.load_checkpoint:
         if os.path.exists(f"{args.ckpt_path}"):
-            # _, states = strategy.load_ckpt(actor.model, os.path.join(args.ckpt_path, "_actor"))
             _, states = strategy.load_ckpt(actor.model, f"{args.ckpt_path}")
             if critic is not None:
-                # strategy.load_ckpt(critic, os.path.join(args.ckpt_path, "_critic"))
                 base_path = args.ckpt_path.split("_actor")[0]
                 strategy.load_ckpt(critic, f"{base_path}_critic")
             consumed_samples = states["consumed_samples"]
@@ -1623,24 +1457,14 @@ if __name__ == "__main__":
             args.target_dist_beta = round(abs(1 / args.init_kl_coef), 3)
         print(f"target_dist_beta set to: {args.target_dist_beta}, based on init_kl_coef {args.init_kl_coef}")
         # assert math.isclose(args.init_kl_coef, abs(1 / args.target_dist_beta), abs_tol=0.01) # Because otherwise you don't have the equivalence between the RL formulation and the probabilistic inference formulation with target dist
-        # assert args.init_kl_coef == abs(1 / args.target_dist_beta)
     else:
         assert args.target_dist_beta is not None
-
-    # args.init_kl_coef = abs(1 / args.target_dist_beta)
-    # if args.target_dist_beta > 1000:
-    #     args.init_kl_coef = 0
-    # print(f"Init KL coef set to: {args.init_kl_coef}, based on target_dist_beta {args.target_dist_beta}")
 
     assert args.kl_target is None # Just use fixed KL for now
 
     if args.critic_pretrain is None:
         print("[Warning]: --critic_pretrain not specified, defaulting to --pretrain")
         args.critic_pretrain = args.pretrain
-        # if not args.remote_rm_url:
-        #     args.critic_pretrain = args.reward_pretrain
-        # else:
-        #     args.critic_pretrain = args.pretrain
 
     if args.input_template and not "{}" in args.input_template:
         print("[Warning] {} not in args.input_template, set to None")

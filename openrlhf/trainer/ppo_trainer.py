@@ -279,17 +279,6 @@ class BasePPOTrainer(ABC):
         true_posterior_samples=None,
     ) -> (List, List, List, List):
 
-        # for param in self.initial_model.model.parameters():
-        #     print("PARAM CHECK PPO BASE")
-        #     print(param)
-        #     break
-        #
-        # for param in self.actor.model.parameters():
-        #     print("PARAM CHECK PPO ACTOR")
-        #     print(param)
-        #     break
-
-
         if args.custom_single_prompt:
             update_timesteps = 1
             num_rollouts_per_episodes = 1
@@ -299,13 +288,6 @@ class BasePPOTrainer(ABC):
                 num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
             )
             update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
-
-            # print(update_timesteps)
-            # print(args.rollout_batch_size)
-            # print(self.strategy.world_size)
-            # print(self.micro_rollout_batch_size)
-            # update_timesteps = max(update_timesteps, 1)
-
 
 
         # get eval and save steps
@@ -351,13 +333,6 @@ class BasePPOTrainer(ABC):
         kl_vals_list = []
         entropy_list = []
 
-
-        # if true_posterior_samples is not None:
-        #     n_seeds_f_q = true_posterior_samples.shape[0] // args.train_batch_size
-        #     print(f"n_seeds_f_q: {n_seeds_f_q}")
-        # rewards_list = []
-        # kl_to_prior_list = []
-
         estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list)
 
         custom_prompt = None
@@ -375,8 +350,8 @@ class BasePPOTrainer(ABC):
             custom_prompt = [prompt_text] * args.rollout_batch_size
             print("USING CUSTOM PROMPT")
             print(len(custom_prompt))
-            start_episode = 0 # TODO later make sure this hasn't messed things up
-            steps = 0 # TODO later make sure this hasn't messed things up
+            start_episode = 0 # TODO later make sure this hasn't messed things up for loading models
+            steps = 0 # TODO later make sure this hasn't messed things up for loading models
 
 
 
@@ -437,11 +412,8 @@ class BasePPOTrainer(ABC):
                         self.replay_buffer.append(experience)
 
                         torch.cuda.empty_cache()
-                        # print("REPLAY BUFFER BEFORE NORMALIZATION")
-                        # print(self.replay_buffer.items)
+
                         self.replay_buffer.normalize(self.strategy, "advantages")
-                        # print("REPLAY BUFFER AFTER NORMALIZATION")
-                        # print(self.replay_buffer.items)
 
                         status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
                         self.replay_buffer.clear()
@@ -493,9 +465,6 @@ class BasePPOTrainer(ABC):
                     if args.new_custom_single_prompt:
                         rand_prompts = ["This man is a"]
 
-                    # print("rand_prompts")
-                    # print(rand_prompts, flush=True)
-
                     if not args.no_test_info:
                         if steps == 1: # do some test at the very beginning
                             self.test_info_multiprompt(args, rand_prompts, estimates_list)
@@ -511,7 +480,6 @@ class BasePPOTrainer(ABC):
 
                     # print("PROFILE1")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
-
 
                     # print prompt/answer in each update step
                     if steps % update_timesteps == 0:
@@ -551,14 +519,6 @@ class BasePPOTrainer(ABC):
                     # print("PROFILE2")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
-                    # if args.reward_transform is not None:
-                    #     r = self.experience_maker.compute_reward_no_kl(experience.sequences,
-                    #                                                         experience.attention_mask,
-                    #                                                         force_no_transform=True)
-                    #     rewards_list.append(r.mean().item())  # Use the non transformed reward for tracking
-                    #     # Right now this is a bit inefficient; requires additional rm pass. Should just return 2 values
-                    #     # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient
-                    # else:
                     rewards_list.append(experience.info["untransformed_reward"].mean().item())
                     inspect_rewards_list(rewards_list)
 
@@ -570,10 +530,6 @@ class BasePPOTrainer(ABC):
             return estimates_list
 
     def test_info_multiprompt(self, args, rand_prompts, estimates_lists):
-        # print("prompts")
-        # print(rand_prompts)
-        # expanded_prompts = tile_prompts(rand_prompts, samples_per_prompt) # this is done within the f_q estimate...
-
         total_f_qs, total_rewards, total_kl_vals, total_entropy = None, None, None, None
 
         for i in range(self.n_seeds_f_q):
@@ -587,12 +543,6 @@ class BasePPOTrainer(ABC):
             print(output)
             print("seqs2")
             self.strategy.print(output[0])
-
-            # print("Shapes")
-            # print(log_q.shape)
-            # print(log_p.shape)
-            # print(log_phi.shape)
-            # print(f_qs.shape)
 
             kl_vals = log_q - log_p # No action mask here; that needs to be dealt with elsewhere
             # log_q and log_p here have already been summed over the time dimension, so this is just simply reduce
@@ -616,14 +566,6 @@ class BasePPOTrainer(ABC):
                 total_kl_vals = torch.cat((total_kl_vals, kl_vals), axis=0)
                 total_entropy = torch.cat((total_entropy, entropy), axis=0)
 
-                # print("Shapes 2")
-                # print(total_f_qs.shape)
-                # print(total_rewards.shape)
-                # print(total_kl_vals.shape)
-                # print(total_entropy.shape)
-
-        # print("f_qs")
-        # print(f_qs)
         print(f"Avg F_q: {total_f_qs.mean()}")
         print(f"Avg Rew: {total_rewards.mean()}")
         print(f"Avg KL to Prior: {total_kl_vals.mean()}")
@@ -676,9 +618,7 @@ class BasePPOTrainer(ABC):
                               j * args.n_samples_for_f_q: (j + 1) * args.n_samples_for_f_q]
                     if samples.shape[0] != 0:
                         print("G_q Estimates Learned Model")
-                        # print(samples.shape)
-                        # print(condition_twist_on_tokens.shape)
-                        # print(condition_twist_on_tokens[i * n_samples_f_q: (i+1) * n_samples_f_q].shape)
+
                         attention_mask_g_q = (
                                 samples.ne(eos_token_id) & samples.ne(
                                 pad_token_id)).to(
@@ -699,12 +639,6 @@ class BasePPOTrainer(ABC):
                                                    axis=0)
                             print("Total G_qs shape")
                             print(total_g_qs.shape)
-
-                # g_qs = self.g_q_estimate(args, true_posterior_samples[
-                #                                :q_seqs.shape[0]],
-                #                          num_actions, attention_mask)
-                # print("Avg G_q Estimate (Learned Model)")
-                # print(g_qs.mean())
 
             if true_posterior_samples is not None:
                 iwae_mixture_with_one_post = q_seqs.detach().clone()
@@ -732,30 +666,14 @@ class BasePPOTrainer(ABC):
 
             if total_f_qs is None:
                 total_f_qs = f_qs
-                # total_rewards = rewards
-                # total_kl_vals = kl_vals
+
             else:
                 total_f_qs = torch.cat((total_f_qs, f_qs), axis=0)
                 print("F_Q Shape")
                 print(total_f_qs.shape)
-                # total_rewards = torch.cat((total_rewards, rewards),
-                #                           axis=0)
-                # print(total_rewards.shape)
-                # total_kl_vals = torch.cat((total_kl_vals, kl_vals),
-                #                           axis=0)
-                # print(total_kl_vals.shape)
-
-            # if total_g_qs is None:
-            #     total_g_qs = g_qs
-            # else:
-            #     total_g_qs = torch.cat((total_g_qs, g_qs),
-            #                            axis=0)
-            #     print("Total G_qs shape")
-            #     print(total_g_qs.shape)
 
         iwae_lbs_list.append(iwae_lbs)
         iwae_ubs_list.append(iwae_ubs)
-        # 1/0
         print("IWAE LB AND UB")
         print(iwae_lbs)
         print(iwae_ubs)
@@ -766,15 +684,11 @@ class BasePPOTrainer(ABC):
         print(total_g_qs.shape)
         print(total_f_qs.shape)
 
-
-        # print(total_rewards.shape)
-        # print(total_kl_vals.shape)
         if total_g_qs is not None:
             g_q_estimates_list.append(
                 total_g_qs.cpu())  # Only one G_q estimate (over all the posterior samples)
         f_q_estimates_list.append(total_f_qs.cpu())
 
-        # return f_q_estimates_list, g_q_estimates_list
 
     def f_q_estimate(self, args, batch_prompt):
         """
@@ -792,27 +706,12 @@ class BasePPOTrainer(ABC):
                     batch_prompt, **self.generate_kwargs)
             action_log_probs = action_log_probs.float() * action_mask # more precision
             log_q = action_log_probs.sum(dim=-1)
-            # print(log_q.shape)
-            # print(action_mask.shape)
-
-            # print("ACTION LOG PROBS")
-            # print(action_log_probs)
-            # print(action_log_probs.shape)
-            # 1/0
 
             log_tilde_sigma, log_p, log_phi = self.eval_log_p_plus_log_phi(
                 args, action_log_probs, attention_mask, action_mask, num_actions, sequences, return_extra_info=True
             )
 
             f_qs = log_tilde_sigma - log_q
-            # print("f_q estimate details")
-            # print("log q")
-            # print(log_q)
-            # print("log tilde sigma")
-            # print(log_tilde_sigma)
-            # print("f_qs")
-            # print(f_qs)
-            # print(f_qs.shape)
 
         self.experience_maker.set_all_policies_train()
 
@@ -821,10 +720,7 @@ class BasePPOTrainer(ABC):
     @torch.no_grad()
     def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask, action_mask,
                                 num_actions, sequences, return_extra_info=False):
-        # rewards_no_kl = self.experience_maker.compute_reward_no_kl(sequences,
-        #                                                            attention_mask, multiply_by_beta=True)
-        # print("log p phi eval")
-        # print(rewards_no_kl)
+
         # Recall that we have p(s_1:T)p(toxic class | s_1:T)^beta which is also
         # = p(s_1:T)e^{beta log p(toxic class | s_1:T))
         # Now consider r = log p(toxic class | s_1:T)), then we have the RL setting, but we must have KL penalties
@@ -832,18 +728,14 @@ class BasePPOTrainer(ABC):
         # rewards_no_kl = rewards_no_kl.float() # more precision
         # log_phi = args.target_dist_beta * rewards_no_kl
         log_phi, _ = self.experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
-        # print(args.target_dist_beta)
-        # print("log_phi")
-        # print(log_phi)
+
         base_action_log_probs = self.experience_maker.initial_model(sequences,
                                                                     num_actions,
                                                                     attention_mask)
         base_action_log_probs = base_action_log_probs.float() * action_mask # more precision
 
         log_p = base_action_log_probs.sum(dim=-1)
-        # print('P PHI INSPECTION')
-        # print(log_p)
-        # print(log_phi)
+
         log_tilde_sigma = log_p + log_phi
         if return_extra_info:
             return log_tilde_sigma, log_p, log_phi
@@ -972,37 +864,9 @@ class BasePPOTrainer(ABC):
 
         actor_loss = self.get_actor_loss(experience, custom_prompt)
 
-        # action_log_probs, values = self.actor(
-        #     experience.sequences, num_actions,
-        #     attention_mask=experience.attention_mask, return_output=False
-        # )  # TODO later revert this and fix the above (return_output=True)
-        #
-        # # print("LOG PROBS")
-        # # print(action_log_probs)
-        #
-        # # print("VALUES")
-        # # print(values)
-        #
-        # actor_loss = self.actor_loss_fn(
-        #     action_log_probs,
-        #     experience.action_log_probs,
-        #     experience.advantages,
-        #     action_mask=experience.action_mask,
-        # )
-
-        # print("ACTOR LOSS")
-        # print(actor_loss)
-
         critic_loss = self.get_critic_loss(experience, values, custom_prompt=custom_prompt)
 
-        # print("CRITIC LOSS")
-        # print(critic_loss)
-
         loss = actor_loss + self.vf_coef * critic_loss
-
-        # print(self.vf_coef)
-        # print("TOTAL LOSS")
-        # print(loss)
 
         self.strategy.backward(loss, self.actor, self.actor_optim)
         self.strategy.optimizer_step(self.actor_optim, self.actor,
@@ -1079,14 +943,6 @@ class BasePPOTrainer(ABC):
             attention_mask_sigma_samples = torch.ones_like(self.true_posterior_samples).to(
                 dtype=torch.long)
 
-            # print("--DEVICES--")
-            # print(experience.sequences.device)
-            # print(experience.attention_mask.device)
-            # print(self.true_posterior_samples.device)
-            # print(attention_mask_sigma_samples.device)
-            # print(action_log_probs.device)
-            # print(next(self.experience_maker.actor.parameters()).device)
-
             action_log_probs = self.experience_maker.actor(self.true_posterior_samples,
                                                            experience.action_mask.size(1),
                                                            attention_mask_sigma_samples)
@@ -1146,7 +1002,6 @@ class BasePPOTrainer(ABC):
         # print(f"Average across layers/modules of (mean across parameters) variances over time: {torch.tensor(total_variances).mean().item()}")
 
 
-
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
         if self.ema_model:
             self.strategy.moving_average(self.actor, self.ema_model, self.ema_beta, "cpu")
@@ -1168,32 +1023,16 @@ class BasePPOTrainer(ABC):
 
     def get_actor_loss(self, experience, custom_prompt=None):
         # actor loss
-        # action_log_probs, output = self.actor(
-        #     experience.sequences, num_actions, attention_mask=experience.attention_mask, return_output=True
-        # )
-        # num_actions = experience.action_mask.size(1)
+
         batch_size = experience.sequences.size(0)
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
-
-        # print("inspection 03-15")
-        # print(experience.action_mask)
-        # print(experience.action_mask.shape)
-        # print(experience.action_mask.size(1))
-        # print(experience.sequences)
-        # print(experience.sequences.shape)
-
 
         if self.actor_loss_type == "ppo":
             action_log_probs = self.actor(
                 experience.sequences, experience.action_mask.size(1),
                 attention_mask=experience.attention_mask, return_output=False
-            )  # TODO later revert this and fix the above (return_output=True)
-
-            # print(action_log_probs)
-            # print(experience.action_log_probs)
-            # print(experience.advantages)
-            # print(experience.action_mask)
+            )
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
@@ -1210,11 +1049,8 @@ class BasePPOTrainer(ABC):
                 base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, experience.action_mask.size(1),
                     experience.attention_mask)
-                # log_phi = self.experience_maker.compute_reward_no_kl(
-                #     experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
-                # )
-                log_phi = experience.info["reward"].to(base_action_log_probs.device)
 
+                log_phi = experience.info["reward"].to(base_action_log_probs.device)
 
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
@@ -1224,37 +1060,12 @@ class BasePPOTrainer(ABC):
                 log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask,
                                                       return_only_modulation=True)
 
-            # print("ACTOR LOSS STUFF")
-            # print(experience.action_log_probs.shape)
-            # print(base_action_log_probs.shape)
-            # print(log_psi.shape)
-            # log_psi = log_psi[:, -num_actions:]
-            # print(log_psi.shape)
-
             # Reshape tensors to group samples by prompt
             log_psi = log_psi.view(num_prompts, samples_per_prompt, -1)
             log_phi = log_phi.view(num_prompts, samples_per_prompt)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
             base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
-
-            # print("CTL INSPECTION")
-            # print(experience.sequences.shape)
-            # print(experience.sequences)
-            # print(experience.attention_mask.shape)
-            # print(experience.attention_mask)
-            # print(exper_action_mask.shape)
-            # print(exper_action_mask)
-            # print(exper_action_log_probs.shape)
-            # print(exper_action_log_probs)
-
-            # print(log_psi.shape)
-            # print(log_psi)
-            # print(log_phi.shape)
-            # print(log_phi)
-
-            # print(base_action_log_probs.shape)
-            # print(base_action_log_probs)
 
             # Calculate loss for all groups at once
             actor_loss = self.actor_loss_fn(
@@ -1270,13 +1081,8 @@ class BasePPOTrainer(ABC):
                 base_action_log_probs_all_vocab, base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, experience.action_mask.size(1),
                     experience.attention_mask, return_type="both")
-                # log_phi = self.experience_maker.compute_reward_no_kl(
-                #     experience.sequences, experience.attention_mask, multiply_by_beta=True
-                #     # beta multiplied for non-PPO formulations
-                # )
                 log_phi = experience.info["reward"].to(base_action_log_probs.device)
             if "policy" in self.parameterization:
-                # TODO call actor with return_all_vocab=True
                 log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, experience.action_mask.size(1), self.parameterization, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
             else:
                 log_psi_all_vocab, log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask,
@@ -1330,23 +1136,8 @@ class BasePPOTrainer(ABC):
                 base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, num_actions,
                     experience.attention_mask)
-                # log_phi = self.experience_maker.compute_reward_no_kl(
-                #     experience.sequences, experience.attention_mask, multiply_by_beta=True
-                #     # beta multiplied for non-PPO formulations
-                # )
                 log_phi = experience.info["reward"].to(base_action_log_probs.device)
 
-
-            # print(experience.sequences)
-            # print(experience.sequences.shape)
-            # print(num_actions)
-            # print(experience.sequences[:, :-num_actions])
-            # print(experience.sequences[:, :-num_actions].shape)
-            #
-            # print(experience.attention_mask)
-            # print(experience.attention_mask.shape)
-            # print(experience.attention_mask[:, :-num_actions])
-            # print(experience.attention_mask[:, :-num_actions].shape)
 
             if self.actor_loss_type == "sixo":
 
@@ -1365,19 +1156,11 @@ class BasePPOTrainer(ABC):
                     log_psi_on_base_samples = self.experience_maker.actor(base_sequences, base_action_mask.size(1),
                                                                           base_attention_mask,
                                                                           return_only_modulation=True)
-                    # log_psi_on_base_samples = log_psi_on_base_samples[:, -num_actions:]
 
             if "policy" in self.parameterization:
                 log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, num_actions, self.parameterization)
             else:
                 log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask, return_only_modulation=True)
-            # log_psi = log_psi[:, -num_actions:]
-
-            # print("ACTOR LOSS STUFF")
-            # print(experience.action_log_probs.shape)
-            # print(base_action_log_probs.shape)
-            # print(log_psi.shape)
-            # print(log_psi.shape)
 
             # Reshape tensors to group samples by prompt
             log_psi = log_psi.view(num_prompts, samples_per_prompt, -1)
@@ -1434,15 +1217,6 @@ class BasePPOTrainer(ABC):
             log_psi = log_p_psi - base_action_log_probs.detach()
             log_psi_all = log_p_psi_all - base_action_log_probs_all.detach()
 
-            # print("policy param inspection")
-            # print(log_psi)
-            # print("policy param inspection2")
-            # print(log_p_psi_all)
-            # print(log_psi_all)
-            # print(base_action_log_probs_all)
-            # print(F.log_softmax(log_p_psi_all, dim=-1))
-            # 1/0
-
             return log_psi_all, log_psi
 
         if parameterization == "policy_psi_unnorm":
@@ -1460,16 +1234,12 @@ class BasePPOTrainer(ABC):
             raise NotImplementedError
 
         if parameterization == "policy_psi_q_p_s_1_to_t":
-        # if log_psi_parameterization_type == "log_q_s_1_to_t_minus_log_p_s_1_to_t":
             log_p_psi = torch.cumsum(log_p_psi, dim=1)
             base_action_log_probs = torch.cumsum(base_action_log_probs, dim=1)
 
-        # log_p_psi = self.experience_maker.actor(experience.sequences, num_actions, experience.attention_mask, return_type=return_type)
 
         log_psi = log_p_psi - base_action_log_probs.detach()  # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
         # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
-        # print("log_psi values")
-        # print(log_psi)
         return log_psi
 
     def training_step_critic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:
@@ -1626,7 +1396,6 @@ class BasePPOTrainer(ABC):
         # TODO: save best model on dev, use loss/perplexity/others on whole dev dataset as metric
 
 
-
         if self.total_steps > 0 and self.total_steps % args.save_steps == 0:
         # if global_step % args.save_steps == 0:
         #     print(f"SAVING CHECKPOINT AT GLOBAL STEP {global_step}", flush=True)
@@ -1638,9 +1407,6 @@ class BasePPOTrainer(ABC):
         info_name_str = get_info_name_str(args)
         save_str = f"{info_name_str}"
         # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
-
-        # print(self.actor)
-        # print(type(self.actor))
 
         if args.parameterization == "modulation_model":
             self.strategy.save_ckpt(
@@ -1654,11 +1420,8 @@ class BasePPOTrainer(ABC):
 
         # actor_to_save = self.actor
         elif args.parameterization in ["modulation_linear_head", "modulation_nn_head"]:
-            # actor_to_save = self.actor.modulation_head
             save_path = os.path.join(args.ckpt_path, f"{save_str}_actor")
-            # print(self.actor.modulation_head)
-            # print(type(self.actor.modulation_head))
-            # print(self.actor.modulation_head.state_dict())
+
             torch.save(self.actor.modulation_head.state_dict(), save_path)
 
 

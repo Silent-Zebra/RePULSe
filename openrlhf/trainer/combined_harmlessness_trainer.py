@@ -170,9 +170,6 @@ class CombinedHarmlessnessTrainer(ABC):
         self.separate_reweighting_beta = separate_reweighting_beta
         self.uniform_reweight = uniform_reweight
 
-        # Just do very simple negative training, REINFORCE (on base samples), and REINFORCE (on sigma samples)
-        # Then have the ability to combine the above ones (we need REINFORCE on base samples, what is "actor" here, plus with either neg train or reinforce on bad (sigma) samples)
-
         self.base_actor_loss_type = base_actor_loss_type
         self.alpha = alpha
         self.hardcoded_baseline = hardcoded_baseline
@@ -356,15 +353,6 @@ class CombinedHarmlessnessTrainer(ABC):
             )
             update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
 
-            # print(num_update_steps_per_episodes)
-            # print(args.train_batch_size)
-            # print(args.max_epochs)
-            # print(args.rollout_batch_size)
-            # print(num_rollouts_per_episodes)
-            # print(self.strategy.world_size)
-            # print(self.micro_rollout_batch_size)
-            # print(update_timesteps)
-
         print("UPDATE TIMESTEPS")
         print(update_timesteps)
 
@@ -380,24 +368,6 @@ class CombinedHarmlessnessTrainer(ABC):
         self.pretrain_dataloader = pretrain_dataloader
 
         # Restore step and start_epoch
-
-        # for param in self.base_actor.model.parameters():
-        #     print("PARAM CHECK HARML")
-        #     print(param)
-        #     break
-        #
-        # for param in self.sampling_experience_maker_neg.actor.model.parameters():
-        #     print("PARAM CHECK HARML SAMPLING ACTOR")
-        #     print(param)
-        #     break
-        #
-        # try:
-        #     for param in self.sampling_experience_maker_neg.actor.modulation_head.parameters():
-        #         print("PARAM CHECK HARML SAMPLING ACTORCUSTOM")
-        #         print(param)
-        #         break
-        # except:
-        #     print("error")
 
         if args.num_episodes > 1:
             raise NotImplementedError # Later: can create an additional outer loop to allow for more proposal/twist updates per harmlessness update. But 1 is a decent baseline, to keep overhead to a minimum and learn fast...
@@ -435,19 +405,10 @@ class CombinedHarmlessnessTrainer(ABC):
         entropy_list = []
         untrans_ret_list = []
 
-
-        # if true_posterior_samples is not None:
-        #     n_seeds_f_q = true_posterior_samples.shape[0] // args.train_batch_size
-        #     print(f"n_seeds_f_q: {n_seeds_f_q}")
-        # rewards_list = []
-        # kl_to_prior_list = []
-
         estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list)
 
         custom_prompt = None
-        # if args.custom_single_prompt:
-        #     raise NotImplementedError # Not yet tested
-        # else:
+
         assert start_episode < args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop # Otherwise no updates done; this might be ok depending on setup, but for now this would be unexpected behaviour.
 
         total_update_steps = self.prompts_dataloader.__len__() * args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop * args.fit_steps
@@ -476,10 +437,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 disable=not self.strategy.is_rank_0(),
             )
 
-            # print("DATALOADER_HARMLESS")
-            # print(self.prompts_dataloader.sampler, flush=True)
-            # print(self.prompts_dataloader.__len__(), flush=True)
-
             for rand_prompts in self.prompts_dataloader:
                 if args.anneal_target_dist_beta:
                     new_beta = beta_schedule[self.total_steps]
@@ -493,14 +450,6 @@ class CombinedHarmlessnessTrainer(ABC):
 
                 if args.new_custom_single_prompt:
                     rand_prompts = ["This man is a"]
-
-                # print("rand_prompts_HARMLESS")
-                # print(rand_prompts, flush=True)
-                # print(type(rand_prompts))
-
-                # if not args.no_test_info:
-                #     if steps == 1: # do some test at the very beginning
-                #         self.test_info_multiprompt(args, rand_prompts, estimates_list)
 
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:
@@ -564,30 +513,15 @@ class CombinedHarmlessnessTrainer(ABC):
                     client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
                     self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
 
-                    # if not args.no_test_info:
-                    #     if steps % args.test_info_every == 0:
-                    #         self.test_info_multiprompt(args, rand_prompts, estimates_list)
-
                 # print("PROFILE2")
                 # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
                 pbar.update()
                 steps = steps + 1
 
-                # # print(experience.info["reward"])
-                # if args.reward_transform is not None:
-                #     r = self.base_experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask, force_no_transform=True)
-                #     rewards_list.append(r.mean().item()) # Use the non transformed reward for tracking
-                #     # Right now this is a bit inefficient; requires additional rm pass. Should just return 2 values
-                #     # from the rm, but this requires modifying experience everywhere and the RM calls... so this implementation is easier but computationally inefficient
-                # else:
-
                 rewards_list.append(experience.info["untransformed_reward"].mean().item())
                 untrans_ret_list.append(experience.info["untransformed_ret"].mean().item())
 
-                # print(rewards_list)
-                # print(estimates_list)
-                # 1 / 0
                 inspect_rewards_list(rewards_list)
                 inspect_rewards_list(untrans_ret_list)
 
@@ -631,13 +565,6 @@ class CombinedHarmlessnessTrainer(ABC):
                     disable=not self.strategy.is_rank_0(),
                     total=min(len(dataloader), len(dataloader_neg))  # Ensure tqdm gets a proper length
                 )
-
-                # pbar = tqdm(
-                #     dataloader,
-                #     desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
-                #     disable=not self.strategy.is_rank_0(),
-                # )
-                # for experience in pbar:
                 for experience, experience_neg_sampling in pbar:
                     self.train_on_experiences(custom_prompt, device, experience, experience_neg_sampling, global_steps,
                                               pbar, status_list)
@@ -664,11 +591,7 @@ class CombinedHarmlessnessTrainer(ABC):
                              status_list):
         experience.to_device(device)
         experience_neg_sampling.to_device(device)
-        # print("EXPERIENCE NEG INFO")
-        # print(experience_neg_sampling.sequences)
-        # print(experience_neg_sampling.info["reward"])
-        # print((experience_neg_sampling.action_log_probs * experience_neg_sampling.action_mask).sum(-1))
-        # print(experience_neg_sampling.info)
+
         status = self.training_step(experience, experience_neg_sampling, global_steps, custom_prompt=custom_prompt)
         # for DP
         # weighted mean for kl
@@ -767,14 +690,6 @@ class CombinedHarmlessnessTrainer(ABC):
             raise NotImpelementedError
             print("DOING BEHAVIOUR CLONING")
 
-        # print("BASE ACTOR OPTIM 2")
-        # print(self.base_actor_optim)
-
-        # for param in self.base_actor.model.parameters():
-        #     print("PARAM CHECK HARML before loss")
-        #     print(param)
-        #     break
-
         self.strategy.backward(loss, self.base_actor, self.base_actor_optim)
 
         # ptx loss
@@ -807,11 +722,6 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.ema_model:
             raise NotImplementedError # not tested
             self.strategy.moving_average(self.base_actor, self.ema_model, self.ema_beta, "cpu")
-
-        # for param in self.base_actor.model.parameters():
-        #     print("PARAM CHECK HARML after loss")
-        #     print(param)
-        #     break
 
         # status
         status = {"base_policy_loss": actor_loss.item(), "base_actor_lr": self.base_actor_scheduler.get_last_lr()[0]}
@@ -875,39 +785,17 @@ class CombinedHarmlessnessTrainer(ABC):
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
 
-        # print("inspection 03-29")
-        # print(experience.action_mask)
-        # print(experience.action_mask.shape)
-        # print(experience.action_mask.size(1))
-        # print(experience.sequences)
-        # print(experience.sequences.shape)
-
         if self.base_actor_loss_type == "reinforce":
             action_log_probs = self.base_actor(
                 experience.sequences, experience.action_mask.size(1),
                 attention_mask=experience.attention_mask, return_output=False
             )
 
-            # print("INSPECT 03-30")
-            # print(num_prompts)
-            # print(samples_per_prompt)
-            # print(action_log_probs.shape)
-
             action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
-
-            # print("REWARD VS RETURN COMPARISON")
-            # print(experience.info["reward"])
-            # print(experience.info["return"])
-            # print(torch.abs(experience.info["reward"] - experience.info["return"]))
 
             # final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             final_reward_including_kl = experience.info["return"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
-
-            # print(action_log_probs)
-            # print(experience.action_log_probs)
-            # print(experience.advantages)
-            # print(experience.action_mask)
 
             actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
@@ -949,16 +837,6 @@ class CombinedHarmlessnessTrainer(ABC):
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg_sampling.action_mask.view(num_prompts, samples_per_prompt, -1)
 
-            # print("SHAPES")
-            # print(action_log_probs_neg.shape)
-            # print(experience_neg_sampling.action_log_probs.shape)
-            # print(experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1).shape)
-            # print(experience_neg_sampling.returns.shape)
-            # print(experience_neg_sampling.returns.view(num_prompts, samples_per_prompt, -1).shape)
-            # print(experience_neg_sampling.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1].shape)
-            # print(experience_neg_sampling.returns)
-            # print(experience_neg_sampling.returns.view(num_prompts, samples_per_prompt, -1)[:, :, -1])
-
             if self.uniform_reweight:
                 log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt)).to(action_log_probs.device)
                 normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=-1)
@@ -982,13 +860,8 @@ class CombinedHarmlessnessTrainer(ABC):
 
             if self.rm_type == "indicator_below_threshold":
                 # Only have any weight (do the negative training/gradient ascent/-SFT) on any samples that satisfy the indicator function
-                # print(final_reward_neg)
-                # print(normalized_w_t_approx_sigma_samples)
                 normalized_w_t_approx_sigma_samples = normalized_w_t_approx_sigma_samples * (torch.exp(final_reward_neg) > INDICATOR_REWARD_EPS * 2) # Assign 0 weights to all samples that do not satisfy the indicator. This really only makes a difference if all the samples do not satisfy the indicator, in which case this ensures no negative training update is applied, otherwise all samples would get equal weights and pushed down equally even if none satisfy the indicator, which is probably not what we want (we don't want to just randomly push down on a bunch of samples that aren't from the target)
-                # print(torch.exp(final_reward_neg))
-                # print(INDICATOR_REWARD_EPS * 2)
-                # print((torch.exp(final_reward_neg) < INDICATOR_REWARD_EPS * 2))
-                # 1/0
+
                 print("Indicator weights inspection")
                 print(final_reward_neg)
                 print(normalized_w_t_approx_sigma_samples)
@@ -1062,7 +935,6 @@ class CombinedHarmlessnessTrainer(ABC):
             print("NORMALIZED POSITIVE WEIGHTS")
             print(normalized_w_t_approx_sigma_samples)
 
-            # TODO fill out all the arguments below correctly, check each one
             actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
@@ -1091,11 +963,6 @@ class CombinedHarmlessnessTrainer(ABC):
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
 
-            # for param in self.base_actor.model.parameters():
-            #     print("PARAM CHECK HARML CTL LOSS")
-            #     print(param)
-            #     break
-
             with torch.no_grad():
                 base_action_log_probs = self.base_actor(
                     experience.sequences, experience.action_mask.size(1),
@@ -1104,9 +971,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 #     experience.sequences, experience.attention_mask, multiply_by_beta=True # beta multiplied for non-PPO formulations
                 # )
                 log_phi = experience.info["reward"].to(base_action_log_probs.device)
-
-            # print("BASE ACTION LOG PROBS INSPECTION")
-            # print(base_action_log_probs)
 
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
@@ -1160,24 +1024,6 @@ class CombinedHarmlessnessTrainer(ABC):
             log_psi_all_vocab = log_psi_all_vocab.view(num_prompts, samples_per_prompt, log_psi_all_vocab.shape[1], log_psi_all_vocab.shape[2])
             base_action_log_probs_all_vocab = base_action_log_probs_all_vocab.view(num_prompts, samples_per_prompt, base_action_log_probs_all_vocab.shape[1], base_action_log_probs_all_vocab.shape[2])
 
-            # print("DPG INSPECTION")
-            # print(experience.sequences.shape)
-            # print(experience.sequences)
-            # print(experience.attention_mask.shape)
-            # print(experience.attention_mask)
-            # print(exper_action_mask.shape)
-            # print(exper_action_mask)
-            # print(exper_action_log_probs.shape)
-            # print(exper_action_log_probs)
-            #
-            # print(log_psi.shape)
-            # print(log_psi)
-            # print(log_phi.shape)
-            # print(log_phi)
-            #
-            # print(base_action_log_probs.shape)
-            # print(base_action_log_probs)
-
             # Calculate loss for all groups at once
             sampling_actor_loss = self.sampling_actor_loss_fn(
                 log_psi,  # shape: [num_prompts, samples_per_prompt, num_actions]
@@ -1225,15 +1071,6 @@ class CombinedHarmlessnessTrainer(ABC):
             log_psi = log_p_psi - base_action_log_probs.detach()
             log_psi_all = log_p_psi_all - base_action_log_probs_all.detach()
 
-            # print("policy param inspection")
-            # print(log_psi)
-            # print("policy param inspection2")
-            # print(log_p_psi_all)
-            # print(log_psi_all)
-            # print(base_action_log_probs_all)
-            # print(F.log_softmax(log_p_psi_all, dim=-1))
-            # 1/0
-
             return log_psi_all, log_psi
 
         if parameterization == "policy_psi_unnorm":
@@ -1259,8 +1096,7 @@ class CombinedHarmlessnessTrainer(ABC):
 
         log_psi = log_p_psi - base_action_log_probs.detach()  # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
         # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
-        # print("log_psi values")
-        # print(log_psi)
+
         return log_psi
 
 
@@ -1362,9 +1198,6 @@ class CombinedHarmlessnessTrainer(ABC):
         save_str = f"{info_name_str}"
         # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.critic_loss_type}_{extra_str}_seed{args.seed}"
 
-        # print(self.sampling_actor)
-        # print(type(self.sampling_actor))
-
         if args.parameterization == "modulation_model":
             self.strategy.save_ckpt(
                 self.sampling_actor,
@@ -1375,13 +1208,9 @@ class CombinedHarmlessnessTrainer(ABC):
                 client_states,
             )
 
-        # actor_to_save = self.sampling_actor
         elif args.parameterization in ["modulation_linear_head", "modulation_nn_head"]:
-            # actor_to_save = self.sampling_actor.modulation_head
             save_path = os.path.join(args.ckpt_path, f"{save_str}_actor")
-            # print(self.sampling_actor.modulation_head)
-            # print(type(self.sampling_actor.modulation_head))
-            # print(self.sampling_actor.modulation_head.state_dict())
+
             torch.save(self.sampling_actor.modulation_head.state_dict(), save_path)
 
 

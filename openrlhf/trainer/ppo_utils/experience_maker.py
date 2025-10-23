@@ -249,21 +249,8 @@ class BaseExperienceMaker(ABC):
         # init log probs
         with torch.no_grad():
             base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
-        # print("--BASE ACTION LOG PROBS--")
-        # print(base_action_log_probs.mean())
-        # print(base_action_log_probs)
 
         r, untransformed_reward = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta)
-
-        # print("--Rewards--")
-        # print(r)
-        # print(r.mean())
-        # print("--End Rewards--")
-
-        # print("COMPUTE REWARD INSPECTION")
-        # print(self.kl_ctl.value)
-        # print(action_log_probs)
-        # print(base_action_log_probs)
 
         rewards, kl = compute_reward(
             r,
@@ -272,10 +259,6 @@ class BaseExperienceMaker(ABC):
             base_action_log_probs,
             action_mask=action_mask,
         )
-        # print("--Rewards--")
-        # print(rewards)
-        # print(rewards.sum(-1))
-        # print("--End Rewards--")
 
         if value is None:
             advantages = torch.zeros_like(rewards)
@@ -289,25 +272,6 @@ class BaseExperienceMaker(ABC):
                 generate_kwargs["gamma"],
                 generate_kwargs["lambd"],
             )
-
-        # print("INSPECTION")
-        # print(returns)
-        # print(advantages)
-        # print(returns.shape)
-        # print(advantages.shape)
-        #
-        # returns2 = action_mask * rewards
-        # print("INSPECTION2")
-        # print(returns2)
-        # print(returns2.shape)
-        # returns3 = returns2.sum(dim=-1)
-        # print("INSPECTION3")
-        # print(returns3.shape)
-        # print(returns3)
-        # print("COMPARISON")
-        # print(returns2 - returns)
-        # print(torch.abs(returns2 - returns).sum())
-        # 1/0
 
         log_q = (action_log_probs.float() * action_mask).sum(dim=-1)
         log_phi = r
@@ -382,9 +346,7 @@ class BaseExperienceMaker(ABC):
 
             queries = self.tokenizer.batch_decode(seqs_below_threshold.cpu(),
                                                   skip_special_tokens=False)
-            # self.neg_data.extend(sequences[r < self.save_negdata_threshold])
             self.neg_data.update(queries) # keep only unique samples
-            # print(self.neg_data)
             print(len(self.neg_data))
 
         untransformed_reward = r
@@ -393,7 +355,6 @@ class BaseExperienceMaker(ABC):
             print(self.alpha)
             print(self.reward_transform_beta)
             transformed_reward = r - self.alpha * torch.exp(self.reward_transform_beta * r)
-            # r -= alpha * torch.exp(beta * r)
             print(r)
             print(transformed_reward)
             r = transformed_reward
@@ -408,9 +369,6 @@ class BaseExperienceMaker(ABC):
 
         else:
             assert self.reward_transform is None  # Others not yet implemented
-
-        # if self.rm_type is None:
-        #     return r
 
         if self.rm_type == "exp_beta_toxicity_class_logprob":
             print("WARNING: only set up for toxicity so far") # TODO later make more flexible, for different reward models. Also, be careful that this is the only place the reward model is used
@@ -438,15 +396,6 @@ class BaseExperienceMaker(ABC):
                 # = log(1/(1+e^c))
                 # = - log(1 + e^c)
                 # = - softplus(score)
-
-                # print("INSPECTING REWARDS: score")
-                # print(score)
-                # print("INSPECTING REWARDS: nontoxic_class_logprob")
-                # print(nontoxic_class_logprob)
-                # print("INSPECTING REWARDS: toxic_class_prob")
-                # print(toxic_class_prob)
-                # print("INSPECTING REWARDS: log_prob_of_class")
-                # print(log_prob_of_class)
 
                 log_prob_of_class = -torch.nn.functional.softplus(score)
                 # print("INSPECTING REWARDS: log_prob_of_class (softplus)")
@@ -500,105 +449,25 @@ class BaseExperienceMaker(ABC):
 
     def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
         self.set_all_eval()
-        # generate seq
-        # print("prompts")
-        # print(prompts)
 
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
 
-        # print("inputs")
-        # print(inputs)
-        # print(generate_kwargs)
-
-        # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        #              profile_memory=True, record_shapes=True) as prof:
-
         sequences, attention_mask, action_mask = self.actor.generate(**inputs,
                                                                      **generate_kwargs)
-        # print("PROFILE GENERATE")
-        # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
-
-
-        # print("generate_inspection")
-        # print(sequences)
-        # print(attention_mask)
-        # print(action_mask)
-
-
-        # print(prompts)
-        # print(prompts[0])
-        # # print(prompts[1])
-        # # print(prompts[10])
-        # # print(prompts[11])
-        #
-        # print(inputs)
-        # print(inputs['input_ids'][0])
-        # # print(inputs['input_ids'][1])
-        # # print(inputs['input_ids'][10])
-        # # print(inputs['input_ids'][11])
-        # print(sequences)
-        # print(sequences[0])
-        # # print(sequences[1])
-        # # print(sequences[10])
-        # # print(sequences[11])
-
-        # if self.shared_actorcritic:
-        #     sequences = torch.tensor([[7454, 2402, 257, 640, 11, 612, 373, 257, 8966, 326,
-        #              561, 5858, 790, 3329, 13, 21326, 340, 28077, 11, 262,
-        #              8966, 373, 9314, 13, 4380, 422, 1978, 8288],
-        #             [7454, 2402, 257, 640, 11, 612, 373, 257, 1263, 8848,
-        #              351, 257, 1263, 18021, 13, 383, 8848, 373, 845, 1593,
-        #              284, 262, 661, 319, 340, 11, 523, 484]],
-        #            device='cuda:0')
-        #     # TODO REMOVE LATER DEBUG ONLY
 
         num_actions = action_mask.size(1)
-        # print("--NUM ACTIONS--")
-        # print(num_actions)
-        # print("--ACTION MASK--")
-        # print(action_mask.size()) # check this matches the output_len
-        # print(action_mask)
-        # print("--Sequences--")
-        # print(sequences)
-        # print(self.tokenizer.batch_decode(sequences))
-        # print("--End Sequences--")
-        # log probs
-        if self.shared_actorcritic:
 
-            # print("attention_mask")
-            # print(attention_mask.shape)
-            # print(sequences.shape)
+        if self.shared_actorcritic:
 
             self.set_all_policies_train()
 
             action_log_probs, values = self.actor(sequences, num_actions, attention_mask)
             return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
         else:
-            # action_log_probs = self.actor(sequences, num_actions, attention_mask)
-            # # print("SEQUENCES")
-            # # print(sequences[0,-20:])
-            # # print(sequences[:,-20:])
-            # # print(sequences)
-            # # print("--ACTION LOG PROBS--")
-            # # print(action_log_probs[0])
-            # # print(action_log_probs[0,-20:])
-            # # print(action_log_probs.mean())
-            # # print(action_log_probs)
-
             self.set_all_policies_train()
 
             action_log_probs = self.actor(sequences, num_actions, attention_mask)
-            # print("SEQUENCES")
-            # print(sequences[0,-20:])
-            # print(sequences[:,-20:])
-            # print(sequences)
-            # print("--ACTION LOG PROBS TRAIN--")
-            # print(action_log_probs[0])
-            # print(action_log_probs[0, -20:])
-            # print(action_log_probs.mean())
-            # print(action_log_probs)
 
-            # 1/0
             return action_log_probs, action_mask, attention_mask, num_actions, sequences
 
     @torch.no_grad()

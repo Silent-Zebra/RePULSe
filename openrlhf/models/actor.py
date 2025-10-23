@@ -189,7 +189,6 @@ class Actor(nn.Module):
 
         # sequences.scatter_(dim=1, index=eos_indices, value=eos_token_id)
 
-        # TODO The above may be the problem
         # Summary of what I think is the problem: essentially if you reach the max sequence length in generation
         # All the rest of the code does calculations based on this token which was manually inserted
         # The problem here is that the eos token may be very different in probability from what the model would actually generate
@@ -197,16 +196,9 @@ class Actor(nn.Module):
         # Which may have a very different value on the current policy vs ref/base policy
         # And of course, since the EOS token is not actually being sampled
         # This can also cause the KL div to go negative, and wildly so
-        # TODO So I think we can simply just not have the EOS token at the end (possibly just remove the above 2 lines), and things should work ok. Not sure what problems this might cause though, by removing the final EOS processing
-        # Also not sure what other problems may arise
-        # TODO open an issue on the OpenRLHF repo
-        # TODO After resolving this issue, keep stepping through code and checking elsewhere what is going on
-
-        # print("--Sequences after modification--")
-        # print(sequences)
-
-        # print("BEFORE")
-        # print(attention_mask)
+        # So I think we can simply just not have the EOS token at the end (possibly just remove the above 2 lines), and things should work ok. Not sure what problems this might cause though, by removing the final EOS processing
+        # See: https://github.com/OpenRLHF/OpenRLHF/issues/238
+        # Not sure if they've fixed this on the main repo. Anyway, I've fixed it here.
 
         # For Llama3 and Qwen2 models (and other models), there are some eos_tokens in the middle of the prompt.
         first_token_indices = attention_mask.long().argmax(dim=1, keepdim=True)
@@ -255,23 +247,6 @@ class Actor(nn.Module):
             return log_probs_all[:, -num_actions:], log_probs[:, -num_actions:]
 
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:], return_type=return_type, return_unnormalized=return_unnormalized)
-
-        # print("inspection of log probs - does no attention give 0 or something?")
-        # print(log_probs)
-
-
-        # labels = sequences[:, 1:]
-        # print("forward_inspection - logits")
-        # print(output["logits"].shape)
-        # print(output["logits"])
-        # print("forward_inspection - logits2")
-        # print(output["logits"].gather(dim=-1, index=labels.unsqueeze(-1)).shape)
-        # print(output["logits"].gather(dim=-1, index=labels.unsqueeze(-1)))
-        #
-        # print("forward_inspection - log_probs")
-        # print(log_probs.shape)
-        # print(log_probs)
-
 
         if return_output:
             return output if num_actions is None else (log_probs[:, -num_actions:], output)
