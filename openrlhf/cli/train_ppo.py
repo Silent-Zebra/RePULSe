@@ -1512,7 +1512,6 @@ if __name__ == "__main__":
         assert args.new_custom_single_prompt
         assert args.analytic_bad_word_calc # otherwise not yet tested
 
-
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
     if args.reward_transform is not None:
