@@ -1,6 +1,8 @@
 # RePULSe 
 
-ArXiv link: https://arxiv.org/abs/2510.21184
+This is the codebase for "Reducing the Probability of Undesirable Outputs in Language Models Using Probabilistic Inference", appearing at NeurIPS 2025.
+
+ArXiv link to paper: https://arxiv.org/abs/2510.21184
 
 # Setup Notes:
 
