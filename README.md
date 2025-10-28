@@ -1,6 +1,6 @@
 # RePULSe 
 
-TODO: Update with link to paper (Arxiv?), and brief description of the paper
+ArXiv link: https://arxiv.org/abs/2510.21184
 
 # Setup Notes:
 
