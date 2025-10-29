@@ -490,7 +490,7 @@ def train(args):
             strategy.print("-----HARMLESSNESS TRAINING-----")
             # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
             if args.harmlessness_training_num_episodes > 0:
-                assert args.num_episodes == 1  # Right now only supports 1 twist/proposal update per base_actor update
+                # assert args.num_episodes == 1  # Right now only supports 1 twist/proposal update per base_actor update
                 estimates_list = harmlessness_trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
                     num_update_steps_per_episodes, true_posterior_samples
@@ -1194,7 +1194,7 @@ if __name__ == "__main__":
     parser.add_argument("--load_checkpoint", action="store_true", default=False)
 
     # PPO
-    parser.add_argument("--num_episodes", type=int, default=1)
+    parser.add_argument("--num_episodes", type=int, default=1, help="For PPO, is the number of total times to do updates on the prompt dataset. For harmlessness training, is the number of times to do twist updates per each policy model update")
     parser.add_argument("--fit_steps", type=int, default=1, help="Used only for the toy environment setting for now, otherwise leave at 1")
 
     parser.add_argument("--rollout_batch_size", type=int, default=512)

@@ -369,8 +369,8 @@ class CombinedHarmlessnessTrainer(ABC):
 
         # Restore step and start_epoch
 
-        if args.num_episodes > 1:
-            raise NotImplementedError # Later: can create an additional outer loop to allow for more proposal/twist updates per harmlessness update. But 1 is a decent baseline, to keep overhead to a minimum and learn fast...
+        # if args.num_episodes > 1:
+        #     raise NotImplementedError # Later: can create an additional outer loop to allow for more proposal/twist updates per harmlessness update. But 1 is a decent baseline, to keep overhead to a minimum and learn fast...
 
         print("INSPECT_HARMLESS")
         print(num_update_steps_per_episodes)
@@ -454,94 +454,98 @@ class CombinedHarmlessnessTrainer(ABC):
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:
 
-                print("Making experience: standard sampling")
-
-                experience = self.base_experience_maker.make_experience(
-                    rand_prompts,
-                    samples_per_prompt=args.duplicate_rollout_batch_by,
-                    **self.generate_kwargs
-                )
-                if self.separate_neg_samples:
-                    print("Making experience: neg sampling")
-
-                    experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
-                        rand_prompts,
-                        samples_per_prompt=args.duplicate_rollout_batch_by,
-                        **self.generate_kwargs
-                    )
-                else:
-                    experience_neg_sampling = None  # This experience_neg will not be used with reinforce anyway
-
-                # print("PROFILE1")
-                # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+                if args.num_episodes > 1:
+                    for q_train_step in range(args.num_episodes - 1):
+                        self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
+                                                           untrans_ret_list, update_timesteps, neg_sample_only=True)
 
 
-                # print prompt/answer in each update step
-                if steps % update_timesteps == 0:
-                    output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
-                    self.strategy.print(output[0])
-                self.base_replay_buffer.append(experience)
-                if self.separate_neg_samples:
-                    self.sampling_replay_buffer_neg.append(experience_neg_sampling)
-
-                # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                #              profile_memory=True, record_shapes=True) as prof:
-
-                self.total_steps += 1  # do this update before the save_steps, so that saving does happen e.g. if you do 4 save_steps, then on the 4th step, saving will actually happen
-                # so far I modified self.save_logs_and_checkpoints, this should be the only place using self.total_steps
-
-                if steps % update_timesteps == 0:
-                    global_steps = steps // update_timesteps
-
-                    torch.cuda.empty_cache()
-                    self.base_replay_buffer.normalize(self.strategy, "advantages")
-                    if self.separate_neg_samples:
-                        self.sampling_replay_buffer_neg.normalize(self.strategy, "advantages")
-
-                    assert custom_prompt is None
-                    status = self.train(global_steps, custom_prompt=custom_prompt)
-                    self.base_replay_buffer.clear()
-                    if self.separate_neg_samples:
-                        self.sampling_replay_buffer_neg.clear()
-                    torch.cuda.empty_cache()
-
-                    if "kl" in status:
-                        self.kl_ctl.update(status["kl"], args.rollout_batch_size)
-                    pbar.set_postfix(status)
-
-                    # logs/checkpoints
-                    client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
-                    self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
-
-                # print("PROFILE2")
-                # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
-
-                pbar.update()
-                steps = steps + 1
-
-                rewards_list.append(experience.info["untransformed_reward"].mean().item())
-                untrans_ret_list.append(experience.info["untransformed_ret"].mean().item())
-
-                inspect_rewards_list(rewards_list)
-                inspect_rewards_list(untrans_ret_list)
+                self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
+                                                   untrans_ret_list, update_timesteps, neg_sample_only=False)
 
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
         else:
             return estimates_list
 
+    def make_experience_and_do_update(self, args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
+                                      untrans_ret_list, update_timesteps, neg_sample_only=False):
+        if not neg_sample_only:
+            print("Making experience: standard sampling")
+            experience = self.base_experience_maker.make_experience(
+                rand_prompts,
+                samples_per_prompt=args.duplicate_rollout_batch_by,
+                **self.generate_kwargs
+            )
+            self.base_replay_buffer.append(experience)
 
+            # # print prompt/answer in each update step
+            # if steps % update_timesteps == 0:
+            #     output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
+            #     self.strategy.print(output[0])
 
-    def train(self, global_steps=0, custom_prompt=None):
-        # replay buffer may be empty at first, we should rebuild at each training
-        dataloader = DataLoader(
-            self.base_replay_buffer,
-            batch_size=self.base_replay_buffer.sample_batch_size,
-            shuffle=self.base_shuffle_replay_buffer_sample,
-            drop_last=True,
-            pin_memory=self.dataloader_pin_memory,
-            collate_fn=self.base_replay_buffer.collate_fn,
-        )
+        if self.separate_neg_samples:
+            print("Making experience: neg sampling")
+
+            experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
+                rand_prompts,
+                samples_per_prompt=args.duplicate_rollout_batch_by,
+                **self.generate_kwargs
+            )
+            self.sampling_replay_buffer_neg.append(experience_neg_sampling)
+
+        # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        #              profile_memory=True, record_shapes=True) as prof:
+
+        self.total_steps += 1  # do this update before the save_steps, so that saving does happen e.g. if you do 4 save_steps, then on the 4th step, saving will actually happen
+        # so far I modified self.save_logs_and_checkpoints, this should be the only place using self.total_steps
+
+        if steps % update_timesteps == 0:
+            global_steps = steps // update_timesteps
+
+            torch.cuda.empty_cache()
+            if not neg_sample_only:
+                self.base_replay_buffer.normalize(self.strategy, "advantages")
+            if self.separate_neg_samples:
+                self.sampling_replay_buffer_neg.normalize(self.strategy, "advantages")
+
+            assert custom_prompt is None
+            status = self.train(global_steps, custom_prompt=custom_prompt, neg_sample_only=neg_sample_only)
+
+            if not neg_sample_only:
+                self.base_replay_buffer.clear()
+            if self.separate_neg_samples:
+                self.sampling_replay_buffer_neg.clear()
+            torch.cuda.empty_cache()
+
+            if "kl" in status:
+                self.kl_ctl.update(status["kl"], args.rollout_batch_size)
+            pbar.set_postfix(status)
+
+            # logs/checkpoints
+            client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
+            self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
+        # print("PROFILE2")
+        # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+        pbar.update()
+        steps = steps + 1
+        if not neg_sample_only:
+            rewards_list.append(experience.info["untransformed_reward"].mean().item())
+            untrans_ret_list.append(experience.info["untransformed_ret"].mean().item())
+            inspect_rewards_list(rewards_list)
+            inspect_rewards_list(untrans_ret_list)
+
+    def train(self, global_steps=0, custom_prompt=None, neg_sample_only=False):
+        if not neg_sample_only:
+            # replay buffer may be empty at first, we should rebuild at each training
+            dataloader = DataLoader(
+                self.base_replay_buffer,
+                batch_size=self.base_replay_buffer.sample_batch_size,
+                shuffle=self.base_shuffle_replay_buffer_sample,
+                drop_last=True,
+                pin_memory=self.dataloader_pin_memory,
+                collate_fn=self.base_replay_buffer.collate_fn,
+            )
         dataloader_neg = None
         if self.separate_neg_samples:
             dataloader_neg = DataLoader(
@@ -558,16 +562,27 @@ class CombinedHarmlessnessTrainer(ABC):
         status_mean = {}
         for epoch in range(self.max_epochs):
             if self.separate_neg_samples:
-                assert len(dataloader) == len(dataloader_neg)
-                pbar = tqdm(
-                    zip(dataloader, dataloader_neg),  # Zip both dataloaders
-                    desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
-                    disable=not self.strategy.is_rank_0(),
-                    total=min(len(dataloader), len(dataloader_neg))  # Ensure tqdm gets a proper length
-                )
-                for experience, experience_neg_sampling in pbar:
-                    self.train_on_experiences(custom_prompt, device, experience, experience_neg_sampling, global_steps,
-                                              pbar, status_list)
+                if neg_sample_only:
+                    pbar = tqdm(
+                        dataloader_neg,
+                        desc=f"Train epoch (neg only) [{epoch + 1}/{self.max_epochs}]",
+                        disable=not self.strategy.is_rank_0(),
+                    )
+                    for experience_neg_sampling in pbar:
+                        self.train_on_experiences(custom_prompt, device, None, experience_neg_sampling, global_steps,
+                                                  pbar, status_list, neg_sampling_train_only=True)
+                else:
+                    # do combined train of p and q
+                    # assert len(dataloader) == len(dataloader_neg)
+                    pbar = tqdm(
+                        zip(dataloader, dataloader_neg),  # Zip both dataloaders
+                        desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
+                        disable=not self.strategy.is_rank_0(),
+                        total=min(len(dataloader), len(dataloader_neg))  # Ensure tqdm gets a proper length
+                    )
+                    for experience, experience_neg_sampling in pbar:
+                        self.train_on_experiences(custom_prompt, device, experience, experience_neg_sampling, global_steps,
+                                                  pbar, status_list)
             else:
                 pbar = tqdm(
                     dataloader,
@@ -588,11 +603,15 @@ class CombinedHarmlessnessTrainer(ABC):
         return status_mean
 
     def train_on_experiences(self, custom_prompt, device, experience, experience_neg_sampling, global_steps, pbar,
-                             status_list):
-        experience.to_device(device)
+                             status_list, neg_sampling_train_only=False):
         experience_neg_sampling.to_device(device)
 
-        status = self.training_step(experience, experience_neg_sampling, global_steps, custom_prompt=custom_prompt)
+        if neg_sampling_train_only:
+            status = self.training_step_sampling_actor(experience_neg_sampling, custom_prompt=custom_prompt)
+        else:
+            experience.to_device(device)
+            status = self.training_step(experience, experience_neg_sampling, global_steps, custom_prompt=custom_prompt)
+
         # for DP
         # weighted mean for kl
         for x in ["sampling", "base"]:
