@@ -456,6 +456,7 @@ class CombinedHarmlessnessTrainer(ABC):
 
                 if args.num_episodes > 1:
                     for q_train_step in range(args.num_episodes - 1):
+                        print(f"q train step: {q_train_step}")
                         self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
                                                            untrans_ret_list, update_timesteps, neg_sample_only=True)
 
