@@ -619,15 +619,20 @@ class CombinedHarmlessnessTrainer(ABC):
                 status[f"{x}_kl"] *= status[f"{x}_response_length"]
                 status = self.strategy.all_reduce(status)
                 status[f"{x}_kl"] /= status[f"{x}_response_length"]
-        short_status = {
-            "bpg": status["base_policy_loss"],
-            "brm": status["base_reward"],
-            "bret": status["base_return"],
-            "bglen": status["base_response_length"],
-            "btlen": status["base_total_length"],
-            "bkl": status["base_kl"],
-            "bact_lr": status["base_actor_lr"],
-        }
+        if not neg_sampling_train_only:
+            short_status = {
+                "bpg": status["base_policy_loss"],
+                "brm": status["base_reward"],
+                "bret": status["base_return"],
+                "bglen": status["base_response_length"],
+                "btlen": status["base_total_length"],
+                "bkl": status["base_kl"],
+                "bact_lr": status["base_actor_lr"],
+            }
+
+            if "base_policy_loss" in status:
+                short_status["bpg"] = status["base_policy_loss"]
+
         if "sampling_reward" in status:
             sampling_short_status = {
                 "srm": status["sampling_reward"],
@@ -637,14 +642,13 @@ class CombinedHarmlessnessTrainer(ABC):
                 "skl": status["sampling_kl"],
                 "sact_lr": status["sampling_actor_lr"],
             }
+            if "sampling_f_q" in status:
+                sampling_short_status["sf_q"] = status["sampling_f_q"]
+            if "sampling_policy_loss" in status:
+                sampling_short_status["spg"] = status["sampling_policy_loss"]
             status.update(sampling_short_status)
 
-        if "sampling_policy_loss" in status:
-            short_status["spg"] = status["sampling_policy_loss"]
-        if "base_policy_loss" in status:
-            short_status["bpg"] = status["base_policy_loss"]
-        if "sampling_f_q" in status:
-            short_status["sf_q"] = status["sampling_f_q"]
+
         if "critic_loss" in status:
             raise NotImplementedError
             # short_status["cri"] = status["critic_loss"]
@@ -655,7 +659,8 @@ class CombinedHarmlessnessTrainer(ABC):
             raise NotImplementedError
             # short_status["ptx"] = status["ptx_loss"]
         status_list.append(status)
-        pbar.set_postfix(short_status)
+        if not neg_sampling_train_only:
+            pbar.set_postfix(short_status)
 
     def training_step(self, experience: Experience, experience_neg_sampling: Experience, global_steps, custom_prompt=None) -> Dict[str, float]:
         status = {}
