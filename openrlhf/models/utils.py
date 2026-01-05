@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, List
 
 import bitsandbytes as bnb
 import torch
@@ -236,3 +236,106 @@ def unpacking_samples(values: torch.Tensor, packed_seqlens: list[int]):
         unpacked_values.append(values[offset : offset + seqlen])
         offset += seqlen
     return unpacked_values
+
+
+def normalize_bad_word_indices(
+    bad_word_indices: Union[List[int], torch.Tensor],
+    device: torch.device
+) -> torch.Tensor:
+    """
+    Normalize bad word indices to a tensor on the specified device.
+    
+    Args:
+        bad_word_indices: A list or tensor of token IDs considered "bad words".
+        device: The device to place the tensor on.
+        
+    Returns:
+        A tensor of bad word indices on the specified device.
+    """
+    if isinstance(bad_word_indices, list):
+        return torch.tensor(bad_word_indices, dtype=torch.long, device=device)
+    elif isinstance(bad_word_indices, torch.Tensor):
+        return bad_word_indices.to(device=device, dtype=torch.long)
+    else:
+        raise TypeError("bad_word_indices must be a list or torch.Tensor")
+
+
+def get_next_token_log_probs(
+    model: torch.nn.Module,
+    input_ids: torch.Tensor
+) -> torch.Tensor:
+    """
+    Get log probabilities for the next token given input_ids.
+    
+    Args:
+        model: The language model (should have a forward method returning logits).
+        input_ids: Input token IDs, shape (batch_size, seq_len)
+        
+    Returns:
+        Log probabilities for next token, shape (batch_size, n_vocab) or (n_vocab,) if batch_size=1
+    """
+    outputs = model(input_ids)
+    next_token_logits = outputs.logits[:, -1, :]  # Shape: (batch_size, n_vocab)
+    next_token_log_probs = F.log_softmax(next_token_logits, dim=-1)  # Shape: (batch_size, n_vocab)
+    if next_token_log_probs.shape[0] == 1:
+        next_token_log_probs = next_token_log_probs.squeeze(0)  # Shape: (n_vocab,)
+    return next_token_log_probs
+
+
+def get_good_word_indices(
+    bad_word_indices: torch.Tensor,
+    n_vocab: int,
+    device: torch.device
+) -> Tuple[torch.Tensor, int]:
+    """
+    Identify indices of "good" words (all vocab except bad words).
+    
+    Args:
+        bad_word_indices: Tensor of bad word token IDs.
+        n_vocab: Total vocabulary size.
+        device: The device to create tensors on.
+        
+    Returns:
+        Tuple of (good_word_indices, n_good_words) where:
+        - good_word_indices: Tensor of good word token IDs
+        - n_good_words: Number of good words
+    """
+    all_indices = torch.arange(n_vocab, device=device)
+    # Create a mask for bad words
+    bad_word_mask = torch.zeros(n_vocab, dtype=torch.bool, device=device)
+    bad_word_mask[bad_word_indices] = True
+    # Get indices of good words
+    good_word_indices = all_indices[~bad_word_mask]
+    n_good_words = len(good_word_indices)
+    return good_word_indices, n_good_words
+
+
+def extract_log_probs_at_position_based_on_token_indices(
+    outputs: torch.Tensor,
+    position: int,
+    token_indices: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Extract log probabilities for specific tokens at a given position from model outputs.
+    
+    Args:
+        outputs: Model outputs with logits attribute, shape (batch_size, seq_len, n_vocab)
+        position: Position index to extract from (e.g., -2 for second to last, -1 for last)
+        token_indices: Tensor of token indices to extract. token_indices[i] is the token to extract for batch element i.
+        
+    Returns:
+        Log probabilities for the specified tokens - shape (batch_size,)
+    """
+    # Get logits at the specified position
+    logits_at_position = outputs.logits[:, position, :]  # Shape: (batch_size, n_vocab)
+    log_probs_at_position = F.log_softmax(logits_at_position, dim=-1)  # Shape: (batch_size, n_vocab)
+    
+    # Each batch element selects a different token
+    # token_indices shape: (batch_size,)
+    # We need to gather: for each batch i, get log_prob[i, token_indices[i]]
+    token_indices_expanded = token_indices.unsqueeze(1)  # Shape: (batch_size, 1)
+    log_probs_selected = log_probs_at_position.gather(
+        dim=-1, index=token_indices_expanded
+    ).squeeze(1)  # Shape: (batch_size,)
+    
+    return log_probs_selected

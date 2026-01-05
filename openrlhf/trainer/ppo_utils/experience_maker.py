@@ -162,7 +162,8 @@ class BaseExperienceMaker(ABC):
         save_negdata_threshold=-10000,
         neg_data: Optional[Set[str]] = None,
         reward_transform: Optional[str] = None,
-        reward_transform_beta: Optional[float] = None
+        reward_transform_beta: Optional[float] = None,
+        bad_word_tokens_ids: Optional[List[int]] = None,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -202,6 +203,7 @@ class BaseExperienceMaker(ABC):
         if self.save_negdata:
             assert neg_data is not None
         self.neg_data = neg_data
+        self.bad_word_tokens_ids = bad_word_tokens_ids
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, padding=True, device=None):
@@ -319,7 +321,34 @@ class BaseExperienceMaker(ABC):
         self, sequences, attention_mask, class_num=0, multiply_by_beta=False,
     ):
         # rewards
-        if self.remote_rm_url is not None:
+        if self.rm_type == "indicator_bad_token":
+            # Hard-coded reward function: -1 if output contains any bad token, otherwise 0
+            # For this toy experiment, we only generate 2 tokens, so we check the last 2 positions
+            assert self.bad_word_tokens_ids is not None, "bad_word_tokens_ids must be provided for indicator_bad_token rm_type"
+            assert self.max_new_tokens == 2, "indicator_bad_token rm_type currently only supports generate_max_len == 2"
+            
+            batch_size = sequences.shape[0]
+            device = sequences.device
+            
+            # Convert bad_word_tokens_ids to tensor
+            bad_tokens = torch.tensor(self.bad_word_tokens_ids, device=device, dtype=torch.long)
+            
+            # Extract the last 2 tokens (positions -2 and -1) which are the generated response tokens
+            response_tokens = sequences[:, -2:]  # Shape: (B, 2)
+            
+            # Check if any response token is in bad_word_tokens_ids
+            # For each sequence, check if any token in response_tokens matches any bad token
+            # Shape: (B, 2) -> check each position
+            assert response_tokens.shape == (batch_size, 2), "response_tokens should have shape (B, 2)"
+            assert len(bad_tokens.shape) == 1, "bad_tokens should have shape (n,)"
+            bad_token_mask = (response_tokens[:, :, None] == bad_tokens[None, None, :]).any(dim=-1)  
+            # Check if any position in the response has a bad token
+            has_bad_token = bad_token_mask.any(dim=-1)  # (B,)
+            
+            # Reward: -1 if has bad token, 0 otherwise
+            r = torch.where(has_bad_token, torch.tensor(-1.0, device=device), torch.tensor(0.0, device=device))
+            
+        elif self.remote_rm_url is not None:
             # TODO not yet supported/checked with custom_single_prompt
 
             # remote RM
@@ -328,9 +357,10 @@ class BaseExperienceMaker(ABC):
             r = remote_rm_fn(self.remote_rm_url, queries=queries).to(
                 device=attention_mask.device)
         else:
-
             # local RM
             r = self.reward_model(sequences, attention_mask)
+        
+        untransformed_reward = r
 
 
         if self.save_negdata:
@@ -348,8 +378,6 @@ class BaseExperienceMaker(ABC):
                                                   skip_special_tokens=False)
             self.neg_data.update(queries) # keep only unique samples
             print(len(self.neg_data))
-
-        untransformed_reward = r
         if self.reward_transform == "minus_alpha_exp_beta_r":
             print("REWARD TRANSFORM INSPECTION")
             print(self.alpha)
@@ -404,7 +432,7 @@ class BaseExperienceMaker(ABC):
             final_reward = log_prob_of_class
             # Because remember r_u = 1/beta log phi is the right way to set up the unregularized reward for equivalence between standard RL formulation and our setup
             # BUT remember that phi = p(class | s)^\beta right? So log phi is beta * p(class | s). But anyway, my experiments just use beta = 1 here...
-        elif self.rm_type == "indicator_below_threshold": # works for any arbitrary indicator function on checking if score is less than threshold
+        elif self.rm_type == "indicator_below_threshold" or self.rm_type == "indicator_bad_token": # works for any arbitrary indicator function on checking if score is less than threshold
             eps = INDICATOR_REWARD_EPS
             score = r
             # print("score")

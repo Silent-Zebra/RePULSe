@@ -14,7 +14,6 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 import torch.nn.functional as F
 
-
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.actor_custom import ActorCustom
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss, DPGLoss
@@ -114,6 +113,7 @@ class BasePPOTrainer(ABC):
         save_negdata_threshold=-10000,
         neg_data: Optional[Set[str]] = None,
         reward_transform: Optional[str] = None,
+        bad_word_tokens_ids: Optional[List[int]] = None,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -241,7 +241,8 @@ class BasePPOTrainer(ABC):
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
-            reward_transform=self.reward_transform
+            reward_transform=self.reward_transform,
+            bad_word_tokens_ids=bad_word_tokens_ids
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 

@@ -109,6 +109,7 @@ class CombinedHarmlessnessTrainer(ABC):
         use_base_as_proposal: bool = False,
         separate_reweighting_beta: Optional[float] = None,
         uniform_reweight: bool = False,
+        bad_word_tokens_ids: Optional[List[int]] = None,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -256,8 +257,9 @@ class CombinedHarmlessnessTrainer(ABC):
             save_negdata=save_negdata,
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
-            reward_transform = self.reward_transform,
-            reward_transform_beta = self.rew_trans_beta
+            reward_transform=self.reward_transform,
+            reward_transform_beta=self.rew_trans_beta,
+            bad_word_tokens_ids=bad_word_tokens_ids
         )
 
         self.sampling_experience_maker_neg = None
@@ -287,6 +289,7 @@ class CombinedHarmlessnessTrainer(ABC):
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
             # reward_transform=self.reward_transform # Don't use reward transform on the SMC part. Of course this is a choice, you could if you wanted to, but I think let's avoid this for now to keep things simpler.
+            bad_word_tokens_ids=bad_word_tokens_ids
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
