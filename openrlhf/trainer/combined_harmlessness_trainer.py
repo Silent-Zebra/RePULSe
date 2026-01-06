@@ -463,9 +463,11 @@ class CombinedHarmlessnessTrainer(ABC):
                         self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
                                                            untrans_ret_list, update_timesteps, neg_sample_only=True)
 
-
+                # If base_actor learning rate is 0, only sample from sampling_actor (q)
+                # Use flag from args if set, otherwise check learning rate
+                neg_sample_only = getattr(args, 'neg_sample_only', False) or abs(getattr(args, 'base_actor_learning_rate', 0)) < 1e-10
                 self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
-                                                   untrans_ret_list, update_timesteps, neg_sample_only=False)
+                                                   untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only)
 
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list

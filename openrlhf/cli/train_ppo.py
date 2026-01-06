@@ -229,6 +229,13 @@ def train(args):
 
         strategy.print("BASE ACTOR OPTIM")
         strategy.print(base_actor_optim)
+        
+        # If base_actor learning rate is 0, only sample from sampling_actor (q)
+        if abs(args.base_actor_learning_rate) < 1e-10:
+            strategy.print("Base actor learning rate is 0. Setting neg_sample_only=True everywhere (only sampling from q).")
+            args.neg_sample_only = True
+        else:
+            args.neg_sample_only = False
 
     pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
 
