@@ -347,7 +347,10 @@ class BaseExperienceMaker(ABC):
             
             # Reward: -1 if has bad token, 0 otherwise
             r = torch.where(has_bad_token, torch.tensor(-1.0, device=device), torch.tensor(0.0, device=device))
-            
+           
+            print("Num satisfying indicator function for bad tokens:")
+            print(-r.sum().item())
+
         elif self.remote_rm_url is not None:
             # TODO not yet supported/checked with custom_single_prompt
 
@@ -432,12 +435,12 @@ class BaseExperienceMaker(ABC):
             final_reward = log_prob_of_class
             # Because remember r_u = 1/beta log phi is the right way to set up the unregularized reward for equivalence between standard RL formulation and our setup
             # BUT remember that phi = p(class | s)^\beta right? So log phi is beta * p(class | s). But anyway, my experiments just use beta = 1 here...
-        elif self.rm_type == "indicator_below_threshold" or self.rm_type == "indicator_bad_token": # works for any arbitrary indicator function on checking if score is less than threshold
+        elif self.rm_type == "indicator_below_threshold": # works for any arbitrary indicator function on checking if score is less than threshold
             eps = INDICATOR_REWARD_EPS
             score = r
             # print("score")
             # print(score)
-            final_reward = torch.log((score < self.threshold) + eps)
+            final_reward = torch.log((score < self.threshold) + eps)            
         elif self.rm_type == "rlhf":
             score = r
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))

@@ -233,6 +233,9 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.base_actor_loss_type == "reinforce" or self.use_base_as_proposal:
             self.separate_neg_samples = False
 
+        base_rm_type = "rlhf" # Use this to ensure the standard reward formulation for the base actor
+        # Keep this even in case of the indicator_bad_token
+        # Because this gives the right base reward. The sampling actor will then use the indicator with specific threshold
 
         # Base actor experience maker (for standard reinforce)
         self.base_experience_maker = BaseExperienceMaker(
@@ -251,7 +254,7 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_cap,
             1, # target_dist_beta 1 here, because this is just going to need regular rewards for REINFORCE
             self.rew_trans_alpha,
-            "rlhf", # Use this to ensure the standard reward formulation
+            base_rm_type, 
             base_actor_loss_type, # Does not matter, when the target_dist_beta is 1
             self.generate_kwargs['max_new_tokens'],
             save_negdata=save_negdata,
@@ -261,6 +264,10 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_transform_beta=self.rew_trans_beta,
             bad_word_tokens_ids=bad_word_tokens_ids
         )
+
+        if args.rm_type == "indicator_bad_token":
+            rm_type = "indicator_below_threshold"
+            assert args.threshold < 0.0 and args.threshold > -1.0, "threshold must be less than 0 and greater than -1 for indicator_bad_token rm_type"
 
         self.sampling_experience_maker_neg = None
         # Below is needed for base proposal... cannot just make it None always
