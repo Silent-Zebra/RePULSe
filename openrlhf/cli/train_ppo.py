@@ -561,30 +561,31 @@ def train(args):
                 torch.save(target_to_save, save_str)
 
             else:
-                # Also true for new_custom_single_prompt
-                if args.do_harmlessness_training:
-                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_list
-                else:
-                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
-                print("FINAL RESULTS F_Q", flush=True)
-                print(f_q_estimates_list)
-                print("FINAL RESULTS REWARD", flush=True)
-                print(rewards_list)
-                print("FINAL RESULTS KL TO PRIOR", flush=True)
-                print(kl_vals_list)
-                print("FINAL RESULTS ENTROPY", flush=True)
-                print(entropy_list)
-                print("FINAL RESULTS UNTRANSFORMED RETURN (Including KL)", flush=True)
-                print(untrans_ret_list)
-                print("SAVING RESULTS", flush=True)
+                if not args.neg_sample_only: # This stuff records it for p (base actor), so if skipping training p, this stuff will be empty
+                    # Also true for new_custom_single_prompt
+                    if args.do_harmlessness_training:
+                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_list
+                    else:
+                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
+                    print("FINAL RESULTS F_Q", flush=True)
+                    print(f_q_estimates_list)
+                    print("FINAL RESULTS REWARD", flush=True)
+                    print(rewards_list)
+                    print("FINAL RESULTS KL TO PRIOR", flush=True)
+                    print(kl_vals_list)
+                    print("FINAL RESULTS ENTROPY", flush=True)
+                    print(entropy_list)
+                    print("FINAL RESULTS UNTRANSFORMED RETURN (Including KL)", flush=True)
+                    print(untrans_ret_list)
+                    print("SAVING RESULTS", flush=True)
 
-                target_to_save = (
-                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
-                )
-                save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
-                torch.save(target_to_save, save_str)
+                    target_to_save = (
+                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
+                    )
+                    save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
+                    torch.save(target_to_save, save_str)
 
-                inspect_rewards_list(rewards_list)
+                    inspect_rewards_list(rewards_list)
 
         if args.save_negdata:
             strategy.print("SAVING NEG DATA")
@@ -611,17 +612,18 @@ def train(args):
                         total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
                     )
 
-        if rewards_list is not None:
-            rewards_tensor = torch.tensor(rewards_list)
-            if fit_step == 0:
-                rew_over_time_list.append(rewards_tensor[0].item()) # Get value at start of training
-            rew_over_time_list.append(rewards_tensor[-1].item())
+        if not args.neg_sample_only:
+            if rewards_list is not None:
+                rewards_tensor = torch.tensor(rewards_list)
+                if fit_step == 0:
+                    rew_over_time_list.append(rewards_tensor[0].item()) # Get value at start of training
+                rew_over_time_list.append(rewards_tensor[-1].item())
 
-        if untrans_ret_list is not None:
-            untrans_ret_tensor = torch.tensor(untrans_ret_list)
-            if fit_step == 0:
-                untrans_ret_over_time_list.append(untrans_ret_tensor[0].item()) # Get value at start of training
-            untrans_ret_over_time_list.append(untrans_ret_tensor[-1].item())
+            if untrans_ret_list is not None:
+                untrans_ret_tensor = torch.tensor(untrans_ret_list)
+                if fit_step == 0:
+                    untrans_ret_over_time_list.append(untrans_ret_tensor[0].item()) # Get value at start of training
+                untrans_ret_over_time_list.append(untrans_ret_tensor[-1].item())
 
 
     if args.analytic_bad_word_calc:
@@ -1269,10 +1271,6 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
             (prompt_ids.repeat(current_batch_size, 1), batch_good_indices.unsqueeze(1)),
             dim=1
         )
-
-        print("--CHECK--", flush=True)
-        print(batch_inputs_t1)
-        print(batch_inputs_t1.shape)
 
         # Get log probabilities at t=1 under both models
         # Shape: [current_batch_size, n_vocab]
