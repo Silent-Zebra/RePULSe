@@ -2022,6 +2022,8 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--reward_transform", type=str, default=None)
+    parser.add_argument("--exploration_bonus", action="store_true", default=False, help="Enable count-based exploration bonus for state visitation (t=0 token only)")
+    parser.add_argument("--bonus_alpha", type=float, default=1.0, help="Scaling factor for exploration bonus: bonus = bonus_alpha * (1/sqrt(N(x)))")
 
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, --harmlessness_training_num_episodes for the number of outer loop steps, and --harmlessness_training_episodes_per_loop for the number of harmlessness training steps in each loop iteration. So total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes * harmlessness_training_episodes_per_loop base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")

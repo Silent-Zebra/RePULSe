@@ -165,6 +165,8 @@ class BaseExperienceMaker(ABC):
         reward_transform_beta: Optional[float] = None,
         bad_word_tokens_ids: Optional[List[int]] = None,
         reward_pretrain: Optional[str] = None,
+        exploration_bonus: bool = False,
+        bonus_alpha: float = 1.0,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -206,6 +208,18 @@ class BaseExperienceMaker(ABC):
         self.neg_data = neg_data
         self.bad_word_tokens_ids = bad_word_tokens_ids
         self.reward_pretrain = reward_pretrain
+        self.exploration_bonus = exploration_bonus
+        self.bonus_alpha = bonus_alpha
+        
+        # Initialize state visitation count tensor for t=0 tokens (vocab size = 50257)
+        if self.exploration_bonus:
+            if reward_pretrain == "indicator_bad_token":
+                # Start with 0 for all tokens (will be incremented to 1 on first visit)
+                self.state_visitation_counts = torch.zeros(50257, dtype=torch.long)
+            else:
+                raise NotImplementedError
+        else:
+            self.state_visitation_counts = None
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, padding=True, device=None):
@@ -365,6 +379,33 @@ class BaseExperienceMaker(ABC):
             t0_counts = (t0_tokens[:, None] == bad_tokens[None, :]).sum(dim=0)  # (n,)
             t0_bad_token_counts = dict(zip(self.bad_word_tokens_ids, t0_counts.cpu().tolist()))
             print("Bad token counts at t=0:", t0_bad_token_counts)
+            
+            # Apply exploration bonus if enabled
+            if self.exploration_bonus:
+                # Move state_visitation_counts to device if needed
+                if self.state_visitation_counts.device != device:
+                    self.state_visitation_counts = self.state_visitation_counts.to(device)
+                
+                # Update state visitation counts for t=0 tokens (vectorized)
+                t0_tokens_long = t0_tokens.long()  # Ensure integer type
+                
+                # Use scatter_add_ to efficiently update counts for all tokens in batch
+                # This increments the count for each token in the batch
+                updates = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+                self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates)
+                
+                # Get counts for each t=0 token (after update)
+                counts_for_tokens = self.state_visitation_counts[t0_tokens_long]  # (B,)
+                # Calculate bonus: bonus_alpha * (1/sqrt(N(x)))
+                # No need to worry about division by zero since counts should be >= 1 after update (fail noisily if so)
+                exploration_bonuses = self.bonus_alpha * (1.0 / torch.sqrt(counts_for_tokens.float()))  # (B,)
+                
+                # Add exploration bonus to base reward
+                r = r + exploration_bonuses
+                
+                print(f"Exploration bonus applied. Mean bonus: {exploration_bonuses.mean().item():.4f}, "
+                      f"Min bonus: {exploration_bonuses.min().item():.4f}, "
+                      f"Max bonus: {exploration_bonuses.max().item():.4f}")
 
         elif self.remote_rm_url is not None:
             # TODO not yet supported/checked with custom_single_prompt

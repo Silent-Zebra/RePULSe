@@ -243,7 +243,9 @@ class BasePPOTrainer(ABC):
             neg_data=self.neg_data,
             reward_transform=self.reward_transform,
             bad_word_tokens_ids=bad_word_tokens_ids,
-            reward_pretrain=getattr(self.args, 'reward_pretrain', None)
+            reward_pretrain=getattr(self.args, 'reward_pretrain', None),
+            exploration_bonus=getattr(self.args, 'exploration_bonus', False),
+            bonus_alpha=getattr(self.args, 'bonus_alpha', 1.0)
         )
         self.replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
 

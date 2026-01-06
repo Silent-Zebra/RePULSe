@@ -263,7 +263,9 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_transform=self.reward_transform,
             reward_transform_beta=self.rew_trans_beta,
             bad_word_tokens_ids=bad_word_tokens_ids,
-            reward_pretrain=getattr(strategy.args, 'reward_pretrain', None)
+            reward_pretrain=getattr(strategy.args, 'reward_pretrain', None),
+            exploration_bonus=getattr(strategy.args, 'exploration_bonus', False),
+            bonus_alpha=getattr(strategy.args, 'bonus_alpha', 1.0)
         )
 
         self.sampling_experience_maker_neg = None
@@ -294,7 +296,9 @@ class CombinedHarmlessnessTrainer(ABC):
             neg_data=self.neg_data,
             # reward_transform=self.reward_transform # Don't use reward transform on the SMC part. Of course this is a choice, you could if you wanted to, but I think let's avoid this for now to keep things simpler.
             bad_word_tokens_ids=bad_word_tokens_ids,
-            reward_pretrain=getattr(strategy.args, 'reward_pretrain', None)
+            reward_pretrain=getattr(strategy.args, 'reward_pretrain', None),
+            exploration_bonus=getattr(strategy.args, 'exploration_bonus', False),
+            bonus_alpha=getattr(strategy.args, 'bonus_alpha', 1.0)
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
