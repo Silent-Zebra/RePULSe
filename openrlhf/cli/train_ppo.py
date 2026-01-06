@@ -846,7 +846,6 @@ def _compute_bad_word_sequence_log_probs(
         - bad_word_indices_tensor: Normalized bad word indices
         - good_word_indices: Indices of good words
         - log_probs_t0: Log probabilities at t=0 for all vocab tokens
-        - log_probs_case1: Log probabilities for Case 1 sequences (bad at t=0, any at t=1) [n_bad_words, n_vocab]
         - log_probs_case2: Log probabilities for Case 2 sequences (good at t=0, bad at t=1) [n_good_words, n_bad_words]
     """
     device = model.device if hasattr(model, 'device') else \
@@ -871,30 +870,6 @@ def _compute_bad_word_sequence_log_probs(
 
     # Get log probabilities at t=0
     log_probs_t0 = get_next_token_log_probs(model, prompt_ids)  # Shape: (n_vocab,)
-
-    # --- Case 1: Bad word at t=0, any word at t=1 ---
-    # Repeat prompt for each bad word: [n_bad_words, prompt_len]
-    batch_prompts_case1 = prompt_ids.repeat(n_bad_words, 1)
-    # Append each bad word: [n_bad_words, prompt_len + 1]
-    batch_inputs_case1 = torch.cat(
-        (batch_prompts_case1, bad_word_indices_tensor.unsqueeze(1)), dim=1
-    )
-    
-    # Forward pass
-    outputs_case1 = model(batch_inputs_case1)
-    
-    # Get t=0 probabilities
-    log_probs_bad_t0 = extract_log_probs_at_position_based_on_token_indices(
-        outputs_case1, position=-2, token_indices=bad_word_indices_tensor
-    )  # Shape: [n_bad_words]
-    
-    # Get t=1 probabilities: use logits at position -1 (last token)
-    # Shape: [n_bad_words, n_vocab]
-    log_probs_t1_case1 = get_next_token_log_probs(model, batch_inputs_case1)
-    
-    # Broadcast t=0 probs [n_bad_words, 1] with t=1 probs [n_bad_words, n_vocab]
-    # to get sequence log probs [n_bad_words, n_vocab]
-    log_probs_case1 = log_probs_bad_t0.unsqueeze(1) + log_probs_t1_case1  # Shape: [n_bad_words, n_vocab]
 
     # --- Case 2: Good word at t=0, Bad word at t=1 ---
     # Get log probabilities of good words at t=0
@@ -932,7 +907,7 @@ def _compute_bad_word_sequence_log_probs(
         # Store in the result tensor
         log_probs_case2[i : i + current_batch_size] = batch_log_probs_case2
 
-    return prompt_ids, bad_word_indices_tensor, good_word_indices, log_probs_t0, log_probs_case1, log_probs_case2
+    return prompt_ids, bad_word_indices_tensor, good_word_indices, log_probs_t0, log_probs_case2
 
 
 @torch.no_grad() # Ensure no gradients are computed during evaluation
@@ -950,7 +925,7 @@ def _calculate_bad_word_log_prob_from_precomputed(
     Returns:
         Same as calculate_bad_word_log_prob_pytorch
     """
-    prompt_ids, bad_word_indices_tensor, good_word_indices, log_probs_t0, log_probs_case1, log_probs_case2 = precomputed
+    prompt_ids, bad_word_indices_tensor, good_word_indices, log_probs_t0, log_probs_case2 = precomputed
     
     n_bad_words = len(bad_word_indices_tensor)
     device = prompt_ids.device
@@ -1192,20 +1167,49 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
 
     # Use precomputed values if available, otherwise compute them
     if precomputed_p is not None:
-        prompt_ids_p, bad_word_indices_tensor, good_word_indices, log_probs_p_t0, log_probs_p_case1, log_probs_p_case2 = precomputed_p
+        prompt_ids_p, bad_word_indices_tensor, good_word_indices, log_probs_p_t0, log_probs_p_case2 = precomputed_p
         device = prompt_ids_p.device
     else:
-        prompt_ids_p, bad_word_indices_tensor, good_word_indices, log_probs_p_t0, log_probs_p_case1, log_probs_p_case2 = \
+        prompt_ids_p, bad_word_indices_tensor, good_word_indices, log_probs_p_t0, log_probs_p_case2 = \
             _compute_bad_word_sequence_log_probs(model_p_for_target, tokenizer, prompt_text, bad_word_indices, batch_size)
         device = prompt_ids_p.device
 
     if precomputed_q is not None:
-        prompt_ids_q, _, _, log_probs_q_t0, log_probs_q_case1, log_probs_q_case2 = precomputed_q
+        prompt_ids_q, _, _, log_probs_q_t0, log_probs_q_case2 = precomputed_q
         assert prompt_ids_q.device == device
     else:
-        prompt_ids_q, _, _, log_probs_q_t0, log_probs_q_case1, log_probs_q_case2 = \
+        prompt_ids_q, _, _, log_probs_q_t0, log_probs_q_case2 = \
             _compute_bad_word_sequence_log_probs(model_q, tokenizer, prompt_text, bad_word_indices, batch_size)
         assert prompt_ids_q.device == device
+
+    # Compute log_probs_case1 locally for KL calculations (bad word at t=0, any word at t=1)
+    # This is needed for KL divergence but not returned from the shared function
+    n_vocab = 50257
+    n_bad_words = len(bad_word_indices_tensor)
+    
+    # For model p: compute sequences with bad word at t=0, any word at t=1
+    batch_prompts_case1_p = prompt_ids_p.repeat(n_bad_words, 1)
+    batch_inputs_case1_p = torch.cat(
+        (batch_prompts_case1_p, bad_word_indices_tensor.unsqueeze(1)), dim=1
+    )
+    outputs_case1_p = model_p_for_target(batch_inputs_case1_p)
+    log_probs_p_bad_t0 = extract_log_probs_at_position_based_on_token_indices(
+        outputs_case1_p, position=-2, token_indices=bad_word_indices_tensor
+    )
+    log_probs_p_t1_case1 = get_next_token_log_probs(model_p_for_target, batch_inputs_case1_p)
+    log_probs_p_case1 = log_probs_p_bad_t0.unsqueeze(1) + log_probs_p_t1_case1  # Shape: [n_bad_words, n_vocab]
+    
+    # For model q: compute sequences with bad word at t=0, any word at t=1
+    batch_prompts_case1_q = prompt_ids_q.repeat(n_bad_words, 1)
+    batch_inputs_case1_q = torch.cat(
+        (batch_prompts_case1_q, bad_word_indices_tensor.unsqueeze(1)), dim=1
+    )
+    outputs_case1_q = model_q(batch_inputs_case1_q)
+    log_probs_q_bad_t0 = extract_log_probs_at_position_based_on_token_indices(
+        outputs_case1_q, position=-2, token_indices=bad_word_indices_tensor
+    )
+    log_probs_q_t1_case1 = get_next_token_log_probs(model_q, batch_inputs_case1_q)
+    log_probs_q_case1 = log_probs_q_bad_t0.unsqueeze(1) + log_probs_q_t1_case1  # Shape: [n_bad_words, n_vocab]
 
     # Calculate log normalizing constant: log Z = log sum_x ~sigma_p(x)
     # Need to flatten for logsumexp (it requires 1D tensor)
@@ -1216,6 +1220,16 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     # log sigma_p(x) = log ~sigma_p(x) - log Z
     log_probs_sigma_p_case1 = log_probs_p_case1 - log_Z  # Shape: (n_bad_words, n_vocab)
     log_probs_sigma_p_case2 = log_probs_p_case2 - log_Z  # Shape: (n_good_words, n_bad_words)
+    
+    # For Case 1: We need log probabilities at t=0 only for each bad word
+    # log_probs_p_t0 and log_probs_q_t0 are already the conditional probabilities at t=0
+    # For sigma_p at t=0, we need to normalize: log sigma_p(bad_word at t=0) = log p(bad_word at t=0) - log_Z_t0
+    # where log_Z_t0 = logsumexp over all bad words at t=0 of p(bad_word at t=0)
+    # Actually wait, sigma_p is normalized over all sequences with bad words, not just t=0
+    # So log sigma_p(bad_word at t=0) = logsumexp over t=1 of log sigma_p(bad_word at t=0, t1)
+    # = logsumexp(log_probs_sigma_p_case1[bad_idx, :])
+    log_probs_sigma_p_t0 = torch.logsumexp(log_probs_sigma_p_case1, dim=1)  # Shape: (n_bad_words,) - marginal over t=1
+    log_probs_q_t0 = torch.logsumexp(log_probs_q_case1, dim=1)  # Shape: (n_bad_words,) - marginal over t=1
 
     # Calculate normalized probabilities: sigma_p(x) = exp(log sigma_p(x)) (needed for KL)
     probs_sigma_p_case1 = torch.exp(log_probs_sigma_p_case1)
@@ -1236,28 +1250,29 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     # Track differences aggregated by bad word and find largest differences
     n_vocab = 50257
     n_bad_words = len(bad_word_indices_tensor)
-    n_good_words = len(good_word_indices)
     
-    # Aggregate log differences by bad word: sum log difference over all sequences containing each bad word
-    # Split by cases: Case 1 (bad word at t=0) and Case 2 (bad word at t=1)
-    diff_by_bad_word_case1 = {}  # Bad word at t=0
-    diff_by_bad_word_case2 = {}  # Bad word at t=1
+    # Aggregate log differences by bad word
+    # Case 1: Just the log prob of t=0 token only (each individual bad token only)
+    # This is the marginal log difference at t=0 for each bad word
+    diff_by_bad_word_case1 = {}  # Bad word at t=0 only
+    diff_by_bad_word_case2 = {}  # Bad word at t=1, aggregated over good words at t=0
     
     for bad_idx, bad_word_id in enumerate(bad_word_indices_tensor):
         token_id = bad_word_id.item()
-        # Case 1: sum log differences for this bad word at t=0 (over all t1 tokens)
-        case1_diffs = log_differences_case1[bad_idx, :]  # Shape: (n_vocab,)
-        diff_by_bad_word_case1[token_id] = case1_diffs.sum().item()
+        # Case 1: log difference for this bad word at t=0 only (marginal probability over t=1)
+        # This gives us log(q(bad_word appears at t=0)) - log(sigma_p(bad_word appears at t=0))
+        diff_by_bad_word_case1[token_id] = (log_probs_q_t0[bad_idx] - log_probs_sigma_p_t0[bad_idx]).item()
         
         # Case 2: sum log differences for this bad word at t=1 (over all good words at t=0)
+        # This gives us sum over good_words of [log(q(good_word at t=0, bad_word at t=1)) - log(sigma_p(good_word at t=0, bad_word at t=1))]
         case2_diffs = log_differences_case2[:, bad_idx]  # Shape: (n_good_words,)
         diff_by_bad_word_case2[token_id] = case2_diffs.sum().item()
     
-    print("Sum log difference (log(q) - log(sigma_p)) aggregated by bad word:")
-    print("  Case 1 (bad word at t=0):")
-    for token_id, diff_sum in sorted(diff_by_bad_word_case1.items()):
-        print(f"    Bad word {token_id}: {diff_sum:.6e}")
-    print("  Case 2 (bad word at t=1):")
+    print("Log difference (log(q) - log(sigma_p)) aggregated by bad word:")
+    print("  Case 1 (bad word at t=0 only, marginal over t=1):")
+    for token_id, diff in sorted(diff_by_bad_word_case1.items()):
+        print(f"    Bad word {token_id}: {diff:.6e}")
+    print("  Case 2 (bad word at t=1, summed over all good words at t=0):")
     for token_id, diff_sum in sorted(diff_by_bad_word_case2.items()):
         print(f"    Bad word {token_id}: {diff_sum:.6e}")
     
