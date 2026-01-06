@@ -492,22 +492,53 @@ def train(args):
                                        critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
                                        true_posterior_samples, vf_coef)
 
-    total_log_prob_bad_list = []
-    individual_bad_word_log_probs_t0_list = []
-    individual_bad_word_log_probs_t1_list = []
-    individual_bad_word_log_probs_combined_list = []
+    # Lists for base_actor (p) results
+    total_log_prob_bad_list_base = []
+    individual_bad_word_log_probs_t0_list_base = []
+    individual_bad_word_log_probs_t1_list_base = []
+    individual_bad_word_log_probs_combined_list_base = []
+    # Lists for sampling_actor (q) results
+    total_log_prob_bad_list_sampling = []
+    individual_bad_word_log_probs_t0_list_sampling = []
+    individual_bad_word_log_probs_t1_list_sampling = []
+    individual_bad_word_log_probs_combined_list_sampling = []
+    # Keep old names for backward compatibility when not doing harmlessness training
+    total_log_prob_bad_list = total_log_prob_bad_list_base
+    individual_bad_word_log_probs_t0_list = individual_bad_word_log_probs_t0_list_base
+    individual_bad_word_log_probs_t1_list = individual_bad_word_log_probs_t1_list_base
+    individual_bad_word_log_probs_combined_list = individual_bad_word_log_probs_combined_list_base
     total_kl_sigma_q_list = []
     total_kl_q_sigma_epsq_p_list = []
     rew_over_time_list = []
     untrans_ret_over_time_list = []
 
     for fit_step in range(args.fit_steps):
+        prompt = "This man is a"  # Define prompt for analytic calculations
         if fit_step == 0 and args.analytic_bad_word_calc:
-            prompt = "This man is a"
             
-            do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
-                                      total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
-                                      individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list)
+            if args.do_harmlessness_training:
+                # For harmlessness training, actor is the sampling_actor (q) and base_actor is p
+                if args.neg_sample_only:
+                    # Only calculate for sampling_actor (q)
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
+                                              individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
+                                              actor_to_test=actor)
+                else:
+                    # Calculate for both sampling_actor (q) and base_actor (p)
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
+                                              individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
+                                              actor_to_test=actor)
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
+                                              individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
+                                              actor_to_test=base_actor)
+            else:
+                # For non-harmlessness training, just use the standard actor
+                do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                          total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
+                                          individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list)
             
             if args.do_harmlessness_training:
                 if "indicator" in args.rm_type: 
@@ -595,9 +626,29 @@ def train(args):
                 pickle.dump(neg_data, f)
 
         if args.analytic_bad_word_calc:
-            do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
-                                      total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
-                                      individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list)
+            if args.do_harmlessness_training:
+                # For harmlessness training, actor is the sampling_actor (q) and base_actor is p
+                if args.neg_sample_only:
+                    # Only calculate for sampling_actor (q)
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
+                                              individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
+                                              actor_to_test=actor)
+                else:
+                    # Calculate for both sampling_actor (q) and base_actor (p)
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
+                                              individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
+                                              actor_to_test=actor)
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
+                                              individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
+                                              actor_to_test=base_actor)
+            else:
+                # For non-harmlessness training, just use the standard actor
+                do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                          total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
+                                          individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list)
             
             if args.do_harmlessness_training:
                 if "indicator" in args.rm_type:
@@ -627,20 +678,45 @@ def train(args):
 
 
     if args.analytic_bad_word_calc:
-        save_str = f"{args.save_info_path}/analyticlogprob_rewsample_{info_name_str}"
-        torch.save((total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
-                   individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
-                   rew_over_time_list, untrans_ret_over_time_list), save_str)
-        print(total_log_prob_bad_list)
-        print(individual_bad_word_log_probs_t0_list)
-        print(individual_bad_word_log_probs_t1_list)
-        print(individual_bad_word_log_probs_combined_list)
-        print(rew_over_time_list)
-        print(untrans_ret_over_time_list)
+        if args.do_harmlessness_training:
+            # Save both base_actor and sampling_actor results separately
+            save_str = f"{args.save_info_path}/analyticlogprob_rewsample_base_{info_name_str}"
+            torch.save((total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
+                       individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
+                       rew_over_time_list, untrans_ret_over_time_list), save_str)
+            print("Base actor (p) results:")
+            print(total_log_prob_bad_list_base)
+            print(individual_bad_word_log_probs_t0_list_base)
+            print(individual_bad_word_log_probs_t1_list_base)
+            print(individual_bad_word_log_probs_combined_list_base)
+            
+            save_str = f"{args.save_info_path}/analyticlogprob_rewsample_sampling_{info_name_str}"
+            torch.save((total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
+                       individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
+                       rew_over_time_list, untrans_ret_over_time_list), save_str)
+            print("Sampling actor (q) results:")
+            print(total_log_prob_bad_list_sampling)
+            print(individual_bad_word_log_probs_t0_list_sampling)
+            print(individual_bad_word_log_probs_t1_list_sampling)
+            print(individual_bad_word_log_probs_combined_list_sampling)
+            print(rew_over_time_list)
+            print(untrans_ret_over_time_list)
+        else:
+            # For non-harmlessness training, use the standard lists
+            save_str = f"{args.save_info_path}/analyticlogprob_rewsample_{info_name_str}"
+            torch.save((total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
+                       individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
+                       rew_over_time_list, untrans_ret_over_time_list), save_str)
+            print(total_log_prob_bad_list)
+            print(individual_bad_word_log_probs_t0_list)
+            print(individual_bad_word_log_probs_t1_list)
+            print(individual_bad_word_log_probs_combined_list)
+            print(rew_over_time_list)
+            print(untrans_ret_over_time_list)
         
         if total_kl_sigma_q_list:
             save_str = f"{args.save_info_path}/analytic_kls_indicator_{info_name_str}"
-            torch.save(total_kl_sigma_q_list, total_kl_q_sigma_epsq_p_list, save_str)
+            torch.save((total_kl_sigma_q_list, total_kl_q_sigma_epsq_p_list), save_str)
             print(f"KL sigma_q list: {total_kl_sigma_q_list}")
 
 
@@ -693,11 +769,14 @@ def train(args):
 
 def do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer, 
                               total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
-                              individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list):
-    if args.do_harmlessness_training:
-        actor_to_test = base_actor
-    else:
-        actor_to_test = actor
+                              individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
+                              actor_to_test=None):
+    # If actor_to_test is explicitly provided, use it; otherwise use the old logic
+    if actor_to_test is None:
+        if args.do_harmlessness_training:
+            actor_to_test = base_actor
+        else:
+            actor_to_test = actor
     # Calculate the log probability
     (total_log_prob, individual_bad_word_log_probs_t0, 
      individual_bad_word_log_probs_t1, individual_bad_word_log_probs_combined) = calculate_bad_word_log_prob_pytorch(
