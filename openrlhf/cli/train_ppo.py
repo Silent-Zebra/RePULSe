@@ -518,22 +518,17 @@ def train(args):
             
             if args.do_harmlessness_training:
                 # For harmlessness training, actor is the sampling_actor (q) and base_actor is p
-                if args.neg_sample_only:
-                    # Only calculate for sampling_actor (q)
-                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
-                                              total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
-                                              individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                                              actor_to_test=actor)
-                else:
-                    # Calculate for both sampling_actor (q) and base_actor (p)
-                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
-                                              total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
-                                              individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                                              actor_to_test=actor)
-                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
-                                              total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
-                                              individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
-                                              actor_to_test=base_actor)
+
+                # Calculate for both sampling_actor (q) and base_actor (p); only for the first step, do this for both
+                # regardless of neg_sample_only or not. Because I want the values for p once at the start, just for reference
+                do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                          total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
+                                          individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
+                                          actor_to_test=actor)
+                do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
+                                          total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
+                                          individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
+                                          actor_to_test=base_actor)
             else:
                 # For non-harmlessness training, just use the standard actor
                 do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
@@ -718,6 +713,7 @@ def train(args):
             save_str = f"{args.save_info_path}/analytic_kls_indicator_{info_name_str}"
             torch.save((total_kl_sigma_q_list, total_kl_q_sigma_epsq_p_list), save_str)
             print(f"KL sigma_q list: {total_kl_sigma_q_list}")
+            print(f"KL q_sigma_epsq_p list: {total_kl_q_sigma_epsq_p_list}")
 
 
     if args.do_harmlessness_training:
@@ -1392,7 +1388,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     kl_terms = probs_sigma_p * (log_probs_sigma_p - log_probs_q)
     kl_sigma_q = kl_terms.sum().item()
 
-    print(f"KL (sigma_p || q) where sigma_p = p * I[.] : {kl_sigma_q}")
+    print(f"KL(sigma_p || q) where sigma_p = p * I[.] : {kl_sigma_q}")
 
     # Calculate KL divergence in the other direction: KL(q || sigma_epsq_p)
     # We use an approximation where the target distribution sigma_epsq_p is defined as:
@@ -1437,7 +1433,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     # Total KL(q || sigma_epsq_p)
     kl_q_sigma_epsq_p = kl_bad + kl_good
     
-    print(f"KL (q || sigma_epsq_p) (epsilon approximation): {kl_q_sigma_epsq_p}")
+    print(f"KL(q || sigma_epsq_p) (epsilon approximation): {kl_q_sigma_epsq_p}")
 
     total_kl_sigma_q_list.append(kl_sigma_q)
     total_kl_q_sigma_epsq_p_list.append(kl_q_sigma_epsq_p)
