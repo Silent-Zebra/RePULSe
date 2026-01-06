@@ -509,6 +509,9 @@ def train(args):
     individual_bad_word_log_probs_combined_list = individual_bad_word_log_probs_combined_list_base
     total_kl_sigma_q_list = []
     total_kl_q_sigma_epsq_p_list = []
+    diff_by_bad_word_list = []  # List of dicts: {bad_word_id: aggregated_diff}
+    max_q_exceeds_list = []  # List of tuples: (diff, t0_token, t1_token, q_val, sigma_val)
+    max_sigma_exceeds_list = []  # List of tuples: (diff, t0_token, t1_token, q_val, sigma_val)
     rew_over_time_list = []
     untrans_ret_over_time_list = []
 
@@ -539,18 +542,22 @@ def train(args):
             
             if args.do_harmlessness_training:
                 if "indicator" in args.rm_type: 
-                    calculate_analytic_kl_indicator_bad_words_both_directions(
-                        model_p_for_target=base_actor.model,
-                        model_q=actor.model,
-                        tokenizer=tokenizer,
-                        prompt_text=prompt,
-                        bad_word_indices=bad_word_tokens_ids,
-                        batch_size=args.train_batch_size,
-                        total_kl_sigma_q_list=total_kl_sigma_q_list,
-                        total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
-                        precomputed_p=precomputed_p,
-                        precomputed_q=precomputed_q,
-                    )
+                    _, _, diff_by_bad_word, max_q_exceeds, max_sigma_exceeds = \
+                        calculate_analytic_kl_indicator_bad_words_both_directions(
+                            model_p_for_target=base_actor.model,
+                            model_q=actor.model,
+                            tokenizer=tokenizer,
+                            prompt_text=prompt,
+                            bad_word_indices=bad_word_tokens_ids,
+                            batch_size=args.train_batch_size,
+                            total_kl_sigma_q_list=total_kl_sigma_q_list,
+                            total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
+                            precomputed_p=precomputed_p,
+                            precomputed_q=precomputed_q,
+                        )
+                    diff_by_bad_word_list.append(diff_by_bad_word)
+                    max_q_exceeds_list.append(max_q_exceeds)
+                    max_sigma_exceeds_list.append(max_sigma_exceeds)
 
         if args.do_harmlessness_training:
             strategy.print("-----HARMLESSNESS TRAINING-----")
@@ -653,18 +660,22 @@ def train(args):
             
             if args.do_harmlessness_training:
                 if "indicator" in args.rm_type:
-                    calculate_analytic_kl_indicator_bad_words_both_directions(
-                        model_p_for_target=base_actor.model,
-                        model_q=actor.model,
-                        tokenizer=tokenizer,
-                        prompt_text=prompt,
-                        bad_word_indices=bad_word_tokens_ids,
-                        batch_size=args.train_batch_size,
-                        total_kl_sigma_q_list=total_kl_sigma_q_list,
-                        total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
-                        precomputed_p=precomputed_p,
-                        precomputed_q=precomputed_q,
-                    )
+                    _, _, diff_by_bad_word, max_q_exceeds, max_sigma_exceeds = \
+                        calculate_analytic_kl_indicator_bad_words_both_directions(
+                            model_p_for_target=base_actor.model,
+                            model_q=actor.model,
+                            tokenizer=tokenizer,
+                            prompt_text=prompt,
+                            bad_word_indices=bad_word_tokens_ids,
+                            batch_size=args.train_batch_size,
+                            total_kl_sigma_q_list=total_kl_sigma_q_list,
+                            total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
+                            precomputed_p=precomputed_p,
+                            precomputed_q=precomputed_q,
+                        )
+                    diff_by_bad_word_list.append(diff_by_bad_word)
+                    max_q_exceeds_list.append(max_q_exceeds)
+                    max_sigma_exceeds_list.append(max_sigma_exceeds)
 
         if not args.neg_sample_only:
             if rewards_list is not None:
@@ -719,9 +730,13 @@ def train(args):
         
         if total_kl_sigma_q_list:
             save_str = f"{args.save_info_path}/analytic_kls_indicator_{info_name_str}"
-            torch.save((total_kl_sigma_q_list, total_kl_q_sigma_epsq_p_list), save_str)
+            torch.save((total_kl_sigma_q_list, total_kl_q_sigma_epsq_p_list, 
+                       diff_by_bad_word_list, max_q_exceeds_list, max_sigma_exceeds_list), save_str)
             print(f"KL sigma_q list: {total_kl_sigma_q_list}")
             print(f"KL q_sigma_epsq_p list: {total_kl_q_sigma_epsq_p_list}")
+            print(f"Difference by bad word list: {diff_by_bad_word_list}")
+            print(f"Max q exceeds list: {max_q_exceeds_list}")
+            print(f"Max sigma exceeds list: {max_sigma_exceeds_list}")
 
 
     if args.do_harmlessness_training:
@@ -1156,9 +1171,12 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
         total_kl_q_sigma_epsq_p_list: List to append KL(q || sigma_epsq_p) values to.
 
     Returns:
-        A tuple of (kl_sigma_q, kl_q_sigma_epsq_p) where:
+        A tuple of (kl_sigma_q, kl_q_sigma_epsq_p, diff_by_bad_word, max_q_exceeds, max_sigma_exceeds) where:
         - kl_sigma_q: KL(sigma_p || q)
         - kl_q_sigma_epsq_p: KL(q || sigma_epsq_p)
+        - diff_by_bad_word: dict mapping bad_word_id to aggregated difference (q(x) - sigma_p(x))
+        - max_q_exceeds: tuple (diff, t0_token, t1_token, q_val, sigma_val) for largest q(x) > sigma_p(x)
+        - max_sigma_exceeds: tuple (diff, t0_token, t1_token, q_val, sigma_val) for largest sigma_p(x) > q(x)
     """
 
     # Use precomputed values if available, otherwise compute them
@@ -1190,12 +1208,88 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
 
     # Calculate normalized probabilities: sigma_p(x) = exp(log sigma_p(x))
     probs_sigma_p = torch.exp(log_probs_sigma_p)
+    
+    # Calculate probabilities for q: q(x) = exp(log q(x))
+    probs_q = torch.exp(log_probs_q)
+    
+    # Calculate differences: diff = q(x) - sigma_p(x)
+    differences = probs_q - probs_sigma_p  # Shape: (n_sequences,)
 
     # Calculate KL divergence: KL(sigma_p || q) = sum_x sigma_p(x) * (log(sigma_p(x)) - log(q(x)))
     kl_terms = probs_sigma_p * (log_probs_sigma_p - log_probs_q)
     kl_sigma_q = kl_terms.sum().item()
 
     print(f"KL(sigma_p || q) where sigma_p = p * I[.] : {kl_sigma_q}")
+    
+    # Track differences aggregated by bad word and find largest differences
+    n_vocab = 50257
+    n_bad_words = len(bad_word_indices_tensor)
+    n_good_words = len(good_word_indices)
+    
+    # Map sequences back to their token indices and bad word associations
+    # Case 1: [n_bad_words, n_vocab] - each sequence (bad_word_idx, t1_token) corresponds to bad_word[bad_word_idx] at t=0
+    # Case 2: [n_good_words, n_bad_words] - each sequence (good_word_idx, bad_word_idx) corresponds to bad_word[bad_word_idx] at t=1
+    
+    # Reshape differences back to original shapes
+    differences_case1 = differences[:n_bad_words * n_vocab].reshape(n_bad_words, n_vocab)
+    differences_case2 = differences[n_bad_words * n_vocab:].reshape(n_good_words, n_bad_words)
+    
+    # Aggregate differences by bad word
+    # For Case 1: sum over all t1 tokens for each bad word at t=0
+    # For Case 2: sum over all good words at t=0 for each bad word at t=1
+    diff_by_bad_word = {}
+    for bad_idx, bad_word_id in enumerate(bad_word_indices_tensor):
+        token_id = bad_word_id.item()
+        # Case 1: sum differences for this bad word at t=0 (over all t1 tokens)
+        case1_sum = differences_case1[bad_idx, :].sum().item()
+        # Case 2: sum differences for this bad word at t=1 (over all good words at t=0)
+        case2_sum = differences_case2[:, bad_idx].sum().item()
+        diff_by_bad_word[token_id] = case1_sum + case2_sum
+    
+    print("Difference (q(x) - sigma_p(x)) aggregated by bad word:")
+    for token_id, diff_sum in sorted(diff_by_bad_word.items()):
+        print(f"  Bad word {token_id}: {diff_sum:.6e}")
+    
+    # Find the two largest differences
+    # 1. Where q(x) exceeds sigma_p(x) by the largest amount: max(q(x) - sigma_p(x))
+    max_q_exceeds_idx = differences.argmax().item()
+    max_q_exceeds_diff = differences[max_q_exceeds_idx].item()
+    
+    # 2. Where sigma_p(x) exceeds q(x) by the largest amount: max(sigma_p(x) - q(x)) = -min(q(x) - sigma_p(x))
+    max_sigma_exceeds_idx = differences.argmin().item()
+    max_sigma_exceeds_diff = differences[max_sigma_exceeds_idx].item()  # This will be negative
+    
+    # Map indices back to token sequences
+    def get_sequence_tokens(seq_idx):
+        """Map flattened sequence index back to (t0_token, t1_token)"""
+        if seq_idx < n_bad_words * n_vocab:
+            # Case 1: bad word at t=0, any word at t=1
+            bad_idx = seq_idx // n_vocab
+            t1_idx = seq_idx % n_vocab
+            t0_token = bad_word_indices_tensor[bad_idx].item()
+            t1_token = t1_idx
+            return t0_token, t1_token
+        else:
+            # Case 2: good word at t=0, bad word at t=1
+            case2_idx = seq_idx - n_bad_words * n_vocab
+            good_idx = case2_idx // n_bad_words
+            bad_idx = case2_idx % n_bad_words
+            t0_token = good_word_indices[good_idx].item()
+            t1_token = bad_word_indices_tensor[bad_idx].item()
+            return t0_token, t1_token
+    
+    max_q_exceeds_t0, max_q_exceeds_t1 = get_sequence_tokens(max_q_exceeds_idx)
+    max_sigma_exceeds_t0, max_sigma_exceeds_t1 = get_sequence_tokens(max_sigma_exceeds_idx)
+    
+    print(f"\nLargest difference where q(x) > sigma_p(x):")
+    print(f"  Difference: {max_q_exceeds_diff:.6e}")
+    print(f"  Sequence: t0={max_q_exceeds_t0}, t1={max_q_exceeds_t1}")
+    print(f"  q(x) = {probs_q[max_q_exceeds_idx].item():.6e}, sigma_p(x) = {probs_sigma_p[max_q_exceeds_idx].item():.6e}")
+    
+    print(f"\nLargest difference where sigma_p(x) > q(x):")
+    print(f"  Difference: {max_sigma_exceeds_diff:.6e}")
+    print(f"  Sequence: t0={max_sigma_exceeds_t0}, t1={max_sigma_exceeds_t1}")
+    print(f"  q(x) = {probs_q[max_sigma_exceeds_idx].item():.6e}, sigma_p(x) = {probs_sigma_p[max_sigma_exceeds_idx].item():.6e}")
 
     # Calculate KL divergence in the other direction: KL(q || sigma_epsq_p)
     # We use an approximation where the target distribution sigma_epsq_p is defined as:
@@ -1245,7 +1339,12 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     total_kl_sigma_q_list.append(kl_sigma_q)
     total_kl_q_sigma_epsq_p_list.append(kl_q_sigma_epsq_p)
 
-    return kl_sigma_q, kl_q_sigma_epsq_p 
+    max_q_exceeds_info = (max_q_exceeds_diff, max_q_exceeds_t0, max_q_exceeds_t1, 
+                          probs_q[max_q_exceeds_idx].item(), probs_sigma_p[max_q_exceeds_idx].item())
+    max_sigma_exceeds_info = (max_sigma_exceeds_diff, max_sigma_exceeds_t0, max_sigma_exceeds_t1,
+                             probs_q[max_sigma_exceeds_idx].item(), probs_sigma_p[max_sigma_exceeds_idx].item())
+
+    return kl_sigma_q, kl_q_sigma_epsq_p, diff_by_bad_word, max_q_exceeds_info, max_sigma_exceeds_info 
 
 
 
