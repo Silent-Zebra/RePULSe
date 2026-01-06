@@ -262,12 +262,9 @@ class CombinedHarmlessnessTrainer(ABC):
             neg_data=self.neg_data,
             reward_transform=self.reward_transform,
             reward_transform_beta=self.rew_trans_beta,
-            bad_word_tokens_ids=bad_word_tokens_ids
+            bad_word_tokens_ids=bad_word_tokens_ids,
+            reward_pretrain=getattr(strategy.args, 'reward_pretrain', None)
         )
-
-        if args.rm_type == "indicator_bad_token":
-            rm_type = "indicator_below_threshold"
-            assert args.threshold < 0.0 and args.threshold > -1.0, "threshold must be less than 0 and greater than -1 for indicator_bad_token rm_type"
 
         self.sampling_experience_maker_neg = None
         # Below is needed for base proposal... cannot just make it None always
@@ -296,7 +293,8 @@ class CombinedHarmlessnessTrainer(ABC):
             save_negdata_threshold=save_negdata_threshold,
             neg_data=self.neg_data,
             # reward_transform=self.reward_transform # Don't use reward transform on the SMC part. Of course this is a choice, you could if you wanted to, but I think let's avoid this for now to keep things simpler.
-            bad_word_tokens_ids=bad_word_tokens_ids
+            bad_word_tokens_ids=bad_word_tokens_ids,
+            reward_pretrain=getattr(strategy.args, 'reward_pretrain', None)
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)

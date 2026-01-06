@@ -1605,6 +1605,9 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
 
 def get_reward_model(args, strategy):
     strip_question_chat_template_fn = None
+    if args.reward_pretrain == "indicator_bad_token":
+        # Skip reward model loading - using handcrafted indicator function
+        return None, strip_question_chat_template_fn
     if not args.remote_rm_url:
         if args.reward_pretrain == "nicholasKluge/ToxicityModel":
             strategy.print(f"USING CUSTOM REWARD MODEL {args.reward_pretrain}")
@@ -1974,7 +1977,7 @@ if __name__ == "__main__":
                                  "p_continuation", "exp_beta_toxicity", "exp_beta_toxicity_class_logprob",
                                  "exp_beta_sentiment_class_logprob",
                                  "indicator_below_threshold", "sentiment_threshold",
-                                 "p_last_tokens", "toy_test", "rlhf", "indicator_bad_token"])
+                                 "p_last_tokens", "toy_test", "rlhf"])
     parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score (or whatever score used for indicator_below_threshold)")
     parser.add_argument("--reward_cap", type=float, default=10000, help="Only for use with rlhf rm_type")
     parser.add_argument(
@@ -2148,8 +2151,8 @@ if __name__ == "__main__":
     if "indicator" in args.rm_type:
         assert args.target_dist_beta == 1 # otherwise multiply by beta screws things up
     
-    if args.rm_type == "indicator_bad_token":
-        assert args.generate_max_len == 2, "indicator_bad_token rm_type currently only supports generate_max_len == 2"
+    if args.reward_pretrain == "indicator_bad_token":
+        assert args.generate_max_len == 2, "indicator_bad_token reward_pretrain currently only supports generate_max_len == 2"
 
     if args.advantage_estimator not in ["gae"]:
         raise NotImplementedError # Not tested
@@ -2161,7 +2164,7 @@ if __name__ == "__main__":
         args.no_critic = True
 
     if args.analytic_bad_word_calc:
-        assert args.rm_type in ["rlhf", "indicator_bad_token"]
+        assert args.rm_type in ["rlhf"] or args.reward_pretrain == "indicator_bad_token"
         assert "gpt" in args.pretrain
         # others not yet implemented/tested
         assert args.generate_max_len == 2

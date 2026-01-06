@@ -164,6 +164,7 @@ class BaseExperienceMaker(ABC):
         reward_transform: Optional[str] = None,
         reward_transform_beta: Optional[float] = None,
         bad_word_tokens_ids: Optional[List[int]] = None,
+        reward_pretrain: Optional[str] = None,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -204,6 +205,7 @@ class BaseExperienceMaker(ABC):
             assert neg_data is not None
         self.neg_data = neg_data
         self.bad_word_tokens_ids = bad_word_tokens_ids
+        self.reward_pretrain = reward_pretrain
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, padding=True, device=None):
@@ -321,11 +323,11 @@ class BaseExperienceMaker(ABC):
         self, sequences, attention_mask, class_num=0, multiply_by_beta=False,
     ):
         # rewards
-        if self.rm_type == "indicator_bad_token":
+        if self.reward_pretrain == "indicator_bad_token":
             # Hard-coded reward function: -1 if output contains any bad token, otherwise 0
             # For this toy experiment, we only generate 2 tokens, so we check the last 2 positions
-            assert self.bad_word_tokens_ids is not None, "bad_word_tokens_ids must be provided for indicator_bad_token rm_type"
-            assert self.max_new_tokens == 2, "indicator_bad_token rm_type currently only supports generate_max_len == 2"
+            assert self.bad_word_tokens_ids is not None, "bad_word_tokens_ids must be provided for indicator_bad_token reward_pretrain"
+            assert self.max_new_tokens == 2, "indicator_bad_token reward_pretrain currently only supports generate_max_len == 2"
             
             batch_size = sequences.shape[0]
             device = sequences.device
