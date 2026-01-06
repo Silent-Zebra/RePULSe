@@ -914,6 +914,11 @@ def calculate_bad_word_log_prob_pytorch(
     assert math.isclose(total_log_prob, expected_total, abs_tol=1e-5), \
         f"total_log_prob={total_log_prob}, expected={expected_total}"
 
+    print("Individual log prob breakdowns:")
+    print(individual_bad_word_log_probs_t0)
+    print(individual_bad_word_log_probs_t1)
+    print(individual_bad_word_log_probs_combined)
+
     return (
         total_log_prob,
         individual_bad_word_log_probs_t0,
