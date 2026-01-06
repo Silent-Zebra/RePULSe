@@ -2063,7 +2063,7 @@ if __name__ == "__main__":
     if args.actor_loss_type == "ctl_nosecondterm":
         assert args.parameterization in ["policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]
 
-    if args.rm_type == "indicator_below_threshold":
+    if "indicator" in args.rm_type:
         assert args.target_dist_beta == 1 # otherwise multiply by beta screws things up
     
     if args.rm_type == "indicator_bad_token":
