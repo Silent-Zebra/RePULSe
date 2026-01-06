@@ -2079,11 +2079,10 @@ if __name__ == "__main__":
         args.no_critic = True
 
     if args.analytic_bad_word_calc:
-        assert args.reward_pretrain == "nicholasKluge/ToxicityModel"
-        assert args.rm_type == "rlhf"
+        assert args.rm_type in ["rlhf", "indicator_bad_token"]
         assert "gpt" in args.pretrain
         # others not yet implemented/tested
-        assert args.generate_max_len <= 2
+        assert args.generate_max_len == 2
         assert args.new_custom_single_prompt
 
     if args.fit_steps != 1:
