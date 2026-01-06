@@ -458,6 +458,8 @@ class BaseExperienceMaker(ABC):
             assert self.reward_transform is None  # Others not yet implemented
 
         if self.rm_type == "exp_beta_toxicity_class_logprob":
+            if self.exploration_bonus:
+                raise NotImplementedError("exploration_bonus not yet implemented for rm_type='exp_beta_toxicity_class_logprob'")
             print("WARNING: only set up for toxicity so far") # TODO later make more flexible, for different reward models. Also, be careful that this is the only place the reward model is used
             score = r
             nontoxic_class_logprob = torch.nn.functional.logsigmoid(score)
@@ -496,8 +498,41 @@ class BaseExperienceMaker(ABC):
             score = r
             # print("score")
             # print(score)
-            final_reward = torch.log((score < self.threshold) + eps)            
+            
+            # Calculate exploration bonus if enabled
+            device = sequences.device
+            batch_size = score.shape[0]
+            exploration_bonus = torch.zeros(batch_size, device=device, dtype=torch.float32)
+            if self.exploration_bonus:
+                assert self.max_new_tokens is not None, "max_new_tokens must be set for exploration_bonus"
+                
+                # Move state_visitation_counts to device if needed
+                if self.state_visitation_counts.device != device:
+                    self.state_visitation_counts = self.state_visitation_counts.to(device)
+                
+                # Extract t=0 tokens from response (last max_new_tokens tokens, first one is t=0)
+                response_tokens = sequences[:, -self.max_new_tokens:]  # Shape: (B, max_new_tokens)
+                t0_tokens = response_tokens[:, 0]  # Shape: (B,)
+                t0_tokens_long = t0_tokens.long()  # Ensure integer type
+                
+                # Update state visitation counts for t=0 tokens (vectorized)
+                updates = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+                self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates)
+                
+                # Get counts for each t=0 token (after update)
+                counts_for_tokens = self.state_visitation_counts[t0_tokens_long]  # (B,)
+                # Calculate bonus: bonus_alpha * (1/sqrt(N(x)))
+                exploration_bonus = self.bonus_alpha * (1.0 / torch.sqrt(counts_for_tokens.float()))  # (B,)
+                
+                print(f"Exploration bonus applied for indicator_below_threshold. Mean bonus: {exploration_bonus.mean().item():.4f}, "
+                      f"Min bonus: {exploration_bonus.min().item():.4f}, "
+                      f"Max bonus: {exploration_bonus.max().item():.4f}")
+            
+            # Add exploration bonus to the log argument: log((score < threshold) + eps + bonus)
+            final_reward = torch.log((score < self.threshold) + eps + exploration_bonus)            
         elif self.rm_type == "rlhf":
+            if self.exploration_bonus:
+                raise NotImplementedError("exploration_bonus not yet implemented for rm_type='rlhf'")
             score = r
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
 
