@@ -352,6 +352,19 @@ class BaseExperienceMaker(ABC):
            
             print("Num satisfying indicator function for bad tokens:")
             print(-r.sum().item())
+            
+            # Count occurrences of each bad token in responses (vectorized)
+            # Flatten response_tokens and use broadcasting to count all bad tokens at once
+            flat_response = response_tokens.flatten()  # (B*2,)
+            counts = (flat_response[:, None] == bad_tokens[None, :]).sum(dim=0)  # (n,)
+            bad_token_counts = dict(zip(self.bad_word_tokens_ids, counts.cpu().tolist()))
+            print("Bad token counts in responses:", bad_token_counts)
+            
+            # Count occurrences of each bad token at t=0 only (vectorized)
+            t0_tokens = response_tokens[:, 0]  # (B,)
+            t0_counts = (t0_tokens[:, None] == bad_tokens[None, :]).sum(dim=0)  # (n,)
+            t0_bad_token_counts = dict(zip(self.bad_word_tokens_ids, t0_counts.cpu().tolist()))
+            print("Bad token counts at t=0:", t0_bad_token_counts)
 
         elif self.remote_rm_url is not None:
             # TODO not yet supported/checked with custom_single_prompt
