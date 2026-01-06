@@ -1196,102 +1196,111 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
             _compute_bad_word_sequence_log_probs(model_q, tokenizer, prompt_text, bad_word_indices, batch_size)
         assert prompt_ids_q.device == device
 
-    # Concatenate Case 1 and Case 2 probabilities for both models
-    log_probs_p = torch.cat([log_probs_p_case1.flatten(), log_probs_p_case2.flatten()], dim=0)  # Shape: (n_sequences,)
-    log_probs_q = torch.cat([log_probs_q_case1.flatten(), log_probs_q_case2.flatten()], dim=0)  # Shape: (n_sequences,)
-
     # Calculate log normalizing constant: log Z = log sum_x ~sigma_p(x)
-    log_Z = torch.logsumexp(log_probs_p, dim=0)
+    # Need to flatten for logsumexp (it requires 1D tensor)
+    log_probs_p_flat = torch.cat([log_probs_p_case1.flatten(), log_probs_p_case2.flatten()], dim=0)
+    log_Z = torch.logsumexp(log_probs_p_flat, dim=0)
 
-    # Calculate normalized log probabilities under target: log sigma_p(x) = log ~sigma_p(x) - log Z
-    log_probs_sigma_p = log_probs_p - log_Z
+    # Calculate normalized log probabilities under target directly from unflattened values
+    # log sigma_p(x) = log ~sigma_p(x) - log Z
+    log_probs_sigma_p_case1 = log_probs_p_case1 - log_Z  # Shape: (n_bad_words, n_vocab)
+    log_probs_sigma_p_case2 = log_probs_p_case2 - log_Z  # Shape: (n_good_words, n_bad_words)
 
-    # Calculate normalized probabilities: sigma_p(x) = exp(log sigma_p(x))
-    probs_sigma_p = torch.exp(log_probs_sigma_p)
-    
-    # Calculate probabilities for q: q(x) = exp(log q(x)) (needed for aggregation)
-    probs_q = torch.exp(log_probs_q)
+    # Calculate normalized probabilities: sigma_p(x) = exp(log sigma_p(x)) (needed for KL)
+    probs_sigma_p_case1 = torch.exp(log_probs_sigma_p_case1)
+    probs_sigma_p_case2 = torch.exp(log_probs_sigma_p_case2)
 
     # Calculate KL divergence: KL(sigma_p || q) = sum_x sigma_p(x) * (log(sigma_p(x)) - log(q(x)))
-    kl_terms = probs_sigma_p * (log_probs_sigma_p - log_probs_q)
-    kl_sigma_q = kl_terms.sum().item()
+    # Compute KL terms directly from unflattened tensors
+    kl_terms_case1 = probs_sigma_p_case1 * (log_probs_sigma_p_case1 - log_probs_q_case1)
+    kl_terms_case2 = probs_sigma_p_case2 * (log_probs_sigma_p_case2 - log_probs_q_case2)
+    kl_sigma_q = (kl_terms_case1.sum() + kl_terms_case2.sum()).item()
 
     print(f"KL(sigma_p || q) where sigma_p = p * I[.] : {kl_sigma_q}")
     
-    # Calculate differences in log space: log_diff = log(q(x)) - log(sigma_p(x))
-    log_differences = log_probs_q - log_probs_sigma_p  # Shape: (n_sequences,)
+    # Calculate differences in log space directly from unflattened values
+    log_differences_case1 = log_probs_q_case1 - log_probs_sigma_p_case1  # Shape: (n_bad_words, n_vocab)
+    log_differences_case2 = log_probs_q_case2 - log_probs_sigma_p_case2  # Shape: (n_good_words, n_bad_words)
     
     # Track differences aggregated by bad word and find largest differences
     n_vocab = 50257
     n_bad_words = len(bad_word_indices_tensor)
     n_good_words = len(good_word_indices)
     
-    # Map sequences back to their token indices and bad word associations
-    # Case 1: [n_bad_words, n_vocab] - each sequence (bad_word_idx, t1_token) corresponds to bad_word[bad_word_idx] at t=0
-    # Case 2: [n_good_words, n_bad_words] - each sequence (good_word_idx, bad_word_idx) corresponds to bad_word[bad_word_idx] at t=1
-    
-    # Reshape probabilities and log differences back to original shapes for aggregation
-    probs_q_case1 = probs_q[:n_bad_words * n_vocab].reshape(n_bad_words, n_vocab)
-    probs_q_case2 = probs_q[n_bad_words * n_vocab:].reshape(n_good_words, n_bad_words)
-    probs_sigma_p_case1 = probs_sigma_p[:n_bad_words * n_vocab].reshape(n_bad_words, n_vocab)
-    probs_sigma_p_case2 = probs_sigma_p[n_bad_words * n_vocab:].reshape(n_good_words, n_bad_words)
-    
-    # Aggregate differences by bad word: sum(q(x) - sigma_p(x)) over all sequences containing each bad word
+    # Aggregate log differences by bad word: mean log difference over all sequences containing each bad word
     diff_by_bad_word = {}
     for bad_idx, bad_word_id in enumerate(bad_word_indices_tensor):
         token_id = bad_word_id.item()
-        # Case 1: sum differences for this bad word at t=0 (over all t1 tokens)
-        case1_sum = (probs_q_case1[bad_idx, :] - probs_sigma_p_case1[bad_idx, :]).sum().item()
-        # Case 2: sum differences for this bad word at t=1 (over all good words at t=0)
-        case2_sum = (probs_q_case2[:, bad_idx] - probs_sigma_p_case2[:, bad_idx]).sum().item()
-        diff_by_bad_word[token_id] = case1_sum + case2_sum
+        # Case 1: log differences for this bad word at t=0 (over all t1 tokens)
+        case1_diffs = log_differences_case1[bad_idx, :]  # Shape: (n_vocab,)
+        # Case 2: log differences for this bad word at t=1 (over all good words at t=0)
+        case2_diffs = log_differences_case2[:, bad_idx]  # Shape: (n_good_words,)
+        # Concatenate and take mean
+        all_diffs = torch.cat([case1_diffs, case2_diffs])
+        diff_by_bad_word[token_id] = all_diffs.mean().item()
     
-    print("Difference (q(x) - sigma_p(x)) aggregated by bad word:")
-    for token_id, diff_sum in sorted(diff_by_bad_word.items()):
-        print(f"  Bad word {token_id}: {diff_sum:.6e}")
+    print("Mean log difference (log(q) - log(sigma_p)) aggregated by bad word:")
+    for token_id, diff_mean in sorted(diff_by_bad_word.items()):
+        print(f"  Bad word {token_id}: {diff_mean:.6e}")
     
     # Find the two largest differences in log space
+    # Flatten just for finding max/min indices
+    log_differences_flat = torch.cat([log_differences_case1.flatten(), log_differences_case2.flatten()], dim=0)
+    
     # 1. Where q(x) exceeds sigma_p(x) by the largest amount: max(log(q(x)) - log(sigma_p(x)))
-    max_q_exceeds_idx = log_differences.argmax().item()
-    max_q_exceeds_log_diff = log_differences[max_q_exceeds_idx].item()
+    max_q_exceeds_flat_idx = log_differences_flat.argmax().item()
+    max_q_exceeds_log_diff = log_differences_flat[max_q_exceeds_flat_idx].item()
     
-    # 2. Where sigma_p(x) exceeds q(x) by the largest amount: max(log(sigma_p(x)) - log(q(x))) = -min(log(q(x)) - log(sigma_p(x)))
-    max_sigma_exceeds_idx = log_differences.argmin().item()
-    max_sigma_exceeds_log_diff = log_differences[max_sigma_exceeds_idx].item()  # This will be negative
+    # 2. Where sigma_p(x) exceeds q(x) by the largest amount: min(log(q(x)) - log(sigma_p(x)))
+    max_sigma_exceeds_flat_idx = log_differences_flat.argmin().item()
+    max_sigma_exceeds_log_diff = log_differences_flat[max_sigma_exceeds_flat_idx].item()  # This will be negative
     
-    # Map indices back to token sequences
-    def get_sequence_tokens(seq_idx):
+    # Map flattened indices back to token sequences
+    def get_sequence_tokens(flat_idx):
         """Map flattened sequence index back to (t0_token, t1_token)"""
-        if seq_idx < n_bad_words * n_vocab:
+        if flat_idx < n_bad_words * n_vocab:
             # Case 1: bad word at t=0, any word at t=1
-            bad_idx = seq_idx // n_vocab
-            t1_idx = seq_idx % n_vocab
+            bad_idx = flat_idx // n_vocab
+            t1_idx = flat_idx % n_vocab
             t0_token = bad_word_indices_tensor[bad_idx].item()
             t1_token = t1_idx
-            return t0_token, t1_token
+            return t0_token, t1_token, bad_idx, t1_idx, True
         else:
             # Case 2: good word at t=0, bad word at t=1
-            case2_idx = seq_idx - n_bad_words * n_vocab
+            case2_idx = flat_idx - n_bad_words * n_vocab
             good_idx = case2_idx // n_bad_words
             bad_idx = case2_idx % n_bad_words
             t0_token = good_word_indices[good_idx].item()
             t1_token = bad_word_indices_tensor[bad_idx].item()
-            return t0_token, t1_token
+            return t0_token, t1_token, good_idx, bad_idx, False
     
-    max_q_exceeds_t0, max_q_exceeds_t1 = get_sequence_tokens(max_q_exceeds_idx)
-    max_sigma_exceeds_t0, max_sigma_exceeds_t1 = get_sequence_tokens(max_sigma_exceeds_idx)
+    max_q_exceeds_t0, max_q_exceeds_t1, max_q_exceeds_idx0, max_q_exceeds_idx1, max_q_exceeds_is_case1 = get_sequence_tokens(max_q_exceeds_flat_idx)
+    max_sigma_exceeds_t0, max_sigma_exceeds_t1, max_sigma_exceeds_idx0, max_sigma_exceeds_idx1, max_sigma_exceeds_is_case1 = get_sequence_tokens(max_sigma_exceeds_flat_idx)
+    
+    # Get log probabilities for printing
+    if max_q_exceeds_is_case1:
+        max_q_exceeds_log_q = log_probs_q_case1[max_q_exceeds_idx0, max_q_exceeds_idx1].item()
+        max_q_exceeds_log_sigma = log_probs_sigma_p_case1[max_q_exceeds_idx0, max_q_exceeds_idx1].item()
+    else:
+        max_q_exceeds_log_q = log_probs_q_case2[max_q_exceeds_idx0, max_q_exceeds_idx1].item()
+        max_q_exceeds_log_sigma = log_probs_sigma_p_case2[max_q_exceeds_idx0, max_q_exceeds_idx1].item()
+    
+    if max_sigma_exceeds_is_case1:
+        max_sigma_exceeds_log_q = log_probs_q_case1[max_sigma_exceeds_idx0, max_sigma_exceeds_idx1].item()
+        max_sigma_exceeds_log_sigma = log_probs_sigma_p_case1[max_sigma_exceeds_idx0, max_sigma_exceeds_idx1].item()
+    else:
+        max_sigma_exceeds_log_q = log_probs_q_case2[max_sigma_exceeds_idx0, max_sigma_exceeds_idx1].item()
+        max_sigma_exceeds_log_sigma = log_probs_sigma_p_case2[max_sigma_exceeds_idx0, max_sigma_exceeds_idx1].item()
     
     print(f"\nLargest log difference where q(x) > sigma_p(x):")
     print(f"  Log difference (log(q) - log(sigma_p)): {max_q_exceeds_log_diff:.6e}")
     print(f"  Sequence: t0={max_q_exceeds_t0}, t1={max_q_exceeds_t1}")
-    print(f"  log(q(x)) = {log_probs_q[max_q_exceeds_idx].item():.6e}, log(sigma_p(x)) = {log_probs_sigma_p[max_q_exceeds_idx].item():.6e}")
-    print(f"  q(x) = {probs_q[max_q_exceeds_idx].item():.6e}, sigma_p(x) = {probs_sigma_p[max_q_exceeds_idx].item():.6e}")
+    print(f"  log(q(x)) = {max_q_exceeds_log_q:.6e}, log(sigma_p(x)) = {max_q_exceeds_log_sigma:.6e}")
     
     print(f"\nLargest log difference where sigma_p(x) > q(x):")
     print(f"  Log difference (log(q) - log(sigma_p)): {max_sigma_exceeds_log_diff:.6e}")
     print(f"  Sequence: t0={max_sigma_exceeds_t0}, t1={max_sigma_exceeds_t1}")
-    print(f"  log(q(x)) = {log_probs_q[max_sigma_exceeds_idx].item():.6e}, log(sigma_p(x)) = {log_probs_sigma_p[max_sigma_exceeds_idx].item():.6e}")
-    print(f"  q(x) = {probs_q[max_sigma_exceeds_idx].item():.6e}, sigma_p(x) = {probs_sigma_p[max_sigma_exceeds_idx].item():.6e}")
+    print(f"  log(q(x)) = {max_sigma_exceeds_log_q:.6e}, log(sigma_p(x)) = {max_sigma_exceeds_log_sigma:.6e}")
 
     # Calculate KL divergence in the other direction: KL(q || sigma_epsq_p)
     # We use an approximation where the target distribution sigma_epsq_p is defined as:
@@ -1302,12 +1311,15 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     epsilon = INDICATOR_REWARD_EPS
     
     # Convert log probabilities to probabilities for sequences with bad words
-    probs_p_bad = torch.exp(log_probs_p)  # Shape: (n_sequences,)
-    probs_q_bad = torch.exp(log_probs_q)  # Shape: (n_sequences,)
+    # Work directly with unflattened tensors
+    probs_p_case1 = torch.exp(log_probs_p_case1)
+    probs_p_case2 = torch.exp(log_probs_p_case2)
+    probs_q_case1 = torch.exp(log_probs_q_case1)
+    probs_q_case2 = torch.exp(log_probs_q_case2)
     
     # Calculate sums needed for the normalizing constant
-    sum_p_bad = probs_p_bad.sum().item()  # sum_(x with bad) p(x)
-    sum_q_bad = probs_q_bad.sum().item()  # sum_(x with bad) q(x)
+    sum_p_bad = (probs_p_case1.sum() + probs_p_case2.sum()).item()  # sum_(x with bad) p(x)
+    sum_q_bad = (probs_q_case1.sum() + probs_q_case2.sum()).item()  # sum_(x with bad) q(x)
     sum_q_good = 1.0 - sum_q_bad  # sum_(x without bad) q(x) = 1 - sum_(x with bad) q(x)
     
     # Calculate the new normalizing constant for sigma_epsq_p
@@ -1316,12 +1328,14 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     log_Z_epsq = math.log(Z_epsq)
     
     # For sequences with bad words: sigma_epsq_p(x) = p(x) / Z_epsq
-    log_probs_sigma_epsq_p_bad = log_probs_p - log_Z_epsq
+    log_probs_sigma_epsq_p_case1 = log_probs_p_case1 - log_Z_epsq
+    log_probs_sigma_epsq_p_case2 = log_probs_p_case2 - log_Z_epsq
     
     # KL contribution from sequences with bad words:
     # sum_(x with bad) q(x) * (log(q(x)) - log(sigma_epsq_p(x)))
-    kl_terms_bad = probs_q_bad * (log_probs_q - log_probs_sigma_epsq_p_bad)
-    kl_bad = kl_terms_bad.sum().item()
+    kl_terms_bad_case1 = probs_q_case1 * (log_probs_q_case1 - log_probs_sigma_epsq_p_case1)
+    kl_terms_bad_case2 = probs_q_case2 * (log_probs_q_case2 - log_probs_sigma_epsq_p_case2)
+    kl_bad = (kl_terms_bad_case1.sum() + kl_terms_bad_case2.sum()).item()
     
     # KL contribution from sequences without bad words:
     # For x without bad words: sigma_epsq_p(x) = q(x) * epsilon / Z_epsq
@@ -1342,9 +1356,9 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     total_kl_q_sigma_epsq_p_list.append(kl_q_sigma_epsq_p)
 
     max_q_exceeds_info = (max_q_exceeds_log_diff, max_q_exceeds_t0, max_q_exceeds_t1, 
-                          log_probs_q[max_q_exceeds_idx].item(), log_probs_sigma_p[max_q_exceeds_idx].item())
+                          max_q_exceeds_log_q, max_q_exceeds_log_sigma)
     max_sigma_exceeds_info = (max_sigma_exceeds_log_diff, max_sigma_exceeds_t0, max_sigma_exceeds_t1,
-                             log_probs_q[max_sigma_exceeds_idx].item(), log_probs_sigma_p[max_sigma_exceeds_idx].item())
+                             max_sigma_exceeds_log_q, max_sigma_exceeds_log_sigma)
 
     return kl_sigma_q, kl_q_sigma_epsq_p, diff_by_bad_word, max_q_exceeds_info, max_sigma_exceeds_info 
 
