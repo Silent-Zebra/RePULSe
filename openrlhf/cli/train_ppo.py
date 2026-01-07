@@ -531,7 +531,7 @@ def train(args):
             reward_model=reward_model,
             tokenizer=tokenizer,
             prompt_text=prompt,
-            batch_size=args.train_batch_size,
+            batch_size=args.analytic_batch_size,
         )
         strategy.print(f"Precomputed toxicity scores shape: {precomputed_toxicity_scores.shape}")
         strategy.print(f"Toxicity scores range: [{precomputed_toxicity_scores.min().item():.4f}, {precomputed_toxicity_scores.max().item():.4f}]")
@@ -570,7 +570,7 @@ def train(args):
                             tokenizer=tokenizer,
                             prompt_text=prompt,
                             bad_word_indices=bad_word_tokens_ids,
-                            batch_size=args.train_batch_size,
+                            batch_size=args.analytic_batch_size,
                             total_kl_sigma_q_list=total_kl_sigma_q_list,
                             total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
                             precomputed_p=precomputed_p,
@@ -719,7 +719,7 @@ def train(args):
                             tokenizer=tokenizer,
                             prompt_text=prompt,
                             bad_word_indices=bad_word_tokens_ids,
-                            batch_size=args.train_batch_size,
+                            batch_size=args.analytic_batch_size,
                             total_kl_sigma_q_list=total_kl_sigma_q_list,
                             total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
                             precomputed_p=precomputed_p,
@@ -867,7 +867,7 @@ def do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prom
         tokenizer=tokenizer,
         prompt_text=prompt,
         bad_word_indices=bad_word_tokens_ids,
-        batch_size=args.train_batch_size,
+        batch_size=args.analytic_batch_size,
     )
     
     # Use precomputed results to calculate the log probability metrics
@@ -2072,6 +2072,7 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", type=float, default=1, help="PPO GAE gamma")
     parser.add_argument("--micro_train_batch_size", type=int, default=4, help="batch size per GPU")
     parser.add_argument("--train_batch_size", type=int, default=128, help="Global training batch size")
+    parser.add_argument("--analytic_batch_size", type=int, default=None, help="Batch size for analytic calculations. Defaults to train_batch_size if not set.")
     parser.add_argument("--normalize_reward", action="store_true", default=False, help="Enable Reward Normalization")
 
     parser.add_argument("--bc_coef", type=float, default=0.0, help="Do behaviour cloning on exact posterior samples (cheating for the sake of illustrating optimality)")
@@ -2298,6 +2299,10 @@ if __name__ == "__main__":
     parser.add_argument("--neg_hardcoded_baseline", type=float, default=None, help="Only for --do_harmlessness_training. Value of hardcoded baseline")
 
     args = parser.parse_args()
+
+    # Set analytic_batch_size to train_batch_size if not specified
+    if args.analytic_batch_size is None:
+        args.analytic_batch_size = args.train_batch_size
 
     # if not args.only_evaluate_on_neg_data and not args.evaluate_heldout_sampling:
     #     assert args.no_test_info # Right now the rewards_list is broken if you do test info instead of no_test_info

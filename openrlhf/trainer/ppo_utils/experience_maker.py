@@ -213,11 +213,8 @@ class BaseExperienceMaker(ABC):
         
         # Initialize state visitation count tensor for t=0 tokens (vocab size = 50257)
         if self.exploration_bonus:
-            if reward_pretrain == "indicator_bad_token":
-                # Start with 0 for all tokens (will be incremented to 1 on first visit)
-                self.state_visitation_counts = torch.zeros(50257, dtype=torch.long)
-            else:
-                raise NotImplementedError
+            # Start with 0 for all tokens (will be incremented to 1 on first visit)
+            self.state_visitation_counts = torch.zeros(50257, dtype=torch.long)
         else:
             self.state_visitation_counts = None
 
