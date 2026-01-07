@@ -100,8 +100,19 @@ class CoinFlipNetwork(nn.Module):
         # If still not found, do a test forward pass to infer the dimension
         if hidden_size is None:
             try:
-                # Create a dummy input to infer the hidden size
-                dummy_input = torch.zeros(1, 1, dtype=torch.long)
+                # Get device from base_model, prioritizing GPU/cuda
+                base_model_device = None
+                for param in self.base_model.parameters():
+                    base_model_device = param.device
+                    break
+                
+                # Fallback: use cuda if available, else cpu
+                if base_model_device is None:
+                    base_model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                
+                # Create a dummy input to infer the hidden size, on the same device as base_model
+                dummy_input = torch.zeros(1, 1, dtype=torch.long, device=base_model_device)
+                
                 with torch.no_grad():
                     outputs = self.base_model(
                         dummy_input,
@@ -124,8 +135,30 @@ class CoinFlipNetwork(nn.Module):
         # Create coin flip head: maps hidden_size -> coin_flip_dim
         self.coin_flip_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
         
+        # Move coin_flip_head to the same device as base_model
+        # Get device from base_model parameters, prioritizing GPU/cuda
+        base_model_device = None
+        for param in self.base_model.parameters():
+            base_model_device = param.device
+            break
+        
+        # If no parameters found, use cuda if available, else cpu
+        if base_model_device is None:
+            base_model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.coin_flip_head = self.coin_flip_head.to(base_model_device)
+        
         # Support gradient checkpointing if base model does
         self.supports_gradient_checkpointing = getattr(self.base_model, 'supports_gradient_checkpointing', False)
+    
+    def _get_device(self):
+        """Get the device of the base model, prioritizing GPU/cuda."""
+        # Try to get device from base_model parameters
+        for param in self.base_model.parameters():
+            return param.device
+        
+        # Fallback: use cuda if available, else cpu
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     def forward(
         self,
@@ -170,6 +203,11 @@ class CoinFlipNetwork(nn.Module):
         else:
             raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
         
+        # Ensure hidden_states and coin_flip_head are on the same device
+        coin_flip_head_device = next(self.coin_flip_head.parameters()).device
+        if hidden_states.device != coin_flip_head_device:
+            hidden_states = hidden_states.to(coin_flip_head_device)
+        
         # Apply coin flip head
         coin_flip_predictions = self.coin_flip_head(hidden_states)  # (batch_size, seq_len, coin_flip_dim)
         
@@ -206,7 +244,8 @@ class CoinFlipNetwork(nn.Module):
         # Extract final token predictions (last valid position for each sequence)
         if attention_mask is not None:
             # Find the last valid position for each sequence (same as reward model does)
-            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().fliplr().argmax(dim=1, keepdim=True)
+            # fliplr() is deprecated, use flip() instead
+            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
             # Use advanced indexing to extract final predictions: (B, d)
             batch_indices = torch.arange(coin_flip_predictions.size(0), device=coin_flip_predictions.device)
             final_predictions = coin_flip_predictions[batch_indices, eos_indices.squeeze(1), :]  # (B, d)
