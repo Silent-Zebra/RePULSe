@@ -2267,8 +2267,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--reward_transform", type=str, default=None)
-    parser.add_argument("--exploration_bonus", action="store_true", default=False, help="Enable count-based exploration bonus for state visitation (t=0 token only)")
+    parser.add_argument("--exploration_bonus_sampling_actor", type=str, default="coin_flip", choices=["exact_count", "coin_flip"], help="Exploration bonus type for sampling_actor: 'exact_count' (requires max_new_tokens=1) or 'coin_flip' (learned via coin flip network)")
+    parser.add_argument("--exploration_bonus_base_actor", type=str, default=None, choices=["exact_count", "coin_flip"], help="Exploration bonus type for base_actor (not yet implemented)")
     parser.add_argument("--bonus_alpha", type=float, default=1.0, help="Scaling factor for exploration bonus: bonus = bonus_alpha * (1/sqrt(N(x)))")
+    parser.add_argument("--coin_flip_dim", type=int, default=64, help="Dimension d for coin flip vectors")
+    parser.add_argument("--coin_flip_lr", type=float, default=None, help="Learning rate for coin flip network (defaults to sampling_actor_lr if None)")
+    parser.add_argument("--coin_flip_batch_size", type=int, default=32, help="Batch size for coin flip network training")
 
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, --harmlessness_training_num_episodes for the number of outer loop steps, and --harmlessness_training_episodes_per_loop for the number of harmlessness training steps in each loop iteration. So total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes * harmlessness_training_episodes_per_loop base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")
@@ -2361,6 +2365,11 @@ if __name__ == "__main__":
     
     if args.reward_pretrain == "indicator_bad_token":
         assert args.generate_max_len == 2, "indicator_bad_token reward_pretrain currently only supports generate_max_len == 2"
+
+    if args.exploration_bonus_sampling_actor == "exact_count":
+        assert args.generate_max_len == 1, "exploration_bonus_sampling_actor='exact_count' requires generate_max_len == 1"
+    if args.exploration_bonus_base_actor == "exact_count":
+        assert args.generate_max_len == 1, "exploration_bonus_base_actor='exact_count' requires generate_max_len == 1"
 
     if args.advantage_estimator not in ["gae"]:
         raise NotImplementedError # Not tested

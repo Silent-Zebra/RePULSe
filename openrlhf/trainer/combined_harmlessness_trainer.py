@@ -16,13 +16,14 @@ from torch.profiler import profile, record_function, ProfilerActivity
 import torch.nn.functional as F
 
 from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
+from openrlhf.models.coin_flip_network import CoinFlipNetwork
 from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss, CTLLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl, compute_reward
 from openrlhf.utils.distributed_sampler import DistributedSampler
 from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list, log_sequence_for_negatives
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
-from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
+from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker, generate_coin_flip_vectors
 
 from openrlhf.models.model import INDICATOR_REWARD_EPS
 
@@ -237,6 +238,59 @@ class CombinedHarmlessnessTrainer(ABC):
         # Keep this even in case of the indicator_bad_token
         # Because this gives the right base reward. The sampling actor will then use the indicator with specific threshold
 
+        # Check exploration bonus flags
+        exploration_bonus_base_actor = getattr(strategy.args, 'exploration_bonus_base_actor', None)
+        exploration_bonus_sampling_actor = getattr(strategy.args, 'exploration_bonus_sampling_actor', 'coin_flip')
+        
+        # Raise NotImplementedError for base_actor exploration bonus
+        if exploration_bonus_base_actor is not None:
+            raise NotImplementedError(f"exploration_bonus_base_actor='{exploration_bonus_base_actor}' is not yet supported. Only sampling_actor exploration bonus is currently implemented.")
+        
+        # Initialize coin flip network for sampling_actor if needed
+        self.coin_flip_network = None
+        self.coin_flip_optim = None
+        self.coin_flip_scheduler = None
+        
+        if exploration_bonus_sampling_actor == "coin_flip":
+            coin_flip_dim = getattr(strategy.args, 'coin_flip_dim', 64)
+            # Initialize coin flip network from sampling_actor
+            self.coin_flip_network = CoinFlipNetwork(sampling_actor, coin_flip_dim=coin_flip_dim)
+            
+            # Create optimizer and scheduler (defaulting to sampling_actor's)
+            coin_flip_lr = getattr(strategy.args, 'coin_flip_lr', None)
+            if coin_flip_lr is None:
+                # Use same LR as sampling_actor
+                if hasattr(sampling_actor_scheduler, 'get_last_lr') and len(sampling_actor_scheduler.get_last_lr()) > 0:
+                    coin_flip_lr = sampling_actor_scheduler.get_last_lr()[0]
+                else:
+                    coin_flip_lr = getattr(strategy.args, 'actor_learning_rate', 1e-5)
+            
+            # Use strategy's create_optimizer method (same as sampling_actor)
+            # Extract optimizer parameters from args (same as sampling_actor uses)
+            adam_betas = getattr(strategy.args, 'adam_betas', (0.9, 0.95))
+            l2 = getattr(strategy.args, 'l2', 0.0)
+            self.coin_flip_optim = strategy.create_optimizer(
+                self.coin_flip_network,
+                lr=coin_flip_lr,
+                betas=adam_betas,
+                weight_decay=l2
+            )
+            
+            # Use same scheduler type as sampling_actor_scheduler
+            if sampling_actor_scheduler is not None:
+                from transformers.trainer import get_scheduler
+                scheduler_type = getattr(strategy.args, 'lr_scheduler', 'constant')
+                num_training_steps = getattr(strategy.args, 'num_training_steps', 1000)
+                num_warmup_steps = getattr(strategy.args, 'num_warmup_steps', 0)
+                self.coin_flip_scheduler = get_scheduler(
+                    scheduler_type,
+                    optimizer=self.coin_flip_optim,
+                    num_warmup_steps=num_warmup_steps,
+                    num_training_steps=num_training_steps,
+                )
+            else:
+                self.coin_flip_scheduler = None
+
         # Base actor experience maker (for standard reinforce)
         self.base_experience_maker = BaseExperienceMaker(
             base_actor,
@@ -264,7 +318,7 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_transform_beta=self.rew_trans_beta,
             bad_word_tokens_ids=bad_word_tokens_ids,
             reward_pretrain=getattr(strategy.args, 'reward_pretrain', None),
-            exploration_bonus=getattr(strategy.args, 'exploration_bonus', False),
+            exploration_bonus=exploration_bonus_base_actor,
             bonus_alpha=getattr(strategy.args, 'bonus_alpha', 1.0)
         )
 
@@ -297,8 +351,10 @@ class CombinedHarmlessnessTrainer(ABC):
             # reward_transform=self.reward_transform # Don't use reward transform on the SMC part. Of course this is a choice, you could if you wanted to, but I think let's avoid this for now to keep things simpler.
             bad_word_tokens_ids=bad_word_tokens_ids,
             reward_pretrain=getattr(strategy.args, 'reward_pretrain', None),
-            exploration_bonus=getattr(strategy.args, 'exploration_bonus', False),
-            bonus_alpha=getattr(strategy.args, 'bonus_alpha', 1.0)
+            exploration_bonus=exploration_bonus_sampling_actor,
+            bonus_alpha=getattr(strategy.args, 'bonus_alpha', 1.0),
+            coin_flip_network=self.coin_flip_network,
+            coin_flip_dim=getattr(strategy.args, 'coin_flip_dim', 64)
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
@@ -726,7 +782,7 @@ class CombinedHarmlessnessTrainer(ABC):
         loss = actor_loss + aux_loss * self.args.aux_loss_coef
 
         if self.bc_coef > 0:
-            raise NotImpelementedError
+            raise NotImplementedError
             print("DOING BEHAVIOUR CLONING")
 
         self.strategy.backward(loss, self.base_actor, self.base_actor_optim)
@@ -805,6 +861,10 @@ class CombinedHarmlessnessTrainer(ABC):
             raise NotImplementedError
             # self.strategy.moving_average(self.sampling_actor, self.ema_model, self.ema_beta, "cpu")
 
+        # Train coin flip network if enabled
+        if self.coin_flip_network is not None:
+            self.train_coin_flip_network(experience_neg_sampling)
+
         # status
         status = {"sampling_policy_loss": sampling_actor_loss.item(), "sampling_actor_lr": self.sampling_actor_scheduler.get_last_lr()[0]}
         # if self.pretrain_dataloader is not None:
@@ -817,6 +877,65 @@ class CombinedHarmlessnessTrainer(ABC):
             else:
                 status[f"sampling_{k}"] = v.mean().item()
         return status
+
+    def train_coin_flip_network(self, experience: Experience):
+        """
+        Train the coin flip network on the given experience.
+        
+        For each sequence in the experience:
+        1. Generate random coin flip targets c ~ {-1, 1}^d for final state only
+        2. Forward pass through CFN to get predictions f_φ(x)
+        3. Extract final token predictions
+        4. Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
+        5. Backward pass and optimizer step
+        """
+        if self.coin_flip_network is None:
+            return
+        
+        # Set CFN to training mode
+        self.coin_flip_network.train()
+        
+        # Extract sequences and attention masks
+        sequences = experience.sequences  # (B, S)
+        attention_mask = experience.attention_mask  # (B, S)
+        
+        batch_size = sequences.shape[0]
+        coin_flip_dim = self.coin_flip_network.coin_flip_dim
+        device = sequences.device
+        
+        # Generate coin flip targets: c ~ {-1, 1}^d for final state only
+        coin_flip_targets = generate_coin_flip_vectors(
+            batch_size, coin_flip_dim, device
+        )  # (B, d)
+        
+        # Forward pass through CFN
+        coin_flip_predictions = self.coin_flip_network(
+            sequences, attention_mask
+        )  # (B, S, d)
+        
+        # Extract final token predictions (last valid position for each sequence)
+        if attention_mask is not None:
+            # Find the last valid position for each sequence (same as reward model does)
+            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().fliplr().argmax(dim=1, keepdim=True)
+            # Use advanced indexing to extract final predictions: (B, d)
+            batch_indices = torch.arange(coin_flip_predictions.size(0), device=coin_flip_predictions.device)
+            final_predictions = coin_flip_predictions[batch_indices, eos_indices.squeeze(1), :]  # (B, d)
+        else:
+            # Use last position
+            final_predictions = coin_flip_predictions[:, -1, :]  # (B, d)
+        
+        # Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
+        # Average over coin_flip_dim and batch
+        loss = ((final_predictions - coin_flip_targets) ** 2).mean()
+        
+        # Backward pass and optimizer step
+        self.strategy.backward(loss, self.coin_flip_network, self.coin_flip_optim)
+        self.strategy.optimizer_step(
+            self.coin_flip_optim,
+            self.coin_flip_network,
+            self.coin_flip_scheduler,
+            name="coin_flip_network"
+        )
 
     def get_base_actor_loss(self, experience: Experience, experience_neg_sampling: Experience, custom_prompt=None):
 

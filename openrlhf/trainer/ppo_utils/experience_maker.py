@@ -35,6 +35,24 @@ def pin_memory(tensor: Union[torch.Tensor, list[torch.Tensor]]):
     return tensor.pin_memory() if isinstance(tensor, torch.Tensor) else tensor
 
 
+def generate_coin_flip_vectors(batch_size: int, d: int, device: torch.device) -> torch.Tensor:
+    """
+    Generate random coin flip vectors c ~ {-1, 1}^d for the final state of each sequence.
+    
+    Args:
+        batch_size: Number of sequences
+        d: Dimension of coin flip vectors
+        device: Device to create tensors on
+    
+    Returns:
+        Tensor of shape (batch_size, d) with values in {-1, 1}
+    """
+    # Generate random binary values {0, 1} and convert to {-1, 1}
+    coin_flips = torch.randint(0, 2, (batch_size, d), device=device, dtype=torch.float32)
+    coin_flips = coin_flips * 2 - 1  # Convert {0, 1} -> {-1, 1}
+    return coin_flips
+
+
 @dataclass
 class Experience:
     """Experience is a batch of data.
@@ -165,8 +183,10 @@ class BaseExperienceMaker(ABC):
         reward_transform_beta: Optional[float] = None,
         bad_word_tokens_ids: Optional[List[int]] = None,
         reward_pretrain: Optional[str] = None,
-        exploration_bonus: bool = False,
+        exploration_bonus: Optional[str] = None,
         bonus_alpha: float = 1.0,
+        coin_flip_network: Optional[nn.Module] = None,
+        coin_flip_dim: int = 64,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -210,9 +230,12 @@ class BaseExperienceMaker(ABC):
         self.reward_pretrain = reward_pretrain
         self.exploration_bonus = exploration_bonus
         self.bonus_alpha = bonus_alpha
+        self.coin_flip_network = coin_flip_network
+        self.coin_flip_dim = coin_flip_dim
         
         # Initialize state visitation count tensor for t=0 tokens (vocab size = 50257)
-        if self.exploration_bonus:
+        # Only for exact_count type
+        if self.exploration_bonus == "exact_count":
             # Start with 0 for all tokens (will be incremented to 1 on first visit)
             self.state_visitation_counts = torch.zeros(50257, dtype=torch.long)
         else:
@@ -221,29 +244,53 @@ class BaseExperienceMaker(ABC):
     def _calculate_exploration_bonus(
         self, 
         sequences: torch.Tensor, 
+        attention_mask: Optional[torch.Tensor] = None,
         track_both_positions: bool = False
     ) -> torch.Tensor:
         """
-        Calculate exploration bonus based on state visitation counts.
+        Calculate exploration bonus based on exploration_bonus type.
         
         Args:
             sequences: Tensor of shape (B, S) containing sequences
+            attention_mask: Attention mask, shape (B, S)
             track_both_positions: If True, track both t=0 and t=1 tokens and average bonuses.
-                                 If False, only track t=0 tokens.
+                                 If False, only track t=0 tokens. (Only used for exact_count)
         
         Returns:
             Tensor of shape (B,) containing exploration bonuses for each sequence
         """
-        if not self.exploration_bonus:
+        if self.exploration_bonus is None:
             device = sequences.device
             batch_size = sequences.shape[0]
             return torch.zeros(batch_size, device=device, dtype=torch.float32)
         
-        assert self.max_new_tokens is not None, "max_new_tokens must be set for exploration_bonus"
-        if track_both_positions:
-            assert self.max_new_tokens >= 2, "exploration_bonus requires max_new_tokens >= 2 to track both t=0 and t=1"
+        if self.exploration_bonus == "exact_count":
+            return self._calculate_exact_count_bonus(sequences, track_both_positions)
+        elif self.exploration_bonus == "coin_flip":
+            return self._calculate_coin_flip_bonus(sequences, attention_mask)
         else:
-            assert self.max_new_tokens >= 1, "exploration_bonus requires max_new_tokens >= 1"
+            raise ValueError(f"Unknown exploration_bonus type: {self.exploration_bonus}")
+    
+    def _calculate_exact_count_bonus(
+        self,
+        sequences: torch.Tensor,
+        track_both_positions: bool = False
+    ) -> torch.Tensor:
+        """
+        Calculate exploration bonus using exact state visitation counts.
+        
+        Args:
+            sequences: Tensor of shape (B, S) containing sequences
+            track_both_positions: If True, track both t=0 and t=1 tokens and average bonuses.
+        
+        Returns:
+            Tensor of shape (B,) containing exploration bonuses for each sequence
+        """
+        assert self.max_new_tokens is not None, "max_new_tokens must be set for exploration_bonus='exact_count'"
+        if track_both_positions:
+            assert self.max_new_tokens >= 2, "exploration_bonus='exact_count' requires max_new_tokens >= 2 to track both t=0 and t=1"
+        else:
+            assert self.max_new_tokens >= 1, "exploration_bonus='exact_count' requires max_new_tokens >= 1"
         
         device = sequences.device
         
@@ -287,6 +334,34 @@ class BaseExperienceMaker(ABC):
             exploration_bonus = bonus_t0
         
         return exploration_bonus
+    
+    def _calculate_coin_flip_bonus(
+        self,
+        sequences: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Calculate exploration bonus using coin flip network.
+        
+        Args:
+            sequences: Tensor of shape (B, S) containing full sequences (prompt + response)
+            attention_mask: Attention mask, shape (B, S)
+        
+        Returns:
+            Tensor of shape (B,) containing exploration bonuses for each sequence
+        """
+        if self.coin_flip_network is None:
+            raise ValueError("coin_flip_network must be provided when exploration_bonus='coin_flip'")
+        
+        # Compute intrinsic reward using coin flip network
+        # The network expects full sequences and computes r_I(x) = sqrt((1/d) * ||f_φ(x)||^2)
+        intrinsic_reward = self.coin_flip_network.compute_intrinsic_reward(
+            sequences,
+            attention_mask,
+            bonus_alpha=self.bonus_alpha,
+        )
+        
+        return intrinsic_reward
 
     # tokenizer
     def tokenize_fn(self, texts, max_length, padding=True, device=None):
@@ -450,7 +525,7 @@ class BaseExperienceMaker(ABC):
             # Apply exploration bonus if enabled
             if self.exploration_bonus:
                 raise NotImplementedError("Check that exploration bonus is applied correctly for p vs q")
-                exploration_bonuses = self._calculate_exploration_bonus(sequences, track_both_positions=True)
+                exploration_bonuses = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
                 # Add exploration bonus to base reward
                 r = r + exploration_bonuses
                 
@@ -554,7 +629,7 @@ class BaseExperienceMaker(ABC):
             # print(score)
             
             # Calculate exploration bonus if enabled
-            exploration_bonus = self._calculate_exploration_bonus(sequences, track_both_positions=True)
+            exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
             
             if self.exploration_bonus:
                 raise NotImplementedError("Check sign on bonus")
@@ -569,7 +644,7 @@ class BaseExperienceMaker(ABC):
             
             # Calculate exploration bonus if enabled (will be added after transformations)
             if self.exploration_bonus:
-                exploration_bonus = self._calculate_exploration_bonus(sequences, track_both_positions=False)
+                exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=False)
                 print(f"Exploration bonus calculated for rlhf. Mean bonus: {exploration_bonus.mean().item():.4f}, "
                       f"Min bonus: {exploration_bonus.min().item():.4f}, "
                       f"Max bonus: {exploration_bonus.max().item():.4f}")
