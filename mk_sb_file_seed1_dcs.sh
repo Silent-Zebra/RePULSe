@@ -125,7 +125,7 @@ cat > "$SBATCH_FILE" << EOL
 #SBATCH --partition=ml
 #SBATCH --qos=ml
 #SBATCH --account=ml
-#SBATCH --nodelist=overture,quartet[1-2],quartet5
+#SBATCH --nodelist=overture,quartet2,quartet5
 #SBATCH --nodes=1
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
