@@ -32,20 +32,88 @@ class CoinFlipNetwork(nn.Module):
             # It's already the base transformer
             self.base_model = base_model
         
-        # Get hidden size from config
+        # Get hidden size from config or model architecture
+        hidden_size = None
+        
+        # First, try to get from config
         if hasattr(self.base_model, 'config'):
-            hidden_size = self.base_model.config.hidden_size
-        elif hasattr(base_model, 'config'):
-            hidden_size = base_model.config.hidden_size
+            config = self.base_model.config
+            if hasattr(config, 'hidden_size'):
+                hidden_size = config.hidden_size
+            elif hasattr(config, 'd_model'):  # Some models use d_model instead
+                hidden_size = config.d_model
+            elif hasattr(config, 'n_embd'):  # GPT-2 style models
+                hidden_size = config.n_embd
+        
+        # If not found, try from original base_model config
+        if hidden_size is None and hasattr(base_model, 'config'):
+            config = base_model.config
+            if hasattr(config, 'hidden_size'):
+                hidden_size = config.hidden_size
+            elif hasattr(config, 'd_model'):
+                hidden_size = config.d_model
+            elif hasattr(config, 'n_embd'):
+                hidden_size = config.n_embd
+        
+        # If still not found, try to infer from model architecture
+        if hidden_size is None:
+            # Try to find the LM head (input dimension = hidden_size)
+            if hasattr(self.base_model, 'lm_head') and hasattr(self.base_model.lm_head, 'in_features'):
+                hidden_size = self.base_model.lm_head.in_features
+            
+            # Try to find from transformer structure (for distilgpt2 and similar models)
+            if hidden_size is None and hasattr(self.base_model, 'transformer'):
+                transformer = self.base_model.transformer
+                # Check final layer norm (distilgpt2, GPT-2 style)
+                if hasattr(transformer, 'ln_f') and hasattr(transformer.ln_f, 'normalized_shape'):
+                    hidden_size = transformer.ln_f.normalized_shape[0]
+                # Check transformer blocks
+                elif hasattr(transformer, 'h') and len(transformer.h) > 0:
+                    last_block = transformer.h[-1]
+                    if hasattr(last_block, 'ln_2') and hasattr(last_block.ln_2, 'normalized_shape'):
+                        hidden_size = last_block.ln_2.normalized_shape[0]
+            
+            # Try using base_model_prefix approach
+            if hidden_size is None and hasattr(self.base_model, 'base_model_prefix'):
+                base_model_prefix = self.base_model.base_model_prefix
+                base = getattr(self.base_model, base_model_prefix, None)
+                if base is not None:
+                    # Try to find the output dimension of the transformer layers
+                    # Look for the last layer norm or the last transformer block
+                    if hasattr(base, 'ln_f') and hasattr(base.ln_f, 'normalized_shape'):
+                        # LayerNorm normalized_shape is a tuple, take the first element
+                        hidden_size = base.ln_f.normalized_shape[0]
+                    elif hasattr(base, 'layer_norm') and hasattr(base.layer_norm, 'normalized_shape'):
+                        hidden_size = base.layer_norm.normalized_shape[0]
+                    # Try to find from transformer blocks
+                    if hidden_size is None and hasattr(base, 'h') and len(base.h) > 0:
+                        # GPT-2 style: check the last transformer block
+                        last_block = base.h[-1]
+                        if hasattr(last_block, 'ln_2') and hasattr(last_block.ln_2, 'normalized_shape'):
+                            hidden_size = last_block.ln_2.normalized_shape[0]
+                    elif hidden_size is None and hasattr(base, 'layers') and len(base.layers) > 0:
+                        # Other architectures: check the last layer
+                        last_layer = base.layers[-1]
+                        if hasattr(last_layer, 'norm') and hasattr(last_layer.norm, 'normalized_shape'):
+                            hidden_size = last_layer.norm.normalized_shape[0]
+        
+        # If still not found, do a test forward pass to infer the dimension
+        if hidden_size is None:
+            try:
+                # Create a dummy input to infer the hidden size
+                dummy_input = torch.zeros(1, 1, dtype=torch.long)
+                with torch.no_grad():
+                    outputs = self.base_model(dummy_input, return_dict=True)
+                    if "last_hidden_state" in outputs:
+                        hidden_size = outputs["last_hidden_state"].shape[-1]
+            except Exception:
+                pass
+        
+        if hidden_size is None:
+            raise ValueError("Could not determine hidden_size for CoinFlipNetwork. "
+                           "Tried config, model architecture, and test forward pass.")
         else:
-            # Try to infer from the model
-            # Most transformers have a base_model_prefix attribute
-            base_model_prefix = getattr(self.base_model, 'base_model_prefix', 'model')
-            base = getattr(self.base_model, base_model_prefix, None)
-            if base is not None and hasattr(base, 'config'):
-                hidden_size = base.config.hidden_size
-            else:
-                raise ValueError("Could not determine hidden_size for CoinFlipNetwork")
+            print("Determined hidden_size for CoinFlipNetwork:", hidden_size)
         
         # Create coin flip head: maps hidden_size -> coin_flip_dim
         self.coin_flip_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
