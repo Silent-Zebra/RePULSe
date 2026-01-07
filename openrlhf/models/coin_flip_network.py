@@ -108,7 +108,9 @@ class CoinFlipNetwork(nn.Module):
                         output_hidden_states=True,
                         return_dict=True,
                     )
-                    if "last_hidden_state" in outputs:
+                    if "hidden_states" in outputs and len(outputs["hidden_states"]) > 0:
+                        hidden_size = outputs["hidden_states"][-1].shape[-1]
+                    elif "last_hidden_state" in outputs:
                         hidden_size = outputs["last_hidden_state"].shape[-1]
             except Exception:
                 pass
@@ -160,7 +162,13 @@ class CoinFlipNetwork(nn.Module):
         )
         
         # Get hidden states (last hidden state)
-        hidden_states = outputs["last_hidden_state"]  # (batch_size, seq_len, hidden_size)
+        # hidden_states is a tuple, extract the last one
+        if "hidden_states" in outputs:
+            hidden_states = outputs["hidden_states"][-1]  # (batch_size, seq_len, hidden_size)
+        elif "last_hidden_state" in outputs:
+            hidden_states = outputs["last_hidden_state"]  # (batch_size, seq_len, hidden_size)
+        else:
+            raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
         
         # Apply coin flip head
         coin_flip_predictions = self.coin_flip_head(hidden_states)  # (batch_size, seq_len, coin_flip_dim)
