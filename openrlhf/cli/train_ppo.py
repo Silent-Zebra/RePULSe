@@ -2267,7 +2267,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--reward_transform", type=str, default=None)
-    parser.add_argument("--exploration_bonus_sampling_actor", type=str, default="coin_flip", choices=["exact_count", "coin_flip"], help="Exploration bonus type for sampling_actor: 'exact_count' (requires max_new_tokens=1) or 'coin_flip' (learned via coin flip network)")
+    parser.add_argument("--exploration_bonus_sampling_actor", type=str, default=None, choices=["exact_count", "coin_flip"], help="Exploration bonus type for sampling_actor: 'exact_count' (requires max_new_tokens=1) or 'coin_flip' (learned via coin flip network)")
     parser.add_argument("--exploration_bonus_base_actor", type=str, default=None, choices=["exact_count", "coin_flip"], help="Exploration bonus type for base_actor (not yet implemented)")
     parser.add_argument("--bonus_alpha", type=float, default=1.0, help="Scaling factor for exploration bonus: bonus = bonus_alpha * (1/sqrt(N(x)))")
     parser.add_argument("--coin_flip_dim", type=int, default=64, help="Dimension d for coin flip vectors")
