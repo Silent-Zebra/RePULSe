@@ -516,6 +516,25 @@ def train(args):
     max_sigma_exceeds_list = []  # List of tuples: (diff, t0_token, t1_token, q_val, sigma_val)
     rew_over_time_list = []
     untrans_ret_over_time_list = []
+    
+    # Lists for analytic_calc results
+    total_kl_sigma_q_list_analytic = []
+    total_kl_q_sigma_list_analytic = []
+    metrics_list_analytic = []  # List of metrics dicts
+    
+    # Precompute toxicity scores once at the beginning if using analytic_calc
+    precomputed_toxicity_scores = None
+    if args.analytic_calc:
+        strategy.print("Precomputing toxicity scores for all tokens...")
+        prompt = "This man is a"  # Define prompt for analytic calculations
+        precomputed_toxicity_scores = precompute_toxicity_scores_for_all_tokens(
+            reward_model=reward_model,
+            tokenizer=tokenizer,
+            prompt_text=prompt,
+            batch_size=args.train_batch_size,
+        )
+        strategy.print(f"Precomputed toxicity scores shape: {precomputed_toxicity_scores.shape}")
+        strategy.print(f"Toxicity scores range: [{precomputed_toxicity_scores.min().item():.4f}, {precomputed_toxicity_scores.max().item():.4f}]")
 
     for fit_step in range(args.fit_steps):
         prompt = "This man is a"  # Define prompt for analytic calculations
@@ -562,6 +581,35 @@ def train(args):
                     diff_by_bad_word_list.append(diff_by_bad_word)
                     max_q_exceeds_list.append(max_q_exceeds)
                     max_sigma_exceeds_list.append(max_sigma_exceeds)
+        
+        # Analytic calculation for single token with toxicity model
+        if args.analytic_calc:
+            prompt = "This man is a"  # Define prompt for analytic calculations
+            if args.do_harmlessness_training:
+                # For harmlessness training, actor is the sampling_actor (q) and base_actor is p
+                kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
+                    model_p_for_target=base_actor.model,
+                    model_q=actor.model,
+                    tokenizer=tokenizer,
+                    prompt_text=prompt,
+                    target_dist_beta=args.target_dist_beta,
+                    precomputed_toxicity_scores=precomputed_toxicity_scores,
+                    total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
+                    total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
+                )
+            else:
+                # For non-harmlessness training, just use the standard actor
+                kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
+                    model_p_for_target=base_actor.model,
+                    model_q=actor.model,
+                    tokenizer=tokenizer,
+                    prompt_text=prompt,
+                    target_dist_beta=args.target_dist_beta,
+                    precomputed_toxicity_scores=precomputed_toxicity_scores,
+                    total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
+                    total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
+                )
+            metrics_list_analytic.append(metrics_dict)
 
         if args.do_harmlessness_training:
             strategy.print("-----HARMLESSNESS TRAINING-----")
@@ -746,6 +794,13 @@ def train(args):
             print(f"Difference by bad word list (total): {diff_by_bad_word_list}")
             print(f"Max q exceeds list: {max_q_exceeds_list}")
             print(f"Max sigma exceeds list: {max_sigma_exceeds_list}")
+    
+    if args.analytic_calc:
+        save_str = f"{args.save_info_path}/analytic_kls_toxicity_{info_name_str}"
+        torch.save((total_kl_sigma_q_list_analytic, total_kl_q_sigma_list_analytic, metrics_list_analytic), save_str)
+        print(f"KL sigma_q list (analytic): {total_kl_sigma_q_list_analytic}")
+        print(f"KL q_sigma list (analytic): {total_kl_q_sigma_list_analytic}")
+        print(f"Metrics list (analytic): {metrics_list_analytic}")
 
 
     if args.do_harmlessness_training:
@@ -1401,6 +1456,192 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     return kl_sigma_q, kl_q_sigma_epsq_p, diff_by_bad_word_case1, diff_by_bad_word_case2, diff_by_bad_word, max_q_exceeds_info, max_sigma_exceeds_info 
 
 
+@torch.no_grad()
+def precompute_toxicity_scores_for_all_tokens(
+    reward_model,
+    tokenizer: AutoTokenizer,
+    prompt_text: str,
+    batch_size: int,
+) -> torch.Tensor:
+    """
+    Precompute toxicity scores for all n_vocab tokens by creating sequences with each token
+    at position t=0 and passing them through the reward model.
+    
+    Args:
+        reward_model: The reward model to use for scoring
+        tokenizer: Tokenizer for the model
+        prompt_text: The prompt text
+        batch_size: Batch size for processing
+        
+    Returns:
+        Tensor of shape (n_vocab,) containing toxicity scores for each token
+    """
+    device = torch.cuda.current_device() if torch.cuda.is_available() else torch.device("cpu")
+    if isinstance(device, int):
+        device = torch.device(f"cuda:{device}")
+    
+    reward_model.eval()
+    
+    # Tokenize prompt
+    inputs = tokenizer(prompt_text, return_tensors="pt")
+    prompt_ids = inputs["input_ids"].to(device)
+    prompt_len = prompt_ids.shape[1]
+    
+    n_vocab = 50257
+    all_token_ids = torch.arange(n_vocab, device=device)
+    
+    # Initialize tensor to store scores
+    toxicity_scores = torch.zeros(n_vocab, device=device)
+    
+    # Process in batches to manage memory
+    for i in range(0, n_vocab, batch_size):
+        batch_token_ids = all_token_ids[i : i + batch_size]
+        current_batch_size = len(batch_token_ids)
+        
+        # Construct input sequences: prompt + token
+        batch_inputs = torch.cat(
+            (prompt_ids.repeat(current_batch_size, 1), batch_token_ids.unsqueeze(1)),
+            dim=1
+        )
+        
+        # Create attention mask
+        attention_mask = torch.ones_like(batch_inputs)
+        
+        # Get reward scores
+        with torch.no_grad():
+            scores = reward_model(input_ids=batch_inputs, attention_mask=attention_mask)
+            if isinstance(scores, tuple):
+                scores = scores[0]
+            # Scores should be shape (batch_size,), extract the score for the last token
+            if scores.dim() > 1:
+                scores = scores[:, -1] if scores.shape[1] > 1 else scores.squeeze(-1)
+            else:
+                scores = scores
+            # Ensure scores are on the correct device
+            scores = scores.to(device)
+        
+        toxicity_scores[i : i + current_batch_size] = scores
+    
+    return toxicity_scores
+
+
+@torch.no_grad()
+def calculate_analytic_kl_toxicity_single_token(
+    model_p_for_target: AutoModelForCausalLM,
+    model_q: AutoModelForCausalLM,
+    tokenizer: AutoTokenizer,
+    prompt_text: str,
+    target_dist_beta: float,
+    precomputed_toxicity_scores: torch.Tensor,
+    total_kl_sigma_q_list: List[float],
+    total_kl_q_sigma_list: List[float],
+) -> Tuple[float, float, dict]:
+    """
+    Calculates the analytic KL divergence in both directions between target distribution and q(x),
+    given a prompt and single token output.
+    
+    Target distribution: sigma_p(x) = p(x) * e^(target_dist_beta * r(x)) / Z
+    where r(x) is the toxicity score for token x.
+    
+    Args:
+        model_p_for_target: The language model used as p in the target distribution
+        model_q: The language model used as the proposal distribution q
+        tokenizer: Tokenizer
+        prompt_text: The input prompt string
+        target_dist_beta: Beta parameter for target distribution
+        precomputed_toxicity_scores: Precomputed toxicity scores for all tokens, shape (n_vocab,)
+        total_kl_sigma_q_list: List to append KL(sigma_p || q) values to
+        total_kl_q_sigma_list: List to append KL(q || sigma_p) values to
+        
+    Returns:
+        Tuple of (kl_sigma_q, kl_q_sigma, metrics_dict) where metrics_dict contains top token info
+    """
+    device = model_p_for_target.device if hasattr(model_p_for_target, 'device') else \
+             torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    model_p_for_target.eval()
+    model_q.eval()
+    model_p_for_target.to(device)
+    model_q.to(device)
+    
+    # Tokenize prompt
+    inputs = tokenizer(prompt_text, return_tensors="pt")
+    prompt_ids = inputs["input_ids"].to(device)
+    
+    n_vocab = 50257
+    
+    # Get log probabilities for all tokens from prompt (p and q)
+    log_probs_p = get_next_token_log_probs(model_p_for_target, prompt_ids)  # Shape: (n_vocab,)
+    log_probs_q = get_next_token_log_probs(model_q, prompt_ids)  # Shape: (n_vocab,)
+    
+    # Calculate unnormalized target distribution: log ~sigma_p(x) = log p(x) + target_dist_beta * r(x)
+    log_unnormalized_target = log_probs_p + target_dist_beta * precomputed_toxicity_scores
+    
+    # Calculate log normalizing constant: log Z = logsumexp(log ~sigma_p(x))
+    log_Z = torch.logsumexp(log_unnormalized_target, dim=0)
+    
+    # Calculate normalized target distribution: log sigma_p(x) = log ~sigma_p(x) - log Z
+    log_probs_target = log_unnormalized_target - log_Z
+    
+    # Convert to probabilities for KL calculations
+    probs_target = torch.exp(log_probs_target)
+    probs_q = torch.exp(log_probs_q)
+    
+    # Calculate KL(sigma_p || q) = sum_x sigma_p(x) * (log(sigma_p(x)) - log(q(x)))
+    kl_terms = probs_target * (log_probs_target - log_probs_q)
+    kl_sigma_q = kl_terms.sum().item()
+    
+    # Calculate KL(q || sigma_p) = sum_x q(x) * (log(q(x)) - log(sigma_p(x)))
+    kl_terms_reverse = probs_q * (log_probs_q - log_probs_target)
+    kl_q_sigma = kl_terms_reverse.sum().item()
+    
+    print(f"KL(sigma_p || q): {kl_sigma_q}")
+    print(f"KL(q || sigma_p): {kl_q_sigma}")
+    
+    # Find top 10 tokens under q and target distribution
+    top_10_q_indices = torch.topk(probs_q, k=10, dim=0).indices
+    top_10_target_indices = torch.topk(probs_target, k=10, dim=0).indices
+    
+    # Combine and get unique tokens
+    all_top_indices = torch.unique(torch.cat([top_10_q_indices, top_10_target_indices]))
+    
+    # Create metrics dictionary
+    metrics_dict = {
+        'top_10_q_tokens': top_10_q_indices.cpu().tolist(),
+        'top_10_target_tokens': top_10_target_indices.cpu().tolist(),
+        'all_tracked_tokens': all_top_indices.cpu().tolist(),
+        'log_probs_q': {},
+        'log_probs_target': {},
+        'log_diff': {},
+    }
+    
+    # Calculate log probs and differences for tracked tokens
+    for token_idx in all_top_indices:
+        token_id = token_idx.item()
+        log_q_val = log_probs_q[token_idx].item()
+        log_target_val = log_probs_target[token_idx].item()
+        log_diff = log_q_val - log_target_val
+        
+        metrics_dict['log_probs_q'][token_id] = log_q_val
+        metrics_dict['log_probs_target'][token_id] = log_target_val
+        metrics_dict['log_diff'][token_id] = log_diff
+    
+    print("\nTop 10 tokens under q(x):")
+    for token_id in metrics_dict['top_10_q_tokens']:
+        print(f"  Token {token_id}: log_q={metrics_dict['log_probs_q'][token_id]:.6f}, "
+              f"log_target={metrics_dict['log_probs_target'][token_id]:.6f}, "
+              f"diff={metrics_dict['log_diff'][token_id]:.6f}")
+    
+    print("\nTop 10 tokens under target distribution:")
+    for token_id in metrics_dict['top_10_target_tokens']:
+        print(f"  Token {token_id}: log_q={metrics_dict['log_probs_q'][token_id]:.6f}, "
+              f"log_target={metrics_dict['log_probs_target'][token_id]:.6f}, "
+              f"diff={metrics_dict['log_diff'][token_id]:.6f}")
+    
+    total_kl_sigma_q_list.append(kl_sigma_q)
+    total_kl_q_sigma_list.append(kl_q_sigma)
+    
+    return kl_sigma_q, kl_q_sigma, metrics_dict
 
 
 def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
@@ -2039,6 +2280,7 @@ if __name__ == "__main__":
     parser.add_argument("--evaluate_heldout_sampling", action="store_true", help="Evaluate by doing sampling on prompts on heldout data after the training is done")
     parser.add_argument("--evaluate_on_neg_data", action="store_true", help="Evaluate on neg data (must provide --neg_data_load_path)")
     parser.add_argument("--analytic_bad_word_calc", action="store_true", help="Do analytic evaluation of bad word probabilities")
+    parser.add_argument("--analytic_calc", action="store_true", help="Do analytic calculation with single token output and toxicity model")
 
 
     parser.add_argument("--sampling_iters", type=int, default=1, help="Do this many iterations of sampling over the whole dataset (only for evaluate_heldout_sampling)")
@@ -2128,9 +2370,17 @@ if __name__ == "__main__":
         assert args.generate_max_len == 2
         assert args.new_custom_single_prompt
 
+    if args.analytic_calc:
+        assert args.rm_type in ["rlhf"]
+        assert "gpt" in args.pretrain
+        # others not yet implemented/tested
+        assert args.generate_max_len == 1
+        assert args.new_custom_single_prompt
+        assert args.target_dist_beta is not None
+
     if args.fit_steps != 1:
         assert args.new_custom_single_prompt
-        assert args.analytic_bad_word_calc # otherwise not yet tested
+        assert args.analytic_bad_word_calc or args.analytic_calc # otherwise not yet tested
 
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 

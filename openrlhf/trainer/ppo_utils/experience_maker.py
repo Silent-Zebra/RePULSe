@@ -221,6 +221,76 @@ class BaseExperienceMaker(ABC):
         else:
             self.state_visitation_counts = None
 
+    def _calculate_exploration_bonus(
+        self, 
+        sequences: torch.Tensor, 
+        track_both_positions: bool = False
+    ) -> torch.Tensor:
+        """
+        Calculate exploration bonus based on state visitation counts.
+        
+        Args:
+            sequences: Tensor of shape (B, S) containing sequences
+            track_both_positions: If True, track both t=0 and t=1 tokens and average bonuses.
+                                 If False, only track t=0 tokens.
+        
+        Returns:
+            Tensor of shape (B,) containing exploration bonuses for each sequence
+        """
+        if not self.exploration_bonus:
+            device = sequences.device
+            batch_size = sequences.shape[0]
+            return torch.zeros(batch_size, device=device, dtype=torch.float32)
+        
+        assert self.max_new_tokens is not None, "max_new_tokens must be set for exploration_bonus"
+        if track_both_positions:
+            assert self.max_new_tokens >= 2, "exploration_bonus requires max_new_tokens >= 2 to track both t=0 and t=1"
+        else:
+            assert self.max_new_tokens >= 1, "exploration_bonus requires max_new_tokens >= 1"
+        
+        device = sequences.device
+        
+        # Move state_visitation_counts to device if needed
+        if self.state_visitation_counts.device != device:
+            self.state_visitation_counts = self.state_visitation_counts.to(device)
+        
+        # Extract tokens from response (last max_new_tokens tokens)
+        response_tokens = sequences[:, -self.max_new_tokens:]  # Shape: (B, max_new_tokens)
+        t0_tokens = response_tokens[:, 0]  # Shape: (B,)
+        t0_tokens_long = t0_tokens.long()  # Ensure integer type
+        
+        # Update state visitation counts for t=0 tokens (vectorized)
+        updates_t0 = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+        self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates_t0)
+        
+        # Get counts for each t=0 token (after update)
+        counts_t0 = self.state_visitation_counts[t0_tokens_long]  # (B,)
+        
+        # Calculate bonus for t=0: bonus_alpha * (1/sqrt(N(x)))
+        bonus_t0 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t0.float()))  # (B,)
+        
+        if track_both_positions:
+            # Also track t=1 tokens
+            t1_tokens = response_tokens[:, 1]  # Shape: (B,)
+            t1_tokens_long = t1_tokens.long()  # Ensure integer type
+            
+            # Update state visitation counts for t=1 tokens (vectorized)
+            updates_t1 = torch.ones_like(t1_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+            self.state_visitation_counts.scatter_add_(0, t1_tokens_long, updates_t1)
+            
+            # Get counts for each t=1 token (after update)
+            counts_t1 = self.state_visitation_counts[t1_tokens_long]  # (B,)
+            
+            # Calculate bonus for t=1: bonus_alpha * (1/sqrt(N(x)))
+            bonus_t1 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t1.float()))  # (B,)
+            
+            # Average the bonuses from t=0 and t=1
+            exploration_bonus = (bonus_t0 + bonus_t1) / 2.0  # (B,)
+        else:
+            exploration_bonus = bonus_t0
+        
+        return exploration_bonus
+
     # tokenizer
     def tokenize_fn(self, texts, max_length, padding=True, device=None):
         if not padding:
@@ -382,34 +452,8 @@ class BaseExperienceMaker(ABC):
             
             # Apply exploration bonus if enabled
             if self.exploration_bonus:
-                # Move state_visitation_counts to device if needed
-                if self.state_visitation_counts.device != device:
-                    self.state_visitation_counts = self.state_visitation_counts.to(device)
-                
-                # Extract both t=0 and t=1 tokens
-                t0_tokens = response_tokens[:, 0]  # Shape: (B,)
-                t1_tokens = response_tokens[:, 1]  # Shape: (B,)
-                t0_tokens_long = t0_tokens.long()  # Ensure integer type
-                t1_tokens_long = t1_tokens.long()  # Ensure integer type
-                
-                # Update state visitation counts for both t=0 and t=1 tokens (vectorized)
-                # Each token position adds 1 to its count
-                updates_t0 = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
-                updates_t1 = torch.ones_like(t1_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
-                self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates_t0)
-                self.state_visitation_counts.scatter_add_(0, t1_tokens_long, updates_t1)
-                
-                # Get counts for each t=0 and t=1 token (after update)
-                counts_t0 = self.state_visitation_counts[t0_tokens_long]  # (B,)
-                counts_t1 = self.state_visitation_counts[t1_tokens_long]  # (B,)
-                
-                # Calculate bonus for each position: bonus_alpha * (1/sqrt(N(x)))
-                bonus_t0 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t0.float()))  # (B,)
-                bonus_t1 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t1.float()))  # (B,)
-                
-                # Average the bonuses from t=0 and t=1
-                exploration_bonuses = (bonus_t0 + bonus_t1) / 2.0  # (B,)
-                
+                raise NotImplementedError("Check that exploration bonus is applied correctly for p vs q")
+                exploration_bonuses = self._calculate_exploration_bonus(sequences, track_both_positions=True)
                 # Add exploration bonus to base reward
                 r = r + exploration_bonuses
                 
@@ -510,42 +554,9 @@ class BaseExperienceMaker(ABC):
             # print(score)
             
             # Calculate exploration bonus if enabled
-            device = sequences.device
-            batch_size = score.shape[0]
-            exploration_bonus = torch.zeros(batch_size, device=device, dtype=torch.float32)
+            exploration_bonus = self._calculate_exploration_bonus(sequences, track_both_positions=True)
+            
             if self.exploration_bonus:
-                assert self.max_new_tokens is not None, "max_new_tokens must be set for exploration_bonus"
-                assert self.max_new_tokens >= 2, "exploration_bonus requires max_new_tokens >= 2 to track both t=0 and t=1"
-                
-                # Move state_visitation_counts to device if needed
-                if self.state_visitation_counts.device != device:
-                    self.state_visitation_counts = self.state_visitation_counts.to(device)
-                
-                # Extract t=0 and t=1 tokens from response (last max_new_tokens tokens)
-                response_tokens = sequences[:, -self.max_new_tokens:]  # Shape: (B, max_new_tokens)
-                t0_tokens = response_tokens[:, 0]  # Shape: (B,)
-                t1_tokens = response_tokens[:, 1]  # Shape: (B,)
-                t0_tokens_long = t0_tokens.long()  # Ensure integer type
-                t1_tokens_long = t1_tokens.long()  # Ensure integer type
-                
-                # Update state visitation counts for both t=0 and t=1 tokens (vectorized)
-                # Each token position adds 1 to its count
-                updates_t0 = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
-                updates_t1 = torch.ones_like(t1_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
-                self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates_t0)
-                self.state_visitation_counts.scatter_add_(0, t1_tokens_long, updates_t1)
-                
-                # Get counts for each t=0 and t=1 token (after update)
-                counts_t0 = self.state_visitation_counts[t0_tokens_long]  # (B,)
-                counts_t1 = self.state_visitation_counts[t1_tokens_long]  # (B,)
-                
-                # Calculate bonus for each position: bonus_alpha * (1/sqrt(N(x)))
-                bonus_t0 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t0.float()))  # (B,)
-                bonus_t1 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t1.float()))  # (B,)
-                
-                # Average the bonuses from t=0 and t=1
-                exploration_bonus = (bonus_t0 + bonus_t1) / 2.0  # (B,)
-                
                 print(f"Exploration bonus applied for indicator_below_threshold. Mean bonus: {exploration_bonus.mean().item():.4f}, "
                       f"Min bonus: {exploration_bonus.min().item():.4f}, "
                       f"Max bonus: {exploration_bonus.max().item():.4f}")
@@ -553,9 +564,19 @@ class BaseExperienceMaker(ABC):
             # Add exploration bonus to the log argument: log((score < threshold) + eps + bonus)
             final_reward = torch.log((score < self.threshold) + eps + exploration_bonus)            
         elif self.rm_type == "rlhf":
-            if self.exploration_bonus:
-                raise NotImplementedError("exploration_bonus not yet implemented for rm_type='rlhf'")
             score = r
+            
+            # Calculate exploration bonus if enabled
+            exploration_bonus = self._calculate_exploration_bonus(sequences, track_both_positions=False)
+            
+            if self.exploration_bonus:
+                # Add exploration bonus to score
+                score = score + exploration_bonus
+                
+                print(f"Exploration bonus applied for rlhf. Mean bonus: {exploration_bonus.mean().item():.4f}, "
+                      f"Min bonus: {exploration_bonus.min().item():.4f}, "
+                      f"Max bonus: {exploration_bonus.max().item():.4f}")
+            
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
 
             # print(score)
