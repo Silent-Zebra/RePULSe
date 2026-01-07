@@ -103,7 +103,11 @@ class CoinFlipNetwork(nn.Module):
                 # Create a dummy input to infer the hidden size
                 dummy_input = torch.zeros(1, 1, dtype=torch.long)
                 with torch.no_grad():
-                    outputs = self.base_model(dummy_input, return_dict=True)
+                    outputs = self.base_model(
+                        dummy_input,
+                        output_hidden_states=True,
+                        return_dict=True,
+                    )
                     if "last_hidden_state" in outputs:
                         hidden_size = outputs["last_hidden_state"].shape[-1]
             except Exception:
@@ -151,6 +155,8 @@ class CoinFlipNetwork(nn.Module):
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
+            output_hidden_states=True,
+            return_dict=True,
         )
         
         # Get hidden states (last hidden state)
