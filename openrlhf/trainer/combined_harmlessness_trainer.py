@@ -461,7 +461,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     print(f"Using new alpha: {new_alpha}")
 
                 if args.new_custom_single_prompt:
-                    rand_prompts = ["This man is a"]
+                    rand_prompts = [args.custom_prompt]
 
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:

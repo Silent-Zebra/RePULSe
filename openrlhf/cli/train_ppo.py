@@ -526,7 +526,7 @@ def train(args):
     precomputed_toxicity_scores = None
     if args.analytic_calc:
         strategy.print("Precomputing toxicity scores for all tokens...")
-        prompt = "This man is a"  # Define prompt for analytic calculations
+        prompt = args.custom_prompt  # Define prompt for analytic calculations
         precomputed_toxicity_scores = precompute_toxicity_scores_for_all_tokens(
             reward_model=reward_model,
             tokenizer=tokenizer,
@@ -537,7 +537,7 @@ def train(args):
         strategy.print(f"Toxicity scores range: [{precomputed_toxicity_scores.min().item():.4f}, {precomputed_toxicity_scores.max().item():.4f}]")
 
     for fit_step in range(args.fit_steps):
-        prompt = "This man is a"  # Define prompt for analytic calculations
+        prompt = args.custom_prompt  # Define prompt for analytic calculations
         if fit_step == 0 and args.analytic_bad_word_calc:
             
             precomputed_p = None
@@ -584,7 +584,7 @@ def train(args):
         
         # Analytic calculation for single token with toxicity model
         if args.analytic_calc:
-            prompt = "This man is a"  # Define prompt for analytic calculations
+            prompt = args.custom_prompt  # Define prompt for analytic calculations
             if args.do_harmlessness_training:
                 # For harmlessness training, actor is the sampling_actor (q) and base_actor is p
                 kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
@@ -2160,6 +2160,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--new_custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
+    )
+    parser.add_argument(
+        "--custom_prompt", type=str, default="This man is a", help="Custom prompt string to use for training and analytic calculations"
     )
 
     parser.add_argument("--heldout_prompt_data", type=str, default=None, help="HF dataset name or path")

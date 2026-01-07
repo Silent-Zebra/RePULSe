@@ -467,7 +467,7 @@ class BasePPOTrainer(ABC):
                 for rand_prompts in self.prompts_dataloader:
 
                     if args.new_custom_single_prompt:
-                        rand_prompts = ["This man is a"]
+                        rand_prompts = [args.custom_prompt]
 
                     if not args.no_test_info:
                         if steps == 1: # do some test at the very beginning
