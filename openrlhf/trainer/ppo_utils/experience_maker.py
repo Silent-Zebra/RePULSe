@@ -386,19 +386,29 @@ class BaseExperienceMaker(ABC):
                 if self.state_visitation_counts.device != device:
                     self.state_visitation_counts = self.state_visitation_counts.to(device)
                 
-                # Update state visitation counts for t=0 tokens (vectorized)
+                # Extract both t=0 and t=1 tokens
+                t0_tokens = response_tokens[:, 0]  # Shape: (B,)
+                t1_tokens = response_tokens[:, 1]  # Shape: (B,)
                 t0_tokens_long = t0_tokens.long()  # Ensure integer type
+                t1_tokens_long = t1_tokens.long()  # Ensure integer type
                 
-                # Use scatter_add_ to efficiently update counts for all tokens in batch
-                # This increments the count for each token in the batch
-                updates = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
-                self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates)
+                # Update state visitation counts for both t=0 and t=1 tokens (vectorized)
+                # Each token position adds 1 to its count
+                updates_t0 = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+                updates_t1 = torch.ones_like(t1_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+                self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates_t0)
+                self.state_visitation_counts.scatter_add_(0, t1_tokens_long, updates_t1)
                 
-                # Get counts for each t=0 token (after update)
-                counts_for_tokens = self.state_visitation_counts[t0_tokens_long]  # (B,)
-                # Calculate bonus: bonus_alpha * (1/sqrt(N(x)))
-                # No need to worry about division by zero since counts should be >= 1 after update (fail noisily if so)
-                exploration_bonuses = self.bonus_alpha * (1.0 / torch.sqrt(counts_for_tokens.float()))  # (B,)
+                # Get counts for each t=0 and t=1 token (after update)
+                counts_t0 = self.state_visitation_counts[t0_tokens_long]  # (B,)
+                counts_t1 = self.state_visitation_counts[t1_tokens_long]  # (B,)
+                
+                # Calculate bonus for each position: bonus_alpha * (1/sqrt(N(x)))
+                bonus_t0 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t0.float()))  # (B,)
+                bonus_t1 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t1.float()))  # (B,)
+                
+                # Average the bonuses from t=0 and t=1
+                exploration_bonuses = (bonus_t0 + bonus_t1) / 2.0  # (B,)
                 
                 # Add exploration bonus to base reward
                 r = r + exploration_bonuses
@@ -505,24 +515,36 @@ class BaseExperienceMaker(ABC):
             exploration_bonus = torch.zeros(batch_size, device=device, dtype=torch.float32)
             if self.exploration_bonus:
                 assert self.max_new_tokens is not None, "max_new_tokens must be set for exploration_bonus"
+                assert self.max_new_tokens >= 2, "exploration_bonus requires max_new_tokens >= 2 to track both t=0 and t=1"
                 
                 # Move state_visitation_counts to device if needed
                 if self.state_visitation_counts.device != device:
                     self.state_visitation_counts = self.state_visitation_counts.to(device)
                 
-                # Extract t=0 tokens from response (last max_new_tokens tokens, first one is t=0)
+                # Extract t=0 and t=1 tokens from response (last max_new_tokens tokens)
                 response_tokens = sequences[:, -self.max_new_tokens:]  # Shape: (B, max_new_tokens)
                 t0_tokens = response_tokens[:, 0]  # Shape: (B,)
+                t1_tokens = response_tokens[:, 1]  # Shape: (B,)
                 t0_tokens_long = t0_tokens.long()  # Ensure integer type
+                t1_tokens_long = t1_tokens.long()  # Ensure integer type
                 
-                # Update state visitation counts for t=0 tokens (vectorized)
-                updates = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
-                self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates)
+                # Update state visitation counts for both t=0 and t=1 tokens (vectorized)
+                # Each token position adds 1 to its count
+                updates_t0 = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+                updates_t1 = torch.ones_like(t1_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+                self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates_t0)
+                self.state_visitation_counts.scatter_add_(0, t1_tokens_long, updates_t1)
                 
-                # Get counts for each t=0 token (after update)
-                counts_for_tokens = self.state_visitation_counts[t0_tokens_long]  # (B,)
-                # Calculate bonus: bonus_alpha * (1/sqrt(N(x)))
-                exploration_bonus = self.bonus_alpha * (1.0 / torch.sqrt(counts_for_tokens.float()))  # (B,)
+                # Get counts for each t=0 and t=1 token (after update)
+                counts_t0 = self.state_visitation_counts[t0_tokens_long]  # (B,)
+                counts_t1 = self.state_visitation_counts[t1_tokens_long]  # (B,)
+                
+                # Calculate bonus for each position: bonus_alpha * (1/sqrt(N(x)))
+                bonus_t0 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t0.float()))  # (B,)
+                bonus_t1 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t1.float()))  # (B,)
+                
+                # Average the bonuses from t=0 and t=1
+                exploration_bonus = (bonus_t0 + bonus_t1) / 2.0  # (B,)
                 
                 print(f"Exploration bonus applied for indicator_below_threshold. Mean bonus: {exploration_bonus.mean().item():.4f}, "
                       f"Min bonus: {exploration_bonus.min().item():.4f}, "
