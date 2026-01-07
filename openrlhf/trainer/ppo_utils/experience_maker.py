@@ -508,6 +508,9 @@ class BaseExperienceMaker(ABC):
         else:
             assert self.reward_transform is None  # Others not yet implemented
 
+        # Initialize exploration_bonus (will be set for specific rm_types)
+        exploration_bonus = None
+
         if self.rm_type == "exp_beta_toxicity_class_logprob":
             if self.exploration_bonus:
                 raise NotImplementedError("exploration_bonus not yet implemented for rm_type='exp_beta_toxicity_class_logprob'")
@@ -554,6 +557,7 @@ class BaseExperienceMaker(ABC):
             exploration_bonus = self._calculate_exploration_bonus(sequences, track_both_positions=True)
             
             if self.exploration_bonus:
+                raise NotImplementedError("Check sign on bonus")
                 print(f"Exploration bonus applied for indicator_below_threshold. Mean bonus: {exploration_bonus.mean().item():.4f}, "
                       f"Min bonus: {exploration_bonus.min().item():.4f}, "
                       f"Max bonus: {exploration_bonus.max().item():.4f}")
@@ -563,16 +567,14 @@ class BaseExperienceMaker(ABC):
         elif self.rm_type == "rlhf":
             score = r
             
-            # Calculate exploration bonus if enabled
-            exploration_bonus = self._calculate_exploration_bonus(sequences, track_both_positions=False)
-            
+            # Calculate exploration bonus if enabled (will be added after transformations)
             if self.exploration_bonus:
-                # Add exploration bonus to score
-                score = score + exploration_bonus
-                
-                print(f"Exploration bonus applied for rlhf. Mean bonus: {exploration_bonus.mean().item():.4f}, "
+                exploration_bonus = self._calculate_exploration_bonus(sequences, track_both_positions=False)
+                print(f"Exploration bonus calculated for rlhf. Mean bonus: {exploration_bonus.mean().item():.4f}, "
                       f"Min bonus: {exploration_bonus.min().item():.4f}, "
                       f"Max bonus: {exploration_bonus.max().item():.4f}")
+            else:
+                exploration_bonus = None
             
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
 
@@ -586,12 +588,18 @@ class BaseExperienceMaker(ABC):
             raise NotImplementedError
 
         if multiply_by_beta: # Use for twist formulation # For twists: target potential phi is e^{beta r}, so log potential is beta r
-            return final_reward * self.target_dist_beta, untransformed_reward
+            result = final_reward * self.target_dist_beta
+            if exploration_bonus is not None:
+                result = result + exploration_bonus
+            return result, untransformed_reward
         else: # Use for PPO formulation # For PPO, e.g. see the RL with KL penalties is better viewed as Bayesian inference paper, we have that reward - 1/beta (KL to prior) is equivalent to targeting base e^{beta r}
             if self.target_dist_beta < 0:
-                return -final_reward, untransformed_reward # For PPO, if we have target e^{beta r} where beta is negative, say beta = -b, then e^{-br} = e^{b(-r)} which is equivalent to using PPO on a new reward model r' = -r. So what we'll instead do is keep the KL penalty as 1/beta but now have the reward -r. Twist formulations directly handle multiplying by beta
+                result = -final_reward
             else:
-                return final_reward, untransformed_reward
+                result = final_reward
+            if exploration_bonus is not None:
+                result = result + exploration_bonus
+            return result, untransformed_reward
 
     def set_all_eval(self):
         self.actor.eval()
