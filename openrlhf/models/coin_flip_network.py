@@ -261,6 +261,34 @@ class CoinFlipNetwork(nn.Module):
         
         return intrinsic_reward
     
+    def backward(self, loss: torch.Tensor) -> None:
+        """
+        Backward pass for the coin flip network.
+        
+        This method is called by the training strategy (e.g., DeepSpeedStrategy).
+        If the model is wrapped by DeepSpeed, the wrapper's backward method will be used instead.
+        Otherwise, this method performs standard PyTorch backward propagation.
+        
+        Args:
+            loss: The loss tensor to backpropagate
+        """
+        # Standard PyTorch backward pass
+        # If this model is wrapped by DeepSpeed, the wrapper's backward will be called instead
+        loss.backward()
+    
+    def step(self) -> None:
+        """
+        Optimizer step for the coin flip network.
+        
+        This method is called by the training strategy (e.g., DeepSpeedStrategy).
+        If the model is wrapped by DeepSpeed, the wrapper's step method will be used instead,
+        which handles optimizer stepping internally.
+        Otherwise, this method is a no-op (optimizer stepping is handled separately).
+        """
+        # No-op for non-DeepSpeed models
+        # If this model is wrapped by DeepSpeed, the wrapper's step will be called instead
+        pass
+    
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
         """Enable gradient checkpointing if supported."""
         if self.supports_gradient_checkpointing:
