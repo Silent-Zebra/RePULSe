@@ -1,4 +1,5 @@
 from typing import Optional
+import copy
 
 import torch
 import torch.nn as nn
@@ -27,10 +28,24 @@ class CoinFlipNetwork(nn.Module):
         # Get the base model (unwrap if it's an Actor)
         if hasattr(base_model, 'model'):
             # It's an Actor wrapper
-            self.base_model = base_model.model
+            unwrapped_model = base_model.model
         else:
             # It's already the base transformer
-            self.base_model = base_model
+            unwrapped_model = base_model
+        
+        # Unwrap DeepSpeed engine if present to get the actual PyTorch model
+        try:
+            import deepspeed
+            if isinstance(unwrapped_model, deepspeed.DeepSpeedEngine):
+                # Get the actual module from DeepSpeed engine
+                unwrapped_model = unwrapped_model.module
+        except (ImportError, AttributeError):
+            pass
+        
+        # Create a deep copy of the base model to ensure complete separation
+        # This ensures the coin flip network is entirely independent from the
+        # base/sampling actors and won't be interfered with by their training
+        self.base_model = copy.deepcopy(unwrapped_model)
         
         # Get hidden size from config or model architecture
         hidden_size = None
@@ -147,6 +162,12 @@ class CoinFlipNetwork(nn.Module):
             base_model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         self.coin_flip_head = self.coin_flip_head.to(base_model_device)
+        
+        # Freeze the base model - we only train the coin_flip_head
+        # This avoids DeepSpeed ZeRO hook conflicts and keeps training simple
+        # The optimizer will automatically exclude frozen parameters (requires_grad=False)
+        for param in self.base_model.parameters():
+            param.requires_grad = False
         
         # Support gradient checkpointing if base model does
         self.supports_gradient_checkpointing = getattr(self.base_model, 'supports_gradient_checkpointing', False)
@@ -266,14 +287,15 @@ class CoinFlipNetwork(nn.Module):
         Backward pass for the coin flip network.
         
         This method is called by the training strategy (e.g., DeepSpeedStrategy).
-        If the model is wrapped by DeepSpeed, the wrapper's backward method will be used instead.
-        Otherwise, this method performs standard PyTorch backward propagation.
+        Since base_model is frozen, we only backpropagate through coin_flip_head,
+        avoiding DeepSpeed ZeRO hook conflicts.
         
         Args:
             loss: The loss tensor to backpropagate
         """
         # Standard PyTorch backward pass
-        # If this model is wrapped by DeepSpeed, the wrapper's backward will be called instead
+        # Since base_model is frozen (requires_grad=False), gradients won't flow
+        # through it, so DeepSpeed hooks on base_model won't interfere
         loss.backward()
     
     def step(self) -> None:
@@ -288,6 +310,15 @@ class CoinFlipNetwork(nn.Module):
         # No-op for non-DeepSpeed models
         # If this model is wrapped by DeepSpeed, the wrapper's step will be called instead
         pass
+    
+    def get_trainable_parameters(self):
+        """
+        Get only the trainable parameters (coin_flip_head only, base_model is frozen).
+        
+        Returns:
+            Iterator over trainable parameters
+        """
+        return self.coin_flip_head.parameters()
     
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
         """Enable gradient checkpointing if supported."""
