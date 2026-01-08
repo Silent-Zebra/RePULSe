@@ -253,8 +253,9 @@ class CombinedHarmlessnessTrainer(ABC):
         
         if exploration_bonus_sampling_actor == "coin_flip":
             coin_flip_dim = getattr(strategy.args, 'coin_flip_dim', 64)
+            normalization_momentum = getattr(strategy.args, 'coin_flip_normalization_momentum', None)
             # Initialize coin flip network from sampling_actor
-            self.coin_flip_network = CoinFlipNetwork(sampling_actor, coin_flip_dim=coin_flip_dim)
+            self.coin_flip_network = CoinFlipNetwork(sampling_actor, coin_flip_dim=coin_flip_dim, normalization_momentum=normalization_momentum)
             
             # Keep network in eval mode always - only the head is trained, base model is frozen
             # This ensures consistent outputs (no dropout/stochasticity from base model)

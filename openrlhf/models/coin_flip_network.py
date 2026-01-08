@@ -21,9 +21,11 @@ class CoinFlipNetwork(nn.Module):
     Args:
         base_model: The base transformer model (typically from Actor)
         coin_flip_dim: Dimension d for coin flip vectors (default: 64)
+        normalization_momentum: Momentum for exponential moving average of running statistics
+            used to normalize the exploration bonus. If None, normalization is disabled (default: None)
     """
     
-    def __init__(self, base_model: nn.Module, coin_flip_dim: int = 64):
+    def __init__(self, base_model: nn.Module, coin_flip_dim: int = 64, normalization_momentum: Optional[float] = None):
         super().__init__()
         self.coin_flip_dim = coin_flip_dim
         
@@ -176,10 +178,14 @@ class CoinFlipNetwork(nn.Module):
         
         # Running statistics for normalization of exploration bonus
         # Using exponential moving average with momentum
-        self.momentum = 0.99  # EMA momentum for running statistics
-        self.register_buffer('running_mean', torch.zeros(1, device=base_model_device))
-        self.register_buffer('running_var', torch.ones(1, device=base_model_device))
-        self.register_buffer('num_updates', torch.zeros(1, dtype=torch.long, device=base_model_device))
+        self.normalization_momentum = normalization_momentum
+        if normalization_momentum is not None:
+            self.momentum = normalization_momentum
+            self.register_buffer('running_mean', torch.zeros(1, device=base_model_device))
+            self.register_buffer('running_var', torch.ones(1, device=base_model_device))
+            self.register_buffer('num_updates', torch.zeros(1, dtype=torch.long, device=base_model_device))
+        else:
+            self.momentum = None
     
     def _get_device(self):
         """Get the device of the base model, prioritizing GPU/cuda."""
@@ -289,8 +295,9 @@ class CoinFlipNetwork(nn.Module):
         # Compute intrinsic reward: sqrt((1/d) * ||f_φ(x)||^2)
         intrinsic_reward = torch.sqrt(norm_squared / self.coin_flip_dim)
         
-        # Normalize the exploration bonus using running mean and variance
-        intrinsic_reward = self._normalize_bonus(intrinsic_reward)
+        # Normalize the exploration bonus using running mean and variance (if enabled)
+        if self.normalization_momentum is not None:
+            intrinsic_reward = self._normalize_bonus(intrinsic_reward)
         intrinsic_reward *= bonus_alpha
         
         return intrinsic_reward
@@ -309,6 +316,10 @@ class CoinFlipNetwork(nn.Module):
         Returns:
             Normalized bonus tensor, shape (batch_size,)
         """
+        if self.momentum is None:
+            # Normalization is disabled, return bonus as-is
+            return bonus
+        
         # Compute batch statistics
         batch_mean = bonus.mean()
         batch_var = bonus.var(unbiased=False)  # Use biased variance for consistency
