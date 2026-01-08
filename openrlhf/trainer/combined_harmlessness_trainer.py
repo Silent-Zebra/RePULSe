@@ -256,6 +256,10 @@ class CombinedHarmlessnessTrainer(ABC):
             # Initialize coin flip network from sampling_actor
             self.coin_flip_network = CoinFlipNetwork(sampling_actor, coin_flip_dim=coin_flip_dim)
             
+            # Keep network in eval mode always - only the head is trained, base model is frozen
+            # This ensures consistent outputs (no dropout/stochasticity from base model)
+            self.coin_flip_network.eval()
+            
             # Create optimizer and scheduler (defaulting to sampling_actor's)
             coin_flip_lr = getattr(strategy.args, 'coin_flip_lr', None)
             if coin_flip_lr is None:
@@ -892,8 +896,10 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.coin_flip_network is None:
             return
         
-        # Set CFN to training mode
-        self.coin_flip_network.train()
+        # Keep network in eval mode - only the head is trained, base model is frozen
+        # This ensures consistent outputs (no dropout/stochasticity from base model)
+        # The head (Linear layer) doesn't have dropout/batch_norm, so eval mode is fine
+        self.coin_flip_network.eval()
         
         # Extract sequences and attention masks
         sequences = experience.sequences  # (B, S)
@@ -916,7 +922,8 @@ class CombinedHarmlessnessTrainer(ABC):
         # Extract final token predictions (last valid position for each sequence)
         if attention_mask is not None:
             # Find the last valid position for each sequence (same as reward model does)
-            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().fliplr().argmax(dim=1, keepdim=True)
+            # fliplr() is deprecated, use flip() instead
+            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
             # Use advanced indexing to extract final predictions: (B, d)
             batch_indices = torch.arange(coin_flip_predictions.size(0), device=coin_flip_predictions.device)
             final_predictions = coin_flip_predictions[batch_indices, eos_indices.squeeze(1), :]  # (B, d)
@@ -929,6 +936,7 @@ class CombinedHarmlessnessTrainer(ABC):
         loss = ((final_predictions - coin_flip_targets) ** 2).mean()
         
         # Backward pass and optimizer step
+        # Note: Network stays in eval mode - only the head is trained, base model is frozen
         self.strategy.backward(loss, self.coin_flip_network, self.coin_flip_optim)
         self.strategy.optimizer_step(
             self.coin_flip_optim,
