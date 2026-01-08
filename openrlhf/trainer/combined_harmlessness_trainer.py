@@ -935,37 +935,6 @@ class CombinedHarmlessnessTrainer(ABC):
         # Average over coin_flip_dim and batch
         loss = ((final_predictions - coin_flip_targets) ** 2).mean()
         
-        # #region agent log
-        import json
-        import os
-        LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.cursor', 'debug.log')
-        try:
-            # Check if parameters have requires_grad
-            head_params = list(self.coin_flip_network.coin_flip_head.parameters())
-            has_grad = any(p.requires_grad for p in head_params)
-            param_norm_before = sum(p.data.norm().item() for p in head_params) if head_params else 0.0
-            
-            with open(LOG_PATH, 'a') as f:
-                log_entry = {
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "F",
-                    "location": "combined_harmlessness_trainer.py:train_coin_flip_network:before_backward",
-                    "message": "Before backward pass",
-                    "data": {
-                        "loss": float(loss.item()),
-                        "head_requires_grad": has_grad,
-                        "head_param_norm": param_norm_before,
-                        "num_head_params": len(head_params),
-                        "optimizer_state": "exists" if self.coin_flip_optim is not None else "none",
-                    },
-                    "timestamp": 0
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion agent log
-        
         # Backward pass and optimizer step
         # Note: Network stays in eval mode - only the head is trained, base model is frozen
         self.strategy.backward(loss, self.coin_flip_network, self.coin_flip_optim)
@@ -993,34 +962,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 self.coin_flip_scheduler.step()
             self.coin_flip_optim.zero_grad()
         
-        # #region agent log
-        try:
-            # Check gradients and parameter updates
-            head_params = list(self.coin_flip_network.coin_flip_head.parameters())
-            has_gradients = any(p.grad is not None and p.grad.abs().sum().item() > 0 for p in head_params if p.grad is not None)
-            grad_norm = sum(p.grad.norm().item() for p in head_params if p.grad is not None) if any(p.grad is not None for p in head_params) else 0.0
-            param_norm_after = sum(p.data.norm().item() for p in head_params) if head_params else 0.0
-            param_change = param_norm_after - param_norm_before if 'param_norm_before' in locals() else 0.0
-            
-            with open(LOG_PATH, 'a') as f:
-                log_entry = {
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "F",
-                    "location": "combined_harmlessness_trainer.py:train_coin_flip_network:after_step",
-                    "message": "After optimizer step",
-                    "data": {
-                        "has_gradients": has_gradients,
-                        "grad_norm": grad_norm,
-                        "param_norm_after": param_norm_after,
-                        "param_change": param_change,
-                    },
-                    "timestamp": 0
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion agent log
 
     def get_base_actor_loss(self, experience: Experience, experience_neg_sampling: Experience, custom_prompt=None):
 
@@ -1105,9 +1046,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 # Only have any weight (do the negative training/gradient ascent/-SFT) on any samples that satisfy the indicator function
                 normalized_w_t_approx_sigma_samples = normalized_w_t_approx_sigma_samples * (torch.exp(final_reward_neg) > INDICATOR_REWARD_EPS * 2) # Assign 0 weights to all samples that do not satisfy the indicator. This really only makes a difference if all the samples do not satisfy the indicator, in which case this ensures no negative training update is applied, otherwise all samples would get equal weights and pushed down equally even if none satisfy the indicator, which is probably not what we want (we don't want to just randomly push down on a bunch of samples that aren't from the target)
 
-                print("Indicator weights inspection")
-                print(final_reward_neg)
-                print(normalized_w_t_approx_sigma_samples)
 
             actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
