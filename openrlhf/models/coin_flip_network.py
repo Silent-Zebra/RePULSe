@@ -1,11 +1,18 @@
 from typing import Optional
 import copy
+import json
+import os
 
 import torch
 import torch.nn as nn
 from transformers import AutoConfig
 
 from .utils import masked_mean, reset_position_ids
+
+# #region agent log
+LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.cursor', 'debug.log')
+# #endregion agent log
+
 
 
 class CoinFlipNetwork(nn.Module):
@@ -22,6 +29,9 @@ class CoinFlipNetwork(nn.Module):
     """
     
     def __init__(self, base_model: nn.Module, coin_flip_dim: int = 64):
+        print("LOG PATH:")
+        print(LOG_PATH, flush=True)
+
         super().__init__()
         self.coin_flip_dim = coin_flip_dim
         
@@ -199,12 +209,55 @@ class CoinFlipNetwork(nn.Module):
             Coin flip predictions, shape (batch_size, seq_len, coin_flip_dim)
             If return_output=True, also returns base model outputs
         """
+        # #region agent log
+        try:
+            with open(LOG_PATH, 'a') as f:
+                log_entry = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A",
+                    "location": "coin_flip_network.py:forward:entry",
+                    "message": "Forward pass entry",
+                    "data": {
+                        "batch_size": input_ids.shape[0],
+                        "seq_len": input_ids.shape[1],
+                        "input_ids_sample": input_ids[0, :min(10, input_ids.shape[1])].cpu().tolist() if input_ids.numel() > 0 else [],
+                        "attention_mask_sample": attention_mask[0, :min(10, attention_mask.shape[1])].cpu().tolist() if attention_mask is not None and attention_mask.numel() > 0 else None,
+                        "training_mode": self.training,
+                    },
+                    "timestamp": int(torch.cuda.current_device() * 1000000) if torch.cuda.is_available() else 0
+                }
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion agent log
+        
         # Compute position_ids
         if attention_mask is not None:
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
         else:
             position_ids = None
+        
+        # #region agent log
+        try:
+            with open(LOG_PATH, 'a') as f:
+                log_entry = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A",
+                    "location": "coin_flip_network.py:forward:position_ids",
+                    "message": "Position IDs computed",
+                    "data": {
+                        "position_ids_sample": position_ids[0, :min(10, position_ids.shape[1])].cpu().tolist() if position_ids is not None and position_ids.numel() > 0 else None,
+                        "position_ids_all": position_ids.cpu().tolist() if position_ids is not None else None,
+                    },
+                    "timestamp": int(torch.cuda.current_device() * 1000000) if torch.cuda.is_available() else 0
+                }
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion agent log
         
         # Forward through base model
         outputs = self.base_model(
@@ -231,6 +284,26 @@ class CoinFlipNetwork(nn.Module):
         
         # Apply coin flip head
         coin_flip_predictions = self.coin_flip_head(hidden_states)  # (batch_size, seq_len, coin_flip_dim)
+        
+        # #region agent log
+        try:
+            with open(LOG_PATH, 'a') as f:
+                log_entry = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "C",
+                    "location": "coin_flip_network.py:forward:exit",
+                    "message": "Coin flip predictions computed",
+                    "data": {
+                        "predictions_shape": list(coin_flip_predictions.shape),
+                        "final_token_predictions": coin_flip_predictions[:, -1, :5].cpu().tolist() if coin_flip_predictions.numel() > 0 else [],
+                    },
+                    "timestamp": int(torch.cuda.current_device() * 1000000) if torch.cuda.is_available() else 0
+                }
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion agent log
         
         if return_output:
             return coin_flip_predictions, outputs
@@ -259,6 +332,30 @@ class CoinFlipNetwork(nn.Module):
         Returns:
             Intrinsic rewards per sequence, shape (batch_size,)
         """
+        # #region agent log
+        try:
+            with open(LOG_PATH, 'a') as f:
+                log_entry = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "D",
+                    "location": "coin_flip_network.py:compute_intrinsic_reward:entry",
+                    "message": "Compute intrinsic reward entry",
+                    "data": {
+                        "batch_size": sequences.shape[0],
+                        "seq_len": sequences.shape[1],
+                        "sequences_sample": sequences[:, :min(5, sequences.shape[1])].cpu().tolist() if sequences.numel() > 0 else [],
+                        "sequences_are_same": (sequences[0:1].expand(sequences.shape[0], -1) == sequences).all().item() if sequences.shape[0] > 1 else True,
+                        "attention_mask_sample": attention_mask[:, :min(5, attention_mask.shape[1])].cpu().tolist() if attention_mask is not None and attention_mask.numel() > 0 else None,
+                        "bonus_alpha": bonus_alpha,
+                    },
+                    "timestamp": int(torch.cuda.current_device() * 1000000) if torch.cuda.is_available() else 0
+                }
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion agent log
+        
         # Get coin flip predictions
         coin_flip_predictions = self.forward(sequences, attention_mask)  # (B, S, d)
         
@@ -274,11 +371,54 @@ class CoinFlipNetwork(nn.Module):
             # Use last position
             final_predictions = coin_flip_predictions[:, -1, :]  # (B, d)
         
+        # #region agent log
+        try:
+            with open(LOG_PATH, 'a') as f:
+                log_entry = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "B",
+                    "location": "coin_flip_network.py:compute_intrinsic_reward:eos_extraction",
+                    "message": "EOS indices and final predictions",
+                    "data": {
+                        "eos_indices": eos_indices.squeeze(1).cpu().tolist() if attention_mask is not None else None,
+                        "final_predictions_sample": final_predictions[:, :5].cpu().tolist() if final_predictions.numel() > 0 else [],
+                        "final_predictions_are_same": (final_predictions[0:1].expand(final_predictions.shape[0], -1) == final_predictions).all().item() if final_predictions.shape[0] > 1 else True,
+                    },
+                    "timestamp": int(torch.cuda.current_device() * 1000000) if torch.cuda.is_available() else 0
+                }
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion agent log
+        
         # Compute ||f_φ(x)||^2 for final token: sum over coin_flip_dim dimension
         norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
         
         # Compute intrinsic reward: sqrt((1/d) * ||f_φ(x)||^2)
         intrinsic_reward = bonus_alpha * torch.sqrt(norm_squared / self.coin_flip_dim)
+        
+        # #region agent log
+        try:
+            with open(LOG_PATH, 'a') as f:
+                log_entry = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "E",
+                    "location": "coin_flip_network.py:compute_intrinsic_reward:exit",
+                    "message": "Intrinsic rewards computed",
+                    "data": {
+                        "norm_squared": norm_squared.cpu().tolist() if norm_squared.numel() > 0 else [],
+                        "intrinsic_reward": intrinsic_reward.cpu().tolist() if intrinsic_reward.numel() > 0 else [],
+                        "rewards_are_same": (intrinsic_reward[0] == intrinsic_reward).all().item() if intrinsic_reward.shape[0] > 1 else True,
+                        "reward_variance": float(intrinsic_reward.var().item()) if intrinsic_reward.numel() > 1 else 0.0,
+                    },
+                    "timestamp": int(torch.cuda.current_device() * 1000000) if torch.cuda.is_available() else 0
+                }
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion agent log
         
         return intrinsic_reward
     

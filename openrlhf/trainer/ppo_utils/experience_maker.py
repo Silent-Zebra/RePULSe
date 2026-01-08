@@ -353,6 +353,10 @@ class BaseExperienceMaker(ABC):
         if self.coin_flip_network is None:
             raise ValueError("coin_flip_network must be provided when exploration_bonus='coin_flip'")
         
+        # Set network to eval mode for consistent reward computation
+        # This ensures dropout and batch norm behave consistently
+        self.coin_flip_network.eval()
+        
         # Compute intrinsic reward using coin flip network
         # The network expects full sequences and computes r_I(x) = sqrt((1/d) * ||f_φ(x)||^2)
         intrinsic_reward = self.coin_flip_network.compute_intrinsic_reward(
