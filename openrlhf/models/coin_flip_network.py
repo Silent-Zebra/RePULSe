@@ -445,10 +445,11 @@ class CoinFlipNetwork(nn.Module):
         This method is called by the training strategy (e.g., DeepSpeedStrategy).
         If the model is wrapped by DeepSpeed, the wrapper's step method will be used instead,
         which handles optimizer stepping internally.
-        Otherwise, this method is a no-op (optimizer stepping is handled separately).
+        Otherwise, this method is a no-op (optimizer stepping is handled in training code).
         """
         # No-op for non-DeepSpeed models
         # If this model is wrapped by DeepSpeed, the wrapper's step will be called instead
+        # Otherwise, optimizer.step() is called manually in the training code
         pass
     
     def get_trainable_parameters(self):
