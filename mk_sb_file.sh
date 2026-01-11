@@ -4,18 +4,21 @@
 CLUSTER="default"
 COMMAND_ARGS=()
 
-i=1
-while [ $i -le $# ]; do
-    if [ "${!i}" == "--cluster" ]; then
-        if [ $((i+1)) -le $# ]; then
-            CLUSTER="${!((i+1))}"
+# Convert positional parameters to array
+ARGS=("$@")
+
+i=0
+while [ $i -lt ${#ARGS[@]} ]; do
+    if [ "${ARGS[$i]}" == "--cluster" ]; then
+        if [ $((i+1)) -lt ${#ARGS[@]} ]; then
+            CLUSTER="${ARGS[$((i+1))]}"
             i=$((i+2))
         else
             echo "Error: --cluster requires a value"
             exit 1
         fi
     else
-        COMMAND_ARGS+=("${!i}")
+        COMMAND_ARGS+=("${ARGS[$i]}")
         i=$((i+1))
     fi
 done
