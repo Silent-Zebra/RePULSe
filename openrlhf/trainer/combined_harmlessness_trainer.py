@@ -868,7 +868,8 @@ class CombinedHarmlessnessTrainer(ABC):
 
         # Train coin flip network if enabled
         if self.coin_flip_network is not None:
-            self.train_coin_flip_network(experience_neg_sampling)
+            update_steps = getattr(self.args, 'coin_flip_update_steps', 1)
+            self.train_coin_flip_network(experience_neg_sampling, update_steps=update_steps)
 
         # status
         status = {"sampling_policy_loss": sampling_actor_loss.item(), "sampling_actor_lr": self.sampling_actor_scheduler.get_last_lr()[0]}
@@ -883,16 +884,22 @@ class CombinedHarmlessnessTrainer(ABC):
                 status[f"sampling_{k}"] = v.mean().item()
         return status
 
-    def train_coin_flip_network(self, experience: Experience):
+    def train_coin_flip_network(self, experience: Experience, update_steps: int = 1):
         """
         Train the coin flip network on the given experience.
         
         For each sequence in the experience:
-        1. Generate random coin flip targets c ~ {-1, 1}^d for final state only
-        2. Forward pass through CFN to get predictions f_φ(x)
-        3. Extract final token predictions
-        4. Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
-        5. Backward pass and optimizer step
+        1. Forward pass through base model to get hidden states (done once, reused)
+        2. Extract final token hidden states (done once, reused)
+        3. For each update step:
+           a. Generate random coin flip targets c ~ {-1, 1}^d for final state only
+           b. Forward pass through coin_flip_head to get predictions f_φ(x_final)
+           c. Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
+           d. Backward pass and optimizer step
+        
+        Args:
+            experience: Experience containing sequences and attention masks
+            update_steps: Number of update steps to perform (default: 1)
         """
         if self.coin_flip_network is None:
             return
@@ -909,59 +916,90 @@ class CombinedHarmlessnessTrainer(ABC):
         batch_size = sequences.shape[0]
         coin_flip_dim = self.coin_flip_network.coin_flip_dim
         device = sequences.device
-        
-        # Generate coin flip targets: c ~ {-1, 1}^d for final state only
+
+        # Generate coin flip targets: c ~ {-1, 1}^d for final state only. Only generate once
         coin_flip_targets = generate_coin_flip_vectors(
             batch_size, coin_flip_dim, device
         )  # (B, d)
         
-        # Forward pass through CFN
-        coin_flip_predictions = self.coin_flip_network(
-            sequences, attention_mask
-        )  # (B, S, d)
+        # Step 1: Forward pass through base model to get hidden states (expensive, done once)
+        # Compute position_ids
+        if attention_mask is not None:
+            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 1)
+        else:
+            position_ids = None
         
-        # Extract final token predictions (last valid position for each sequence)
+        # Forward through base model (frozen, no gradients needed)
+        with torch.no_grad():
+            outputs = self.coin_flip_network.base_model(
+                sequences,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+        
+        # Get hidden states (last hidden state)
+        if "hidden_states" in outputs:
+            hidden_states = outputs["hidden_states"][-1]  # (batch_size, seq_len, hidden_size)
+        elif "last_hidden_state" in outputs:
+            hidden_states = outputs["last_hidden_state"]  # (batch_size, seq_len, hidden_size)
+        else:
+            raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
+        
+        # Ensure hidden_states and coin_flip_head are on the same device
+        coin_flip_head_device = next(self.coin_flip_network.coin_flip_head.parameters()).device
+        if hidden_states.device != coin_flip_head_device:
+            hidden_states = hidden_states.to(coin_flip_head_device)
+        
+        # Step 2: Extract final token hidden states (done once, reused for all update steps)
         if attention_mask is not None:
             # Find the last valid position for each sequence (same as reward model does)
-            # fliplr() is deprecated, use flip() instead
             eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
-            # Use advanced indexing to extract final predictions: (B, d)
-            batch_indices = torch.arange(coin_flip_predictions.size(0), device=coin_flip_predictions.device)
-            final_predictions = coin_flip_predictions[batch_indices, eos_indices.squeeze(1), :]  # (B, d)
+            # Use advanced indexing to extract final hidden states: (B, hidden_size)
+            batch_indices = torch.arange(hidden_states.size(0), device=hidden_states.device)
+            final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (B, hidden_size)
         else:
             # Use last position
-            final_predictions = coin_flip_predictions[:, -1, :]  # (B, d)
-        
-        # Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
-        # Average over coin_flip_dim and batch
-        loss = ((final_predictions - coin_flip_targets) ** 2).mean()
-        
-        # Backward pass and optimizer step
-        # Note: Network stays in eval mode - only the head is trained, base model is frozen
-        self.strategy.backward(loss, self.coin_flip_network, self.coin_flip_optim)
+            final_hidden_states = hidden_states[:, -1, :]  # (B, hidden_size)
         
         # Check if model is wrapped by DeepSpeed
-        # If not, we need to manually step the optimizer since model.step() is a no-op
         try:
             import deepspeed
             is_deepspeed_wrapped = isinstance(self.coin_flip_network, deepspeed.DeepSpeedEngine)
         except (ImportError, AttributeError):
             is_deepspeed_wrapped = False
         
-        if is_deepspeed_wrapped:
-            # DeepSpeed handles optimizer step internally
-            self.strategy.optimizer_step(
-                self.coin_flip_optim,
-                self.coin_flip_network,
-                self.coin_flip_scheduler,
-                name="coin_flip_network"
-            )
-        else:
-            # Not wrapped by DeepSpeed - manually step the optimizer
-            self.coin_flip_optim.step()
-            if self.coin_flip_scheduler is not None:
-                self.coin_flip_scheduler.step()
-            self.coin_flip_optim.zero_grad()
+        # Step 3: Loop over update steps
+        for update_step in range(update_steps):
+            
+            
+            # Forward pass through coin_flip_head only (cheap, recomputed each step)
+            final_predictions = self.coin_flip_network.coin_flip_head(final_hidden_states)  # (B, d)
+            
+            # Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
+            # Average over coin_flip_dim and batch
+            loss = ((final_predictions - coin_flip_targets) ** 2).mean()
+            
+            # Backward pass and optimizer step
+            # Note: Network stays in eval mode - only the head is trained, base model is frozen
+            self.strategy.backward(loss, self.coin_flip_network, self.coin_flip_optim)
+            
+            if is_deepspeed_wrapped:
+                # DeepSpeed handles optimizer step internally
+                self.strategy.optimizer_step(
+                    self.coin_flip_optim,
+                    self.coin_flip_network,
+                    self.coin_flip_scheduler,
+                    name="coin_flip_network"
+                )
+            else:
+                # Not wrapped by DeepSpeed - manually step the optimizer
+                self.coin_flip_optim.step()
+                if self.coin_flip_scheduler is not None:
+                    self.coin_flip_scheduler.step()
+                self.coin_flip_optim.zero_grad()
         
 
     def get_base_actor_loss(self, experience: Experience, experience_neg_sampling: Experience, custom_prompt=None):

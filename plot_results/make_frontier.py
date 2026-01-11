@@ -245,6 +245,381 @@ def make_frontier_bootstrap(
     print(f"Figure saved to {figname}")
 
 
+def make_frontier_kl_bootstrap(
+    xlabel, ylabel, figname, labels, results_list,
+    color_list, marker_list, xlimlow=None, xlimhigh=None, fontsize=7, legendfontsize=7,
+    aggregate_seeds=False, alpha_error=0.2,
+    n_bootstrap_draws=5000,  # Added parameter for number of bootstrap draws
+    compare_to_reference=False,
+    ylimlow=None, ylimhigh=None,
+):
+    """
+    Plot KL divergence on two axes (KL(sigma_p || q) vs KL(q || sigma_p)).
+    
+    results_list should contain tuples of (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
+    where kl_sigma_q_list and kl_q_sigma_list are lists of KL values per prompt/evaluation.
+    """
+    plt.clf()
+    plt.xlabel(xlabel, fontsize=fontsize)
+    plt.ylabel(ylabel, fontsize=fontsize)
+
+    all_x = []
+    all_y = []
+
+    for i in range(len(labels)):
+
+        if isinstance(results_list[i], tuple):
+            raise NotImplementedError # hasn't been used/tested in a while
+
+        else:  # results_list[i] is a list of tuples (per-seed data)
+            tuple_list = results_list[i]
+            x_results_per_seed = []
+            y_results_per_seed = []
+
+            if not tuple_list:  # Handle empty tuple_list
+                print(f"Warning: Empty tuple_list for {labels[i]}. Skipping.")
+                continue
+
+            for t_idx, t in enumerate(tuple_list):
+                # t should be a tuple: (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
+                if not isinstance(t, tuple) or len(t) < 2:
+                    print(f"Warning: Expected tuple with at least 2 elements for {labels[i]}, seed {t_idx+1}. Got {type(t)}. Skipping.")
+                    continue
+                
+                kl_sigma_q_list = t[0]  # KL(sigma_p || q)
+                kl_q_sigma_list = t[1]  # KL(q || sigma_p)
+                
+                # Convert to numpy arrays if they're lists/tensors
+                if isinstance(kl_sigma_q_list, list):
+                    kl_sigma_q_array = np.array(kl_sigma_q_list)
+                elif isinstance(kl_sigma_q_list, torch.Tensor):
+                    kl_sigma_q_array = kl_sigma_q_list.float().cpu().numpy()
+                else:
+                    kl_sigma_q_array = np.array([kl_sigma_q_list])
+                
+                if isinstance(kl_q_sigma_list, list):
+                    kl_q_sigma_array = np.array(kl_q_sigma_list)
+                elif isinstance(kl_q_sigma_list, torch.Tensor):
+                    kl_q_sigma_array = kl_q_sigma_list.float().cpu().numpy()
+                else:
+                    kl_q_sigma_array = np.array([kl_q_sigma_list])
+                
+                # Take the mean across all prompts/evaluations for this seed
+                x_results_per_seed.append(kl_sigma_q_array.mean())
+                y_results_per_seed.append(kl_q_sigma_array.mean())
+
+            # Convert lists of per-seed results to numpy arrays
+            x_values_all_seeds = np.array(x_results_per_seed)
+            y_values_all_seeds = np.array(y_results_per_seed)
+
+            if y_values_all_seeds.shape[0] < x_values_all_seeds.shape[0]:
+                print("WARNING: IGNORING ADDITIONAL X VALUES")
+                x_values_all_seeds = x_values_all_seeds[: y_values_all_seeds.shape[0]]
+            elif y_values_all_seeds.shape[0] > x_values_all_seeds.shape[0]:
+                print("WARNING: IGNORING ADDITIONAL Y VALUES")
+                y_values_all_seeds = y_values_all_seeds[: x_values_all_seeds.shape[0]]
+
+            if compare_to_reference:
+                print("Warning: compare_to_reference not tested in quite a while")
+                if i == 0:
+                    reference_x = x_values_all_seeds
+                    reference_y = y_values_all_seeds
+                x_values_all_seeds = x_values_all_seeds - reference_x[:x_values_all_seeds.shape[0]]
+                y_values_all_seeds = y_values_all_seeds - reference_y[:y_values_all_seeds.shape[0]]
+
+            if not aggregate_seeds:
+                plt.scatter(x_values_all_seeds, y_values_all_seeds, label=labels[i], c=color_list[i],
+                            marker=marker_list[i])
+            else:  # aggregate_seeds is True, perform bootstrap
+                n_seeds = x_values_all_seeds.shape[0]
+
+                if n_seeds == 0:  # Should be caught by empty tuple_list earlier
+                    print(f"Warning: No seed data for {labels[i]} after processing. Skipping error bars.")
+                    continue
+
+                # Calculate the observed mean from the original seed data
+                x_observed_mean = np.mean(x_values_all_seeds)
+                y_observed_mean = np.mean(y_values_all_seeds)
+
+                if n_seeds < 2:
+                    print(f"  Warning: Only {n_seeds} seed for {labels[i]}. Plotting mean without error bars.")
+                    x_err_bootstrap = None  # No error bar
+                    y_err_bootstrap = None  # No error bar
+                else:
+                    alpha_level_for_ci = 0.05  # For a 95% CI
+
+                    # Bootstrap for X
+                    bootstrap_x_means = []
+                    for _ in range(n_bootstrap_draws):
+                        resample_indices = np.random.choice(n_seeds, size=n_seeds, replace=True)
+                        bootstrap_sample_x = x_values_all_seeds[resample_indices]
+                        bootstrap_x_means.append(np.mean(bootstrap_sample_x))
+
+                    # Calculate percentile CI for X
+                    x_ci_lower = np.percentile(bootstrap_x_means, (alpha_level_for_ci / 2) * 100)
+                    x_ci_upper = np.percentile(bootstrap_x_means, (1 - alpha_level_for_ci / 2) * 100)
+                    # xerr for errorbar: [negative_error_delta, positive_error_delta]
+                    x_err_bootstrap = np.array([[x_observed_mean - x_ci_lower], [x_ci_upper - x_observed_mean]])
+                    # Ensure error deltas are non-negative (can occur if observed mean is outside bootstrap CI)
+                    x_err_bootstrap[x_err_bootstrap < 0] = 0
+
+                    # Bootstrap for Y
+                    bootstrap_y_means = []
+                    for _ in range(n_bootstrap_draws):
+                        resample_indices = np.random.choice(n_seeds, size=n_seeds, replace=True)
+                        bootstrap_sample_y = y_values_all_seeds[resample_indices]
+                        bootstrap_y_means.append(np.mean(bootstrap_sample_y))
+
+                    # Calculate percentile CI for Y
+                    y_ci_lower = np.percentile(bootstrap_y_means, (alpha_level_for_ci / 2) * 100)
+                    y_ci_upper = np.percentile(bootstrap_y_means, (1 - alpha_level_for_ci / 2) * 100)
+                    y_err_bootstrap = np.array([[y_observed_mean - y_ci_lower], [y_ci_upper - y_observed_mean]])
+                    y_err_bootstrap[y_err_bootstrap < 0] = 0
+
+                    print(
+                        f"  {labels[i]}: X = {x_observed_mean:.3f} [{x_ci_lower:.3f}, {x_ci_upper:.3f}], Y = {y_observed_mean:.3f} [{y_ci_lower:.3f}, {y_ci_upper:.3f}]")
+
+                # Plot the observed mean
+                plt.scatter(x_observed_mean, y_observed_mean, label=labels[i], c=color_list[i],
+                            marker=marker_list[i])
+
+                # Plot error bars if they were computed
+                if x_err_bootstrap is not None and y_err_bootstrap is not None:
+                    plt.errorbar(
+                        x_observed_mean,
+                        y_observed_mean,
+                        xerr=x_err_bootstrap,
+                        yerr=y_err_bootstrap,
+                        fmt='',  # No line connecting points, marker is from scatter
+                        ecolor=color_list[i],
+                        alpha=alpha_error,
+                        capsize=2,
+                    )
+
+                all_x.append(x_observed_mean)
+                all_y.append(y_observed_mean)
+
+    if (xlimlow is not None) or (xlimhigh is not None):
+        plt.xlim(xlimlow, xlimhigh)
+    if (ylimlow is not None) or (ylimhigh is not None):
+        plt.ylim(ylimlow, ylimhigh)
+    plt.tick_params(axis='x', labelsize=fontsize)
+    plt.tick_params(axis='y', labelsize=fontsize)
+    plt.tight_layout()
+    plt.legend(fontsize=legendfontsize)
+
+    plt.savefig(figname)
+    print(f"Figure saved to {figname}")
+
+
+def plot_top_tokens_bar_chart(
+    figname, labels, results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+    n_top_tokens=10,
+):
+    """
+    Plot bar chart of log probability differences (q - target) for top N tokens under target distribution.
+    
+    Identifies top tokens by their target distribution probabilities, then plots log_probs_q - log_probs_target
+    for those tokens. For each token, shows bars for each setting, with confidence intervals.
+    
+    results_list should contain tuples of (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
+    where metrics_list contains dicts with 'top_10_target_tokens', 'log_probs_target', and 'log_probs_q'.
+    """
+    plt.clf()
+    
+    # Collect all tokens and their log probabilities across all settings/seeds
+    # Structure: token_id -> {setting_idx: {'target': [per-seed averages], 'q': [per-seed averages]}}
+    token_log_probs_target_by_setting = {}  # token_id -> {setting_idx: [per-seed averages]}
+    token_log_probs_q_by_setting = {}  # token_id -> {setting_idx: [per-seed averages]}
+    
+    for setting_idx in range(len(labels)):
+        tuple_list = results_list[setting_idx]
+        
+        if not tuple_list:
+            print(f"Warning: Empty tuple_list for {labels[setting_idx]}. Skipping.")
+            continue
+        
+        for t_idx, t in enumerate(tuple_list):
+            # t should be a tuple: (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
+            if not isinstance(t, tuple) or len(t) < 3:
+                print(f"Warning: Expected tuple with at least 3 elements for {labels[setting_idx]}, seed {t_idx+1}. Skipping.")
+                continue
+            
+            metrics_list = t[2]  # List of metrics dicts (one per prompt)
+            
+            if not isinstance(metrics_list, list):
+                print(f"Warning: metrics_list should be a list for {labels[setting_idx]}, seed {t_idx+1}. Got {type(metrics_list)}. Skipping.")
+                continue
+            
+            # Collect log probs for this seed across all prompts
+            # Store as pairs to ensure matching
+            seed_token_log_probs = {}  # token_id -> {'target': [values], 'q': [values]} per prompt
+            
+            # Process each prompt's metrics
+            for metrics_dict in metrics_list:
+                if not isinstance(metrics_dict, dict):
+                    continue
+                
+                # Get all tracked tokens and their log probabilities
+                # Use all_tracked_tokens to get more complete coverage (includes top 10 from both q and target)
+                tracked_tokens = metrics_dict.get('all_tracked_tokens', metrics_dict.get('top_10_target_tokens', []))
+                log_probs_target = metrics_dict.get('log_probs_target', {})
+                log_probs_q = metrics_dict.get('log_probs_q', {})
+                
+                for token_id in tracked_tokens:
+                    if token_id not in seed_token_log_probs:
+                        seed_token_log_probs[token_id] = {'target': [], 'q': []}
+                    
+                    if token_id in log_probs_target:
+                        seed_token_log_probs[token_id]['target'].append(log_probs_target[token_id])
+                    
+                    if token_id in log_probs_q:
+                        seed_token_log_probs[token_id]['q'].append(log_probs_q[token_id])
+            
+            # Average across prompts for this seed, compute difference, then store
+            for token_id, probs_dict in seed_token_log_probs.items():
+                target_values = probs_dict['target']
+                q_values = probs_dict['q']
+                
+                if len(target_values) > 0 and len(q_values) > 0:
+                    # Average across prompts
+                    seed_avg_target = np.mean(target_values)
+                    seed_avg_q = np.mean(q_values)
+                    seed_diff = seed_avg_q - seed_avg_target
+                    
+                    # Store target averages
+                    if token_id not in token_log_probs_target_by_setting:
+                        token_log_probs_target_by_setting[token_id] = {}
+                    if setting_idx not in token_log_probs_target_by_setting[token_id]:
+                        token_log_probs_target_by_setting[token_id][setting_idx] = []
+                    token_log_probs_target_by_setting[token_id][setting_idx].append(seed_avg_target)
+                    
+                    # Store q averages
+                    if token_id not in token_log_probs_q_by_setting:
+                        token_log_probs_q_by_setting[token_id] = {}
+                    if setting_idx not in token_log_probs_q_by_setting[token_id]:
+                        token_log_probs_q_by_setting[token_id][setting_idx] = []
+                    token_log_probs_q_by_setting[token_id][setting_idx].append(seed_avg_q)
+    
+    # Find top N tokens by average log probability under target distribution across all settings
+    token_avg_log_probs_target = {}
+    for token_id, setting_dict in token_log_probs_target_by_setting.items():
+        all_values = []
+        for setting_idx, values in setting_dict.items():
+            all_values.extend(values)
+        if all_values:
+            token_avg_log_probs_target[token_id] = np.mean(all_values)
+    
+    # Get top N tokens
+    if len(token_avg_log_probs_target) == 0:
+        print("Warning: No token data found. Cannot create bar chart.")
+        return
+    
+    sorted_tokens = sorted(token_avg_log_probs_target.items(), key=lambda x: x[1], reverse=True)
+    top_n_tokens = [token_id for token_id, _ in sorted_tokens[:n_top_tokens]]
+    
+    print(f"\nTop {n_top_tokens} tokens (by average log prob under target): {top_n_tokens}")
+    
+    # Prepare data for plotting: for each token, get mean and CI for log_probs_q - log_probs_target
+    n_settings = len(labels)
+    n_tokens = len(top_n_tokens)
+    
+    # Bar positions
+    bar_width = 0.25
+    x_positions = np.arange(n_tokens)
+    setting_offsets = np.linspace(-bar_width * (n_settings - 1) / 2, 
+                                   bar_width * (n_settings - 1) / 2, 
+                                   n_settings)
+    
+    # Collect means and CIs for the difference (q - target)
+    means = np.zeros((n_tokens, n_settings))
+    ci_lowers = np.zeros((n_tokens, n_settings))
+    ci_uppers = np.zeros((n_tokens, n_settings))
+    
+    alpha_level_for_ci = 0.05  # For a 95% CI
+    
+    for token_idx, token_id in enumerate(top_n_tokens):
+        for setting_idx in range(n_settings):
+            # Get target and q values (should be matched per seed)
+            target_values = []
+            if token_id in token_log_probs_target_by_setting and setting_idx in token_log_probs_target_by_setting[token_id]:
+                target_values = np.array(token_log_probs_target_by_setting[token_id][setting_idx])
+            
+            q_values = []
+            if token_id in token_log_probs_q_by_setting and setting_idx in token_log_probs_q_by_setting[token_id]:
+                q_values = np.array(token_log_probs_q_by_setting[token_id][setting_idx])
+            
+            # Compute differences per seed
+            if len(target_values) > 0 and len(q_values) > 0:
+                # Ensure same length (should be, but handle edge case)
+                min_len = min(len(target_values), len(q_values))
+                target_values = target_values[:min_len]
+                q_values = q_values[:min_len]
+                diff_values = q_values - target_values
+            else:
+                diff_values = np.array([])
+            
+            if len(diff_values) == 0:
+                means[token_idx, setting_idx] = np.nan
+                ci_lowers[token_idx, setting_idx] = np.nan
+                ci_uppers[token_idx, setting_idx] = np.nan
+            elif len(diff_values) < 2:
+                means[token_idx, setting_idx] = np.mean(diff_values)
+                ci_lowers[token_idx, setting_idx] = np.mean(diff_values)
+                ci_uppers[token_idx, setting_idx] = np.mean(diff_values)
+            else:
+                # Bootstrap CI
+                bootstrap_means = []
+                for _ in range(n_bootstrap_draws):
+                    resample_indices = np.random.choice(len(diff_values), size=len(diff_values), replace=True)
+                    bootstrap_sample = diff_values[resample_indices]
+                    bootstrap_means.append(np.mean(bootstrap_sample))
+                
+                mean_val = np.mean(diff_values)
+                ci_lower = np.percentile(bootstrap_means, (alpha_level_for_ci / 2) * 100)
+                ci_upper = np.percentile(bootstrap_means, (1 - alpha_level_for_ci / 2) * 100)
+                
+                means[token_idx, setting_idx] = mean_val
+                ci_lowers[token_idx, setting_idx] = ci_lower
+                ci_uppers[token_idx, setting_idx] = ci_upper
+    
+    # Plot bars
+    for setting_idx in range(n_settings):
+        x_pos = x_positions + setting_offsets[setting_idx]
+        bars = plt.bar(x_pos, means[:, setting_idx], bar_width, 
+                       label=labels[setting_idx], 
+                       color=color_list[setting_idx],
+                       alpha=0.7)
+        
+        # Add error bars (CI intervals centered at top of bar)
+        for token_idx in range(n_tokens):
+            if not np.isnan(means[token_idx, setting_idx]):
+                mean_val = means[token_idx, setting_idx]
+                ci_lower = ci_lowers[token_idx, setting_idx]
+                ci_upper = ci_uppers[token_idx, setting_idx]
+                
+                # Error bar from mean to CI bounds
+                lower_err = mean_val - ci_lower
+                upper_err = ci_upper - mean_val
+                
+                plt.errorbar(x_pos[token_idx], mean_val,
+                           yerr=[[lower_err], [upper_err]],
+                           fmt='none', color='black', capsize=3, linewidth=1)
+    
+    plt.xlabel('Token ID', fontsize=fontsize)
+    plt.ylabel('Log Probability Difference (q - target)', fontsize=fontsize)
+    plt.title(f'Top {n_top_tokens} Target Tokens: Log Prob Difference (q - target)', fontsize=fontsize+1)
+    plt.xticks(x_positions, [str(token_id) for token_id in top_n_tokens], fontsize=fontsize-1)
+    plt.legend(fontsize=legendfontsize)
+    plt.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.axhline(y=0, color='gray', linestyle='--', linewidth=0.5)  # Add reference line at 0
+    plt.tight_layout()
+    
+    plt.savefig(figname)
+    print(f"Bar chart saved to {figname}")
+
 
 # Comment out/select as needed
 figname_modifier = "1B_len100_10_18_kl2_epi2_heldout2"
@@ -259,6 +634,10 @@ figname_modifier = "1B_len100_10_23_kl2_epi2_final"
 figname_modifier = "1B_len100_10_23_kl2_gcg_final"
 figname_modifier = "1B_len100_10_23_kl2_sameepi_final"
 figname_modifier = "1B_len100_10_23_kl2_cvar_final"
+
+
+figname_modifier = "toy_len1_01_07_kl_div"
+figname_modifier = "toy_len1_epi10_01_07_kl_div"
 
 
 do_1B_experiments = False
@@ -499,7 +878,39 @@ elif do_1B_experiments and "kl2" in figname_modifier and "len100" in figname_mod
 
 
 else:
-    raise Exception("Figname does not correspond to any set of data")
+    if "kl_div" in figname_modifier:
+        # Load KL divergence data from analytic_kls_toxicity files
+        # Option 1: Manually specify your KL divergence file prefixes (recommended)
+        # Uncomment and modify the section below:
+        #
+        # kl_load_prefixes_to_use = [
+        #     make_list(
+        #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
+        #         1, 10),
+        #     make_list(
+        #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn_s1",
+        #         1, 10),
+        #     make_list(
+        #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_count_s1",
+        #         1, 10),
+        # ]
+
+        kl_load_prefixes_to_use = [
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn_s1",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_count_s1",
+                1, 10),
+        ]
+        load_prefixes_to_use = kl_load_prefixes_to_use
+
+    else:
+        raise Exception("Figname does not correspond to any set of data")
+
 
 inds_to_use = None
 
@@ -687,11 +1098,106 @@ else:
     marker_list = [marker_list[i] for i in inds_to_use]
     color_list = [color_list[i] for i in inds_to_use]
 
+
+
+if "kl_div" in figname_modifier:
+    fontsize = 10
+    labels = []
+    for x in load_prefixes_to_use:
+        if "cfn" in x[0]:
+            labels.append("Coin Flip Net Pseudo-count")
+        elif "count" in x[0]:
+            labels.append("Exact Count")
+        else:
+            labels.append("No Exploration Bonus")
+
+
 results_list = [[] for i in range(len(load_prefixes_to_use))]
 
 
 
 do_load_prefixes(results_list, load_prefixes_to_use, map_location='cpu', load_dir=load_dir)
+
+
+# Below is for new exploration based experiments (toy env for now only with analytic kls)
+# Optionally plot KL divergence on two axes
+# Set this flag to True to enable KL divergence plotting
+do_kl_plot = False
+# You can also enable it by adding "kl_div" to figname_modifier
+if "kl_div" in figname_modifier:
+    do_kl_plot = True
+
+if do_kl_plot:
+
+    # # Option 2: Auto-convert from load_prefixes_to_use (may need adjustment)
+    # # This assumes your files follow the pattern: analytic_kls_toxicity_<rest_of_name>
+    # # If Option 1 is used above, comment out the section below:
+    # kl_load_prefixes_to_use = []
+    # # Convert existing prefixes to KL divergence file prefixes
+    # for prefix_list in load_prefixes_to_use:
+    #     kl_prefix_list = []
+    #     for prefix in prefix_list:
+    #         # Extract the part after "info_eval_" or similar pattern
+    #         # Adjust this pattern based on your actual file naming convention
+    #         if "info_eval_" in prefix:
+    #             # Replace "info_eval_" with "analytic_kls_toxicity_"
+    #             kl_prefix = prefix.replace("info_eval_", "analytic_kls_toxicity_")
+    #         elif prefix.startswith("analytic_kls_toxicity_"):
+    #             # Already a KL file prefix
+    #             kl_prefix = prefix
+    #         else:
+    #             # Try to construct it - adjust based on your naming pattern
+    #             kl_prefix = f"analytic_kls_toxicity_{prefix}"
+    #         kl_prefix_list.append(kl_prefix)
+    #     kl_load_prefixes_to_use.append(kl_prefix_list)
+
+    # Ensure we have the same number of KL prefixes as labels
+    if len(kl_load_prefixes_to_use) != len(labels):
+        print(
+            f"Warning: Number of KL prefixes ({len(kl_load_prefixes_to_use)}) doesn't match number of labels ({len(labels)}).")
+        print("Using first min(len(kl_load_prefixes_to_use), len(labels)) entries.")
+        n_use = min(len(kl_load_prefixes_to_use), len(labels))
+        kl_load_prefixes_to_use = kl_load_prefixes_to_use[:n_use]
+        kl_labels = labels[:n_use]
+        kl_color_list = color_list[:n_use]
+        kl_marker_list = marker_list[:n_use]
+    else:
+        kl_labels = labels
+        kl_color_list = color_list
+        kl_marker_list = marker_list
+
+    # Load KL divergence results
+    kl_results_list = [[] for i in range(len(kl_load_prefixes_to_use))]
+    do_load_prefixes(kl_results_list, kl_load_prefixes_to_use, map_location='cpu', load_dir=load_dir)
+
+    # Plot KL divergence on two axes
+    make_frontier_kl_bootstrap(
+        xlabel="KL(sigma_p || q)",
+        ylabel="KL(q || sigma_p)",
+        figname=f"{figname_modifier}_frontier_kl",
+        labels=kl_labels,
+        results_list=kl_results_list,
+        color_list=kl_color_list,
+        marker_list=kl_marker_list,
+        fontsize=fontsize,
+        legendfontsize=legendfontsize,
+        aggregate_seeds=True,
+        compare_to_reference=compare_to_reference,
+    )
+    
+    # Plot bar chart of top tokens
+    plot_top_tokens_bar_chart(
+        figname=f"{figname_modifier}_top_tokens_bar",
+        labels=kl_labels,
+        results_list=kl_results_list,
+        color_list=kl_color_list,
+        fontsize=fontsize,
+        legendfontsize=legendfontsize,
+        n_bootstrap_draws=5000,
+        n_top_tokens=10,
+    )
+    
+    raise SystemExit(0)
 
 if do_gcg:
     gcg_results_list = [[] for i in range(len(gcg_prefixes))]
@@ -754,4 +1260,3 @@ make_frontier_bootstrap(
     threshold=threshold,
     calculate_cvar=calculate_cvar
 )
-
