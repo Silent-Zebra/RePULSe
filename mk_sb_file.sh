@@ -1,16 +1,45 @@
 #!/bin/bash
-if [ "$#" -eq 0 ]; then
+
+# Parse --cluster argument
+CLUSTER="default"
+COMMAND_ARGS=()
+
+i=1
+while [ $i -le $# ]; do
+    if [ "${!i}" == "--cluster" ]; then
+        if [ $((i+1)) -le $# ]; then
+            CLUSTER="${!((i+1))}"
+            i=$((i+2))
+        else
+            echo "Error: --cluster requires a value"
+            exit 1
+        fi
+    else
+        COMMAND_ARGS+=("${!i}")
+        i=$((i+1))
+    fi
+done
+
+# Check if we have any command arguments
+if [ ${#COMMAND_ARGS[@]} -eq 0 ]; then
     echo "Error: Please provide the training command"
     exit 1
 fi
 
-# Store the full command
-COMMAND="$*"
+# Store the full command (without --cluster)
+COMMAND="${COMMAND_ARGS[*]}"
+
+# Determine pretrain abbreviation method based on cluster
+if [ "$CLUSTER" == "simple" ]; then
+    PRETRAIN_LOGIC="simple"
+else
+    PRETRAIN_LOGIC="split"
+fi
 
 # Extract parameters using awk
-PARAMS=$(echo "$COMMAND" | awk '
+PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
 {
-    # Initialize empty variables
+    # Initialize empty variables (union of all files)
     micro_train = train = micro_rollout = rollout = ""
     max_epochs = num_episodes = num_episodes_h = gen_max_len = actor_lr = critic_lr = baseactor_lr = ""
     target_beta = lr_sched = actor_loss = kl = do_harmlessness = rta = rtb = startb = starta = sepb = uniw = ""
@@ -33,7 +62,6 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--actor_learning_rate") actor_lr = $(i+1)
         if($i == "--critic_learning_rate") critic_lr = $(i+1)
         if($i == "--base_actor_learning_rate") baseactor_lr = "_baselr"$(i+1)
-        # if($i == "--target_dist_beta") target_beta = "_beta"$(i+1)
         if($i ~ /^--target_dist_beta(=|$)/) target_beta = ($i ~ /=/) ? gensub(/^[^=]+=/, "", "g", $i) : "_beta"$(i+1)
         if($i ~ /^--save_negdata_threshold(=|$)/) save_negdata_threshold = ($i ~ /=/) ? "_savethr" gensub(/^[^=]+=/, "", "g", $i) : "_savethr" $(i+1)
         if($i ~ /^--threshold(=|$)/) threshold = ($i ~ /=/) ? "_thresh" gensub(/^[^=]+=/, "", "g", $i) : "_thresh" $(i+1)
@@ -45,20 +73,34 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--rm_type") rm_type = $(i+1)
         if($i == "--duplicate_rollout_batch_by") dup_rollout = "_"$(i+1)
         if($i == "--pretrain") {
-            abbrev = ""
-            n = split(gensub(".*/", "", "g", $(i+1)), arr, "-")
-            for (j = 1; j <= n; j++) {
-                abbrev = abbrev substr(arr[j], 1, 2)  # Append first 2 characters of each word
+            if(pretrain_logic == "simple") {
+                # Simple: just first 2 chars of path
+                abbrev = substr($(i+1), 1, 2)
+                pretrain = abbrev
+            } else {
+                # Split by "-", take first 2 chars of each component
+                abbrev = ""
+                n = split(gensub(".*/", "", "g", $(i+1)), arr, "-")
+                for (j = 1; j <= n; j++) {
+                    abbrev = abbrev substr(arr[j], 1, 2)
+                }
+                pretrain = abbrev
             }
-            pretrain = abbrev
         }
         if($i == "--reward_pretrain") {
-            abbrev = ""
-            n = split(gensub(".*/", "", "g", $(i+1)), arr, "-")
-            for (j = 1; j <= n; j++) {
-                abbrev = abbrev substr(arr[j], 1, 2)  # Append first 2 characters of each word
+            if(pretrain_logic == "simple") {
+                # Simple: just first 2 chars of path
+                abbrev = substr($(i+1), 1, 2)
+                reward_pretrain = abbrev
+            } else {
+                # Split by "-", take first 2 chars of each component
+                abbrev = ""
+                n = split(gensub(".*/", "", "g", $(i+1)), arr, "-")
+                for (j = 1; j <= n; j++) {
+                    abbrev = abbrev substr(arr[j], 1, 2)
+                }
+                reward_pretrain = abbrev
             }
-            reward_pretrain = abbrev
         }
         if($i == "--prompt_data") prompt_data = gensub("_.*", "", "g", gensub(".*/", "", "g", $(i+1)))
         if($i == "--init_head_from_base") init_head_from_base = "_initheadbase"
@@ -71,29 +113,29 @@ PARAMS=$(echo "$COMMAND" | awk '
         if($i == "--only_evaluate_on_neg_data") only_eval_neg = "_onlyevalneg"
         if($i == "--do_harmlessness_training") do_harmlessness = 1
         if($i == "--use_base_as_proposal") use_base_as_proposal = "_baseprop"
-	if($i == "--rew_trans_alpha") rta = "_rta"$(i+1)
-	if($i == "--rew_trans_beta") rtb = "_rtb"$(i+1)
-	if($i == "--start_target_dist_beta") startb = "_start"$(i+1)
-	if($i == "--start_alpha") starta = "_start"$(i+1)
-	if($i == "--separate_reweighting_beta") sepb = "_sepb"$(i+1)
-	if($i == "--uniform_reweight") uniw = "_uniw"
-	if($i == "--exploration_bonus_sampling_actor") exploration_bonus_sa = "_expsa"$(i+1)
-	if($i == "--exploration_bonus_base_actor") exploration_bonus_ba = "_expba"$(i+1)
-	if($i == "--bonus_alpha") bonus_alpha = "_a"$(i+1)
-	if($i == "--coin_flip_dim") coin_flip_dim = "_cfd"$(i+1)
-	if($i == "--coin_flip_lr") coin_flip_lr = "_cflr"$(i+1)
-	if($i == "--coin_flip_normalization_momentum") coin_flip_norm_momentum = "_cfnm"$(i+1)
+        if($i == "--rew_trans_alpha") rta = "_rta"$(i+1)
+        if($i == "--rew_trans_beta") rtb = "_rtb"$(i+1)
+        if($i == "--start_target_dist_beta") startb = "_start"$(i+1)
+        if($i == "--start_alpha") starta = "_start"$(i+1)
+        if($i == "--separate_reweighting_beta") sepb = "_sepb"$(i+1)
+        if($i == "--uniform_reweight") uniw = "_uniw"
+        if($i == "--exploration_bonus_sampling_actor") exploration_bonus_sa = "_expsa"$(i+1)
+        if($i == "--exploration_bonus_base_actor") exploration_bonus_ba = "_expba"$(i+1)
+        if($i == "--bonus_alpha") bonus_alpha = "_a"$(i+1)
+        if($i == "--coin_flip_dim") coin_flip_dim = "_cfd"$(i+1)
+        if($i == "--coin_flip_lr") coin_flip_lr = "_cflr"$(i+1)
+        if($i == "--coin_flip_normalization_momentum") coin_flip_norm_momentum = "_cfnm"$(i+1)
     }
     # Use num_episodes_h if do_harmlessness is set
     episodes_to_use = do_harmlessness ? num_episodes_h : num_episodes
     
-        # Shorten lr_sched if it contains "constant"
-        if(lr_sched ~ /constant/) lr_sched = gensub(/constant/, "const", "g", lr_sched)
-        
-        print micro_train "|" train "|" micro_rollout "|" rollout "|" max_epochs "|" episodes_to_use "|" \
-              gen_max_len "|" actor_lr "|" critic_lr "|" baseactor_lr "|" target_beta "|" save_negdata_threshold "|" threshold "|" lr_sched "|" \
-              actor_loss "|" custom_prompt "|" parameterization "|" adam_beta2 "|" rm_type "|" dup_rollout "|" pretrain "|" \
-              reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" kl "|" only_eval_neg "|" use_base_as_proposal "|" rta "|" rtb "|" startb "|" starta "|" sepb "|" uniw "|" exploration_bonus_sa "|" exploration_bonus_ba "|" bonus_alpha "|" coin_flip_dim "|" coin_flip_lr "|" coin_flip_norm_momentum "|" analytic_batch  \
+    # Shorten lr_sched if it contains "constant"
+    if(lr_sched ~ /constant/) lr_sched = gensub(/constant/, "const", "g", lr_sched)
+    
+    print micro_train "|" train "|" micro_rollout "|" rollout "|" max_epochs "|" episodes_to_use "|" \
+          gen_max_len "|" actor_lr "|" critic_lr "|" baseactor_lr "|" target_beta "|" save_negdata_threshold "|" threshold "|" lr_sched "|" \
+          actor_loss "|" custom_prompt "|" parameterization "|" adam_beta2 "|" rm_type "|" dup_rollout "|" pretrain "|" \
+          reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" kl "|" only_eval_neg "|" use_base_as_proposal "|" rta "|" rtb "|" startb "|" starta "|" sepb "|" uniw "|" exploration_bonus_sa "|" exploration_bonus_ba "|" bonus_alpha "|" coin_flip_dim "|" coin_flip_lr "|" coin_flip_norm_momentum "|" analytic_batch \
 }')
 
 # Read using the special delimiter
@@ -101,21 +143,18 @@ IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS NUM_EPISODES GEN
     ACTOR_LR CRITIC_LR BASEACTOR_LR TARGET_BETA SAVE_NEGDATA_THRESH THRESH LR_SCHED ACTOR_LOSS CUSTOM_PROMPT PARAMETERIZATION ADAM_BETA2 RM_TYPE DUP_ROLLOUT PRETRAIN REWARD_PRETRAIN PROMPT_DATA \
     INITHEADBASE SD_DIVIDER HARMLOSS HARMLOSSREINBASELINE HLRBVAL ALPHA KL ONLY_EVAL_NEG BASE_PROP RTA RTB STARTB STARTA SEPB UNIW EXPLORATION_BONUS_SA EXPLORATION_BONUS_BA BONUS_ALPHA COIN_FLIP_DIM COIN_FLIP_LR COIN_FLIP_NORM_MOMENTUM ANALYTIC_BATCH <<< "$PARAMS"
 
-# echo $PRETRAIN
-# PRETRAIN="${PRETRAIN%%/*}"
-# echo $PRETRAIN
-
-
 # Get current date in required format
 CURRENT_DATE=$(date +%Y-%m-%d-%H-%M)
 
-# Generate output filename
+# Generate output filename using dcs pattern (most complete)
 PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${BASE_PROP}${THRESH}${STARTB}${TARGET_BETA}${SEPB}${UNIW}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_batch${MICRO_TRAIN}_${TRAIN}${ANALYTIC_BATCH}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_epo${MAX_EPOCHS}_epi${NUM_EPISODES}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${STARTA}${ALPHA}${RTA}${RTB}${BASEACTOR_LR}_${ACTOR_LOSS}_alr${ACTOR_LR}_clr${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}${EXPLORATION_BONUS_SA}${EXPLORATION_BONUS_BA}${BONUS_ALPHA}${COIN_FLIP_DIM}${COIN_FLIP_LR}${COIN_FLIP_NORM_MOMENTUM}"
 SBATCH_FILE="sbatch_${PATTERN}"
 OUTPUT_FILE="result_${PATTERN}_s1.txt"
 
-# Create the sbatch file
-cat > "$SBATCH_FILE" << EOL
+# Create the sbatch file based on cluster
+case "$CLUSTER" in
+    "dcs"|"simple")
+        cat > "$SBATCH_FILE" << EOL
 #!/bin/bash
 #SBATCH -J s1_$(($RANDOM % 100000))
 #SBATCH --ntasks=1
@@ -141,9 +180,88 @@ export LD_LIBRARY_PATH=\$CUDA_HOME/lib64:\$LD_LIBRARY_PATH
 export MAX_JOBS=1
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
 EOL
-
+        ;;
+    "deadline")
+        cat > "$SBATCH_FILE" << EOL
+#!/bin/bash
+#SBATCH -J s1_$(($RANDOM % 100000))
+#SBATCH --ntasks=1
+#SBATCH --mem=64G
+#SBATCH -c 4
+#SBATCH --time=4:00:00
+#SBATCH --partition=a40
+#SBATCH --qos=deadline
+#SBATCH --account=deadline
+#SBATCH --export=ALL
+#SBATCH --output=$OUTPUT_FILE
+#SBATCH --gres=gpu:1
+cd ~
+ln -s /usr/bin/gcc-10 .local/bin/gcc
+ln -s /usr/bin/g++-10 .local/bin/g++
+export PATH=\$HOME/.local/bin/:\$PATH
+cd ~/OpenRLHF
+source newenv/bin/activate
+module load cuda-12.3
+deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
+EOL
+        ;;
+    "multinode")
+        cat > "$SBATCH_FILE" << EOL
+#!/bin/bash
+#SBATCH -J s1_$(($RANDOM % 100000))
+#SBATCH --mem=48G
+#SBATCH --time=5:00:00
+#SBATCH --export=ALL
+#SBATCH --output=$OUTPUT_FILE
+#SBATCH --nodes 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=4
+#SBATCH --cpus-per-task=4
+#SBATCH --exclude=kn003
+cd ~
+export PATH=\$HOME/.local/bin/:\$PATH
+cd ~/projects/aip-rgrosse/zhaostep/OpenRLHF
+module load StdEnv/2023  gcc/12.3  openmpi/4.1.5
+module load cuda/12.6
+module load scipy-stack/2024a
+module load gcc arrow/18.1.0
+module load opencv/4.12.0
+module load rust
+source ENV/bin/activate
+source ~/.hf_token
+deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
+EOL
+        ;;
+    "default"|*)
+        cat > "$SBATCH_FILE" << EOL
+#!/bin/bash
+#SBATCH -J s1_$(($RANDOM % 100000))
+#SBATCH --mem=48G
+#SBATCH --time=2:00:00
+#SBATCH --export=ALL
+#SBATCH --output=$OUTPUT_FILE
+#SBATCH --nodes 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=1
+cd ~
+export PATH=\$HOME/.local/bin/:\$PATH
+cd ~/projects/aip-rgrosse/zhaostep/OpenRLHF
+module load StdEnv/2023  gcc/12.3  openmpi/4.1.5
+module load cuda/12.6
+module load scipy-stack/2024a
+module load gcc arrow/18.1.0
+module load opencv/4.12.0
+module load rust
+source ENV/bin/activate
+source ~/.hf_token
+deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
+EOL
+        ;;
+esac
 
 # Make the sbatch file executable
 chmod +x "$SBATCH_FILE"
 echo "Created sbatch file: $SBATCH_FILE"
 echo "Output will be written to: $OUTPUT_FILE"
+
