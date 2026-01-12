@@ -565,9 +565,25 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.separate_neg_samples:
             print("Making experience: neg sampling")
 
+            # Generate sequences once (with no_grad since generation doesn't need gradients)
+            expanded_prompts = tile_prompts(rand_prompts, args.duplicate_rollout_batch_by)
+            action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
+                expanded_prompts, **self.generate_kwargs)
+            
+            # Train coin flip network on the generated sequences (needs gradients for coin flip head)
+            if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
+                self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
+
+            # Pass pre-generated sequences to make_experience to avoid duplicate generation
             experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
                 rand_prompts,
                 samples_per_prompt=args.duplicate_rollout_batch_by,
+                sequences=sequences,
+                action_log_probs=action_log_probs,
+                action_mask=action_mask,
+                attention_mask=attention_mask,
+                num_actions=num_actions,
+                value=value,
                 **self.generate_kwargs
             )
             self.sampling_replay_buffer_neg.append(experience_neg_sampling)
