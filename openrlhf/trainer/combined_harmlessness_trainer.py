@@ -982,6 +982,25 @@ class CombinedHarmlessnessTrainer(ABC):
             # Average over coin_flip_dim and batch
             loss = ((final_predictions - coin_flip_targets) ** 2).mean()
             
+            # Compute differences for inspection
+            differences = final_predictions - coin_flip_targets  # (B, d)
+            abs_differences = differences.abs()  # (B, d)
+            max_diff, max_diff_flat_idx = abs_differences.max(dim=None)  # scalar, flat index tensor
+            max_diff_flat_idx = max_diff_flat_idx.item()  # convert to Python int
+            max_diff_batch_idx = max_diff_flat_idx // coin_flip_dim
+            max_diff_dim_idx = max_diff_flat_idx % coin_flip_dim
+            
+            # Print inspection information
+            if self.strategy.is_rank_0():
+                print(f"\n[Coin Flip Network Update Step {update_step + 1}/{update_steps}]")
+                print(f"  Target (first sample, first 10 dims): {coin_flip_targets[0, :10].cpu().tolist()}")
+                print(f"  Prediction (first sample, first 10 dims): {final_predictions[0, :10].detach().cpu().tolist()}")
+                print(f"  Loss: {loss.item():.6f}")
+                print(f"  Max absolute difference: {max_diff.item():.6f}")
+                print(f"  Max diff location: batch_idx={max_diff_batch_idx}, dim_idx={max_diff_dim_idx}")
+                print(f"  Max diff target value: {coin_flip_targets[max_diff_batch_idx, max_diff_dim_idx].item():.6f}")
+                print(f"  Max diff prediction value: {final_predictions[max_diff_batch_idx, max_diff_dim_idx].detach().item():.6f}")
+            
             # Backward pass and optimizer step
             # Note: Network stays in eval mode - only the head is trained, base model is frozen
             self.strategy.backward(loss, self.coin_flip_network, self.coin_flip_optim)
