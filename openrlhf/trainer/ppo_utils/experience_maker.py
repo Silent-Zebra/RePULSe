@@ -430,7 +430,7 @@ class BaseExperienceMaker(ABC):
             # Average over coin_flip_dim and batch
             loss = ((final_predictions - coin_flip_targets) ** 2).mean()
 
-            print_info = True
+            print_info = False # True
             if print_info:
                 # Compute differences for inspection
                 differences = final_predictions - coin_flip_targets  # (B, d)
