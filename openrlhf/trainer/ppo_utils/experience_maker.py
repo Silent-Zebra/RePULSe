@@ -557,29 +557,41 @@ class BaseExperienceMaker(ABC):
 
 
     @torch.no_grad()
-    def make_experience(self, prompts: Union[str, List[str]], samples_per_prompt: int = 1, **generate_kwargs) -> Experience:
+    def make_experience(
+        self, 
+        prompts: Union[str, List[str]], 
+        samples_per_prompt: int = 1,
+        sequences: Optional[torch.Tensor] = None,
+        action_log_probs: Optional[torch.Tensor] = None,
+        action_mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        num_actions: Optional[int] = None,
+        value: Optional[torch.Tensor] = None,
+        **generate_kwargs
+    ) -> Experience:
         print(f"Current target_dist_beta: {self.target_dist_beta}")
-        expanded_prompts = tile_prompts(prompts, samples_per_prompt)
-
-
-        if self.shared_actorcritic:
-            action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_logprobs(
-                expanded_prompts, **generate_kwargs)
-        else:
-            action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
-                expanded_prompts, **generate_kwargs)
-
-            if self.critic is not None:
-                # values
-                value = self.critic(sequences, action_mask, attention_mask)
-
+        
+        # If sequences are provided, use them; otherwise generate
+        if sequences is not None:
+            # Use pre-generated sequences and related data
+            if action_log_probs is None or action_mask is None or attention_mask is None or num_actions is None:
+                raise ValueError("If sequences are provided, action_log_probs, action_mask, attention_mask, and num_actions must also be provided")
+            
+            # For shared_actorcritic case, value should be provided if critic exists
+            if self.shared_actorcritic:
+                if value is None and self.critic is not None:
+                    raise ValueError("For shared_actorcritic, value must be provided when sequences are pre-generated")
             else:
-                value = None
-
-
-        # Train coin flip network before exploration bonus is calculated (if enabled)
-        if self.coin_flip_network is not None and self.coin_flip_optim is not None:
-            self._train_coin_flip_network(sequences, attention_mask)
+                # For non-shared case, compute value if critic exists and value not provided
+                if self.critic is not None and value is None:
+                    value = self.critic(sequences, action_mask, attention_mask)
+                elif self.critic is None:
+                    value = None
+        else:
+            # Generate sequences as before (backward compatibility)
+            expanded_prompts = tile_prompts(prompts, samples_per_prompt)
+            action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_all_data(
+                expanded_prompts, **generate_kwargs)
 
         # init log probs
         with torch.no_grad():
@@ -889,6 +901,32 @@ class BaseExperienceMaker(ABC):
             action_log_probs = self.actor(sequences, num_actions, attention_mask)
 
             return action_log_probs, action_mask, attention_mask, num_actions, sequences
+
+    @torch.no_grad()
+    def generate_seqs_and_get_all_data(self, prompts, **generate_kwargs):
+        """
+        Generate sequences and compute all necessary data (logprobs, masks, values).
+        This is a convenience wrapper that handles both shared_actorcritic and non-shared cases.
+        
+        Args:
+            prompts: Prompts to generate sequences from
+            **generate_kwargs: Additional generation arguments
+            
+        Returns:
+            Tuple of (action_log_probs, action_mask, attention_mask, num_actions, sequences, value)
+        """
+        if self.shared_actorcritic:
+            action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_logprobs(
+                prompts, **generate_kwargs)
+        else:
+            action_log_probs, action_mask, attention_mask, num_actions, sequences = self.generate_seqs_and_get_logprobs(
+                prompts, **generate_kwargs)
+            if self.critic is not None:
+                value = self.critic(sequences, action_mask, attention_mask)
+            else:
+                value = None
+        
+        return action_log_probs, action_mask, attention_mask, num_actions, sequences, value
 
     @torch.no_grad()
     def get_advantages_and_returns(

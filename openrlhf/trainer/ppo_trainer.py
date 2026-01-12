@@ -401,9 +401,25 @@ class BasePPOTrainer(ABC):
 
 
                     for update in range(num_twist_updates_to_do):
+                        # Generate sequences once (with no_grad since generation doesn't need gradients)
+                        expanded_prompts = tile_prompts(custom_prompt, args.duplicate_rollout_batch_by)
+                        action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_all_data(
+                            expanded_prompts, **self.generate_kwargs)
+                        
+                        # Train coin flip network on the generated sequences (needs gradients for coin flip head)
+                        if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
+                            self.experience_maker._train_coin_flip_network(sequences, attention_mask)
+                        
+                        # Pass pre-generated sequences to make_experience to avoid duplicate generation
                         experience = self.experience_maker.make_experience(
                             custom_prompt,
                             samples_per_prompt=args.duplicate_rollout_batch_by,
+                            sequences=sequences,
+                            action_log_probs=action_log_probs,
+                            action_mask=action_mask,
+                            attention_mask=attention_mask,
+                            num_actions=num_actions,
+                            value=value,
                             **self.generate_kwargs)
 
                         if update == 0:
@@ -476,9 +492,25 @@ class BasePPOTrainer(ABC):
                     # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     #              profile_memory=True, record_shapes=True) as prof:
 
+                    # Generate sequences once (with no_grad since generation doesn't need gradients)
+                    expanded_prompts = tile_prompts(rand_prompts, args.duplicate_rollout_batch_by)
+                    action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_all_data(
+                        expanded_prompts, **self.generate_kwargs)
+                    
+                    # Train coin flip network on the generated sequences (needs gradients for coin flip head)
+                    if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
+                        self.experience_maker._train_coin_flip_network(sequences, attention_mask)
+
+                    # Pass pre-generated sequences to make_experience to avoid duplicate generation
                     experience = self.experience_maker.make_experience(
                         rand_prompts,
                         samples_per_prompt=args.duplicate_rollout_batch_by,
+                        sequences=sequences,
+                        action_log_probs=action_log_probs,
+                        action_mask=action_mask,
+                        attention_mask=attention_mask,
+                        num_actions=num_actions,
+                        value=value,
                         **self.generate_kwargs
                     )
 
