@@ -358,6 +358,10 @@ class BaseExperienceMaker(ABC):
         # Get update steps from args
         update_steps = getattr(self.strategy.args, 'coin_flip_update_steps', 1) if self.strategy else 1
         
+        print(f"Training coin flip network for {update_steps} update steps")
+        print(self.strategy.args.coin_flip_update_steps)
+        1/0
+
         # Keep network in eval mode - only the head is trained, base model is frozen
         # This ensures consistent outputs (no dropout/stochasticity from base model)
         # The head (Linear layer) doesn't have dropout/batch_norm, so eval mode is fine
