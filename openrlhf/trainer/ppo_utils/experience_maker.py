@@ -187,6 +187,8 @@ class BaseExperienceMaker(ABC):
         bonus_alpha: float = 1.0,
         coin_flip_network: Optional[nn.Module] = None,
         coin_flip_dim: int = 64,
+        coin_flip_optim: Optional[torch.optim.Optimizer] = None,
+        coin_flip_scheduler: Optional[object] = None,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -232,6 +234,8 @@ class BaseExperienceMaker(ABC):
         self.bonus_alpha = bonus_alpha
         self.coin_flip_network = coin_flip_network
         self.coin_flip_dim = coin_flip_dim
+        self.coin_flip_optim = coin_flip_optim
+        self.coin_flip_scheduler = coin_flip_scheduler
         
         # Initialize state visitation count tensor for t=0 tokens (vocab size = 50257)
         # Only for exact_count type
@@ -335,6 +339,169 @@ class BaseExperienceMaker(ABC):
         
         return exploration_bonus
     
+    def _train_coin_flip_network(self, sequences: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
+        """
+        Train the coin flip network on the given sequences.
+        
+        For each sequence:
+        1. Forward pass through base model to get hidden states (done once, reused)
+        2. Extract final token hidden states (done once, reused)
+        3. For each update step:
+           a. Generate random coin flip targets c ~ {-1, 1}^d for final state only
+           b. Forward pass through coin_flip_head to get predictions f_φ(x_final)
+           c. Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
+           d. Backward pass and optimizer step
+        """
+        if self.coin_flip_network is None or self.coin_flip_optim is None:
+            return
+        
+        # Get update steps from args
+        update_steps = getattr(self.strategy.args, 'coin_flip_update_steps', 1) if self.strategy else 1
+        
+        # Keep network in eval mode - only the head is trained, base model is frozen
+        # This ensures consistent outputs (no dropout/stochasticity from base model)
+        # The head (Linear layer) doesn't have dropout/batch_norm, so eval mode is fine
+        self.coin_flip_network.eval()
+        
+        batch_size = sequences.shape[0]
+        coin_flip_dim = self.coin_flip_network.coin_flip_dim
+        device = sequences.device
+
+        # Generate coin flip targets: c ~ {-1, 1}^d for final state only. Only generate once
+        coin_flip_targets = generate_coin_flip_vectors(
+            batch_size, coin_flip_dim, device
+        )  # (B, d)
+        
+        # Step 1: Forward pass through base model to get hidden states (expensive, done once)
+        # Compute position_ids
+        if attention_mask is not None:
+            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 1)
+        else:
+            position_ids = None
+        
+        # Forward through base model (frozen, no gradients needed)
+        with torch.no_grad():
+            outputs = self.coin_flip_network.base_model(
+                sequences,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+        
+        # Get hidden states (last hidden state)
+        if "hidden_states" in outputs:
+            hidden_states = outputs["hidden_states"][-1]  # (batch_size, seq_len, hidden_size)
+        elif "last_hidden_state" in outputs:
+            hidden_states = outputs["last_hidden_state"]  # (batch_size, seq_len, hidden_size)
+        else:
+            raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
+        
+        # Ensure hidden_states and coin_flip_head are on the same device
+        coin_flip_head_device = next(self.coin_flip_network.coin_flip_head.parameters()).device
+        if hidden_states.device != coin_flip_head_device:
+            hidden_states = hidden_states.to(coin_flip_head_device)
+        
+        # Step 2: Extract final token hidden states (done once, reused for all update steps)
+        if attention_mask is not None:
+            # Find the last valid position for each sequence (same as reward model does)
+            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
+            # Use advanced indexing to extract final hidden states: (B, hidden_size)
+            batch_indices = torch.arange(hidden_states.size(0), device=hidden_states.device)
+            final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (B, hidden_size)
+        else:
+            # Use last position
+            final_hidden_states = hidden_states[:, -1, :]  # (B, hidden_size)
+        
+        # Check if model is wrapped by DeepSpeed
+        try:
+            import deepspeed
+            is_deepspeed_wrapped = isinstance(self.coin_flip_network, deepspeed.DeepSpeedEngine)
+        except (ImportError, AttributeError):
+            is_deepspeed_wrapped = False
+        
+        # Step 3: Loop over update steps
+        for update_step in range(update_steps):
+            # Forward pass through coin_flip_head only (cheap, recomputed each step)
+            final_predictions = self.coin_flip_network.coin_flip_head(final_hidden_states)  # (B, d)
+            
+            # Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
+            # Average over coin_flip_dim and batch
+            loss = ((final_predictions - coin_flip_targets) ** 2).mean()
+
+            print_info = True
+            if print_info:
+                # Compute differences for inspection
+                differences = final_predictions - coin_flip_targets  # (B, d)
+                abs_differences = differences.abs()  # (B, d)
+                abs_differences_flat = abs_differences.flatten()  # (B*d,)
+                max_diff, max_diff_flat_idx = abs_differences_flat.max(dim=0)  # scalar, flat index tensor
+                max_diff_flat_idx = max_diff_flat_idx.item()  # convert to Python int
+                max_diff_batch_idx = max_diff_flat_idx // coin_flip_dim
+                max_diff_dim_idx = max_diff_flat_idx % coin_flip_dim
+                
+                # Compute bonus statistics (same computation as compute_intrinsic_reward)
+                with torch.no_grad():
+                    # Compute ||f_φ(x)||^2 for final token: sum over coin_flip_dim dimension
+                    norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
+                    
+                    # Compute intrinsic reward: sqrt((1/d) * ||f_φ(x)||^2)
+                    intrinsic_reward = torch.sqrt(norm_squared / coin_flip_dim)  # (B,)
+                    
+                    # Apply normalization if enabled (same as in compute_intrinsic_reward)
+                    if self.coin_flip_network.normalization_momentum is not None:
+                        intrinsic_reward = self.coin_flip_network._normalize_bonus(intrinsic_reward)
+                    
+                    # Multiply by bonus_alpha
+                    bonus = intrinsic_reward * self.bonus_alpha  # (B,)
+                    
+                    # Compute statistics
+                    mean_bonus = bonus.mean().item()
+                    min_bonus = bonus.min().item()
+                    max_bonus = bonus.max().item()
+                
+                # Print inspection information
+                if self.strategy and self.strategy.is_rank_0():
+                    print(f"\n[Coin Flip Network Update Step {update_step + 1}/{update_steps}]")
+                    print(f"  Target (first sample, first 10 dims): {coin_flip_targets[0, :10].cpu().tolist()}")
+                    print(f"  Prediction (first sample, first 10 dims): {final_predictions[0, :10].detach().cpu().tolist()}")
+                    print(f"  Loss: {loss.item():.6f}")
+                    print(f"  Max absolute difference: {max_diff.item():.6f}")
+                    print(f"  Max diff location: batch_idx={max_diff_batch_idx}, dim_idx={max_diff_dim_idx}")
+                    print(f"  Max diff target value: {coin_flip_targets[max_diff_batch_idx, max_diff_dim_idx].item():.6f}")
+                    print(f"  Max diff prediction value: {final_predictions[max_diff_batch_idx, max_diff_dim_idx].detach().item():.6f}")
+                    print(f"  Mean bonus: {mean_bonus:.6f}")
+                    print(f"  Min bonus: {min_bonus:.6f}")
+                    print(f"  Max bonus: {max_bonus:.6f}")
+            
+            # Backward pass and optimizer step
+            # Note: Network stays in eval mode - only the head is trained, base model is frozen
+            if self.strategy:
+                self.strategy.backward(loss, self.coin_flip_network, self.coin_flip_optim)
+                
+                if is_deepspeed_wrapped:
+                    # DeepSpeed handles optimizer step internally
+                    self.strategy.optimizer_step(
+                        self.coin_flip_optim,
+                        self.coin_flip_network,
+                        self.coin_flip_scheduler,
+                        name="coin_flip_network"
+                    )
+                else:
+                    # Not wrapped by DeepSpeed - manually step the optimizer
+                    self.coin_flip_optim.step()
+                    if self.coin_flip_scheduler is not None:
+                        self.coin_flip_scheduler.step()
+                    self.coin_flip_optim.zero_grad()
+            else:
+                # Fallback if no strategy (shouldn't happen in practice)
+                loss.backward()
+                self.coin_flip_optim.step()
+                if self.coin_flip_scheduler is not None:
+                    self.coin_flip_scheduler.step()
+                self.coin_flip_optim.zero_grad()
+    
     def _calculate_coin_flip_bonus(
         self,
         sequences: torch.Tensor,
@@ -409,6 +576,10 @@ class BaseExperienceMaker(ABC):
             else:
                 value = None
 
+
+        # Train coin flip network before exploration bonus is calculated (if enabled)
+        if self.coin_flip_network is not None and self.coin_flip_optim is not None:
+            self._train_coin_flip_network(sequences, attention_mask)
 
         # init log probs
         with torch.no_grad():
