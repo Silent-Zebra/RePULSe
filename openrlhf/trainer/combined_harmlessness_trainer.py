@@ -985,7 +985,8 @@ class CombinedHarmlessnessTrainer(ABC):
             # Compute differences for inspection
             differences = final_predictions - coin_flip_targets  # (B, d)
             abs_differences = differences.abs()  # (B, d)
-            max_diff, max_diff_flat_idx = abs_differences.max()  # scalar, flat index tensor
+            abs_differences_flat = abs_differences.flatten()  # (B*d,)
+            max_diff, max_diff_flat_idx = abs_differences_flat.max(dim=0)  # scalar, flat index tensor
             max_diff_flat_idx = max_diff_flat_idx.item()  # convert to Python int
             max_diff_batch_idx = max_diff_flat_idx // coin_flip_dim
             max_diff_dim_idx = max_diff_flat_idx % coin_flip_dim
