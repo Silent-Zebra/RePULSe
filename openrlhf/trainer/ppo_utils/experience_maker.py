@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import List, Optional, Tuple, Union, Set
 from torch.profiler import profile, record_function, ProfilerActivity
+import random
 
 import ray
 import torch
@@ -51,6 +52,106 @@ def generate_coin_flip_vectors(batch_size: int, d: int, device: torch.device) ->
     coin_flips = torch.randint(0, 2, (batch_size, d), device=device, dtype=torch.float32)
     coin_flips = coin_flips * 2 - 1  # Convert {0, 1} -> {-1, 1}
     return coin_flips
+
+
+class CoinFlipReplayBuffer:
+    """
+    Replay buffer for coin flip network training.
+    Stores final embeddings from the base model (states) and associated coin flip vectors.
+    
+    This follows a similar pattern to NaiveReplayBuffer but is optimized for storing
+    just embeddings and coin flip vectors rather than full Experience objects.
+    Stores 1D tensors directly for efficient sampling.
+    """
+    
+    def __init__(self, limit: int = 0, cpu_offload: bool = True):
+        """
+        Initialize the replay buffer.
+        
+        Args:
+            limit: Maximum number of samples in the buffer. A number <= 0 means unlimited. Defaults to 0.
+            cpu_offload: Whether to offload data to CPU to save GPU memory. Defaults to True.
+        """
+        self.limit = limit
+        self.cpu_offload = cpu_offload
+        self.target_device = torch.device(f"cuda:{torch.cuda.current_device()}")
+        # Store 1D tensors directly: each element is (hidden_size,) and (coin_flip_dim,)
+        self.embeddings: List[torch.Tensor] = []
+        self.coin_flip_vectors: List[torch.Tensor] = []
+        self.size = 0
+    
+    @torch.no_grad()
+    def add(self, embeddings: torch.Tensor, coin_flip_vectors: torch.Tensor):
+        """
+        Add embeddings and coin flip vectors to the buffer.
+        
+        Args:
+            embeddings: Final hidden states, shape (batch_size, hidden_size)
+            coin_flip_vectors: Coin flip targets, shape (batch_size, coin_flip_dim)
+        """
+        batch_size = embeddings.shape[0]
+        
+        # Move to CPU if cpu_offload is enabled
+        if self.cpu_offload:
+            embeddings = embeddings.detach().cpu()
+            coin_flip_vectors = coin_flip_vectors.detach().cpu()
+        else:
+            embeddings = embeddings.detach()
+            coin_flip_vectors = coin_flip_vectors.detach()
+        
+        # Convert 2D tensors to list of 1D tensors using unbind, then extend
+        self.embeddings.extend(torch.unbind(embeddings, dim=0))
+        self.coin_flip_vectors.extend(torch.unbind(coin_flip_vectors, dim=0))
+        self.size += batch_size
+        
+        # If limit is set and we exceed it, remove oldest entries
+        if self.limit > 0:
+            while self.size > self.limit:
+                self.embeddings.pop(0)
+                self.coin_flip_vectors.pop(0)
+                self.size -= 1
+    
+    @torch.no_grad()
+    def sample(self, batch_size: int, device: Optional[torch.device] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Sample a batch of embeddings and coin flip vectors uniformly at random.
+        
+        Args:
+            batch_size: Number of samples to return
+            device: Device to move tensors to. If None, uses target_device. Defaults to None.
+        
+        Returns:
+            Tuple of (embeddings, coin_flip_vectors), both shape (batch_size, ...)
+        """
+        if self.size == 0:
+            raise ValueError("Cannot sample from empty replay buffer")
+        
+        if device is None:
+            device = self.target_device
+        
+        # Sample random indices (using random.sample for consistency with NaiveReplayBuffer)
+        num_samples = min(batch_size, self.size)
+        indices = random.sample(range(self.size), num_samples)
+        
+        # Collect sampled tensors and stack them
+        sampled_embeddings = [self.embeddings[i].to(device) for i in indices]
+        sampled_coin_flips = [self.coin_flip_vectors[i].to(device) for i in indices]
+        
+        # Stack into batch tensors
+        sampled_embeddings = torch.stack(sampled_embeddings, dim=0)  # (batch_size, hidden_size)
+        sampled_coin_flips = torch.stack(sampled_coin_flips, dim=0)  # (batch_size, coin_flip_dim)
+        
+        return sampled_embeddings, sampled_coin_flips
+    
+    def clear(self):
+        """Clear the replay buffer."""
+        self.embeddings = []
+        self.coin_flip_vectors = []
+        self.size = 0
+    
+    def __len__(self) -> int:
+        """Return the number of samples in the buffer."""
+        return self.size
 
 
 @dataclass
@@ -237,6 +338,14 @@ class BaseExperienceMaker(ABC):
         self.coin_flip_optim = coin_flip_optim
         self.coin_flip_scheduler = coin_flip_scheduler
         
+        # Initialize coin flip replay buffer if using coin_flip exploration bonus
+        # Follows same pattern as NaiveReplayBuffer: limit=0 means unlimited, cpu_offload=True saves GPU memory
+        if self.exploration_bonus == "coin_flip":
+            buffer_limit = getattr(strategy.args, 'coin_flip_replay_buffer_limit', 0) if strategy else 0
+            self.coin_flip_replay_buffer = CoinFlipReplayBuffer(limit=buffer_limit, cpu_offload=True)
+        else:
+            self.coin_flip_replay_buffer = None
+        
         # Initialize state visitation count tensor for t=0 tokens (vocab size = 50257)
         # Only for exact_count type
         if self.exploration_bonus == "exact_count":
@@ -346,8 +455,10 @@ class BaseExperienceMaker(ABC):
         For each sequence:
         1. Forward pass through base model to get hidden states (done once, reused)
         2. Extract final token hidden states (done once, reused)
-        3. For each update step:
-           a. Generate random coin flip targets c ~ {-1, 1}^d for final state only
+        3. Generate random coin flip targets c ~ {-1, 1}^d for final state only
+        4. Save embeddings and coin flip vectors to replay buffer
+        5. For each update step:
+           a. Sample a batch from replay buffer (uniformly at random)
            b. Forward pass through coin_flip_head to get predictions f_φ(x_final)
            c. Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
            d. Backward pass and optimizer step
@@ -367,11 +478,6 @@ class BaseExperienceMaker(ABC):
         coin_flip_dim = self.coin_flip_network.coin_flip_dim
         device = sequences.device
 
-        # Generate coin flip targets: c ~ {-1, 1}^d for final state only. Only generate once
-        coin_flip_targets = generate_coin_flip_vectors(
-            batch_size, coin_flip_dim, device
-        )  # (B, d)
-        
         # Step 1: Forward pass through base model to get hidden states (expensive, done once)
         # Compute position_ids
         if attention_mask is not None:
@@ -414,6 +520,28 @@ class BaseExperienceMaker(ABC):
             # Use last position
             final_hidden_states = hidden_states[:, -1, :]  # (B, hidden_size)
         
+        assert self.replay_buffer is not None, "for now, replay_buffer must be provided when exploration_bonus='coin_flip'. Fail noisily for now"
+        
+        # Step 3: Generate coin flip targets: c ~ {-1, 1}^d for final state only
+        coin_flip_targets = generate_coin_flip_vectors(
+            batch_size, coin_flip_dim, device
+        )  # (B, d)
+        
+        # Step 4: Save embeddings and coin flip vectors to replay buffer
+        if self.coin_flip_replay_buffer is not None:
+            self.coin_flip_replay_buffer.add(final_hidden_states, coin_flip_targets)
+        
+        # Step 5: Get replay buffer batch size (defaults to train_batch_size if None)
+        if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.size > 0:
+            # Use replay buffer for training
+            replay_buffer_batch_size = getattr(self.strategy.args, 'coin_flip_replay_buffer_batch_size', None) if self.strategy else None
+            if replay_buffer_batch_size is None:
+                # Default to train_batch_size
+                replay_buffer_batch_size = getattr(self.strategy.args, 'train_batch_size', batch_size) if self.strategy else batch_size
+        else:
+            # No replay buffer yet, use current batch
+            replay_buffer_batch_size = batch_size
+        
         # Check if model is wrapped by DeepSpeed
         try:
             import deepspeed
@@ -421,19 +549,30 @@ class BaseExperienceMaker(ABC):
         except (ImportError, AttributeError):
             is_deepspeed_wrapped = False
         
-        # Step 3: Loop over update steps
+        # Step 6: Loop over update steps
         for update_step in range(update_steps):
+            # Sample from replay buffer if available, otherwise use current batch
+            if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.size > 0:
+                # Sample from replay buffer
+                sampled_embeddings, sampled_coin_flips = self.coin_flip_replay_buffer.sample(
+                    replay_buffer_batch_size, coin_flip_head_device
+                )
+            else:
+                # Use current batch (first few iterations before buffer has data)
+                sampled_embeddings = final_hidden_states
+                sampled_coin_flips = coin_flip_targets
+            
             # Forward pass through coin_flip_head only (cheap, recomputed each step)
-            final_predictions = self.coin_flip_network.coin_flip_head(final_hidden_states)  # (B, d)
+            final_predictions = self.coin_flip_network.coin_flip_head(sampled_embeddings)  # (B, d)
             
             # Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
             # Average over coin_flip_dim and batch
-            loss = ((final_predictions - coin_flip_targets) ** 2).mean()
+            loss = ((final_predictions - sampled_coin_flips) ** 2).mean()
 
             print_info = False # True
             if print_info:
                 # Compute differences for inspection
-                differences = final_predictions - coin_flip_targets  # (B, d)
+                differences = final_predictions - sampled_coin_flips  # (B, d)
                 abs_differences = differences.abs()  # (B, d)
                 abs_differences_flat = abs_differences.flatten()  # (B*d,)
                 max_diff, max_diff_flat_idx = abs_differences_flat.max(dim=0)  # scalar, flat index tensor
@@ -464,12 +603,13 @@ class BaseExperienceMaker(ABC):
                 # Print inspection information
                 if self.strategy and self.strategy.is_rank_0():
                     print(f"\n[Coin Flip Network Update Step {update_step + 1}/{update_steps}]")
-                    print(f"  Target (first sample, first 10 dims): {coin_flip_targets[0, :10].cpu().tolist()}")
+                    print(f"  Replay buffer size: {self.coin_flip_replay_buffer.size if self.coin_flip_replay_buffer is not None else 0}")
+                    print(f"  Target (first sample, first 10 dims): {sampled_coin_flips[0, :10].cpu().tolist()}")
                     print(f"  Prediction (first sample, first 10 dims): {final_predictions[0, :10].detach().cpu().tolist()}")
                     print(f"  Loss: {loss.item():.6f}")
                     print(f"  Max absolute difference: {max_diff.item():.6f}")
                     print(f"  Max diff location: batch_idx={max_diff_batch_idx}, dim_idx={max_diff_dim_idx}")
-                    print(f"  Max diff target value: {coin_flip_targets[max_diff_batch_idx, max_diff_dim_idx].item():.6f}")
+                    print(f"  Max diff target value: {sampled_coin_flips[max_diff_batch_idx, max_diff_dim_idx].item():.6f}")
                     print(f"  Max diff prediction value: {final_predictions[max_diff_batch_idx, max_diff_dim_idx].detach().item():.6f}")
                     print(f"  Mean bonus: {mean_bonus:.6f}")
                     print(f"  Min bonus: {min_bonus:.6f}")
