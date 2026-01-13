@@ -520,7 +520,7 @@ class BaseExperienceMaker(ABC):
             # Use last position
             final_hidden_states = hidden_states[:, -1, :]  # (B, hidden_size)
         
-        assert self.replay_buffer is not None, "for now, replay_buffer must be provided when exploration_bonus='coin_flip'. Fail noisily for now"
+        assert self.coin_flip_replay_buffer is not None, "for now, replay_buffer must be provided when exploration_bonus='coin_flip'. Fail noisily for now"
         
         # Step 3: Generate coin flip targets: c ~ {-1, 1}^d for final state only
         coin_flip_targets = generate_coin_flip_vectors(
