@@ -2273,7 +2273,7 @@ if __name__ == "__main__":
     parser.add_argument("--coin_flip_dim", type=int, default=64, help="Dimension d for coin flip vectors")
     parser.add_argument("--coin_flip_lr", type=float, default=None, help="Learning rate for coin flip network (defaults to sampling_actor_lr if None)")
     parser.add_argument("--coin_flip_normalization_momentum", type=float, default=None, help="Momentum for exponential moving average of running statistics used to normalize the exploration bonus. If None, normalization is disabled (default: None)")
-    parser.add_argument("--coin_flip_head_init_std", type=float, default=0.1, help="Standard deviation for initializing the coin flip head weights (default: 0.1)")
+    parser.add_argument("--coin_flip_head_init_std", type=float, default=0.01, help="Standard deviation for initializing the coin flip head weights (default: 0.1)")
     parser.add_argument("--coin_flip_update_steps", type=int, default=1, help="Number of update steps to perform when training the coin flip network head per experience batch")
     parser.add_argument("--coin_flip_replay_buffer_batch_size", type=int, default=None, help="Batch size for sampling from coin flip replay buffer. Defaults to train_batch_size if None.")
 

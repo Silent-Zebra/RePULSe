@@ -33,7 +33,7 @@ class CoinFlipNetwork(nn.Module):
         base_model: nn.Module, 
         coin_flip_dim: int = 64, 
         normalization_momentum: Optional[float] = None,
-        head_init_std: float = 0.1,
+        head_init_std: float = 0.01,
         base_actor_learning_rate: Optional[float] = None,
     ):
         super().__init__()
