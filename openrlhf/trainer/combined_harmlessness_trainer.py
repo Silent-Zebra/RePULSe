@@ -578,6 +578,11 @@ class CombinedHarmlessnessTrainer(ABC):
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                 expanded_prompts, **self.generate_kwargs)
 
+            train_before = True
+            if train_before:
+                if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
+                    self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
+
             # Pass pre-generated sequences to make_experience to avoid duplicate generation
             # Exploration bonus is calculated inside make_experience
             experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
@@ -592,10 +597,11 @@ class CombinedHarmlessnessTrainer(ABC):
                 **self.generate_kwargs
             )
             
-            # Train coin flip network AFTER exploration bonus calculation
-            # This ensures pseudocounts are correctly initialized near 1 for new states
-            if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
-                self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
+            if not train_before:
+                # Train coin flip network AFTER exploration bonus calculation
+                # This ensures pseudocounts are correctly initialized near 1 for new states
+                if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
+                    self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
                 
             self.sampling_replay_buffer_neg.append(experience_neg_sampling)
 
