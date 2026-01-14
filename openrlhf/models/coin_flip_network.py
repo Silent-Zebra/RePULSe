@@ -212,9 +212,10 @@ class CoinFlipNetwork(nn.Module):
         # Using exponential moving average with momentum
         self.normalization_momentum = normalization_momentum
         if normalization_momentum is not None:
+            raise NotImplementedError("Need to double check this, including initializations")
             self.momentum = normalization_momentum
             self.register_buffer('running_mean', torch.zeros(1, device=base_model_device))
-            self.register_buffer('running_var', torch.ones(1, device=base_model_device))
+            self.register_buffer('running_var', torch.zeros(1, device=base_model_device))
             self.register_buffer('num_updates', torch.zeros(1, dtype=torch.long, device=base_model_device))
         else:
             self.momentum = None
@@ -222,12 +223,10 @@ class CoinFlipNetwork(nn.Module):
         # Running statistics for normalization of random prior outputs (per dimension)
         # These ensure the random prior contributes ~1 pseudocount
         # Normalize each of the d dimensions to have mean 0, std 1
-        # Use a default momentum if normalization_momentum is provided, otherwise use 0.99
-        prior_momentum = normalization_momentum if normalization_momentum is not None else 0.99
-        self.prior_momentum = prior_momentum
+        # Uses Welford's online algorithm (same as CFN implementation)
         # Track statistics per dimension: shape (coin_flip_dim,)
         self.register_buffer('prior_running_mean', torch.zeros(coin_flip_dim, device=base_model_device))
-        self.register_buffer('prior_running_var', torch.ones(coin_flip_dim, device=base_model_device))
+        self.register_buffer('prior_running_var', torch.zeros(coin_flip_dim, device=base_model_device))
         self.register_buffer('prior_num_updates', torch.zeros(1, dtype=torch.long, device=base_model_device))
     
     def _get_device(self):
@@ -312,13 +311,12 @@ class CoinFlipNetwork(nn.Module):
         
         # Normalize random prior outputs dimension-wise to have mean 0, std 1
         # This ensures sqrt((1/d) * ||normalized_prior||^2) has expectation 1
-        # Statistics are computed only on final states
-        normalized_random_prior_final = self._normalize_with_stats_update_per_dim(
+        # Statistics are computed only on final states using Welford's algorithm
+        normalized_random_prior_final = self._normalize_with_welford_per_dim(
             random_prior_final,
             self.prior_running_mean,
             self.prior_running_var,
-            self.prior_num_updates,
-            self.prior_momentum
+            self.prior_num_updates
         )  # (batch_size, coin_flip_dim)
         
         # Combine main predictions with normalized random prior predictions
@@ -472,6 +470,104 @@ class CoinFlipNetwork(nn.Module):
         # Normalize using updated running statistics
         return self._normalize_values(values, running_mean, running_var)
     
+    def _normalize_with_welford_per_dim(
+        self,
+        values: torch.Tensor,
+        running_mean: torch.Tensor,
+        running_var: torch.Tensor,
+        num_updates: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Update running statistics using Welford's online algorithm and normalize values per dimension.
+        
+        This uses Welford's algorithm (same as CFN implementation) which computes true running
+        statistics rather than exponential moving average. This is better for the fixed prior network.
+        
+        The CFN code processes one sample at a time. For batches, we process each sample sequentially
+        (vectorized) to maintain the same update formula.
+        
+        Args:
+            values: Values to normalize, shape (batch_size, num_dims)
+            running_mean: Buffer storing running mean per dimension, shape (num_dims,)
+            running_var: Buffer storing running variance per dimension, shape (num_dims,)
+            num_updates: Buffer storing number of updates (will be incremented by batch_size)
+            
+        Returns:
+            Normalized values with mean ~0, std ~1 per dimension, shape (batch_size, num_dims)
+        """
+        batch_size = values.shape[0]
+        
+        # Process each sample in the batch sequentially (vectorized where possible)
+        # This matches the CFN implementation which processes one sample at a time
+        for i in range(batch_size):
+            value = values[i]  # (num_dims,)
+            effective_iter = num_updates.item() + 1  # +1 because we're about to update, and start at 0
+
+            # Ok so let's define n as the number of updates we've done so far
+            # n starts at 0 and increments by 1 each time we update
+            
+            # Welford's algorithm
+            # First let's update the mean:
+            # mean_new = (mean_old * n + value) / (n+1)
+            # = (mean_old * n + mean_old + value - mean_old) / (n+1)
+            # With delta := value - mean_old
+            delta = value - running_mean
+            # mean_new = (mean_old * (n+1) + delta) / (n+1)
+            # = mean_old + delta / (n+1)
+            running_mean.data = running_mean + delta / effective_iter
+            # So if the code we uses divides by effective_iter, then effective_iter = n+1 by necessity; incrementing must be done first
+            
+            # Now to update the variance:
+            squared_delta = delta ** 2
+            # Variance = sum of squared deviations from the mean / (number of samples) (no correction for bias here, since we're correcting the same set of samples)
+            # running_var * n = sum of squared deviations from previous mean
+            # Let the sum of squared deviations from the previous mean be M^2_n
+            # and let the sum of squared deviations from the new mean be M^2_{n+1} 
+            # and let x_i denote the i-th value
+            # M^2_{n+1} = sum_{i=1}^{n+1} (x_i - mean_new)^2 = sum_{i=1}^{n} (x_i - mean_new)^2 + (x_{n+1} - mean_new)^2
+            # Then since x_i - mean_new = (x_i - mean_old) + (mean_old - mean_new)
+            # squaring and summing both sides, the cross term will disappear since sum of (x_i - mean_old) is 0
+            # Then we get that sum_{i=1}^{n} (x_i - mean_new)^2 = sum_{i=1}^{n} (x_i - mean_old)^2 + sum_{i=1}^{n} (mean_old - mean_new)^2
+            # = M^2_n + n * (mean_old - mean_new)^2
+            # So M^2_{n+1} = M^2_n + n * (mean_old - mean_new)^2 + (x_{n+1} - mean_new)^2
+            # Now recall that delta = x_{n+1} - mean_old, and mean_new = mean_old + delta / (n+1)
+            # So mean_old - mean_new = - delta / (n+1)
+            # Also note that delta = x_{n+1} - mean_old = x_{n+1} - mean_old + mean_new - mean_new
+            # So x_{n+1} - mean_new = delta + mean_old - mean_new 
+            # = delta - (delta / (n+1)) = ((n+1) - 1) * delta / (n+1)
+            # So M^2_{n+1} = M^2_n + n * (- delta / (n+1))^2 + (((n+1) - 1) * delta / (n+1))^2
+            # = M^2_n + n * (- delta / (n+1))^2 + (n * delta / (n+1))^2
+            # = M^2_n + delta^2 (n + n^2) / (n+1)^2
+            # = M^2_n + delta^2 n(n+1) / (n+1)^2
+            # = M^2_n + delta^2 n / (n+1)
+            # Then since effective_iter = n+1, we get that:
+            # M^2_{n+1} = M^2_n + delta^2 * (effective_iter - 1) / effective_iter
+            # Finally, to get the new variance, we need
+            # variance = M^2_{n+1} / (n+1)
+            # = M^2_{n+1} / effective_iter
+
+            # Then add the new squared deviation to get the new sum of squared deviations
+            # From the derivation: M^2_{n+1} = M^2_n + delta^2 * (effective_iter - 1) / effective_iter
+            # where n = effective_iter - 1, so M^2_n = running_var * n = running_var * (effective_iter - 1)
+            # Then variance_new = M^2_{n+1} / effective_iter
+            n = effective_iter - 1
+            
+            # M^2_n = running_var * n (sum of squared deviations from previous mean)
+            M_squared_n = running_var * n
+            # M^2_{n+1} = M^2_n + delta^2 * n / effective_iter
+            M_squared_new = M_squared_n + squared_delta * n / effective_iter
+            # variance_new = M^2_{n+1} / effective_iter
+            running_var.data = M_squared_new / effective_iter
+            # Note: variance should indeed be 0 when n=0 (first update), so no need to handle separate cases
+            
+            # Increment update counter
+            num_updates.data += 1
+        
+        # Normalize all values using the final updated statistics
+        # Add small epsilon to avoid division by zero
+        normalized = (values - running_mean.unsqueeze(0)) / (torch.sqrt(running_var.unsqueeze(0)) + 1e-8)
+        return normalized
+    
     def _normalize_with_stats_update_per_dim(
         self,
         values: torch.Tensor,
@@ -484,6 +580,7 @@ class CoinFlipNetwork(nn.Module):
         Update running statistics and normalize values per dimension in one step.
         
         This normalizes each dimension independently to have mean 0, std 1.
+        Uses exponential moving average (for non-prior statistics).
         
         Args:
             values: Values to normalize, shape (batch_size, num_dims)
