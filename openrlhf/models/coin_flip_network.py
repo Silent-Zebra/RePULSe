@@ -193,6 +193,8 @@ class CoinFlipNetwork(nn.Module):
         # This ensures new states have ~1 pseudocount at initialization
         self.random_prior_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
         self.random_prior_head = self.random_prior_head.to(base_model_device)
+        nn.init.normal_(self.random_prior_head.weight, mean=0.0, std=head_init_std)
+
         # Freeze the random prior head - it should never be trained
         for param in self.random_prior_head.parameters():
             param.requires_grad = False
