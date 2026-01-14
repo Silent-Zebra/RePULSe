@@ -406,11 +406,8 @@ class BasePPOTrainer(ABC):
                         action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_all_data(
                             expanded_prompts, **self.generate_kwargs)
                         
-                        # Train coin flip network on the generated sequences (needs gradients for coin flip head)
-                        if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
-                            self.experience_maker._train_coin_flip_network(sequences, attention_mask)
-                        
                         # Pass pre-generated sequences to make_experience to avoid duplicate generation
+                        # Exploration bonus is calculated inside make_experience
                         experience = self.experience_maker.make_experience(
                             custom_prompt,
                             samples_per_prompt=args.duplicate_rollout_batch_by,
@@ -421,6 +418,11 @@ class BasePPOTrainer(ABC):
                             num_actions=num_actions,
                             value=value,
                             **self.generate_kwargs)
+                        
+                        # Train coin flip network AFTER exploration bonus calculation
+                        # This ensures pseudocounts are correctly initialized near 1 for new states
+                        if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
+                            self.experience_maker._train_coin_flip_network(sequences, attention_mask)
 
                         if update == 0:
                             # print prompt/answer ONCE per number of updates
@@ -496,12 +498,9 @@ class BasePPOTrainer(ABC):
                     expanded_prompts = tile_prompts(rand_prompts, args.duplicate_rollout_batch_by)
                     action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_all_data(
                         expanded_prompts, **self.generate_kwargs)
-                    
-                    # Train coin flip network on the generated sequences (needs gradients for coin flip head)
-                    if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
-                        self.experience_maker._train_coin_flip_network(sequences, attention_mask)
 
                     # Pass pre-generated sequences to make_experience to avoid duplicate generation
+                    # Exploration bonus is calculated inside make_experience
                     experience = self.experience_maker.make_experience(
                         rand_prompts,
                         samples_per_prompt=args.duplicate_rollout_batch_by,
@@ -513,6 +512,11 @@ class BasePPOTrainer(ABC):
                         value=value,
                         **self.generate_kwargs
                     )
+                    
+                    # Train coin flip network AFTER exploration bonus calculation
+                    # This ensures pseudocounts are correctly initialized near 1 for new states
+                    if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
+                        self.experience_maker._train_coin_flip_network(sequences, attention_mask)
 
                     # print("PROFILE1")
                     # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))

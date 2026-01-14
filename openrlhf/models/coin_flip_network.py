@@ -23,11 +23,30 @@ class CoinFlipNetwork(nn.Module):
         coin_flip_dim: Dimension d for coin flip vectors (default: 64)
         normalization_momentum: Momentum for exponential moving average of running statistics
             used to normalize the exploration bonus. If None, normalization is disabled (default: None)
+        head_init_std: Standard deviation for initializing the coin flip head weights (default: 0.1)
+        base_actor_learning_rate: Learning rate of the base actor. If provided and != 0, raises
+            NotImplementedError as the random prior structure should be reviewed when base_model is trainable (default: None)
     """
     
-    def __init__(self, base_model: nn.Module, coin_flip_dim: int = 64, normalization_momentum: Optional[float] = None):
+    def __init__(
+        self, 
+        base_model: nn.Module, 
+        coin_flip_dim: int = 64, 
+        normalization_momentum: Optional[float] = None,
+        head_init_std: float = 0.1,
+        base_actor_learning_rate: Optional[float] = None,
+    ):
         super().__init__()
         self.coin_flip_dim = coin_flip_dim
+        
+        # TODO: Review random prior structure when base_model becomes trainable (base actor LR != 0)
+        # Currently assumes base_model is frozen. When training the base actor, the random prior
+        # approach may need adjustment.
+        if base_actor_learning_rate is not None and abs(base_actor_learning_rate) > 1e-10:
+            raise NotImplementedError(
+                "Coin flip network with random prior is not yet implemented for trainable base_model. "
+                "The random prior structure should be reviewed when base_actor_learning_rate != 0."
+            )
         
         # Get the base model (unwrap if it's an Actor)
         if hasattr(base_model, 'model'):
@@ -167,6 +186,17 @@ class CoinFlipNetwork(nn.Module):
         
         self.coin_flip_head = self.coin_flip_head.to(base_model_device)
         
+        # Reinitialize coin flip head with custom standard deviation for smaller initial outputs
+        nn.init.normal_(self.coin_flip_head.weight, mean=0.0, std=head_init_std)
+        
+        # Create random prior head: frozen linear layer with same architecture
+        # This ensures new states have ~1 pseudocount at initialization
+        self.random_prior_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
+        self.random_prior_head = self.random_prior_head.to(base_model_device)
+        # Freeze the random prior head - it should never be trained
+        for param in self.random_prior_head.parameters():
+            param.requires_grad = False
+        
         # Freeze the base model - we only train the coin_flip_head
         # This avoids DeepSpeed ZeRO hook conflicts and keeps training simple
         # The optimizer will automatically exclude frozen parameters (requires_grad=False)
@@ -186,6 +216,17 @@ class CoinFlipNetwork(nn.Module):
             self.register_buffer('num_updates', torch.zeros(1, dtype=torch.long, device=base_model_device))
         else:
             self.momentum = None
+        
+        # Running statistics for normalization of random prior outputs (per dimension)
+        # These ensure the random prior contributes ~1 pseudocount
+        # Normalize each of the d dimensions to have mean 0, std 1
+        # Use a default momentum if normalization_momentum is provided, otherwise use 0.99
+        prior_momentum = normalization_momentum if normalization_momentum is not None else 0.99
+        self.prior_momentum = prior_momentum
+        # Track statistics per dimension: shape (coin_flip_dim,)
+        self.register_buffer('prior_running_mean', torch.zeros(coin_flip_dim, device=base_model_device))
+        self.register_buffer('prior_running_var', torch.ones(coin_flip_dim, device=base_model_device))
+        self.register_buffer('prior_num_updates', torch.zeros(1, dtype=torch.long, device=base_model_device))
     
     def _get_device(self):
         """Get the device of the base model, prioritizing GPU/cuda."""
@@ -205,13 +246,16 @@ class CoinFlipNetwork(nn.Module):
         """
         Forward pass through the coin flip network.
         
+        Only computes predictions for final states (last valid token per sequence),
+        as only final states are used in reward computation and training.
+        
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
             return_output: If True, also return base model outputs
             
         Returns:
-            Coin flip predictions, shape (batch_size, seq_len, coin_flip_dim)
+            Coin flip predictions for final states, shape (batch_size, coin_flip_dim)
             If return_output=True, also returns base model outputs
         """
         # Compute position_ids
@@ -230,8 +274,8 @@ class CoinFlipNetwork(nn.Module):
             return_dict=True,
         )
         
-        # Get hidden states (last hidden state)
-        # hidden_states is a tuple, extract the last one
+        # Get last hidden state (all sequence positions)
+        # This contains hidden states for all positions in the sequence
         if "hidden_states" in outputs:
             hidden_states = outputs["hidden_states"][-1]  # (batch_size, seq_len, hidden_size)
         elif "last_hidden_state" in outputs:
@@ -244,12 +288,59 @@ class CoinFlipNetwork(nn.Module):
         if hidden_states.device != coin_flip_head_device:
             hidden_states = hidden_states.to(coin_flip_head_device)
         
-        # Apply coin flip head
-        coin_flip_predictions = self.coin_flip_head(hidden_states)  # (batch_size, seq_len, coin_flip_dim)
+        # Extract final token hidden states (last valid position for each sequence)
+        # Only final states are used in reward computation and training
+        if attention_mask is not None:
+            # Find the last valid position for each sequence
+            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
+            # Use advanced indexing to extract final hidden states: (batch_size, hidden_size)
+            batch_size = hidden_states.size(0)
+            batch_indices = torch.arange(batch_size, device=hidden_states.device)
+            final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (batch_size, hidden_size)
+        else:
+            # Use last position
+            final_hidden_states = hidden_states[:, -1, :]  # (batch_size, hidden_size)
+        
+        # Apply coin flip head (trainable) only to final states
+        coin_flip_predictions = self.coin_flip_head(final_hidden_states)  # (batch_size, coin_flip_dim)
+        
+        # Apply random prior head (frozen) only to final states
+        # This ensures new states have ~1 pseudocount at initialization
+        random_prior_final = self.random_prior_head(final_hidden_states)  # (batch_size, coin_flip_dim)
+        
+        # Normalize random prior outputs dimension-wise to have mean 0, std 1
+        # This ensures sqrt((1/d) * ||normalized_prior||^2) has expectation 1
+        # Statistics are computed only on final states
+        normalized_random_prior_final = self._normalize_with_stats_update_per_dim(
+            random_prior_final,
+            self.prior_running_mean,
+            self.prior_running_var,
+            self.prior_num_updates,
+            self.prior_momentum
+        )  # (batch_size, coin_flip_dim)
+        
+        # Combine main predictions with normalized random prior predictions
+        combined_predictions = coin_flip_predictions + normalized_random_prior_final  # (batch_size, coin_flip_dim)
+        
+        # Combined bonus
+        combined_norm_squared = (combined_predictions ** 2).sum(dim=-1)  # (B,)
+        combined_bonus = torch.sqrt(combined_norm_squared / self.coin_flip_dim)  # (B,)
+        
+        # Print statistics
+        print(f"[Coin Flip Network] Predictions: {coin_flip_predictions}")
+        print(f"[Random Prior] Values: {random_prior_final}, ")
+        print(f"[Random Prior] Values (normalized): {normalized_random_prior_final}, ")
+        print(f"[Combined] Values: {combined_predictions}, ")
+        print(f"[Combined] Bonus - Mean: {combined_bonus.mean().item():.6f}, "
+              f"Min: {combined_bonus.min().item():.6f}, Max: {combined_bonus.max().item():.6f}")
+        print(f"[Random Prior Running Stats] Mean: {self.prior_running_mean.mean().item():.6f} "
+              f"(per-dim range: [{self.prior_running_mean.min().item():.6f}, {self.prior_running_mean.max().item():.6f}]), "
+              f"Var: {self.prior_running_var.mean().item():.6f} "
+              f"(per-dim range: [{self.prior_running_var.min().item():.6f}, {self.prior_running_var.max().item():.6f}])")
         
         if return_output:
-            return coin_flip_predictions, outputs
-        return coin_flip_predictions
+            return combined_predictions, outputs
+        return combined_predictions
     
     def compute_intrinsic_reward(
         self,
@@ -274,20 +365,8 @@ class CoinFlipNetwork(nn.Module):
         Returns:
             Intrinsic rewards per sequence, shape (batch_size,)
         """
-        # Get coin flip predictions
-        coin_flip_predictions = self.forward(sequences, attention_mask)  # (B, S, d)
-        
-        # Extract final token predictions (last valid position for each sequence)
-        if attention_mask is not None:
-            # Find the last valid position for each sequence (same as reward model does)
-            # fliplr() is deprecated, use flip() instead
-            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
-            # Use advanced indexing to extract final predictions: (B, d)
-            batch_indices = torch.arange(coin_flip_predictions.size(0), device=coin_flip_predictions.device)
-            final_predictions = coin_flip_predictions[batch_indices, eos_indices.squeeze(1), :]  # (B, d)
-        else:
-            # Use last position
-            final_predictions = coin_flip_predictions[:, -1, :]  # (B, d)
+        # Get coin flip predictions (already for final states only)
+        final_predictions = self.forward(sequences, attention_mask)  # (B, d)
         
         # Compute ||f_φ(x)||^2 for final token: sum over coin_flip_dim dimension
         norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
@@ -301,6 +380,140 @@ class CoinFlipNetwork(nn.Module):
         intrinsic_reward *= bonus_alpha
         
         return intrinsic_reward
+    
+    def _update_running_stats(
+        self, 
+        values: torch.Tensor, 
+        running_mean: torch.Tensor, 
+        running_var: torch.Tensor, 
+        num_updates: torch.Tensor,
+        momentum: float
+    ) -> None:
+        """
+        Update running statistics using exponential moving average.
+        
+        For the first update, initializes with batch statistics. Subsequent updates
+        use exponential moving average.
+        
+        Args:
+            values: Batch of values to compute statistics for, shape (batch_size,)
+            running_mean: Buffer storing running mean
+            running_var: Buffer storing running variance
+            num_updates: Buffer storing number of updates
+            momentum: Momentum for exponential moving average
+        """
+        # Compute batch statistics
+        batch_mean = values.mean()
+        batch_var = values.var(unbiased=False)  # Use biased variance for consistency
+        
+        # Update running statistics using exponential moving average
+        # For the first update, initialize with batch statistics
+        if num_updates.item() == 0:
+            running_mean.data = batch_mean
+            running_var.data = batch_var
+        else:
+            # Exponential moving average update
+            running_mean.data = momentum * running_mean + (1 - momentum) * batch_mean
+            running_var.data = momentum * running_var + (1 - momentum) * batch_var
+        
+        num_updates.data += 1
+    
+    def _normalize_values(
+        self, 
+        values: torch.Tensor, 
+        running_mean: torch.Tensor, 
+        running_var: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Normalize values by subtracting running mean and dividing by running standard deviation.
+        
+        Args:
+            values: Values to normalize, shape (batch_size,)
+            running_mean: Running mean
+            running_var: Running variance
+            
+        Returns:
+            Normalized values, shape (batch_size,)
+        """
+        # Normalize using current running statistics
+        # Add small epsilon to avoid division by zero
+        normalized = (values - running_mean) / (torch.sqrt(running_var) + 1e-8)
+        return normalized
+    
+    def _normalize_with_stats_update(
+        self,
+        values: torch.Tensor,
+        running_mean: torch.Tensor,
+        running_var: torch.Tensor,
+        num_updates: torch.Tensor,
+        momentum: float
+    ) -> torch.Tensor:
+        """
+        Update running statistics and normalize values in one step.
+        
+        This is a convenience method that combines _update_running_stats and _normalize_values
+        to avoid duplicate code.
+        
+        Args:
+            values: Values to normalize, shape (batch_size,)
+            running_mean: Buffer storing running mean, shape (1,)
+            running_var: Buffer storing running variance, shape (1,)
+            num_updates: Buffer storing number of updates
+            momentum: Momentum for exponential moving average
+            
+        Returns:
+            Normalized values with mean ~0, std ~1, shape (batch_size,)
+        """
+        # Update running statistics
+        self._update_running_stats(values, running_mean, running_var, num_updates, momentum)
+        
+        # Normalize using updated running statistics
+        return self._normalize_values(values, running_mean, running_var)
+    
+    def _normalize_with_stats_update_per_dim(
+        self,
+        values: torch.Tensor,
+        running_mean: torch.Tensor,
+        running_var: torch.Tensor,
+        num_updates: torch.Tensor,
+        momentum: float
+    ) -> torch.Tensor:
+        """
+        Update running statistics and normalize values per dimension in one step.
+        
+        This normalizes each dimension independently to have mean 0, std 1.
+        
+        Args:
+            values: Values to normalize, shape (batch_size, num_dims)
+            running_mean: Buffer storing running mean per dimension, shape (num_dims,)
+            running_var: Buffer storing running variance per dimension, shape (num_dims,)
+            num_updates: Buffer storing number of updates
+            momentum: Momentum for exponential moving average
+            
+        Returns:
+            Normalized values with mean ~0, std ~1 per dimension, shape (batch_size, num_dims)
+        """
+        # Compute batch statistics per dimension
+        # Mean and var across first dimension (batch), keeping feature dimensions
+        batch_mean = values.mean(dim=0)  # (num_dims,)
+        batch_var = values.var(dim=0, unbiased=False)  # (num_dims,)
+        
+        # Update running statistics using exponential moving average
+        # For the first update, initialize with batch statistics
+        if num_updates.item() == 0:
+            running_mean.data = batch_mean
+            running_var.data = batch_var
+        else:
+            # Exponential moving average update per dimension
+            running_mean.data = momentum * running_mean + (1 - momentum) * batch_mean
+            running_var.data = momentum * running_var + (1 - momentum) * batch_var
+        
+        num_updates.data += 1
+        
+        # Normalize per dimension using updated running statistics
+        # Add small epsilon to avoid division by zero
+        normalized = (values - running_mean) / (torch.sqrt(running_var) + 1e-8)
+        return normalized
     
     def _normalize_bonus(self, bonus: torch.Tensor) -> torch.Tensor:
         """
@@ -320,26 +533,14 @@ class CoinFlipNetwork(nn.Module):
             # Normalization is disabled, return bonus as-is
             return bonus
         
-        # Compute batch statistics
-        batch_mean = bonus.mean()
-        batch_var = bonus.var(unbiased=False)  # Use biased variance for consistency
-        
-        # Update running statistics using exponential moving average
-        # For the first update, initialize with batch statistics
-        if self.num_updates.item() == 0:
-            self.running_mean.data = batch_mean
-            self.running_var.data = batch_var
-        else:
-            # Exponential moving average update
-            self.running_mean.data = self.momentum * self.running_mean + (1 - self.momentum) * batch_mean
-            self.running_var.data = self.momentum * self.running_var + (1 - self.momentum) * batch_var
-        
-        self.num_updates.data += 1
-        
-        # Normalize using current running statistics
-        # Add small epsilon to avoid division by zero
-        normalized = (bonus - self.running_mean) / (torch.sqrt(self.running_var) + 1e-8)
-        return normalized
+        # Update running statistics and normalize
+        return self._normalize_with_stats_update(
+            bonus,
+            self.running_mean,
+            self.running_var,
+            self.num_updates,
+            self.momentum
+        )
     
     def backward(self, loss: torch.Tensor) -> None:
         """
@@ -373,7 +574,7 @@ class CoinFlipNetwork(nn.Module):
     
     def get_trainable_parameters(self):
         """
-        Get only the trainable parameters (coin_flip_head only, base_model is frozen).
+        Get only the trainable parameters (coin_flip_head only, base_model and random_prior_head are frozen).
         
         Returns:
             Iterator over trainable parameters
