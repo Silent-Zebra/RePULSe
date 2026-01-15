@@ -112,6 +112,7 @@ class CombinedHarmlessnessTrainer(ABC):
         uniform_reweight: bool = False,
         bad_word_tokens_ids: Optional[List[int]] = None,
         train_coin_flip_before: bool = False,
+        coin_flip_first_online: bool = False,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -173,6 +174,7 @@ class CombinedHarmlessnessTrainer(ABC):
         self.separate_reweighting_beta = separate_reweighting_beta
         self.uniform_reweight = uniform_reweight
         self.train_coin_flip_before = train_coin_flip_before
+        self.coin_flip_first_online = coin_flip_first_online
 
         self.base_actor_loss_type = base_actor_loss_type
         self.alpha = alpha
@@ -376,7 +378,8 @@ class CombinedHarmlessnessTrainer(ABC):
             coin_flip_network=self.coin_flip_network,
             coin_flip_dim=getattr(strategy.args, 'coin_flip_dim', 64),
             coin_flip_optim=self.coin_flip_optim,
-            coin_flip_scheduler=self.coin_flip_scheduler
+            coin_flip_scheduler=self.coin_flip_scheduler,
+            coin_flip_first_online=self.coin_flip_first_online
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)

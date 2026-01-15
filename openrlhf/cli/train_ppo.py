@@ -485,6 +485,7 @@ def train(args):
             uniform_reweight=args.uniform_reweight,
             bad_word_tokens_ids=bad_word_tokens_ids,
             train_coin_flip_before=args.train_coin_flip_before,
+            coin_flip_first_online=args.coin_flip_first_online,
         )
 
 
@@ -2278,6 +2279,7 @@ if __name__ == "__main__":
     parser.add_argument("--coin_flip_update_steps", type=int, default=1, help="Number of update steps to perform when training the coin flip network head per experience batch")
     parser.add_argument("--coin_flip_replay_buffer_batch_size", type=int, default=None, help="Batch size for sampling from coin flip replay buffer. Defaults to train_batch_size if None.")
     parser.add_argument("--train_coin_flip_before", action="store_true", default=False, help="Train coin flip network before computing exploration bonus. When True, applies correction to remove +1 pseudocount from fixed random prior (corrects from 1/sqrt(n+1) to 1/sqrt(n))")
+    parser.add_argument("--coin_flip_first_online", action="store_true", default=False, help="For the first update step only, use the sequences that were just generated instead of randomly sampling from the replay buffer. After this step, continue sampling uniformly at random from the replay buffer.")
 
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, --harmlessness_training_num_episodes for the number of outer loop steps, and --harmlessness_training_episodes_per_loop for the number of harmlessness training steps in each loop iteration. So total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes * harmlessness_training_episodes_per_loop base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")

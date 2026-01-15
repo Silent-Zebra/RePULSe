@@ -290,6 +290,7 @@ class BaseExperienceMaker(ABC):
         coin_flip_dim: int = 64,
         coin_flip_optim: Optional[torch.optim.Optimizer] = None,
         coin_flip_scheduler: Optional[object] = None,
+        coin_flip_first_online: bool = False,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -337,6 +338,7 @@ class BaseExperienceMaker(ABC):
         self.coin_flip_dim = coin_flip_dim
         self.coin_flip_optim = coin_flip_optim
         self.coin_flip_scheduler = coin_flip_scheduler
+        self.coin_flip_first_online = coin_flip_first_online
         
         # Initialize coin flip replay buffer if using coin_flip exploration bonus
         # Follows same pattern as NaiveReplayBuffer: limit=0 means unlimited, cpu_offload=True saves GPU memory
@@ -524,8 +526,13 @@ class BaseExperienceMaker(ABC):
         
         # Step 6: Loop over update steps
         for update_step in range(update_steps):
-            # Sample from replay buffer if available, otherwise use current batch
-            if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.size > 0:
+            # For the first update step only, if coin_flip_first_online is True, use current batch
+            # After this step, continue sampling uniformly at random from the replay buffer
+            if self.coin_flip_first_online and update_step == 0:
+                # Use current batch for first update step
+                sampled_embeddings = final_hidden_states
+                sampled_coin_flips = coin_flip_targets
+            elif self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.size > 0:
                 # Sample from replay buffer
                 sampled_embeddings, sampled_coin_flips = self.coin_flip_replay_buffer.sample(
                     replay_buffer_batch_size, coin_flip_head_device
