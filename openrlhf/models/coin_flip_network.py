@@ -447,7 +447,7 @@ class CoinFlipNetwork(nn.Module):
         if self.normalization_momentum is not None:
             intrinsic_reward = self._normalize_bonus(intrinsic_reward)
         
-        # Apply correction when adjust_reward is True (train_before mode)
+        # Apply correction when adjust_reward is True (train_coin_flip_before mode)
         # This corrects from 1/sqrt(n+1) to 1/sqrt(n) by removing the +1 pseudocount
         # from the fixed random prior
         if getattr(self, 'adjust_reward', False):

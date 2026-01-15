@@ -249,13 +249,13 @@ def get_info_name_str(args):
             coin_flip_dim = getattr(args, 'coin_flip_dim', 64)
             coin_flip_lr = getattr(args, 'coin_flip_lr', None)
             coin_flip_update_steps = getattr(args, 'coin_flip_update_steps', 1)
-            train_before = getattr(args, 'train_before', False)
+            train_coin_flip_before = getattr(args, 'train_coin_flip_before', False)
             exploration_bonus_str += f"_cfd{coin_flip_dim}"
             if coin_flip_lr is not None:
                 exploration_bonus_str += f"_cflr{coin_flip_lr}"
             if coin_flip_update_steps != 1:
                 exploration_bonus_str += f"_cfus{coin_flip_update_steps}"
-            if train_before:
+            if train_coin_flip_before:
                 exploration_bonus_str += "_before"
             else:
                 exploration_bonus_str += "_after"

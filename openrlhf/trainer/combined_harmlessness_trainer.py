@@ -111,7 +111,7 @@ class CombinedHarmlessnessTrainer(ABC):
         separate_reweighting_beta: Optional[float] = None,
         uniform_reweight: bool = False,
         bad_word_tokens_ids: Optional[List[int]] = None,
-        train_before: bool = False,
+        train_coin_flip_before: bool = False,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -172,7 +172,7 @@ class CombinedHarmlessnessTrainer(ABC):
 
         self.separate_reweighting_beta = separate_reweighting_beta
         self.uniform_reweight = uniform_reweight
-        self.train_before = train_before
+        self.train_coin_flip_before = train_coin_flip_before
 
         self.base_actor_loss_type = base_actor_loss_type
         self.alpha = alpha
@@ -267,9 +267,9 @@ class CombinedHarmlessnessTrainer(ABC):
                 base_actor_learning_rate=base_actor_lr,
             )
             
-            # Set adjust_reward attribute based on train_before
+            # Set adjust_reward attribute based on train_coin_flip_before
             # When training before, we need to correct for the +1 pseudocount from the fixed random prior
-            self.coin_flip_network.adjust_reward = train_before
+            self.coin_flip_network.adjust_reward = train_coin_flip_before
             self.coin_flip_network.adjust_reward = False # for now, just disable this. TODO fix/check later
             
             # Keep network in eval mode always - only the head is trained, base model is frozen
@@ -585,7 +585,7 @@ class CombinedHarmlessnessTrainer(ABC):
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                 expanded_prompts, **self.generate_kwargs)
 
-            if self.train_before:
+            if self.train_coin_flip_before:
                 if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
                     self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
 
@@ -603,7 +603,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 **self.generate_kwargs
             )
             
-            if not self.train_before:
+            if not self.train_coin_flip_before:
                 # Train coin flip network AFTER exploration bonus calculation
                 # This ensures pseudocounts are correctly initialized near 1 for new states
                 if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
