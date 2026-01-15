@@ -459,9 +459,12 @@ class BaseExperienceMaker(ABC):
         4. Save embeddings and coin flip vectors to replay buffer
         5. For each update step:
            a. Sample a batch from replay buffer (uniformly at random)
-           b. Forward pass through coin_flip_head to get predictions f_φ(x_final)
-           c. Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
+           b. Forward pass to get combined predictions f_combined(x_final) = coin_flip_head(x) + normalized_random_prior(x)
+           c. Compute MSE loss: L(x, c) = ||f_combined(x_final) - c||^2
            d. Backward pass and optimizer step
+        
+        Note: We train on combined predictions (coin_flip_head + normalized_random_prior) to ensure
+        consistency between training and usage. The same forward logic is used in both cases.
         """
         if self.coin_flip_network is None or self.coin_flip_optim is None:
             return
@@ -478,47 +481,17 @@ class BaseExperienceMaker(ABC):
         coin_flip_dim = self.coin_flip_network.coin_flip_dim
         device = sequences.device
 
-        # Step 1: Forward pass through base model to get hidden states (expensive, done once)
-        # Compute position_ids
-        if attention_mask is not None:
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-        else:
-            position_ids = None
-        
-        # Forward through base model (frozen, no gradients needed)
+        # Step 1: Get final hidden states using the same logic as forward (expensive, done once)
+        # This uses the helper method from coin_flip_network which ensures consistency
+        # Use torch.no_grad() since we're just storing embeddings for the replay buffer
         with torch.no_grad():
-            outputs = self.coin_flip_network.base_model(
+            final_hidden_states = self.coin_flip_network._get_final_hidden_states(
                 sequences,
                 attention_mask=attention_mask,
-                position_ids=position_ids,
-                output_hidden_states=True,
-                return_dict=True,
-            )
+            )  # (B, hidden_size)
         
-        # Get hidden states (last hidden state)
-        if "hidden_states" in outputs:
-            hidden_states = outputs["hidden_states"][-1]  # (batch_size, seq_len, hidden_size)
-        elif "last_hidden_state" in outputs:
-            hidden_states = outputs["last_hidden_state"]  # (batch_size, seq_len, hidden_size)
-        else:
-            raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
-        
-        # Ensure hidden_states and coin_flip_head are on the same device
+        # Get device for coin_flip_head (already handled in _get_final_hidden_states)
         coin_flip_head_device = next(self.coin_flip_network.coin_flip_head.parameters()).device
-        if hidden_states.device != coin_flip_head_device:
-            hidden_states = hidden_states.to(coin_flip_head_device)
-        
-        # Step 2: Extract final token hidden states (done once, reused for all update steps)
-        if attention_mask is not None:
-            # Find the last valid position for each sequence (same as reward model does)
-            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
-            # Use advanced indexing to extract final hidden states: (B, hidden_size)
-            batch_indices = torch.arange(hidden_states.size(0), device=hidden_states.device)
-            final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (B, hidden_size)
-        else:
-            # Use last position
-            final_hidden_states = hidden_states[:, -1, :]  # (B, hidden_size)
         
         assert self.coin_flip_replay_buffer is not None, "for now, replay_buffer must be provided when exploration_bonus='coin_flip'. Fail noisily for now"
         
@@ -562,10 +535,13 @@ class BaseExperienceMaker(ABC):
                 sampled_embeddings = final_hidden_states
                 sampled_coin_flips = coin_flip_targets
             
-            # Forward pass through coin_flip_head only (cheap, recomputed each step)
-            final_predictions = self.coin_flip_network.coin_flip_head(sampled_embeddings)  # (B, d)
+            # Forward pass through coin flip network to get combined predictions
+            # This uses the same forward logic (coin_flip_head + normalized random prior)
+            # ensuring consistency between training and usage
+            final_predictions = self.coin_flip_network._predict_from_embeddings(sampled_embeddings)  # (B, d)
             
-            # Compute MSE loss: L(x, c) = ||f_φ(x_final) - c||^2
+            # Compute MSE loss: L(x, c) = ||f_combined(x_final) - c||^2
+            # where f_combined = coin_flip_head(x) + normalized_random_prior(x)
             # Average over coin_flip_dim and batch
             loss = ((final_predictions - sampled_coin_flips) ** 2).mean()
 
@@ -581,11 +557,12 @@ class BaseExperienceMaker(ABC):
                 max_diff_dim_idx = max_diff_flat_idx % coin_flip_dim
                 
                 # Compute bonus statistics (same computation as compute_intrinsic_reward)
+                # Note: final_predictions are combined predictions (coin_flip_head + normalized_random_prior)
                 with torch.no_grad():
-                    # Compute ||f_φ(x)||^2 for final token: sum over coin_flip_dim dimension
+                    # Compute ||f_combined(x)||^2 for final token: sum over coin_flip_dim dimension
                     norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
                     
-                    # Compute intrinsic reward: sqrt((1/d) * ||f_φ(x)||^2)
+                    # Compute intrinsic reward: sqrt((1/d) * ||f_combined(x)||^2)
                     intrinsic_reward = torch.sqrt(norm_squared / coin_flip_dim)  # (B,)
                     
                     # Apply normalization if enabled (same as in compute_intrinsic_reward)

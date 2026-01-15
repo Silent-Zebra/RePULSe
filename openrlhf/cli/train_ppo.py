@@ -484,6 +484,7 @@ def train(args):
             separate_reweighting_beta=args.separate_reweighting_beta,
             uniform_reweight=args.uniform_reweight,
             bad_word_tokens_ids=bad_word_tokens_ids,
+            train_before=getattr(args, 'train_before', False),
         )
 
 

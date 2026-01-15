@@ -238,26 +238,26 @@ class CoinFlipNetwork(nn.Module):
         # Fallback: use cuda if available, else cpu
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    def forward(
+    def _get_final_hidden_states(
         self,
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
-        return_output: bool = False,
-    ) -> torch.Tensor:
+        return_outputs: bool = False,
+    ):
         """
-        Forward pass through the coin flip network.
+        Extract final hidden states from sequences using the same logic as forward.
         
-        Only computes predictions for final states (last valid token per sequence),
-        as only final states are used in reward computation and training.
+        This is a helper method that can be used by training code to get final hidden states
+        for saving to replay buffers, without computing the full forward pass.
         
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
-            return_output: If True, also return base model outputs
+            return_outputs: If True, also return base model outputs
             
         Returns:
-            Coin flip predictions for final states, shape (batch_size, coin_flip_dim)
-            If return_output=True, also returns base model outputs
+            Final hidden states, shape (batch_size, hidden_size)
+            If return_outputs=True, also returns base model outputs
         """
         # Compute position_ids
         if attention_mask is not None:
@@ -267,6 +267,7 @@ class CoinFlipNetwork(nn.Module):
             position_ids = None
         
         # Forward through base model
+        # Note: No torch.no_grad() here - let caller decide if gradients are needed
         outputs = self.base_model(
             input_ids,
             attention_mask=attention_mask,
@@ -302,6 +303,28 @@ class CoinFlipNetwork(nn.Module):
             # Use last position
             final_hidden_states = hidden_states[:, -1, :]  # (batch_size, hidden_size)
         
+        if return_outputs:
+            return final_hidden_states, outputs
+        return final_hidden_states
+    
+    def _predict_from_embeddings(
+        self,
+        final_hidden_states: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute combined predictions from final hidden states.
+        
+        This method takes already-extracted final hidden states and applies the coin flip head,
+        random prior head, and normalization to produce combined predictions. This is used
+        for training on embeddings from the replay buffer, ensuring consistency with the
+        forward method.
+        
+        Args:
+            final_hidden_states: Final hidden states, shape (batch_size, hidden_size)
+            
+        Returns:
+            Combined predictions, shape (batch_size, coin_flip_dim)
+        """
         # Apply coin flip head (trainable) only to final states
         coin_flip_predictions = self.coin_flip_head(final_hidden_states)  # (batch_size, coin_flip_dim)
         
@@ -322,9 +345,55 @@ class CoinFlipNetwork(nn.Module):
         # Combine main predictions with normalized random prior predictions
         combined_predictions = coin_flip_predictions + normalized_random_prior_final  # (batch_size, coin_flip_dim)
         
-        # Combined bonus
+        return combined_predictions
+    
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        return_output: bool = False,
+    ) -> torch.Tensor:
+        """
+        Forward pass through the coin flip network.
+        
+        Only computes predictions for final states (last valid token per sequence),
+        as only final states are used in reward computation and training.
+        
+        Args:
+            input_ids: Token IDs, shape (batch_size, seq_len)
+            attention_mask: Attention mask, shape (batch_size, seq_len)
+            return_output: If True, also return base model outputs
+            
+        Returns:
+            Coin flip predictions for final states, shape (batch_size, coin_flip_dim)
+            If return_output=True, also returns base model outputs
+        """
+        # Get final hidden states using the shared helper method
+        # Also get outputs if needed to avoid recomputation
+        if return_output:
+            final_hidden_states, outputs = self._get_final_hidden_states(
+                input_ids, attention_mask, return_outputs=True
+            )
+        else:
+            final_hidden_states = self._get_final_hidden_states(input_ids, attention_mask)
+            outputs = None
+        
+        # Compute combined predictions from final hidden states
+        combined_predictions = self._predict_from_embeddings(final_hidden_states)
+        
+        # Combined bonus (for statistics)
         combined_norm_squared = (combined_predictions ** 2).sum(dim=-1)  # (B,)
         combined_bonus = torch.sqrt(combined_norm_squared / self.coin_flip_dim)  # (B,)
+        
+        # Get individual components for printing statistics
+        coin_flip_predictions = self.coin_flip_head(final_hidden_states)
+        random_prior_final = self.random_prior_head(final_hidden_states)
+        normalized_random_prior_final = self._normalize_with_welford_per_dim(
+            random_prior_final,
+            self.prior_running_mean,
+            self.prior_running_var,
+            self.prior_num_updates
+        )
         
         # Print statistics
         print(f"[Coin Flip Network] Predictions: {coin_flip_predictions}")
@@ -377,6 +446,20 @@ class CoinFlipNetwork(nn.Module):
         # Normalize the exploration bonus using running mean and variance (if enabled)
         if self.normalization_momentum is not None:
             intrinsic_reward = self._normalize_bonus(intrinsic_reward)
+        
+        # Apply correction when adjust_reward is True (train_before mode)
+        # This corrects from 1/sqrt(n+1) to 1/sqrt(n) by removing the +1 pseudocount
+        # from the fixed random prior
+        if getattr(self, 'adjust_reward', False):
+            raise NotImplementedError("Need to check this first")
+            # Correction: invert, square, subtract 1, square root, invert again
+            # This transforms 1/sqrt(n+1) to 1/sqrt(n)
+            # Add small epsilon to avoid numerical issues when intrinsic_reward is very small
+            inv_squared = (1.0 / (intrinsic_reward + 1e-8)) ** 2
+            # Clamp to ensure we don't take sqrt of negative values
+            sqrt_arg = torch.clamp(inv_squared - 1.0, min=1e-8)
+            intrinsic_reward = 1.0 / torch.sqrt(sqrt_arg)
+
         intrinsic_reward *= bonus_alpha
         
         return intrinsic_reward
