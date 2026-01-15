@@ -99,20 +99,26 @@ class NumUpdatesBuffer:
         for idx in indices_list:
             self.num_updates[idx] += 1.0
     
-    def get(self, indices: torch.Tensor) -> torch.Tensor:
+    def get(self, indices: torch.Tensor, device: Optional[torch.device] = None) -> torch.Tensor:
         """
         Get the update counts for given indices.
         
         Args:
             indices: Tensor of indices, shape (N,)
+            device: Device to place the returned tensor on. If None, uses the device of indices.
             
         Returns:
-            Tensor of update counts, shape (N,)
+            Tensor of update counts, shape (N,), on the specified device
         """
         assert len(indices.shape) == 1, f"Expected 1D tensor, got shape {indices.shape}"
         indices_list = indices.cpu().tolist()
         values = [self.num_updates[idx] for idx in indices_list]
-        return torch.tensor(values, dtype=torch.float32)
+        result = torch.tensor(values, dtype=torch.float32)
+        if device is not None:
+            result = result.to(device)
+        elif indices.device.type != 'cpu':
+            result = result.to(indices.device)
+        return result
     
     def clear(self):
         """Clear the buffer."""
@@ -257,7 +263,7 @@ class CoinFlipReplayBuffer:
         
         # Return indices as tensor if prioritization is enabled
         if self.use_prioritization:
-            indices_tensor = torch.tensor(indices, dtype=torch.long)
+            indices_tensor = torch.tensor(indices, dtype=torch.long, device=device)
             return sampled_embeddings, sampled_coin_flips, indices_tensor
         else:
             return sampled_embeddings, sampled_coin_flips, None
@@ -709,6 +715,8 @@ class BaseExperienceMaker(ABC):
             # Update priorities if prioritization is enabled
             if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.use_prioritization:
                 # Compute one_over_counts = (1/d) * ||f(s)||^2 for sampled batch
+                # Ensure all tensors are on the same device as final_predictions
+                device = final_predictions.device
                 norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
                 one_over_counts = norm_squared / coin_flip_dim  # (1/d) * ||f(s)||^2
                 
@@ -719,11 +727,12 @@ class BaseExperienceMaker(ABC):
                     new_indices = torch.arange(
                         self.coin_flip_replay_buffer.size - batch_size,
                         self.coin_flip_replay_buffer.size,
-                        dtype=torch.long
+                        dtype=torch.long,
+                        device=device
                     )
                     
-                    # Get num_updates for newly added samples
-                    num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(new_indices)  # (B,)
+                    # Get num_updates for newly added samples (ensure on same device)
+                    num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(new_indices, device=device)  # (B,)
                     
                     # Compute new priorities with fixed α = 0.5
                     # priority(s) = α(1/n_updates(s)) + (1-α)(1/d)(||f(s)||^2)
@@ -737,8 +746,11 @@ class BaseExperienceMaker(ABC):
                     self.coin_flip_replay_buffer.num_updates_buffer.increment(new_indices)
                 elif sampled_indices is not None:
                     # Sampled from buffer: update priorities for sampled indices
-                    # Get num_updates for sampled indices
-                    num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(sampled_indices)  # (B,)
+                    # Ensure sampled_indices is on the same device
+                    sampled_indices = sampled_indices.to(device)
+                    
+                    # Get num_updates for sampled indices (ensure on same device)
+                    num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(sampled_indices, device=device)  # (B,)
                     
                     # Compute new priorities with fixed α = 0.5
                     # priority(s) = α(1/n_updates(s)) + (1-α)(1/d)(||f(s)||^2)
