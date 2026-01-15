@@ -200,11 +200,10 @@ class CoinFlipReplayBuffer:
             else:
                 # Initialize priority to 1.0 for new samples (max priority)
                 self.priorities.extend([1.0] * batch_size)
-            # Initialize num_updates: 1 if coin_flip_first_online (will be used in first update),
-            # otherwise 0 (hasn't been trained on yet)
-            initial_num_updates = 1.0 if self.coin_flip_first_online else 0.0
+            # Initialize num_updates to 0 for all new samples (will be incremented after first update)
+            # This ensures consistency: after the first update, num_updates will be 1 for all samples
             for _ in range(batch_size):
-                self.num_updates_buffer.add(initial_num_updates)
+                self.num_updates_buffer.add(0.0)
         
         self.size += batch_size
         
