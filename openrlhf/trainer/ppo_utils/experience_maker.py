@@ -246,9 +246,30 @@ class CoinFlipReplayBuffer:
             priorities_tensor = torch.tensor(self.priorities, dtype=torch.float32)
             # Convert to probabilities
             probs = priorities_tensor / priorities_tensor.sum()
+            
             # Sample indices using multinomial
             indices_tensor = torch.multinomial(probs, num_samples=num_samples, replacement=True)
             indices = indices_tensor.tolist()
+            
+            # Debug: Print normalized priorities (probabilities) for sampled items
+            sampled_probs = probs[indices_tensor]
+            print(f"\n[Priority Debug - Sampling]")
+            print(f"  Buffer size: {self.size}")
+            print(f"  Sampling {num_samples} items")
+            print(f"  Sampled indices: {indices[:min(10, len(indices))]}...")  # First 10
+            print(f"  Normalized probabilities (probs) for sampled items: {sampled_probs.cpu().tolist()[:min(10, len(sampled_probs))]}")
+            print(f"  Sum of all probabilities: {probs.sum().item():.6f}")
+            print(f"  Min/Max probability in buffer: {probs.min().item():.6f} / {probs.max().item():.6f}")
+            
+            # Print random selection of priorities from buffer
+            num_random_samples = min(10, self.size)
+            random_indices = random.sample(range(self.size), num_random_samples)
+            random_priorities = [self.priorities[i] for i in random_indices]
+            random_probs = probs[random_indices]
+            print(f"  Random sample of {num_random_samples} priorities from buffer:")
+            print(f"    Indices: {random_indices}")
+            print(f"    Priorities: {random_priorities}")
+            print(f"    Normalized probs: {random_probs.cpu().tolist()}")
         else:
             # Uniform random sampling
             indices = random.sample(range(self.size), num_samples)
@@ -731,6 +752,14 @@ class BaseExperienceMaker(ABC):
                         device=device
                     )
                     
+                    # Debug: Print priorities before update
+                    if self.strategy and self.strategy.is_rank_0():
+                        old_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in new_indices.cpu().tolist()])
+                        print(f"\n[Priority Debug - First Online Update]")
+                        print(f"  Update step: {update_step}")
+                        print(f"  Indices being updated: {new_indices.cpu().tolist()}")
+                        print(f"  Priorities BEFORE update: {old_priorities.tolist()}")
+                    
                     # Get num_updates for newly added samples (ensure on same device)
                     num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(new_indices, device=device)  # (B,)
                     
@@ -739,8 +768,19 @@ class BaseExperienceMaker(ABC):
                     priority_alpha = 0.5
                     new_priorities = priority_alpha * (1.0 / (num_updates + 1.0)) + (1.0 - priority_alpha) * one_over_counts
                     
+                    # Debug: Print intermediate values
+                    if self.strategy and self.strategy.is_rank_0():
+                        print(f"  num_updates: {num_updates.cpu().tolist()}")
+                        print(f"  one_over_counts: {one_over_counts.cpu().tolist()}")
+                        print(f"  new_priorities (computed): {new_priorities.cpu().tolist()}")
+                    
                     # Update priorities in replay buffer
                     self.coin_flip_replay_buffer.update_priorities(new_indices, new_priorities)
+                    
+                    # Debug: Print priorities after update
+                    if self.strategy and self.strategy.is_rank_0():
+                        updated_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in new_indices.cpu().tolist()])
+                        print(f"  Priorities AFTER update: {updated_priorities.tolist()}")
                     
                     # Increment num_updates for newly added samples
                     self.coin_flip_replay_buffer.num_updates_buffer.increment(new_indices)
@@ -748,6 +788,14 @@ class BaseExperienceMaker(ABC):
                     # Sampled from buffer: update priorities for sampled indices
                     # Ensure sampled_indices is on the same device
                     sampled_indices = sampled_indices.to(device)
+                    
+                    # Debug: Print priorities before update
+                    if self.strategy and self.strategy.is_rank_0():
+                        old_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in sampled_indices.cpu().tolist()])
+                        print(f"\n[Priority Debug - Buffer Sample Update]")
+                        print(f"  Update step: {update_step}")
+                        print(f"  Indices being updated: {sampled_indices.cpu().tolist()[:min(10, len(sampled_indices))]}...")  # First 10
+                        print(f"  Priorities BEFORE update: {old_priorities.tolist()[:min(10, len(old_priorities))]}")
                     
                     # Get num_updates for sampled indices (ensure on same device)
                     num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(sampled_indices, device=device)  # (B,)
@@ -757,8 +805,19 @@ class BaseExperienceMaker(ABC):
                     priority_alpha = 0.5
                     new_priorities = priority_alpha * (1.0 / (num_updates + 1.0)) + (1.0 - priority_alpha) * one_over_counts
                     
+                    # Debug: Print intermediate values
+                    if self.strategy and self.strategy.is_rank_0():
+                        print(f"  num_updates: {num_updates.cpu().tolist()[:min(10, len(num_updates))]}")
+                        print(f"  one_over_counts: {one_over_counts.cpu().tolist()[:min(10, len(one_over_counts))]}")
+                        print(f"  new_priorities (computed): {new_priorities.cpu().tolist()[:min(10, len(new_priorities))]}")
+                    
                     # Update priorities in replay buffer
                     self.coin_flip_replay_buffer.update_priorities(sampled_indices, new_priorities)
+                    
+                    # Debug: Print priorities after update
+                    if self.strategy and self.strategy.is_rank_0():
+                        updated_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in sampled_indices.cpu().tolist()])
+                        print(f"  Priorities AFTER update: {updated_priorities.tolist()[:min(10, len(updated_priorities))]}")
                     
                     # Increment num_updates for sampled indices
                     self.coin_flip_replay_buffer.num_updates_buffer.increment(sampled_indices)
