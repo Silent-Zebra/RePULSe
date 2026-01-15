@@ -54,6 +54,71 @@ def generate_coin_flip_vectors(batch_size: int, d: int, device: torch.device) ->
     return coin_flips
 
 
+class NumUpdatesBuffer:
+    """
+    Buffer to track how many times each sample has been sampled from the replay buffer.
+    Used for prioritized replay buffer sampling.
+    
+    Uses a simple list to track update counts, synchronized with the replay buffer.
+    """
+    
+    def __init__(self):
+        """
+        Initialize the buffer.
+        """
+        self.num_updates: List[float] = []
+    
+    def add(self, num_updates: float = 0.0):
+        """
+        Add a new entry to the buffer.
+        
+        Args:
+            num_updates: Initial number of updates (defaults to 0 for new samples)
+        """
+        self.num_updates.append(num_updates)
+    
+    def pop(self, index: int = 0):
+        """
+        Remove and return the entry at the given index.
+        Used to keep the buffer synchronized with the replay buffer when popping old entries.
+        
+        Args:
+            index: Index to pop (defaults to 0 for oldest entry)
+        """
+        return self.num_updates.pop(index)
+    
+    def increment(self, indices: torch.Tensor):
+        """
+        Increment the update count for given indices.
+        
+        Args:
+            indices: Tensor of indices to increment, shape (N,)
+        """
+        assert len(indices.shape) == 1, f"Expected 1D tensor, got shape {indices.shape}"
+        indices_list = indices.cpu().tolist()
+        for idx in indices_list:
+            self.num_updates[idx] += 1.0
+    
+    def get(self, indices: torch.Tensor) -> torch.Tensor:
+        """
+        Get the update counts for given indices.
+        
+        Args:
+            indices: Tensor of indices, shape (N,)
+            
+        Returns:
+            Tensor of update counts, shape (N,)
+        """
+        assert len(indices.shape) == 1, f"Expected 1D tensor, got shape {indices.shape}"
+        indices_list = indices.cpu().tolist()
+        values = [self.num_updates[idx] for idx in indices_list]
+        return torch.tensor(values, dtype=torch.float32)
+    
+    def clear(self):
+        """Clear the buffer."""
+        self.num_updates = []
+
+
 class CoinFlipReplayBuffer:
     """
     Replay buffer for coin flip network training.
@@ -62,32 +127,48 @@ class CoinFlipReplayBuffer:
     This follows a similar pattern to NaiveReplayBuffer but is optimized for storing
     just embeddings and coin flip vectors rather than full Experience objects.
     Stores 1D tensors directly for efficient sampling.
+    
+    Supports prioritized sampling when use_prioritization is True.
     """
     
-    def __init__(self, limit: int = 0, cpu_offload: bool = True):
+    def __init__(self, limit: int = 0, cpu_offload: bool = True, use_prioritization: bool = False, coin_flip_first_online: bool = False):
         """
         Initialize the replay buffer.
         
         Args:
             limit: Maximum number of samples in the buffer. A number <= 0 means unlimited. Defaults to 0.
             cpu_offload: Whether to offload data to CPU to save GPU memory. Defaults to True.
+            use_prioritization: Whether to use prioritized sampling. Defaults to False.
+            coin_flip_first_online: Whether the first update uses the actual samples (affects initial num_updates). Defaults to False.
         """
         self.limit = limit
         self.cpu_offload = cpu_offload
+        self.use_prioritization = use_prioritization
+        self.coin_flip_first_online = coin_flip_first_online
         self.target_device = torch.device(f"cuda:{torch.cuda.current_device()}")
         # Store 1D tensors directly: each element is (hidden_size,) and (coin_flip_dim,)
         self.embeddings: List[torch.Tensor] = []
         self.coin_flip_vectors: List[torch.Tensor] = []
         self.size = 0
+        
+        # Prioritization components
+        if self.use_prioritization:
+            self.priorities: List[float] = []
+            self.num_updates_buffer = NumUpdatesBuffer()
+        else:
+            self.priorities = None
+            self.num_updates_buffer = None
     
     @torch.no_grad()
-    def add(self, embeddings: torch.Tensor, coin_flip_vectors: torch.Tensor):
+    def add(self, embeddings: torch.Tensor, coin_flip_vectors: torch.Tensor, initial_priorities: Optional[torch.Tensor] = None):
         """
         Add embeddings and coin flip vectors to the buffer.
         
         Args:
             embeddings: Final hidden states, shape (batch_size, hidden_size)
             coin_flip_vectors: Coin flip targets, shape (batch_size, coin_flip_dim)
+            initial_priorities: Optional initial priorities for new samples, shape (batch_size,).
+                              If None, defaults to 1.0. If provided, should be one_over_counts values.
         """
         batch_size = embeddings.shape[0]
         
@@ -102,26 +183,48 @@ class CoinFlipReplayBuffer:
         # Convert 2D tensors to list of 1D tensors using unbind, then extend
         self.embeddings.extend(torch.unbind(embeddings, dim=0))
         self.coin_flip_vectors.extend(torch.unbind(coin_flip_vectors, dim=0))
+        
+        # Initialize priorities and num_updates for new samples
+        if self.use_prioritization:
+            if initial_priorities is not None:
+                # Use provided initial priorities (e.g., one_over_counts)
+                # Convert to list and extend
+                priorities_list = initial_priorities.cpu().tolist()
+                self.priorities.extend(priorities_list)
+            else:
+                # Initialize priority to 1.0 for new samples (max priority)
+                self.priorities.extend([1.0] * batch_size)
+            # Initialize num_updates: 1 if coin_flip_first_online (will be used in first update),
+            # otherwise 0 (hasn't been trained on yet)
+            initial_num_updates = 1.0 if self.coin_flip_first_online else 0.0
+            for _ in range(batch_size):
+                self.num_updates_buffer.add(initial_num_updates)
+        
         self.size += batch_size
         
         # If limit is set and we exceed it, remove oldest entries
+        # Keep all lists synchronized by popping from the same index
         if self.limit > 0:
             while self.size > self.limit:
                 self.embeddings.pop(0)
                 self.coin_flip_vectors.pop(0)
+                if self.use_prioritization:
+                    self.priorities.pop(0)
+                    self.num_updates_buffer.pop(0)
                 self.size -= 1
     
     @torch.no_grad()
-    def sample(self, batch_size: int, device: Optional[torch.device] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def sample(self, batch_size: int, device: Optional[torch.device] = None) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """
-        Sample a batch of embeddings and coin flip vectors uniformly at random.
+        Sample a batch of embeddings and coin flip vectors.
         
         Args:
             batch_size: Number of samples to return
             device: Device to move tensors to. If None, uses target_device. Defaults to None.
         
         Returns:
-            Tuple of (embeddings, coin_flip_vectors), both shape (batch_size, ...)
+            Tuple of (embeddings, coin_flip_vectors, indices), all shape (batch_size, ...)
+            If prioritization is disabled, indices will be None.
         """
         if self.size == 0:
             raise ValueError("Cannot sample from empty replay buffer")
@@ -129,9 +232,20 @@ class CoinFlipReplayBuffer:
         if device is None:
             device = self.target_device
         
-        # Sample random indices (using random.sample for consistency with NaiveReplayBuffer)
         num_samples = min(batch_size, self.size)
-        indices = random.sample(range(self.size), num_samples)
+        
+        # Sample indices based on prioritization scheme
+        if self.use_prioritization:
+            # Prioritized sampling: use weighted random sampling based on priorities
+            priorities_tensor = torch.tensor(self.priorities, dtype=torch.float32)
+            # Convert to probabilities
+            probs = priorities_tensor / priorities_tensor.sum()
+            # Sample indices using multinomial
+            indices_tensor = torch.multinomial(probs, num_samples=num_samples, replacement=True)
+            indices = indices_tensor.tolist()
+        else:
+            # Uniform random sampling
+            indices = random.sample(range(self.size), num_samples)
         
         # Collect sampled tensors and stack them
         sampled_embeddings = [self.embeddings[i].to(device) for i in indices]
@@ -141,13 +255,44 @@ class CoinFlipReplayBuffer:
         sampled_embeddings = torch.stack(sampled_embeddings, dim=0)  # (batch_size, hidden_size)
         sampled_coin_flips = torch.stack(sampled_coin_flips, dim=0)  # (batch_size, coin_flip_dim)
         
-        return sampled_embeddings, sampled_coin_flips
+        # Return indices as tensor if prioritization is enabled
+        if self.use_prioritization:
+            indices_tensor = torch.tensor(indices, dtype=torch.long)
+            return sampled_embeddings, sampled_coin_flips, indices_tensor
+        else:
+            return sampled_embeddings, sampled_coin_flips, None
+    
+    def update_priorities(self, indices: torch.Tensor, new_priorities: torch.Tensor):
+        """
+        Update priorities for given indices.
+        
+        Args:
+            indices: Tensor of indices to update, shape (N,)
+            new_priorities: Tensor of new priority values, shape (N,)
+        """
+        if not self.use_prioritization:
+            raise ValueError("update_priorities called but prioritization is not enabled")
+        
+        assert len(indices.shape) == 1, f"Expected 1D tensor, got shape {indices.shape}"
+        assert len(new_priorities.shape) == 1, f"Expected 1D tensor, got shape {new_priorities.shape}"
+        assert indices.shape[0] == new_priorities.shape[0], f"Indices and priorities must have same length"
+        
+        # Convert to CPU numpy for efficient list updates
+        indices_list = indices.cpu().tolist()
+        priorities_list = new_priorities.cpu().tolist()
+        
+        # Update priorities
+        for idx, priority in zip(indices_list, priorities_list):
+            self.priorities[idx] = float(priority)
     
     def clear(self):
         """Clear the replay buffer."""
         self.embeddings = []
         self.coin_flip_vectors = []
         self.size = 0
+        if self.use_prioritization:
+            self.priorities = []
+            self.num_updates_buffer.clear()
     
     def __len__(self) -> int:
         """Return the number of samples in the buffer."""
@@ -291,6 +436,7 @@ class BaseExperienceMaker(ABC):
         coin_flip_optim: Optional[torch.optim.Optimizer] = None,
         coin_flip_scheduler: Optional[object] = None,
         coin_flip_first_online: bool = False,
+        coin_flip_use_prioritization: bool = False,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -339,12 +485,18 @@ class BaseExperienceMaker(ABC):
         self.coin_flip_optim = coin_flip_optim
         self.coin_flip_scheduler = coin_flip_scheduler
         self.coin_flip_first_online = coin_flip_first_online
+        self.coin_flip_use_prioritization = coin_flip_use_prioritization
         
         # Initialize coin flip replay buffer if using coin_flip exploration bonus
         # Follows same pattern as NaiveReplayBuffer: limit=0 means unlimited, cpu_offload=True saves GPU memory
         if self.exploration_bonus == "coin_flip":
             buffer_limit = getattr(strategy.args, 'coin_flip_replay_buffer_limit', 0) if strategy else 0
-            self.coin_flip_replay_buffer = CoinFlipReplayBuffer(limit=buffer_limit, cpu_offload=True)
+            self.coin_flip_replay_buffer = CoinFlipReplayBuffer(
+                limit=buffer_limit, 
+                cpu_offload=True,
+                use_prioritization=self.coin_flip_use_prioritization,
+                coin_flip_first_online=self.coin_flip_first_online
+            )
         else:
             self.coin_flip_replay_buffer = None
         
@@ -532,15 +684,17 @@ class BaseExperienceMaker(ABC):
                 # Use current batch for first update step
                 sampled_embeddings = final_hidden_states
                 sampled_coin_flips = coin_flip_targets
+                sampled_indices = None  # Not from buffer, so no indices
             elif self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.size > 0:
                 # Sample from replay buffer
-                sampled_embeddings, sampled_coin_flips = self.coin_flip_replay_buffer.sample(
+                sampled_embeddings, sampled_coin_flips, sampled_indices = self.coin_flip_replay_buffer.sample(
                     replay_buffer_batch_size, coin_flip_head_device
                 )
             else:
                 # Use current batch (first few iterations before buffer has data)
                 sampled_embeddings = final_hidden_states
                 sampled_coin_flips = coin_flip_targets
+                sampled_indices = None
             
             # Forward pass through coin flip network to get combined predictions
             # This uses the same forward logic (coin_flip_head + normalized random prior)
@@ -551,6 +705,51 @@ class BaseExperienceMaker(ABC):
             # where f_combined = coin_flip_head(x) + normalized_random_prior(x)
             # Average over coin_flip_dim and batch
             loss = ((final_predictions - sampled_coin_flips) ** 2).mean()
+            
+            # Update priorities if prioritization is enabled
+            if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.use_prioritization:
+                # Compute one_over_counts = (1/d) * ||f(s)||^2 for sampled batch
+                norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
+                one_over_counts = norm_squared / coin_flip_dim  # (1/d) * ||f(s)||^2
+                
+                if self.coin_flip_first_online and update_step == 0 and sampled_indices is None:
+                    # First update step with coin_flip_first_online: update priorities for newly added samples
+                    # The samples were just added, so they are at the end of the buffer
+                    batch_size = sampled_embeddings.shape[0]
+                    new_indices = torch.arange(
+                        self.coin_flip_replay_buffer.size - batch_size,
+                        self.coin_flip_replay_buffer.size,
+                        dtype=torch.long
+                    )
+                    
+                    # Get num_updates for newly added samples
+                    num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(new_indices)  # (B,)
+                    
+                    # Compute new priorities with fixed α = 0.5
+                    # priority(s) = α(1/n_updates(s)) + (1-α)(1/d)(||f(s)||^2)
+                    priority_alpha = 0.5
+                    new_priorities = priority_alpha * (1.0 / (num_updates + 1.0)) + (1.0 - priority_alpha) * one_over_counts
+                    
+                    # Update priorities in replay buffer
+                    self.coin_flip_replay_buffer.update_priorities(new_indices, new_priorities)
+                    
+                    # Increment num_updates for newly added samples
+                    self.coin_flip_replay_buffer.num_updates_buffer.increment(new_indices)
+                elif sampled_indices is not None:
+                    # Sampled from buffer: update priorities for sampled indices
+                    # Get num_updates for sampled indices
+                    num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(sampled_indices)  # (B,)
+                    
+                    # Compute new priorities with fixed α = 0.5
+                    # priority(s) = α(1/n_updates(s)) + (1-α)(1/d)(||f(s)||^2)
+                    priority_alpha = 0.5
+                    new_priorities = priority_alpha * (1.0 / (num_updates + 1.0)) + (1.0 - priority_alpha) * one_over_counts
+                    
+                    # Update priorities in replay buffer
+                    self.coin_flip_replay_buffer.update_priorities(sampled_indices, new_priorities)
+                    
+                    # Increment num_updates for sampled indices
+                    self.coin_flip_replay_buffer.num_updates_buffer.increment(sampled_indices)
 
             print_info = False # True
             if print_info:

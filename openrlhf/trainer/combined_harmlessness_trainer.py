@@ -341,7 +341,8 @@ class CombinedHarmlessnessTrainer(ABC):
             bad_word_tokens_ids=bad_word_tokens_ids,
             reward_pretrain=getattr(strategy.args, 'reward_pretrain', None),
             exploration_bonus=exploration_bonus_base_actor,
-            bonus_alpha=getattr(strategy.args, 'bonus_alpha', 1.0)
+            bonus_alpha=getattr(strategy.args, 'bonus_alpha', 1.0),
+            coin_flip_use_prioritization=getattr(strategy.args, 'coin_flip_use_prioritization', False)
         )
 
         self.sampling_experience_maker_neg = None
@@ -379,7 +380,8 @@ class CombinedHarmlessnessTrainer(ABC):
             coin_flip_dim=getattr(strategy.args, 'coin_flip_dim', 64),
             coin_flip_optim=self.coin_flip_optim,
             coin_flip_scheduler=self.coin_flip_scheduler,
-            coin_flip_first_online=self.coin_flip_first_online
+            coin_flip_first_online=self.coin_flip_first_online,
+            coin_flip_use_prioritization=getattr(strategy.args, 'coin_flip_use_prioritization', False)
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)

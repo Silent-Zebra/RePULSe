@@ -251,6 +251,7 @@ def get_info_name_str(args):
             coin_flip_update_steps = getattr(args, 'coin_flip_update_steps', 1)
             train_coin_flip_before = getattr(args, 'train_coin_flip_before', False)
             coin_flip_first_online = getattr(args, 'coin_flip_first_online', False)
+            coin_flip_use_prioritization = getattr(args, 'coin_flip_use_prioritization', False)
             exploration_bonus_str += f"_cfd{coin_flip_dim}"
             if coin_flip_lr is not None:
                 exploration_bonus_str += f"_cflr{coin_flip_lr}"
@@ -262,6 +263,8 @@ def get_info_name_str(args):
                 exploration_bonus_str += "_after"
             if coin_flip_first_online:
                 exploration_bonus_str += "_firstonline"
+            if coin_flip_use_prioritization:
+                exploration_bonus_str += "_pri"
 
     info_name_str = f"{rm_type_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_beta{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{args.parameterization}_{args.actor_loss_type}_epo{args.max_epochs}_epi{n_episodes}{eval_str}_sch{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}{exploration_bonus_str}_s{args.seed}"
 
