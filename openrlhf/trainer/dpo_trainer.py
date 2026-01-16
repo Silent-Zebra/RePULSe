@@ -2,7 +2,7 @@ import os
 from abc import ABC
 
 import torch
-from flash_attn.utils.distributed import all_gather
+# from flash_attn.utils.distributed import all_gather
 from torch.nn import functional as F
 from torch.optim import Optimizer
 from tqdm import tqdm
