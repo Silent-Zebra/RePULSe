@@ -258,7 +258,9 @@ class CombinedHarmlessnessTrainer(ABC):
         if exploration_bonus_sampling_actor == "coin_flip":
             coin_flip_dim = getattr(strategy.args, 'coin_flip_dim', 64)
             normalization_momentum = getattr(strategy.args, 'coin_flip_normalization_momentum', None)
-            head_init_std = getattr(strategy.args, 'coin_flip_head_init_std', 0.1)
+            head_init_std = getattr(strategy.args, 'coin_flip_head_init_std', 0.01)
+            frozen_prior_init_std = getattr(strategy.args, 'frozen_prior_init_std', 0.01)
+            coin_flip_linear_bias = getattr(strategy.args, 'coin_flip_linear_bias', False)
             base_actor_lr = getattr(strategy.args, 'base_actor_learning_rate', None)
             # Initialize coin flip network from sampling_actor
             self.coin_flip_network = CoinFlipNetwork(
@@ -266,6 +268,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 coin_flip_dim=coin_flip_dim, 
                 normalization_momentum=normalization_momentum,
                 head_init_std=head_init_std,
+                frozen_prior_init_std=frozen_prior_init_std,
+                coin_flip_linear_bias=coin_flip_linear_bias,
                 base_actor_learning_rate=base_actor_lr,
             )
             

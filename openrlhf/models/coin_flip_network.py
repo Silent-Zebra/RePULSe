@@ -23,7 +23,9 @@ class CoinFlipNetwork(nn.Module):
         coin_flip_dim: Dimension d for coin flip vectors (default: 64)
         normalization_momentum: Momentum for exponential moving average of running statistics
             used to normalize the exploration bonus. If None, normalization is disabled (default: None)
-        head_init_std: Standard deviation for initializing the coin flip head weights (default: 0.1)
+        head_init_std: Standard deviation for initializing the coin flip head weights (default: 0.01)
+        frozen_prior_init_std: Standard deviation for initializing the frozen prior network weights (default: 0.01)
+        coin_flip_linear_bias: If True, adds bias to the linear head for the trainable coin flip network (default: False)
         base_actor_learning_rate: Learning rate of the base actor. If provided and != 0, raises
             NotImplementedError as the random prior structure should be reviewed when base_model is trainable (default: None)
     """
@@ -34,6 +36,8 @@ class CoinFlipNetwork(nn.Module):
         coin_flip_dim: int = 64, 
         normalization_momentum: Optional[float] = None,
         head_init_std: float = 0.01,
+        frozen_prior_init_std: float = 0.01,
+        coin_flip_linear_bias: bool = False,
         base_actor_learning_rate: Optional[float] = None,
     ):
         super().__init__()
@@ -171,7 +175,7 @@ class CoinFlipNetwork(nn.Module):
             print("Determined hidden_size for CoinFlipNetwork:", hidden_size)
         
         # Create coin flip head: maps hidden_size -> coin_flip_dim
-        self.coin_flip_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
+        self.coin_flip_head = nn.Linear(hidden_size, coin_flip_dim, bias=coin_flip_linear_bias)
         
         # Move coin_flip_head to the same device as base_model
         # Get device from base_model parameters, prioritizing GPU/cuda
@@ -188,12 +192,14 @@ class CoinFlipNetwork(nn.Module):
         
         # Reinitialize coin flip head with custom standard deviation for smaller initial outputs
         nn.init.normal_(self.coin_flip_head.weight, mean=0.0, std=head_init_std)
+        if coin_flip_linear_bias and self.coin_flip_head.bias is not None:
+            nn.init.zeros_(self.coin_flip_head.bias)
         
         # Create random prior head: frozen linear layer with same architecture
         # This ensures new states have ~1 pseudocount at initialization
         self.random_prior_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
         self.random_prior_head = self.random_prior_head.to(base_model_device)
-        nn.init.normal_(self.random_prior_head.weight, mean=0.0, std=head_init_std)
+        nn.init.normal_(self.random_prior_head.weight, mean=0.0, std=frozen_prior_init_std)
 
         # Freeze the random prior head - it should never be trained
         for param in self.random_prior_head.parameters():
