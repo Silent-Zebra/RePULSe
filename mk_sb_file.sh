@@ -174,20 +174,18 @@ case "$CLUSTER" in
 #SBATCH --partition=ml
 #SBATCH --qos=ml
 #SBATCH --account=ml
-#SBATCH --nodelist=overture,quartet2,quartet4,quartet5
+#SBATCH --nodelist=overture,quartet[1-5]
 #SBATCH --nodes=1
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
 #SBATCH --gres=gpu:1
-ln -s /usr/bin/gcc-10 .local/bin/gcc
-ln -s /usr/bin/g++-10 .local/bin/g++
-export PATH=\$HOME/.local/bin/:\$PATH
-cd ~/OpenRLHF
-source newenv/bin/activate
+source /pkgs/anaconda310/etc/profile.d/conda.sh
+conda activate openrlhf
 export CUDA_HOME=/pkgs/cuda-12.4
 export PATH=\$CUDA_HOME/bin:\$PATH
 export LD_LIBRARY_PATH=\$CUDA_HOME/lib64:\$LD_LIBRARY_PATH
 export MAX_JOBS=1
+cd ~/OpenRLHF
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
 EOL
         ;;
