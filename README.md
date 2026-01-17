@@ -56,6 +56,17 @@ pip install -r requirements.txt --no-index
 pip install flash-attn --no-build-isolation
 ```
 
+## Example commands for DCS cluster (using conda):
+
+```
+source /pkgs/anaconda310/etc/profile.d/conda.sh
+conda create -n openrlhf python=3.10 -y
+conda activate openrlhf
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install deepspeed
+pip install -e .
+```
+
 
 # Commands Used in Experiments
 
