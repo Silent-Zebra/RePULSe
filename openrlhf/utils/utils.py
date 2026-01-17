@@ -252,17 +252,17 @@ def get_info_name_str(args):
             train_coin_flip_before = getattr(args, 'train_coin_flip_before', False)
             coin_flip_first_online = getattr(args, 'coin_flip_first_online', False)
             coin_flip_use_prioritization = getattr(args, 'coin_flip_use_prioritization', False)
-            coin_flip_head_init_std = getattr(args, 'coin_flip_head_init_std', 0.01)
-            frozen_prior_init_std = getattr(args, 'frozen_prior_init_std', 0.01)
+            coin_flip_head_init_std = getattr(args, 'coin_flip_head_init_std', 0.001)
+            frozen_prior_init_std = getattr(args, 'frozen_prior_init_std', 0.1)
             coin_flip_linear_bias = getattr(args, 'coin_flip_linear_bias', False)
             exploration_bonus_str += f"_cfd{coin_flip_dim}"
             if coin_flip_lr is not None:
                 exploration_bonus_str += f"_cflr{coin_flip_lr}"
             if coin_flip_update_steps != 1:
                 exploration_bonus_str += f"_cfus{coin_flip_update_steps}"
-            if coin_flip_head_init_std != 0.01:
+            if coin_flip_head_init_std != 0.001:
                 exploration_bonus_str += f"_cfhis{coin_flip_head_init_std}"
-            if frozen_prior_init_std != 0.01:
+            if frozen_prior_init_std != 0.1:
                 exploration_bonus_str += f"_fpis{frozen_prior_init_std}"
             if coin_flip_linear_bias:
                 exploration_bonus_str += "_cfbias"

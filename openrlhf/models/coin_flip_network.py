@@ -23,8 +23,8 @@ class CoinFlipNetwork(nn.Module):
         coin_flip_dim: Dimension d for coin flip vectors (default: 64)
         normalization_momentum: Momentum for exponential moving average of running statistics
             used to normalize the exploration bonus. If None, normalization is disabled (default: None)
-        head_init_std: Standard deviation for initializing the coin flip head weights (default: 0.01)
-        frozen_prior_init_std: Standard deviation for initializing the frozen prior network weights (default: 0.01)
+        head_init_std: Standard deviation for initializing the coin flip head weights (default: 0.001)
+        frozen_prior_init_std: Standard deviation for initializing the frozen prior network weights (default: 0.1)
         coin_flip_linear_bias: If True, adds bias to the linear head for the trainable coin flip network (default: False)
         base_actor_learning_rate: Learning rate of the base actor. If provided and != 0, raises
             NotImplementedError as the random prior structure should be reviewed when base_model is trainable (default: None)
@@ -35,8 +35,8 @@ class CoinFlipNetwork(nn.Module):
         base_model: nn.Module, 
         coin_flip_dim: int = 64, 
         normalization_momentum: Optional[float] = None,
-        head_init_std: float = 0.01,
-        frozen_prior_init_std: float = 0.01,
+        head_init_std: float = 0.001,
+        frozen_prior_init_std: float = 0.1,
         coin_flip_linear_bias: bool = False,
         base_actor_learning_rate: Optional[float] = None,
     ):
