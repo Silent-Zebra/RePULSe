@@ -113,6 +113,8 @@ class CombinedHarmlessnessTrainer(ABC):
         bad_word_tokens_ids: Optional[List[int]] = None,
         train_coin_flip_before: bool = False,
         coin_flip_first_online: bool = False,
+        coin_flip_trainable_network: Optional[Actor] = None,
+        coin_flip_frozen_prior_network: Optional[Actor] = None,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -264,6 +266,7 @@ class CombinedHarmlessnessTrainer(ABC):
             base_actor_lr = getattr(strategy.args, 'base_actor_learning_rate', None)
             coin_flip_architecture = getattr(strategy.args, 'coin_flip_architecture', 'linear_head_on_base')
             # Initialize coin flip network from sampling_actor
+            # If pre-initialized networks are provided (for separate_nn mode), use them
             self.coin_flip_network = CoinFlipNetwork(
                 sampling_actor, 
                 coin_flip_dim=coin_flip_dim, 
@@ -273,6 +276,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 coin_flip_linear_bias=coin_flip_linear_bias,
                 base_actor_learning_rate=base_actor_lr,
                 coin_flip_architecture=coin_flip_architecture,
+                trainable_network=coin_flip_trainable_network,
+                frozen_prior_network=coin_flip_frozen_prior_network,
             )
             
             # Set adjust_reward attribute based on train_coin_flip_before

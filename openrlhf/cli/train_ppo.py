@@ -293,39 +293,83 @@ def train(args):
             scheduler_specific_kwargs={"min_lr": args.critic_learning_rate * 0.1},
         )
 
+    # Initialize coin flip networks if needed for separate_nn architecture
+    coin_flip_trainable_network = None
+    coin_flip_frozen_prior_network = None
+    if (args.do_harmlessness_training and 
+        getattr(args, 'exploration_bonus_sampling_actor', None) == "coin_flip" and
+        getattr(args, 'coin_flip_architecture', 'linear_head_on_base') == "separate_nn"):
+        # Create trainable network (copy of actor structure)
+        coin_flip_trainable_network = Actor(
+            args.pretrain,
+            use_flash_attention_2=args.flash_attn,
+            bf16=args.bf16,
+            load_in_4bit=args.load_in_4bit,
+            lora_rank=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            target_modules=args.target_modules,
+            lora_dropout=args.lora_dropout,
+            ds_config=strategy.get_ds_train_config(is_actor=True),
+        )
+        # Create frozen prior network (copy of actor structure)
+        coin_flip_frozen_prior_network = Actor(
+            args.pretrain,
+            use_flash_attention_2=args.flash_attn,
+            bf16=args.bf16,
+            load_in_4bit=args.load_in_4bit,
+            lora_rank=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            target_modules=args.target_modules,
+            lora_dropout=args.lora_dropout,
+            ds_config=strategy.get_ds_train_config(is_actor=True),
+        )
+        # Freeze the frozen prior network
+        for param in coin_flip_frozen_prior_network.parameters():
+            param.requires_grad = False
+
     if args.do_harmlessness_training:
         # Seems like the strategy.prepare handles None gracefully, so no need for the explicit critic check
         if critic is not None:
             # prepare models/optimizers...
+            prepared = strategy.prepare(
+                (actor, actor_optim, actor_scheduler),
+                (critic, critic_optim, critic_scheduler),
+                (base_actor, base_actor_optim, base_actor_scheduler),
+                reward_model,
+                static_initial_model,
+                coin_flip_trainable_network,
+                coin_flip_frozen_prior_network,
+                is_rlhf=True,
+                gradient_accumulation_steps=args.gradient_accumulation_steps,
+            )
             (
                 (actor, actor_optim, actor_scheduler),
                 (critic, critic_optim, critic_scheduler),
                 (base_actor, base_actor_optim, base_actor_scheduler),
                 reward_model,
                 static_initial_model,
-            ) = strategy.prepare(
-                (actor, actor_optim, actor_scheduler),
-                (critic, critic_optim, critic_scheduler),
-                (base_actor, base_actor_optim, base_actor_scheduler),
-                reward_model,
-                static_initial_model,
-                is_rlhf=True,
-                gradient_accumulation_steps=args.gradient_accumulation_steps,
-            )
+                coin_flip_trainable_network,
+                coin_flip_frozen_prior_network,
+            ) = prepared
         else:
+            prepared = strategy.prepare(
+                (actor, actor_optim, actor_scheduler),
+                (base_actor, base_actor_optim, base_actor_scheduler),
+                reward_model,
+                static_initial_model,
+                coin_flip_trainable_network,
+                coin_flip_frozen_prior_network,
+                is_rlhf=True,
+                gradient_accumulation_steps=args.gradient_accumulation_steps,
+            )
             (
                 (actor, actor_optim, actor_scheduler),
                 (base_actor, base_actor_optim, base_actor_scheduler),
                 reward_model,
                 static_initial_model,
-            ) = strategy.prepare(
-                (actor, actor_optim, actor_scheduler),
-                (base_actor, base_actor_optim, base_actor_scheduler),
-                reward_model,
-                static_initial_model,
-                is_rlhf=True,
-                gradient_accumulation_steps=args.gradient_accumulation_steps,
-            )
+                coin_flip_trainable_network,
+                coin_flip_frozen_prior_network,
+            ) = prepared
 
     else:
 
@@ -487,6 +531,8 @@ def train(args):
             train_coin_flip_before=args.train_coin_flip_before,
             coin_flip_first_online=args.coin_flip_first_online,
             coin_flip_use_prioritization=args.coin_flip_use_prioritization,
+            coin_flip_trainable_network=coin_flip_trainable_network,
+            coin_flip_frozen_prior_network=coin_flip_frozen_prior_network,
         )
 
 

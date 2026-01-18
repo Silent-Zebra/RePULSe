@@ -41,6 +41,8 @@ class CoinFlipNetwork(nn.Module):
         coin_flip_linear_bias: bool = False,
         base_actor_learning_rate: Optional[float] = None,
         coin_flip_architecture: str = "linear_head_on_base",
+        trainable_network: Optional[nn.Module] = None,
+        frozen_prior_network: Optional[nn.Module] = None,
     ):
         super().__init__()
         self.coin_flip_dim = coin_flip_dim
@@ -68,11 +70,20 @@ class CoinFlipNetwork(nn.Module):
         
         if coin_flip_architecture == "separate_nn":
             # TODO: Allow for different architectures later (currently both networks are copies of base_actor)
-            # Create separate trainable network (full Actor copy, will be trained end-to-end)
-            self.trainable_network = copy.deepcopy(base_model)
-            
-            # Create separate frozen prior network (full Actor copy, completely frozen)
-            self.frozen_prior_network = copy.deepcopy(base_model)
+            # Use pre-initialized networks if provided (avoids deepcopy issues with DeepSpeed-wrapped models)
+            # Otherwise, fall back to deepcopy for backward compatibility
+            if trainable_network is not None and frozen_prior_network is not None:
+                # Use provided networks (already set up with DeepSpeed)
+                self.trainable_network = trainable_network
+                self.frozen_prior_network = frozen_prior_network
+            else:
+                # Fall back to deepcopy (for backward compatibility or when networks not pre-initialized)
+                # Likely to fail though...
+                # Create separate trainable network (full Actor copy, will be trained end-to-end)
+                self.trainable_network = copy.deepcopy(base_model)
+                
+                # Create separate frozen prior network (full Actor copy, completely frozen)
+                self.frozen_prior_network = copy.deepcopy(base_model)
             
             # Freeze the frozen prior network completely
             for param in self.frozen_prior_network.parameters():
