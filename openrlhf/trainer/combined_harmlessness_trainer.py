@@ -262,6 +262,7 @@ class CombinedHarmlessnessTrainer(ABC):
             frozen_prior_init_std = getattr(strategy.args, 'frozen_prior_init_std', 0.1)
             coin_flip_linear_bias = getattr(strategy.args, 'coin_flip_linear_bias', False)
             base_actor_lr = getattr(strategy.args, 'base_actor_learning_rate', None)
+            coin_flip_architecture = getattr(strategy.args, 'coin_flip_architecture', 'linear_head_on_base')
             # Initialize coin flip network from sampling_actor
             self.coin_flip_network = CoinFlipNetwork(
                 sampling_actor, 
@@ -271,6 +272,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 frozen_prior_init_std=frozen_prior_init_std,
                 coin_flip_linear_bias=coin_flip_linear_bias,
                 base_actor_learning_rate=base_actor_lr,
+                coin_flip_architecture=coin_flip_architecture,
             )
             
             # Set adjust_reward attribute based on train_coin_flip_before
@@ -385,7 +387,8 @@ class CombinedHarmlessnessTrainer(ABC):
             coin_flip_optim=self.coin_flip_optim,
             coin_flip_scheduler=self.coin_flip_scheduler,
             coin_flip_first_online=self.coin_flip_first_online,
-            coin_flip_use_prioritization=getattr(strategy.args, 'coin_flip_use_prioritization', False)
+            coin_flip_use_prioritization=getattr(strategy.args, 'coin_flip_use_prioritization', False),
+            coin_flip_architecture=getattr(strategy.args, 'coin_flip_architecture', 'linear_head_on_base')
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)
