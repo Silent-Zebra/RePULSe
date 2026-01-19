@@ -599,16 +599,17 @@ def train(args):
                 precomputed_q = do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                           total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
                                           individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                                          actor_to_test=actor)
+                                          actor_to_test=actor, generate_max_len=args.generate_max_len)
                 precomputed_p = do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                           total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
                                           individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
-                                          actor_to_test=base_actor)
+                                          actor_to_test=base_actor, generate_max_len=args.generate_max_len)
             else:
                 # For non-harmlessness training, just use the standard actor
                 do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                           total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
-                                          individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list)
+                                          individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
+                                          generate_max_len=args.generate_max_len)
             
             if args.do_harmlessness_training:
                 if "indicator" in args.rm_type: 
@@ -742,22 +743,23 @@ def train(args):
                     precomputed_q = do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                               total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
                                               individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                                              actor_to_test=actor)
+                                              actor_to_test=actor, generate_max_len=args.generate_max_len)
                 else:
                     # Calculate for both sampling_actor (q) and base_actor (p)
                     precomputed_q = do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                               total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
                                               individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                                              actor_to_test=actor)
+                                              actor_to_test=actor, generate_max_len=args.generate_max_len)
                     precomputed_p = do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                               total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
                                               individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
-                                              actor_to_test=base_actor)
+                                              actor_to_test=base_actor, generate_max_len=args.generate_max_len)
             else:
                 # For non-harmlessness training, just use the standard actor
                 do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                           total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
-                                          individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list)
+                                          individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
+                                          generate_max_len=args.generate_max_len)
             
             if args.do_harmlessness_training:
                 if "indicator" in args.rm_type:
@@ -902,7 +904,13 @@ def train(args):
 def do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer, 
                               total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
                               individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
-                              actor_to_test=None):
+                              actor_to_test=None, generate_max_len=None):
+    # Validate generate_max_len
+    if generate_max_len is None:
+        generate_max_len = args.generate_max_len
+    if generate_max_len not in [1, 2]:
+        raise NotImplementedError(f"generate_max_len={generate_max_len} is not supported. Only 1 and 2 are supported.")
+    
     # If actor_to_test is explicitly provided, use it; otherwise use the old logic
     if actor_to_test is None:
         if args.do_harmlessness_training:
@@ -917,12 +925,13 @@ def do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prom
         prompt_text=prompt,
         bad_word_indices=bad_word_tokens_ids,
         batch_size=args.analytic_batch_size,
+        generate_max_len=generate_max_len,
     )
     
     # Use precomputed results to calculate the log probability metrics
     (total_log_prob, individual_bad_word_log_probs_t0, 
      individual_bad_word_log_probs_t1, individual_bad_word_log_probs_combined) = \
-        _calculate_bad_word_log_prob_from_precomputed(precomputed, bad_word_tokens_ids)
+        _calculate_bad_word_log_prob_from_precomputed(precomputed, bad_word_tokens_ids, generate_max_len=generate_max_len)
     
     total_log_prob_bad_list.append(total_log_prob)
     individual_bad_word_log_probs_t0_list.append(individual_bad_word_log_probs_t0)
@@ -940,9 +949,13 @@ def _compute_bad_word_sequence_log_probs(
     prompt_text: str,
     bad_word_indices: Union[List[int], torch.Tensor],
     batch_size: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    generate_max_len: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
     """
     Shared computation function that computes log probabilities for sequences containing bad words.
+    
+    Args:
+        generate_max_len: Maximum generation length. If 1, only computes t=0 probabilities. If 2, computes both t=0 and t=1.
     
     Returns:
         A tuple containing:
@@ -951,6 +964,7 @@ def _compute_bad_word_sequence_log_probs(
         - good_word_indices: Indices of good words
         - log_probs_t0: Log probabilities at t=0 for all vocab tokens
         - log_probs_case2: Log probabilities for Case 2 sequences (good at t=0, bad at t=1) [n_good_words, n_bad_words]
+          or None if generate_max_len == 1
     """
     device = model.device if hasattr(model, 'device') else \
              torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -972,52 +986,58 @@ def _compute_bad_word_sequence_log_probs(
     # Identify indices of "good" words (all vocab except bad words)
     good_word_indices, n_good_words = get_good_word_indices(bad_word_indices_tensor, n_vocab, device)
 
-    # Get log probabilities at t=0
+    # Get log probabilities at t=0 (always computed for both generate_max_len == 1 and == 2)
     log_probs_t0 = get_next_token_log_probs(model, prompt_ids)  # Shape: (n_vocab,)
 
     # --- Case 2: Good word at t=0, Bad word at t=1 ---
-    # Get log probabilities of good words at t=0
-    log_probs_good_at_t0 = log_probs_t0[good_word_indices]  # Shape: (n_good_words,)
-    
-    # Initialize tensor to store Case 2 probabilities
-    # Shape: (n_good_words, n_bad_words)
-    log_probs_case2 = torch.full((n_good_words, n_bad_words), float('-inf'), device=device)
-    
-    # Process in batches to manage memory
-    for i in range(0, n_good_words, batch_size):
-        batch_good_indices = good_word_indices[i : i + batch_size]
-        current_batch_size = len(batch_good_indices)
-
-        # Log probabilities of these specific good words at t=0
-        batch_log_probs_good_t0 = log_probs_good_at_t0[i : i + batch_size]  # Shape: (current_batch_size,)
-
-        # Construct input sequences: prompt + good_word_j
-        # Shape: (current_batch_size, prompt_len + 1)
-        batch_inputs_t1 = torch.cat(
-            (prompt_ids.repeat(current_batch_size, 1), batch_good_indices.unsqueeze(1)),
-            dim=1
-        )
-
-        # Get log probabilities for all tokens at t=1, conditioned on (prompt + good_word_j)
-        log_probs_t1 = get_next_token_log_probs(model, batch_inputs_t1)  # Shape: (current_batch_size, n_vocab)
-
-        # Select log probabilities of bad words at t=1
-        log_probs_bad_at_t1 = log_probs_t1[:, bad_word_indices_tensor]  # Shape: (current_batch_size, n_bad_words)
-
-        # Broadcast t=0 probs [current_batch_size, 1] with t=1 bad word probs [current_batch_size, n_bad_words]
-        # to get sequence log probs [current_batch_size, n_bad_words]
-        batch_log_probs_case2 = batch_log_probs_good_t0.unsqueeze(1) + log_probs_bad_at_t1
+    # Only compute if generate_max_len == 2
+    if generate_max_len == 2:
+        # Get log probabilities of good words at t=0
+        log_probs_good_at_t0 = log_probs_t0[good_word_indices]  # Shape: (n_good_words,)
         
-        # Store in the result tensor
-        log_probs_case2[i : i + current_batch_size] = batch_log_probs_case2
+        # Initialize tensor to store Case 2 probabilities
+        # Shape: (n_good_words, n_bad_words)
+        log_probs_case2 = torch.full((n_good_words, n_bad_words), float('-inf'), device=device)
+        
+        # Process in batches to manage memory
+        for i in range(0, n_good_words, batch_size):
+            batch_good_indices = good_word_indices[i : i + batch_size]
+            current_batch_size = len(batch_good_indices)
+
+            # Log probabilities of these specific good words at t=0
+            batch_log_probs_good_t0 = log_probs_good_at_t0[i : i + current_batch_size]  # Shape: (current_batch_size,)
+
+            # Construct input sequences: prompt + good_word_j
+            # Shape: (current_batch_size, prompt_len + 1)
+            batch_inputs_t1 = torch.cat(
+                (prompt_ids.repeat(current_batch_size, 1), batch_good_indices.unsqueeze(1)),
+                dim=1
+            )
+
+            # Get log probabilities for all tokens at t=1, conditioned on (prompt + good_word_j)
+            log_probs_t1 = get_next_token_log_probs(model, batch_inputs_t1)  # Shape: (current_batch_size, n_vocab)
+
+            # Select log probabilities of bad words at t=1
+            log_probs_bad_at_t1 = log_probs_t1[:, bad_word_indices_tensor]  # Shape: (current_batch_size, n_bad_words)
+
+            # Broadcast t=0 probs [current_batch_size, 1] with t=1 bad word probs [current_batch_size, n_bad_words]
+            # to get sequence log probs [current_batch_size, n_bad_words]
+            batch_log_probs_case2 = batch_log_probs_good_t0.unsqueeze(1) + log_probs_bad_at_t1
+            
+            # Store in the result tensor
+            log_probs_case2[i : i + current_batch_size] = batch_log_probs_case2
+    else:
+        # generate_max_len == 1: don't compute Case 2
+        log_probs_case2 = None
 
     return prompt_ids, bad_word_indices_tensor, good_word_indices, log_probs_t0, log_probs_case2
 
 
 @torch.no_grad() # Ensure no gradients are computed during evaluation
 def _calculate_bad_word_log_prob_from_precomputed(
-    precomputed: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+    precomputed: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]],
     bad_word_indices: Union[List[int], torch.Tensor],
+    generate_max_len: int,
 ) -> Tuple[float, dict, dict, dict]:
     """
     Calculate bad word log probability metrics from precomputed sequence log probabilities.
@@ -1025,6 +1045,7 @@ def _calculate_bad_word_log_prob_from_precomputed(
     Args:
         precomputed: Tuple from _compute_bad_word_sequence_log_probs
         bad_word_indices: Bad word indices (for creating dictionaries)
+        generate_max_len: Maximum generation length (1 or 2)
     
     Returns:
         Same as calculate_bad_word_log_prob_pytorch
@@ -1043,30 +1064,43 @@ def _calculate_bad_word_log_prob_from_precomputed(
     # log P(any bad_word at t=0 | prompt)
     total_log_prob_case1 = torch.logsumexp(log_probs_bad_at_t0, dim=0)
 
-    # --- Case 2: Good word at t=0, Bad word at t=1 ---
-    # log_probs_case2 is [n_good_words, n_bad_words]
-    # For total Case 2: sum over all good words j and all bad words k
-    total_log_prob_case2 = torch.logsumexp(log_probs_case2.flatten(), dim=0)
-    
-    # For individual bad word calculation: For each bad word k, sum over all good words j
-    # Shape: (n_bad_words,)
-    log_probs_case2_per_bad_word = torch.logsumexp(log_probs_case2, dim=0)
+    if generate_max_len == 2:
+        # --- Case 2: Good word at t=0, Bad word at t=1 ---
+        # log_probs_case2 is [n_good_words, n_bad_words]
+        # For total Case 2: sum over all good words j and all bad words k
+        total_log_prob_case2 = torch.logsumexp(log_probs_case2.flatten(), dim=0)
+        
+        # For individual bad word calculation: For each bad word k, sum over all good words j
+        # Shape: (n_bad_words,)
+        log_probs_case2_per_bad_word = torch.logsumexp(log_probs_case2, dim=0)
 
-    # --- Combine Case 1 and Case 2 ---
-    final_combined_log_probs = torch.stack([total_log_prob_case1, total_log_prob_case2])
-    print("log prob by cases")
-    print(total_log_prob_case1)
-    print(total_log_prob_case2)
-    total_log_prob = torch.logsumexp(final_combined_log_probs, dim=0).item()
-    print(f"Total log prob of bad word: {total_log_prob}")
+        # --- Combine Case 1 and Case 2 ---
+        final_combined_log_probs = torch.stack([total_log_prob_case1, total_log_prob_case2])
+        print("log prob by cases")
+        print(total_log_prob_case1)
+        print(total_log_prob_case2)
+        total_log_prob = torch.logsumexp(final_combined_log_probs, dim=0).item()
+        print(f"Total log prob of bad word: {total_log_prob}")
 
-    # --- Combine Case 1 and Case 2 for each bad word ---
-    # For each bad word k:
-    # Total Log Probability = logsumexp([log P(bad_k at t=0), log P(good_word at t=0, bad_k at t=1)])
-    # Shape: (n_bad_words,)
-    total_log_probs_per_bad_word = torch.logsumexp(
-        torch.stack([log_probs_bad_at_t0, log_probs_case2_per_bad_word]), dim=0
-    )
+        # --- Combine Case 1 and Case 2 for each bad word ---
+        # For each bad word k:
+        # Total Log Probability = logsumexp([log P(bad_k at t=0), log P(good_word at t=0, bad_k at t=1)])
+        # Shape: (n_bad_words,)
+        total_log_probs_per_bad_word = torch.logsumexp(
+            torch.stack([log_probs_bad_at_t0, log_probs_case2_per_bad_word]), dim=0
+        )
+    else:
+        # generate_max_len == 1: only Case 1 (t=0), no Case 2
+        total_log_prob_case2 = None
+        log_probs_case2_per_bad_word = None
+        total_log_prob = total_log_prob_case1.item()
+        print("log prob by cases")
+        print(total_log_prob_case1)
+        print("Case 2: N/A (generate_max_len == 1)")
+        print(f"Total log prob of bad word: {total_log_prob}")
+        
+        # For generate_max_len == 1, combined probabilities are just t=0 probabilities
+        total_log_probs_per_bad_word = log_probs_bad_at_t0
 
     # Create dictionaries mapping token IDs to log probabilities
     individual_bad_word_log_probs_t0 = {}
@@ -1077,28 +1111,34 @@ def _calculate_bad_word_log_prob_from_precomputed(
         token_id = bad_word_id.item()
         
         individual_bad_word_log_probs_t0[token_id] = log_probs_bad_at_t0[idx].item()
-        individual_bad_word_log_probs_t1[token_id] = log_probs_case2_per_bad_word[idx].item()
-        individual_bad_word_log_probs_combined[token_id] = total_log_probs_per_bad_word[idx].item()
+        if generate_max_len == 2:
+            individual_bad_word_log_probs_t1[token_id] = log_probs_case2_per_bad_word[idx].item()
+            individual_bad_word_log_probs_combined[token_id] = total_log_probs_per_bad_word[idx].item()
+        else:
+            # generate_max_len == 1: t=1 is None, combined is just t=0
+            individual_bad_word_log_probs_t1[token_id] = None
+            individual_bad_word_log_probs_combined[token_id] = total_log_probs_per_bad_word[idx].item()
 
-    # Verification checks
-    for idx, bad_word_id in enumerate(bad_word_indices_tensor):
-        token_id = bad_word_id.item()
-        t0_val = individual_bad_word_log_probs_t0[token_id]
-        t1_val = individual_bad_word_log_probs_t1[token_id]
-        combined_val = individual_bad_word_log_probs_combined[token_id]
+    # Verification checks (only for generate_max_len == 2)
+    if generate_max_len == 2:
+        for idx, bad_word_id in enumerate(bad_word_indices_tensor):
+            token_id = bad_word_id.item()
+            t0_val = individual_bad_word_log_probs_t0[token_id]
+            t1_val = individual_bad_word_log_probs_t1[token_id]
+            combined_val = individual_bad_word_log_probs_combined[token_id]
+            
+            # Check that combined = logsumexp(t0, t1) for each bad token
+            expected_combined = torch.logsumexp(
+                torch.tensor([t0_val, t1_val]), dim=0
+            ).item()
+            assert math.isclose(combined_val, expected_combined, abs_tol=1e-5), \
+                f"For token {token_id}: combined={combined_val}, expected={expected_combined}, t0={t0_val}, t1={t1_val}"
         
-        # Check that combined = logsumexp(t0, t1) for each bad token
-        expected_combined = torch.logsumexp(
-            torch.tensor([t0_val, t1_val]), dim=0
-        ).item()
-        assert math.isclose(combined_val, expected_combined, abs_tol=1e-5), \
-            f"For token {token_id}: combined={combined_val}, expected={expected_combined}, t0={t0_val}, t1={t1_val}"
-    
-    # Check that total_log_prob = logsumexp of all individual_bad_word_log_probs_combined
-    all_combined_values = torch.tensor(list(individual_bad_word_log_probs_combined.values()))
-    expected_total = torch.logsumexp(all_combined_values, dim=0).item()
-    assert math.isclose(total_log_prob, expected_total, abs_tol=1e-5), \
-        f"total_log_prob={total_log_prob}, expected={expected_total}"
+        # Check that total_log_prob = logsumexp of all individual_bad_word_log_probs_combined
+        all_combined_values = torch.tensor(list(individual_bad_word_log_probs_combined.values()))
+        expected_total = torch.logsumexp(all_combined_values, dim=0).item()
+        assert math.isclose(total_log_prob, expected_total, abs_tol=1e-5), \
+            f"total_log_prob={total_log_prob}, expected={expected_total}"
 
     print("Individual log prob breakdowns:")
     print(individual_bad_word_log_probs_t0)
@@ -2442,7 +2482,7 @@ if __name__ == "__main__":
         assert args.rm_type in ["rlhf"] or args.reward_pretrain == "indicator_bad_token"
         assert "gpt" in args.pretrain
         # others not yet implemented/tested
-        assert args.generate_max_len == 2
+        assert args.generate_max_len in [1, 2]
         assert args.new_custom_single_prompt
 
     if args.analytic_calc:
