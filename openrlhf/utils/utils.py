@@ -211,9 +211,10 @@ def get_info_name_str(args):
     # sddiv_str = f"_sddiv{args.additional_sd_divider}"
     sddiv_str = ""
 
-    n_episodes = args.num_episodes
+    # Include both episode values separately
+    epi_str = f"_epi{args.num_episodes}"
     if args.do_harmlessness_training:
-        n_episodes = args.harmlessness_training_num_episodes
+        epi_str += f"_hepi{args.harmlessness_training_num_episodes}"
 
 
     rm_type_str = args.rm_type
@@ -282,7 +283,7 @@ def get_info_name_str(args):
             if coin_flip_use_prioritization:
                 exploration_bonus_str += "_pri"
 
-    info_name_str = f"{rm_type_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_beta{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{args.parameterization}_{args.actor_loss_type}_epo{args.max_epochs}_epi{n_episodes}{eval_str}_sch{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}{exploration_bonus_str}_s{args.seed}"
+    info_name_str = f"{rm_type_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_beta{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{args.parameterization}_{args.actor_loss_type}_epo{args.max_epochs}{epi_str}{eval_str}_sch{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}{exploration_bonus_str}_tbs{args.train_batch_size}_s{args.seed}"
 
     return info_name_str
 

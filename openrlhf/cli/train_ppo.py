@@ -585,6 +585,7 @@ def train(args):
         strategy.print(f"Precomputed toxicity scores shape: {precomputed_toxicity_scores.shape}")
         strategy.print(f"Toxicity scores range: [{precomputed_toxicity_scores.min().item():.4f}, {precomputed_toxicity_scores.max().item():.4f}]")
 
+    # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
     for fit_step in range(args.fit_steps):
         prompt = args.custom_prompt  # Define prompt for analytic calculations
         if fit_step == 0 and args.analytic_bad_word_calc:

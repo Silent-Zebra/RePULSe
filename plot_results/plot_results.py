@@ -217,21 +217,30 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
     do_load_prefixes(results_list, transformed_prefixes)
     
     # Generate plots
-    plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
-                          index_to_use=0, plot_name="logprobbad", 
-                          ylabel=r"Log Total Probability of Bad Output",
-                          file_type_suffix=file_type_suffix)
-    
-    plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
-                          index_to_use=1, plot_name="rew", 
-                          ylabel=r"Average Reward",
-                          file_type_suffix=file_type_suffix)
-    
-    plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
-                          index_to_use=-1, plot_name="untransformed_ret", 
-                          ylabel=r"Average Return",
-                          file_type_suffix=file_type_suffix)
-    
+    try:
+        plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                              index_to_use=0, plot_name="logprobbad",
+                              ylabel=r"Log Total Probability of Bad Output",
+                              file_type_suffix=file_type_suffix)
+    except:
+        print(f"Failed to generate logprobbad plot for {file_type_suffix}")
+
+    try:
+        plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                              index_to_use=-2, plot_name="rew",
+                              ylabel=r"Average Reward",
+                              file_type_suffix=file_type_suffix)
+    except:
+        print(f"Failed to generate rew plot for {file_type_suffix}")
+
+    try:
+        plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                              index_to_use=-1, plot_name="untransformed_ret",
+                              ylabel=r"Average Return",
+                              file_type_suffix=file_type_suffix)
+    except:
+        print(f"Failed to generate untransformed_ret plot for {file_type_suffix}")
+
     return results_list
 
 
@@ -276,6 +285,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
 # Comment out/select as needed
 figname_modifier = "toyrlhf_kl10_10_18_final"
 figname_modifier = "toyrlhf_10_18_final"
+# figname_modifier = "toyrepulse_01_18"
 figname_modifier = "toyrepulse_01_19"
 
 
@@ -404,11 +414,28 @@ if "final" not in figname_modifier:
             # make_list(
             #     "analyticlogprob_rewsample_base_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
             #     1, 5),
+
+
             # make_list(
-            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfsepnn_after_s2",
             #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s2",
+            #     1, 10),
+
+            # for x in $(ls info/toyrepulse/ | grep analytic_kl | grep beta-10 | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+
             make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfus64_cfsepnn_after_s2",
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count10.0_s2",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count1.0_s2",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_s2",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s2",
                 1, 10),
 
         ]
@@ -433,9 +460,7 @@ for file_type_suffix in ["base", "sampling"]:
     print(f"\nProcessing {file_type_suffix} files...")
     process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize)
 
-    x_range = np.arange(50) * 10 * 500
-
-    plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize)
+plot_kl_divergences("sampling", load_prefixes_to_use, labels, figname_modifier, x_range, fontsize)
 
 
 raise SystemExit(0)
