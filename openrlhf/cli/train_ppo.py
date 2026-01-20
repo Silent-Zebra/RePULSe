@@ -635,31 +635,17 @@ def train(args):
         # Analytic calculation for single token with toxicity model
         if args.analytic_calc:
             prompt = args.custom_prompt  # Define prompt for analytic calculations
-            if args.do_harmlessness_training:
-                # For harmlessness training, actor is the sampling_actor (q) and base_actor is p
-                kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
-                    model_p_for_target=base_actor.model,
-                    model_q=actor.model,
-                    tokenizer=tokenizer,
-                    prompt_text=prompt,
-                    target_dist_beta=args.target_dist_beta,
-                    precomputed_toxicity_scores=precomputed_toxicity_scores,
-                    total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
-                    total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
-                )
-            else:
-                # For non-harmlessness training, just use the standard actor
-                kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
-                    model_p_for_target=base_actor.model,
-                    model_q=actor.model,
-                    tokenizer=tokenizer,
-                    prompt_text=prompt,
-                    target_dist_beta=args.target_dist_beta,
-                    precomputed_toxicity_scores=precomputed_toxicity_scores,
-                    total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
-                    total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
-                )
-            metrics_list_analytic.append(metrics_dict)
+            do_analytic_kl_calc(
+                base_actor=base_actor,
+                actor=actor,
+                args=args,
+                tokenizer=tokenizer,
+                prompt=prompt,
+                precomputed_toxicity_scores=precomputed_toxicity_scores,
+                total_kl_sigma_q_list_analytic=total_kl_sigma_q_list_analytic,
+                total_kl_q_sigma_list_analytic=total_kl_q_sigma_list_analytic,
+                metrics_list_analytic=metrics_list_analytic,
+            )
 
         if args.do_harmlessness_training:
             strategy.print("-----HARMLESSNESS TRAINING-----")
@@ -795,6 +781,21 @@ def train(args):
                     untrans_ret_over_time_list.append(untrans_ret_tensor[0].item()) # Get value at start of training
                 untrans_ret_over_time_list.append(untrans_ret_tensor[-1].item())
 
+    # Calculate KL divergence one more time after training loop to get 51st value
+    # (matching the 51 reward/return values: initial + 50 from loop)
+    if args.analytic_calc:
+        prompt = args.custom_prompt  # Define prompt for analytic calculations
+        do_analytic_kl_calc(
+            base_actor=base_actor,
+            actor=actor,
+            args=args,
+            tokenizer=tokenizer,
+            prompt=prompt,
+            precomputed_toxicity_scores=precomputed_toxicity_scores,
+            total_kl_sigma_q_list_analytic=total_kl_sigma_q_list_analytic,
+            total_kl_q_sigma_list_analytic=total_kl_q_sigma_list_analytic,
+            metrics_list_analytic=metrics_list_analytic,
+        )
 
     if args.analytic_bad_word_calc:
         if args.do_harmlessness_training:
@@ -899,6 +900,56 @@ def train(args):
 
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
+
+
+def do_analytic_kl_calc(
+    base_actor, actor, args, tokenizer, prompt, 
+    precomputed_toxicity_scores,
+    total_kl_sigma_q_list_analytic, total_kl_q_sigma_list_analytic, metrics_list_analytic
+) -> dict:
+    """
+    Calculate analytic KL divergence between target distribution and actor model.
+    
+    Args:
+        base_actor: The base actor model (used as p in target distribution)
+        actor: The current actor model (used as q)
+        args: Training arguments
+        tokenizer: Tokenizer
+        prompt: Prompt text for calculations
+        precomputed_toxicity_scores: Precomputed toxicity scores for all tokens
+        total_kl_sigma_q_list_analytic: List to append KL(sigma_p || q) values to
+        total_kl_q_sigma_list_analytic: List to append KL(q || sigma_p) values to
+        metrics_list_analytic: List to append metrics dictionaries to
+        
+    Returns:
+        metrics_dict: Dictionary containing metrics from the calculation
+    """
+    if args.do_harmlessness_training:
+        # For harmlessness training, actor is the sampling_actor (q) and base_actor is p
+        kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
+            model_p_for_target=base_actor.model,
+            model_q=actor.model,
+            tokenizer=tokenizer,
+            prompt_text=prompt,
+            target_dist_beta=args.target_dist_beta,
+            precomputed_toxicity_scores=precomputed_toxicity_scores,
+            total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
+            total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
+        )
+    else:
+        # For non-harmlessness training, just use the standard actor
+        kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
+            model_p_for_target=base_actor.model,
+            model_q=actor.model,
+            tokenizer=tokenizer,
+            prompt_text=prompt,
+            target_dist_beta=args.target_dist_beta,
+            precomputed_toxicity_scores=precomputed_toxicity_scores,
+            total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
+            total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
+        )
+    metrics_list_analytic.append(metrics_dict)
+    return metrics_dict
 
 
 def do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer, 

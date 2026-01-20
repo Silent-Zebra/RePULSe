@@ -15,7 +15,19 @@ import datetime
 import copy
 import scipy.stats as stats
 
-from plot_utils import make_list, do_load_prefixes
+from plot_utils import make_list, do_load_prefixes, generate_labels_from_prefixes
+
+# Color and linestyle lists (defined early for use in plotting functions)
+color_list_for_variances = ['xkcd:light blue', 'xkcd:light green', 'xkcd:light orange', 'xkcd:light red',
+                            'xkcd:light purple', 'xkcd:dark grey', 'xkcd:light brown', 'xkcd:light lime green',
+                            'xkcd:light navy blue', 'xkcd:light indigo', 'xkcd:olive yellow', 'xkcd:peach',
+                            'xkcd:light lavender', 'xkcd:bright pink']
+color_list_for_fqs = [
+    'xkcd:orange', 'xkcd:red', 'xkcd:purple', 'xkcd:green', 'xkcd:blue',
+    'xkcd:black',  'xkcd:gray',  'xkcd:light brown',
+    'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:magenta',
+] * 5
+linestyle_list = ['solid', 'dashed', 'dotted', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))] * 5
 
 
 def plot_with_conf_bounds(ax, record, x_range, label, **kwargs):
@@ -35,9 +47,236 @@ def plot_with_conf_bounds(ax, record, x_range, label, **kwargs):
     return avg[-1], conf_bound[-1]
 
 
+def extract_common_suffix(prefix):
+    """
+    Extracts the common suffix from any of the three prefix formats:
+    - analytic_kls_toxicity_rlhf_...
+    - analyticlogprob_rewsample_base_rlhf_...
+    - analyticlogprob_rewsample_sampling_rlhf_...
+    
+    Returns the common suffix part (e.g., "rlhf_di_To_thmaisa_len1_...")
+    """
+    # Try to match analytic_kls_toxicity_ prefix
+    if prefix.startswith("analytic_kls_toxicity_"):
+        return prefix[len("analytic_kls_toxicity_"):]
+    
+    # Try to match analyticlogprob_rewsample_base_ prefix
+    if prefix.startswith("analyticlogprob_rewsample_base_"):
+        return prefix[len("analyticlogprob_rewsample_base_"):]
+    
+    # Try to match analyticlogprob_rewsample_sampling_ prefix
+    if prefix.startswith("analyticlogprob_rewsample_sampling_"):
+        return prefix[len("analyticlogprob_rewsample_sampling_"):]
+    
+    # Try to match old format analyticlogprob_rewsample_ (without base/sampling)
+    if prefix.startswith("analyticlogprob_rewsample_"):
+        return prefix[len("analyticlogprob_rewsample_"):]
+    
+    # If no match, return the original (for backward compatibility)
+    return prefix
+
+
+def build_prefix(common_suffix, prefix_type):
+    """
+    Builds the full prefix with the appropriate format.
+    
+    Args:
+        common_suffix: The common suffix part (e.g., "rlhf_di_To_thmaisa_len1_...")
+        prefix_type: One of "kls_toxicity", "logprob_base", "logprob_sampling"
+    
+    Returns:
+        Full prefix string with appropriate format
+    """
+    if prefix_type == "kls_toxicity":
+        return f"analytic_kls_toxicity_{common_suffix}"
+    elif prefix_type == "logprob_base":
+        return f"analyticlogprob_rewsample_base_{common_suffix}"
+    elif prefix_type == "logprob_sampling":
+        return f"analyticlogprob_rewsample_sampling_{common_suffix}"
+    else:
+        raise ValueError(f"Unknown prefix_type: {prefix_type}")
+
+
+def transform_prefixes_for_file_type(load_prefixes_to_use, file_type_suffix):
+    """
+    Transforms a list of prefix lists to the appropriate file type format.
+    
+    Args:
+        load_prefixes_to_use: List of lists of prefixes (from make_list calls)
+        file_type_suffix: Either "base" or "sampling"
+    
+    Returns:
+        Transformed list of lists of prefixes
+    """
+    transformed = []
+    for prefix_list in load_prefixes_to_use:
+        new_prefix_list = []
+        for old_prefix in prefix_list:
+            # Extract common suffix from each prefix individually
+            common_suffix = extract_common_suffix(old_prefix)
+            
+            # Build new prefix with the target type
+            prefix_type = f"logprob_{file_type_suffix}"
+            new_prefix = build_prefix(common_suffix, prefix_type)
+            new_prefix_list.append(new_prefix)
+        
+        transformed.append(new_prefix_list)
+    
+    return transformed
+
+
+def transform_prefixes_for_kl(load_prefixes_to_use, file_type_suffix=None):
+    """
+    Transforms prefixes for KL divergence files.
+    
+    Args:
+        load_prefixes_to_use: List of lists of prefixes
+        file_type_suffix: Optional "base" or "sampling" (KL files may not have this suffix)
+    
+    Returns:
+        Transformed list of lists of prefixes for KL files
+    """
+    transformed = []
+    for prefix_list in load_prefixes_to_use:
+        new_prefix_list = []
+        for old_prefix in prefix_list:
+            # Extract common suffix from each prefix individually
+            common_suffix = extract_common_suffix(old_prefix)
+            
+            # Build KL prefix (without base/sampling suffix for now)
+            new_prefix = build_prefix(common_suffix, "kls_toxicity")
+            new_prefix_list.append(new_prefix)
+        
+        transformed.append(new_prefix_list)
+    
+    return transformed
+
+
+def plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                           index_to_use=0, plot_name="logprobbad", 
+                           ylabel=r"Log Total Probability of Bad Output",
+                           file_type_suffix=""):
+    """
+    Generic function to plot results over time with confidence bounds.
+    
+    Args:
+        results_list: List of lists of loaded data
+        labels: List of labels for each series
+        x_range: X-axis range
+        fontsize: Font size for labels
+        figname_modifier: Base name for the output file
+        index_to_use: Index into the data tuple to plot
+        plot_name: Name for the plot file
+        ylabel: Y-axis label
+        file_type_suffix: Suffix to add to filename ("base", "sampling", or "")
+    """
+    fig, ax1 = plt.subplots()
+
+    for i in range(len(results_list)):
+        if len(results_list[i]) == 0:
+            continue
+        np_results = np.stack([x[index_to_use] for x in results_list[i]])
+        print(np_results.shape)
+        plot_with_conf_bounds(
+            ax1, np_results, x_range, label=labels[i],
+            color=color_list_for_fqs[i],
+            linestyle=linestyle_list[i],
+        )
+    ax1.set_xlabel("Number of Samples", fontsize=fontsize)
+    ax1.set_ylabel(ylabel, fontsize=fontsize)
+    ax1.tick_params(axis='both', labelsize=fontsize)
+    plt.legend(fontsize=fontsize)
+    plt.tight_layout()
+    
+    # Add suffix to filename if provided
+    if file_type_suffix:
+        figname = f"./{figname_modifier}_{file_type_suffix}_{plot_name}.pdf"
+    else:
+        figname = f"./{figname_modifier}_{plot_name}.pdf"
+    plt.savefig(figname)
+    plt.clf()
+
+
+def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize):
+    """
+    Process one file type (base or sampling) and generate all standard plots.
+    
+    Args:
+        file_type_suffix: Either "base" or "sampling"
+        load_prefixes_to_use: List of lists of prefixes
+        labels: List of labels
+        figname_modifier: Figure name modifier
+        x_range: X-axis range
+        fontsize: Font size
+    """
+    # Transform prefixes for this file type
+    transformed_prefixes = transform_prefixes_for_file_type(load_prefixes_to_use, file_type_suffix)
+    
+    # Load data
+    results_list = [[] for i in range(len(transformed_prefixes))]
+    do_load_prefixes(results_list, transformed_prefixes)
+    
+    # Generate plots
+    plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=0, plot_name="logprobbad", 
+                          ylabel=r"Log Total Probability of Bad Output",
+                          file_type_suffix=file_type_suffix)
+    
+    plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=1, plot_name="rew", 
+                          ylabel=r"Average Reward",
+                          file_type_suffix=file_type_suffix)
+    
+    plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=-1, plot_name="untransformed_ret", 
+                          ylabel=r"Average Return",
+                          file_type_suffix=file_type_suffix)
+    
+    return results_list
+
+
+def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize):
+    """
+    Plot KL divergence metrics from analytic_kls_toxicity files.
+    
+    Args:
+        file_type_suffix: Either "base" or "sampling" (for filename suffix)
+        load_prefixes_to_use: List of lists of prefixes
+        labels: List of labels
+        figname_modifier: Figure name modifier
+        x_range: X-axis range
+        fontsize: Font size
+    """
+    # Transform prefixes for KL files
+    transformed_prefixes = transform_prefixes_for_kl(load_prefixes_to_use, file_type_suffix)
+    
+    # Load KL data
+    kl_results_list = [[] for i in range(len(transformed_prefixes))]
+    do_load_prefixes(kl_results_list, transformed_prefixes)
+    
+    # Check if we have any data
+    has_data = any(len(kl_results_list[i]) > 0 for i in range(len(kl_results_list)))
+    if not has_data:
+        print(f"Warning: No KL divergence data found for {file_type_suffix}, skipping KL plots")
+        return
+    
+    # Plot KL(sigma|q) = KL(target|proposal) from index 0
+    plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=0, plot_name="kl_sigma_q", 
+                          ylabel=r"KL($\sigma$|q) = KL(target|proposal)",
+                          file_type_suffix=file_type_suffix)
+    
+    # Plot KL(q|sigma) = KL(proposal|target) from index 1
+    plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=1, plot_name="kl_q_sigma", 
+                          ylabel=r"KL(q|$\sigma$) = KL(proposal|target)",
+                          file_type_suffix=file_type_suffix)
+
+
 # Comment out/select as needed
 figname_modifier = "toyrlhf_kl10_10_18_final"
 figname_modifier = "toyrlhf_10_18_final"
+figname_modifier = "toyrepulse_01_19"
 
 
 if "final" in figname_modifier:
@@ -157,70 +396,46 @@ if "final" in figname_modifier:
 
 
 
-results_list = [[] for i in range(len(load_prefixes_to_use))]
-
-do_load_prefixes(results_list, load_prefixes_to_use)
-
 if "final" not in figname_modifier:
 
-    labels = ['_'.join(a[0].split('len2_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for
-              a in load_prefixes_to_use]
-    fontsize = 5
+    if "repulse" in figname_modifier:
+
+        load_prefixes_to_use = [
+            # make_list(
+            #     "analyticlogprob_rewsample_base_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.1_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s1",
+            #     1, 5),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
+            #     1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfus64_cfsepnn_after_s2",
+                1, 10),
+
+        ]
+
+        # Use the same naming code from make_frontier.py
+        labels = generate_labels_from_prefixes(load_prefixes_to_use)
+        fontsize = 6
+
+    else:
+
+        labels = ['_'.join(a[0].split('len2_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for
+                  a in load_prefixes_to_use]
+        fontsize = 5
 
 
 
 x_range = np.arange(51) * 10 * 500
 
-color_list_for_variances = ['xkcd:light blue', 'xkcd:light green', 'xkcd:light orange', 'xkcd:light red',
-                            'xkcd:light purple', 'xkcd:dark grey', 'xkcd:light brown', 'xkcd:light lime green',
-                            'xkcd:light navy blue', 'xkcd:light indigo', 'xkcd:olive yellow', 'xkcd:peach',
-                            'xkcd:light lavender', 'xkcd:bright pink']
-color_list_for_fqs = [
-    'xkcd:orange', 'xkcd:red', 'xkcd:purple', 'xkcd:green', 'xkcd:blue',
-    'xkcd:black',  'xkcd:gray',  'xkcd:light brown',
-    'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:magenta',
-] * 5
-linestyle_list = ['solid', 'dashed', 'dotted', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))] * 5
 
+# Process both base and sampling file types
+for file_type_suffix in ["base", "sampling"]:
+    print(f"\nProcessing {file_type_suffix} files...")
+    process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize)
 
-def plot_results_over_time(index_to_use=0, plot_name="logprobbad", ylabel=r"Log Total Probability of Bad Output"):
-    fig, ax1 = plt.subplots()
+    x_range = np.arange(50) * 10 * 500
 
-    for i in range(len(results_list)):
-        np_results = np.stack([x[index_to_use] for x in results_list[i]])
-        # print(np_results)
-        print(np_results.shape)
-        plot_with_conf_bounds(
-            ax1, np_results, x_range, label=labels[i],
-            color=color_list_for_fqs[i],
-            linestyle=linestyle_list[i],
-        )
-    ax1.set_xlabel("Number of Samples", fontsize=fontsize)
-    ax1.set_ylabel(ylabel, fontsize=fontsize)
-    # ax1.set_ylim(top=15)
-    # Adjust tick colors
-    # ax1.tick_params(axis="y", colors=color_list_for_fqs[0])
-    # ax2.tick_params(axis="y", colors=color_list_for_variances[0])
-    ax1.tick_params(axis='both', labelsize=fontsize)
-    # Combine legends
-    # fig.legend(fontsize=7, loc="center left", bbox_to_anchor=(0.45, 0.5))
-    plt.legend(fontsize=fontsize)
-    # plt.legend()
-    plt.tight_layout()
-    figname = f"./{figname_modifier}_{plot_name}.pdf"
-    plt.savefig(figname)
-    plt.clf()
-
-
-plot_results_over_time(index_to_use=0, plot_name="logprobbad", ylabel=r"Log Total Probability of Bad Output")
-
-plot_results_over_time(index_to_use=1, plot_name="rew", ylabel=r"Average Reward")
-
-plot_results_over_time(index_to_use=-1, plot_name="untransformed_ret", ylabel=r"Average Return")
+    plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize)
 
 
 raise SystemExit(0)
-
-
-
-

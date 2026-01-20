@@ -18,6 +18,8 @@ import scipy.stats as stats
 
 
 from scipy.stats import norm
+
+from plot_utils import generate_labels_from_prefixes
 # from scipy import stats
 
 load_dir = "./info"
@@ -647,6 +649,8 @@ figname_modifier = "toy_len1_01_14_kl_div"
 figname_modifier = "toy_len1_01_14_kl_div_fixed_combined"
 figname_modifier = "toy_len1_01_14_kl_div_fixed_combined2"
 figname_modifier = "toy_len1_01_15_kl_div_fixed_combined"
+figname_modifier = "toy_len1_01_16_kl_div_fixed_combined"
+figname_modifier = "toy_len1_01_17_kl_div_wnn"
 
 
 do_1B_experiments = False
@@ -1044,6 +1048,36 @@ else:
                 "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_pri_s2",
                 1, 10),
 
+            # for x in $(ls info/exploretoyrlhfmultifixedcombined3/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_s2",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfbias_after_s2",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.001_after_s2",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.001_fpis0.1_after_s2",
+                1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.1_fpis0.1_after_s2",
+            #     1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_fpis0.001_after_s2",
+                1, 10),
+
+            # for x in $(ls info/explorecoinflipnn/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfsepnn_after_s2",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfus64_cfsepnn_after_s2",
+                1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfsepnn_after_s2",
+                1, 10),
 
         ]
 
@@ -1243,70 +1277,7 @@ if "final" in figname_modifier:
 else:
     # labels = ['_'.join(a[0].split('len20_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for a in load_prefixes_to_use]
     if "kl_div" in figname_modifier:
-        labels = []
-        for a in load_prefixes_to_use:
-            prefix = a[0]
-            # Determine training run type
-            if "count" in prefix:
-                run_type = "Exact Count"
-            elif "cfn" in prefix:
-                run_type = "Coin Flip Net"
-            else:
-                run_type = "No Exploration Bonus"
-            
-            # If it's a coin flip net, extract additional parameters
-            if run_type == "Coin Flip Net":
-                label_parts = [run_type]
-                
-                # # Extract cfd (dimension)
-                # cfd_match = re.search(r'_cfd(\d+)', prefix)
-                # if cfd_match:
-                #     cfd_num = cfd_match.group(1)
-                #     label_parts.append(f"{cfd_num}-d")
-                
-                # Extract cfus (updates)
-                cfus_match = re.search(r'_cfus(\d+)', prefix)
-                if cfus_match:
-                    cfus_num = cfus_match.group(1)
-                    label_parts.append(f"{cfus_num} updates")
-                else:
-                    label_parts.append("1 update")
-                
-                # Extract cfhis (coin flip head init std)
-                cfhis_match = re.search(r'_cfhis([\d.e-]+)', prefix)
-                if cfhis_match:
-                    cfhis_num = cfhis_match.group(1)
-                    label_parts.append(f"head_std={cfhis_num}")
-                
-                # Extract fpis (frozen prior init std)
-                fpis_match = re.search(r'_fpis([\d.e-]+)', prefix)
-                if fpis_match:
-                    fpis_num = fpis_match.group(1)
-                    label_parts.append(f"prior_std={fpis_num}")
-                
-                # Check for coin_flip_linear_bias
-                if "_cfbias" in prefix:
-                    label_parts.append("with bias")
-                
-                # # Extract cflr (learning rate)
-                # cflr_match = re.search(r'_cflr([\d.e-]+)', prefix)
-                # if cflr_match:
-                #     cflr_num = cflr_match.group(1)
-                #     label_parts.append(f"{cflr_num} Coin Flip LR")
-                
-                # # Check for "after" or "before" in the prefix
-                # if "after" in prefix:
-                #     label_parts.append("Update After")
-                # elif "before" in prefix:
-                #     label_parts.append("Update Before")
-
-                if "firstonline" in prefix:
-                    label_parts.append("First Update Online")
-                if "pri" in prefix:
-                    label_parts.append("Prioritized")
-                labels.append(", ".join(label_parts))
-            else:
-                labels.append(run_type)
+        labels = generate_labels_from_prefixes(load_prefixes_to_use)
     else:
 
         labels = [
