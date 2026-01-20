@@ -139,6 +139,20 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             
             labels.append(", ".join(label_parts))
         else:
-            labels.append(run_type)
+            label_parts = [run_type]
+
+            # Extract num_episodes (encoded as _epi followed by value)
+            epi_match = re.search(r'_epi(\d+)', prefix)
+            if epi_match:
+                num_episodes = epi_match.group(1)
+                label_parts.append(f"num_episodes={num_episodes}")
+
+            # Extract batch_size (encoded as _tbs followed by value)
+            tbs_match = re.search(r'_tbs(\d+)', prefix)
+            if tbs_match:
+                batch_size = tbs_match.group(1)
+                label_parts.append(f"batch_size={batch_size}")
+
+            labels.append(", ".join(label_parts))
     
     return labels

@@ -513,8 +513,9 @@ class CombinedHarmlessnessTrainer(ABC):
         untrans_ret_list = []
         rewards_list_sampling = []
         untrans_ret_list_sampling = []
+        bonus_vals_list_sampling = []  # TODO: Add support for base_actor bonus tracking
 
-        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling)
+        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling)
 
         custom_prompt = None
 
@@ -568,14 +569,14 @@ class CombinedHarmlessnessTrainer(ABC):
                         print(f"q train step: {q_train_step}")
                         self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
                                                            untrans_ret_list, update_timesteps, neg_sample_only=True,
-                                                           rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling)
+                                                           rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling, bonus_vals_list_sampling=bonus_vals_list_sampling)
 
                 # If base_actor learning rate is 0, only sample from sampling_actor (q)
                 # Use flag from args if set, otherwise check learning rate
                 neg_sample_only = getattr(args, 'neg_sample_only', False) or abs(getattr(args, 'base_actor_learning_rate', 0)) < 1e-10
                 self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
                                                    untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only,
-                                                   rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling)
+                                                   rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling, bonus_vals_list_sampling=bonus_vals_list_sampling)
 
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
@@ -584,7 +585,7 @@ class CombinedHarmlessnessTrainer(ABC):
 
     def make_experience_and_do_update(self, args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
                                       untrans_ret_list, update_timesteps, neg_sample_only=False,
-                                      rewards_list_sampling=None, untrans_ret_list_sampling=None):
+                                      rewards_list_sampling=None, untrans_ret_list_sampling=None, bonus_vals_list_sampling=None):
         if not neg_sample_only:
             print("Making experience: standard sampling")
             experience = self.base_experience_maker.make_experience(
@@ -677,6 +678,14 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.separate_neg_samples and experience_neg_sampling is not None and rewards_list_sampling is not None and untrans_ret_list_sampling is not None:
             rewards_list_sampling.append(experience_neg_sampling.info["reward"].mean().item())
             untrans_ret_list_sampling.append(experience_neg_sampling.info["untransformed_reward"].mean().item())
+            # Extract exploration bonus if available (only for sampling actor for now)
+            # TODO: Add support for base_actor bonus tracking
+            if bonus_vals_list_sampling is not None and "exploration_bonus" in experience_neg_sampling.info:
+                exploration_bonus = experience_neg_sampling.info["exploration_bonus"]
+                if exploration_bonus is not None:
+                    bonus_vals_list_sampling.append(exploration_bonus.mean().item())
+                else:
+                    bonus_vals_list_sampling.append(0.0)  # No bonus when not enabled
 
     def train(self, global_steps=0, custom_prompt=None, neg_sample_only=False):
         if not neg_sample_only:
@@ -999,7 +1008,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
             else:
                 # experience_neg_sampling = experience here
-                log_phi, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(experience_neg_sampling.sequences, experience_neg_sampling.attention_mask, multiply_by_beta=True)
+                log_phi, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(experience_neg_sampling.sequences, experience_neg_sampling.attention_mask, multiply_by_beta=True)
                 final_reward_neg = log_phi.view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
 
 

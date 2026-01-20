@@ -1071,7 +1071,7 @@ class BaseExperienceMaker(ABC):
         with torch.no_grad():
             base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
 
-        r, untransformed_reward = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta)
+        r, untransformed_reward, exploration_bonus = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta)
 
         rewards, kl = compute_reward(
             r,
@@ -1114,7 +1114,8 @@ class BaseExperienceMaker(ABC):
             "f_q": f_q,
             "entropy": -log_q,
             "untransformed_reward": untransformed_reward,
-            "untransformed_ret": untransformed_reward - self.kl_ctl.value * masked_sum(kl, action_mask, dim=-1) # includes KL but uses untransformed reward
+            "untransformed_ret": untransformed_reward - self.kl_ctl.value * masked_sum(kl, action_mask, dim=-1), # includes KL but uses untransformed reward
+            "exploration_bonus": exploration_bonus  # Shape (B,) or None if not enabled
         }
         # reset model state
         self.actor.train()
@@ -1327,7 +1328,7 @@ class BaseExperienceMaker(ABC):
             result = final_reward * self.target_dist_beta
             if exploration_bonus is not None:
                 result = result + exploration_bonus
-            return result, untransformed_reward
+            return result, untransformed_reward, exploration_bonus
         else: # Use for PPO formulation # For PPO, e.g. see the RL with KL penalties is better viewed as Bayesian inference paper, we have that reward - 1/beta (KL to prior) is equivalent to targeting base e^{beta r}
             if self.target_dist_beta < 0:
                 result = -final_reward
@@ -1335,7 +1336,7 @@ class BaseExperienceMaker(ABC):
                 result = final_reward
             if exploration_bonus is not None:
                 result = result + exploration_bonus
-            return result, untransformed_reward
+            return result, untransformed_reward, exploration_bonus
 
     def set_all_eval(self):
         self.actor.eval()

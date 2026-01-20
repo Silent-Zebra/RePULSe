@@ -768,7 +768,7 @@ class BasePPOTrainer(ABC):
         # Also, with phi = e^{beta log p(toxic class | s_1:T)), log_phi is simply just beta log p(toxic class | s_1:T)
         # rewards_no_kl = rewards_no_kl.float() # more precision
         # log_phi = args.target_dist_beta * rewards_no_kl
-        log_phi, _ = self.experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
+        log_phi, _, _ = self.experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
 
         base_action_log_probs = self.experience_maker.initial_model(sequences,
                                                                     num_actions,
@@ -1331,7 +1331,7 @@ class BasePPOTrainer(ABC):
                 base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, num_actions,
                     experience.attention_mask)
-            final_reward, _ = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
+            final_reward, _, _ = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
 
             print("FINAL RETURN COMPARISON")
             print(final_reward)

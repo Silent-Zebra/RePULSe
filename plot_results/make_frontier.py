@@ -64,6 +64,9 @@ def make_frontier_bootstrap(
                 # print(len(t[0]))
                 # print(t[0][0].shape)
                 if isinstance(t, tuple):
+                    # Note: This code works with both 6-element (old) and 7-element (new with bonus) tuples
+                    # tuple_index selects reward (0) or return (1) data, t[0] is always the first element
+                    # Bonus values at index 6 are not used in frontier plots
                     t, unmodified_rew = t[tuple_index], t[0]
                     if isinstance(t, list):
                         t = torch.cat(t)

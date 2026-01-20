@@ -175,7 +175,17 @@ def plot_results_over_time(results_list, labels, x_range, fontsize, figname_modi
     for i in range(len(results_list)):
         if len(results_list[i]) == 0:
             continue
-        np_results = np.stack([x[index_to_use] for x in results_list[i]])
+        # Handle backward compatibility: check if index exists in tuple
+        filtered_results = []
+        for x in results_list[i]:
+            if isinstance(x, tuple) and len(x) > index_to_use:
+                filtered_results.append(x[index_to_use])
+            elif not isinstance(x, tuple):
+                # Handle non-tuple data (shouldn't happen but be safe)
+                filtered_results.append(x)
+        if len(filtered_results) == 0:
+            continue
+        np_results = np.stack(filtered_results)
         print(np_results.shape)
         plot_with_conf_bounds(
             ax1, np_results, x_range, label=labels[i],
@@ -227,7 +237,7 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
 
     try:
         plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
-                              index_to_use=-2, plot_name="rew",
+                              index_to_use=4, plot_name="rew",
                               ylabel=r"Average Reward",
                               file_type_suffix=file_type_suffix)
     except:
@@ -235,11 +245,30 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
 
     try:
         plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
-                              index_to_use=-1, plot_name="untransformed_ret",
+                              index_to_use=5, plot_name="untransformed_ret",
                               ylabel=r"Average Return",
                               file_type_suffix=file_type_suffix)
     except:
         print(f"Failed to generate untransformed_ret plot for {file_type_suffix}")
+    
+    # Plot exploration bonus values (only for sampling actor, and only if available)
+    if file_type_suffix == "sampling":
+        try:
+            # Check if data has 7 elements (with bonus) or 6 elements (without bonus)
+            # Only plot if we have bonus data
+            has_bonus_data = False
+            for result_group in results_list:
+                if len(result_group) > 0 and len(result_group[0]) >= 7:
+                    has_bonus_data = True
+                    break
+            
+            if has_bonus_data:
+                plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                                      index_to_use=6, plot_name="bonus",
+                                      ylabel=r"Average Exploration Bonus",
+                                      file_type_suffix=file_type_suffix)
+        except Exception as e:
+            print(f"Failed to generate bonus plot for {file_type_suffix}: {e}")
 
     return results_list
 
@@ -286,7 +315,8 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
 figname_modifier = "toyrlhf_kl10_10_18_final"
 figname_modifier = "toyrlhf_10_18_final"
 # figname_modifier = "toyrepulse_01_18"
-figname_modifier = "toyrepulse_01_19"
+figname_modifier = "toyrepulse_01_19_v2"
+figname_modifier = "toyrepulse_01_20"
 
 
 if "final" in figname_modifier:
@@ -425,18 +455,68 @@ if "final" not in figname_modifier:
 
             # for x in $(ls info/toyrepulse/ | grep analytic_kl | grep beta-10 | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
 
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count10.0_s2",
+            #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count1.0_s2",
+            #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_s2",
+            #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s2",
+            #     1, 10),
+
+            # for x in $(ls info/toyrepulse2/ | grep analytic_kl | grep _s2); do echo make_list\(\"$x\", 1,10\)\,; done
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_tbs1024_s2",
+            #     1, 10),
             make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count10.0_s2",
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_tbs16_s2",
                 1, 10),
             make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count1.0_s2",
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_tbs256_s2",
                 1, 10),
             make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_s2",
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_tbs64_s2",
+                1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_tbs1024_s2",
+            #     1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_tbs16_s2",
                 1, 10),
             make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_s2",
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_tbs256_s2",
                 1, 10),
+            make_list(
+                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi1_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_tbs64_s2",
+                1, 10),
+            # # make_list(
+            # #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_tbs1024_s2",
+            # #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_tbs16_s2",
+            #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_tbs256_s2",
+            #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_count3.0_tbs64_s2",
+            #     1, 10),
+            # # make_list(
+            # #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_tbs1024_s2",
+            # #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_tbs16_s2",
+            #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_tbs256_s2",
+            #     1, 10),
+            # make_list(
+            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-10.0_harml_neg_training_a0.01_policy_psi_q_p_s_t_ctl_epo1_epi4_hepi5_schconstant_alr3e-05_blr3e-05_policy_psi_q_p_s_t_tbs64_s2",
+            #     1, 10),
 
         ]
 

@@ -567,6 +567,7 @@ def train(args):
     untrans_ret_over_time_list_base = []
     rew_over_time_list_sampling = []
     untrans_ret_over_time_list_sampling = []
+    bonus_vals_over_time_list_sampling = []  # TODO: Add support for base_actor bonus tracking
     
     # Lists for analytic_calc results
     total_kl_sigma_q_list_analytic = []
@@ -693,9 +694,15 @@ def train(args):
             else:
                 # Unpack sampling rewards for harmlessness training (even if neg_sample_only)
                 if args.do_harmlessness_training:
-                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling = estimates_list
+                    # Handle both old format (7 elements) and new format (8 elements with bonus)
+                    if len(estimates_list) == 8:
+                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling = estimates_list
+                    else:
+                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling = estimates_list
+                        bonus_vals_list_sampling = None  # Old format doesn't have bonus
                 else:
                     f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
+                    bonus_vals_list_sampling = None
                 
                 if not args.neg_sample_only: # This stuff records it for p (base actor), so if skipping training p, this stuff will be empty
                     # Also true for new_custom_single_prompt
@@ -801,6 +808,15 @@ def train(args):
                 if fit_step == 0:
                     untrans_ret_over_time_list_sampling.append(untrans_ret_tensor_sampling[0].item()) # Get value at start of training
                 untrans_ret_over_time_list_sampling.append(untrans_ret_tensor_sampling[-1].item())
+        
+        # Track sampling actor exploration bonus values
+        # TODO: Add support for base_actor bonus tracking
+        if args.do_harmlessness_training and bonus_vals_list_sampling is not None:
+            if len(bonus_vals_list_sampling) > 0:
+                bonus_vals_tensor_sampling = torch.tensor(bonus_vals_list_sampling)
+                if fit_step == 0:
+                    bonus_vals_over_time_list_sampling.append(bonus_vals_tensor_sampling[0].item()) # Get value at start of training
+                bonus_vals_over_time_list_sampling.append(bonus_vals_tensor_sampling[-1].item())
 
     # Calculate KL divergence one more time after training loop to get 51st value
     # (matching the 51 reward/return values: initial + 50 from loop)
@@ -834,7 +850,7 @@ def train(args):
             save_str = f"{args.save_info_path}/analyticlogprob_rewsample_sampling_{info_name_str}"
             torch.save((total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
                        individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                       rew_over_time_list_sampling, untrans_ret_over_time_list_sampling), save_str)
+                       rew_over_time_list_sampling, untrans_ret_over_time_list_sampling, bonus_vals_over_time_list_sampling), save_str)
             print("Sampling actor (q) results:")
             print(total_log_prob_bad_list_sampling)
             print(individual_bad_word_log_probs_t0_list_sampling)
