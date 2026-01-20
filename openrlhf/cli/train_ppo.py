@@ -563,8 +563,10 @@ def train(args):
     diff_by_bad_word_list = []  # List of dicts: {bad_word_id: total_sum_diff}
     max_q_exceeds_list = []  # List of tuples: (diff, t0_token, t1_token, q_val, sigma_val)
     max_sigma_exceeds_list = []  # List of tuples: (diff, t0_token, t1_token, q_val, sigma_val)
-    rew_over_time_list = []
-    untrans_ret_over_time_list = []
+    rew_over_time_list_base = []
+    untrans_ret_over_time_list_base = []
+    rew_over_time_list_sampling = []
+    untrans_ret_over_time_list_sampling = []
     
     # Lists for analytic_calc results
     total_kl_sigma_q_list_analytic = []
@@ -665,6 +667,8 @@ def train(args):
                 )
 
         rewards_list = None
+        rewards_list_sampling = None
+        untrans_ret_list_sampling = None
 
         if estimates_list is not None:
             if args.custom_single_prompt:
@@ -687,12 +691,14 @@ def train(args):
                 torch.save(target_to_save, save_str)
 
             else:
+                # Unpack sampling rewards for harmlessness training (even if neg_sample_only)
+                if args.do_harmlessness_training:
+                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling = estimates_list
+                else:
+                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
+                
                 if not args.neg_sample_only: # This stuff records it for p (base actor), so if skipping training p, this stuff will be empty
                     # Also true for new_custom_single_prompt
-                    if args.do_harmlessness_training:
-                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_list
-                    else:
-                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
                     print("FINAL RESULTS F_Q", flush=True)
                     print(f_q_estimates_list)
                     print("FINAL RESULTS REWARD", flush=True)
@@ -773,14 +779,28 @@ def train(args):
             if rewards_list is not None:
                 rewards_tensor = torch.tensor(rewards_list)
                 if fit_step == 0:
-                    rew_over_time_list.append(rewards_tensor[0].item()) # Get value at start of training
-                rew_over_time_list.append(rewards_tensor[-1].item())
+                    rew_over_time_list_base.append(rewards_tensor[0].item()) # Get value at start of training
+                rew_over_time_list_base.append(rewards_tensor[-1].item())
 
             if untrans_ret_list is not None:
                 untrans_ret_tensor = torch.tensor(untrans_ret_list)
                 if fit_step == 0:
-                    untrans_ret_over_time_list.append(untrans_ret_tensor[0].item()) # Get value at start of training
-                untrans_ret_over_time_list.append(untrans_ret_tensor[-1].item())
+                    untrans_ret_over_time_list_base.append(untrans_ret_tensor[0].item()) # Get value at start of training
+                untrans_ret_over_time_list_base.append(untrans_ret_tensor[-1].item())
+        
+        # Track sampling actor rewards
+        if args.do_harmlessness_training and rewards_list_sampling is not None:
+            if len(rewards_list_sampling) > 0:
+                rewards_tensor_sampling = torch.tensor(rewards_list_sampling)
+                if fit_step == 0:
+                    rew_over_time_list_sampling.append(rewards_tensor_sampling[0].item()) # Get value at start of training
+                rew_over_time_list_sampling.append(rewards_tensor_sampling[-1].item())
+            
+            if untrans_ret_list_sampling is not None and len(untrans_ret_list_sampling) > 0:
+                untrans_ret_tensor_sampling = torch.tensor(untrans_ret_list_sampling)
+                if fit_step == 0:
+                    untrans_ret_over_time_list_sampling.append(untrans_ret_tensor_sampling[0].item()) # Get value at start of training
+                untrans_ret_over_time_list_sampling.append(untrans_ret_tensor_sampling[-1].item())
 
     # Calculate KL divergence one more time after training loop to get 51st value
     # (matching the 51 reward/return values: initial + 50 from loop)
@@ -804,7 +824,7 @@ def train(args):
             save_str = f"{args.save_info_path}/analyticlogprob_rewsample_base_{info_name_str}"
             torch.save((total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
                        individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
-                       rew_over_time_list, untrans_ret_over_time_list), save_str)
+                       rew_over_time_list_base, untrans_ret_over_time_list_base), save_str)
             print("Base actor (p) results:")
             print(total_log_prob_bad_list_base)
             print(individual_bad_word_log_probs_t0_list_base)
@@ -814,26 +834,26 @@ def train(args):
             save_str = f"{args.save_info_path}/analyticlogprob_rewsample_sampling_{info_name_str}"
             torch.save((total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
                        individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                       rew_over_time_list, untrans_ret_over_time_list), save_str)
+                       rew_over_time_list_sampling, untrans_ret_over_time_list_sampling), save_str)
             print("Sampling actor (q) results:")
             print(total_log_prob_bad_list_sampling)
             print(individual_bad_word_log_probs_t0_list_sampling)
             print(individual_bad_word_log_probs_t1_list_sampling)
             print(individual_bad_word_log_probs_combined_list_sampling)
-            print(rew_over_time_list)
-            print(untrans_ret_over_time_list)
+            print(rew_over_time_list_sampling)
+            print(untrans_ret_over_time_list_sampling)
         else:
-            # For non-harmlessness training, use the standard lists
+            # For non-harmlessness training, use the standard lists (which are now base lists)
             save_str = f"{args.save_info_path}/analyticlogprob_rewsample_{info_name_str}"
             torch.save((total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
                        individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
-                       rew_over_time_list, untrans_ret_over_time_list), save_str)
+                       rew_over_time_list_base, untrans_ret_over_time_list_base), save_str)
             print(total_log_prob_bad_list)
             print(individual_bad_word_log_probs_t0_list)
             print(individual_bad_word_log_probs_t1_list)
             print(individual_bad_word_log_probs_combined_list)
-            print(rew_over_time_list)
-            print(untrans_ret_over_time_list)
+            print(rew_over_time_list_base)
+            print(untrans_ret_over_time_list_base)
         
         if total_kl_sigma_q_list:
             save_str = f"{args.save_info_path}/analytic_kls_indicator_{info_name_str}"
@@ -951,6 +971,7 @@ def do_analytic_kl_calc(
         )
     metrics_list_analytic.append(metrics_dict)
     return metrics_dict
+
 
 
 def do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer, 

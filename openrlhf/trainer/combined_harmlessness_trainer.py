@@ -511,8 +511,10 @@ class CombinedHarmlessnessTrainer(ABC):
         kl_vals_list = []
         entropy_list = []
         untrans_ret_list = []
+        rewards_list_sampling = []
+        untrans_ret_list_sampling = []
 
-        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list)
+        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling)
 
         custom_prompt = None
 
@@ -565,13 +567,15 @@ class CombinedHarmlessnessTrainer(ABC):
                     for q_train_step in range(args.num_episodes - 1):
                         print(f"q train step: {q_train_step}")
                         self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
-                                                           untrans_ret_list, update_timesteps, neg_sample_only=True)
+                                                           untrans_ret_list, update_timesteps, neg_sample_only=True,
+                                                           rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling)
 
                 # If base_actor learning rate is 0, only sample from sampling_actor (q)
                 # Use flag from args if set, otherwise check learning rate
                 neg_sample_only = getattr(args, 'neg_sample_only', False) or abs(getattr(args, 'base_actor_learning_rate', 0)) < 1e-10
                 self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
-                                                   untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only)
+                                                   untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only,
+                                                   rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling)
 
         if args.custom_single_prompt:
             return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
@@ -579,7 +583,8 @@ class CombinedHarmlessnessTrainer(ABC):
             return estimates_list
 
     def make_experience_and_do_update(self, args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
-                                      untrans_ret_list, update_timesteps, neg_sample_only=False):
+                                      untrans_ret_list, update_timesteps, neg_sample_only=False,
+                                      rewards_list_sampling=None, untrans_ret_list_sampling=None):
         if not neg_sample_only:
             print("Making experience: standard sampling")
             experience = self.base_experience_maker.make_experience(
@@ -668,6 +673,10 @@ class CombinedHarmlessnessTrainer(ABC):
             untrans_ret_list.append(experience.info["untransformed_ret"].mean().item())
             inspect_rewards_list(rewards_list)
             inspect_rewards_list(untrans_ret_list)
+        
+        if self.separate_neg_samples and experience_neg_sampling is not None and rewards_list_sampling is not None and untrans_ret_list_sampling is not None:
+            rewards_list_sampling.append(experience_neg_sampling.info["reward"].mean().item())
+            untrans_ret_list_sampling.append(experience_neg_sampling.info["untransformed_reward"].mean().item())
 
     def train(self, global_steps=0, custom_prompt=None, neg_sample_only=False):
         if not neg_sample_only:

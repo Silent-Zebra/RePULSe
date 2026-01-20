@@ -116,6 +116,28 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
                 label_parts.append("Sep. NN")
 
             labels.append(", ".join(label_parts))
+        elif run_type == "Exact Count":
+            label_parts = [run_type]
+            
+            # Extract bonus_alpha (encoded as _count followed by value)
+            count_match = re.search(r'_count([\d.]+)', prefix)
+            if count_match:
+                bonus_alpha = count_match.group(1)
+                label_parts.append(f"bonus_alpha={bonus_alpha}")
+            
+            # Extract num_episodes (encoded as _epi followed by value)
+            epi_match = re.search(r'_epi(\d+)', prefix)
+            if epi_match:
+                num_episodes = epi_match.group(1)
+                label_parts.append(f"num_episodes={num_episodes}")
+            
+            # Extract batch_size (encoded as _tbs followed by value)
+            tbs_match = re.search(r'_tbs(\d+)', prefix)
+            if tbs_match:
+                batch_size = tbs_match.group(1)
+                label_parts.append(f"batch_size={batch_size}")
+            
+            labels.append(", ".join(label_parts))
         else:
             labels.append(run_type)
     
