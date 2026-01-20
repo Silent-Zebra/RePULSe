@@ -551,11 +551,25 @@ def train(args):
     individual_bad_word_log_probs_t0_list_sampling = []
     individual_bad_word_log_probs_t1_list_sampling = []
     individual_bad_word_log_probs_combined_list_sampling = []
+    # Lists for threshold-based bad word calculations (base actor)
+    total_log_prob_bad_list_base_threshold = []
+    individual_bad_word_log_probs_t0_list_base_threshold = []
+    individual_bad_word_log_probs_t1_list_base_threshold = []
+    individual_bad_word_log_probs_combined_list_base_threshold = []
+    # Lists for threshold-based bad word calculations (sampling actor)
+    total_log_prob_bad_list_sampling_threshold = []
+    individual_bad_word_log_probs_t0_list_sampling_threshold = []
+    individual_bad_word_log_probs_t1_list_sampling_threshold = []
+    individual_bad_word_log_probs_combined_list_sampling_threshold = []
     # Keep old names for backward compatibility when not doing harmlessness training
     total_log_prob_bad_list = total_log_prob_bad_list_base
     individual_bad_word_log_probs_t0_list = individual_bad_word_log_probs_t0_list_base
     individual_bad_word_log_probs_t1_list = individual_bad_word_log_probs_t1_list_base
     individual_bad_word_log_probs_combined_list = individual_bad_word_log_probs_combined_list_base
+    total_log_prob_bad_list_threshold = total_log_prob_bad_list_base_threshold
+    individual_bad_word_log_probs_t0_list_threshold = individual_bad_word_log_probs_t0_list_base_threshold
+    individual_bad_word_log_probs_t1_list_threshold = individual_bad_word_log_probs_t1_list_base_threshold
+    individual_bad_word_log_probs_combined_list_threshold = individual_bad_word_log_probs_combined_list_base_threshold
     total_kl_sigma_q_list = []
     total_kl_q_sigma_epsq_p_list = []
     diff_by_bad_word_case1_list = []  # List of dicts: {bad_word_id: sum_diff_case1}
@@ -574,9 +588,10 @@ def train(args):
     total_kl_q_sigma_list_analytic = []
     metrics_list_analytic = []  # List of metrics dicts
     
-    # Precompute toxicity scores once at the beginning if using analytic_calc
+    # Precompute toxicity scores once at the beginning if using analytic_calc or analytic_bad_word_calc
     precomputed_toxicity_scores = None
-    if args.analytic_calc:
+    bad_word_tokens_ids_threshold = None
+    if args.analytic_calc or args.analytic_bad_word_calc:
         strategy.print("Precomputing toxicity scores for all tokens...")
         prompt = args.custom_prompt  # Define prompt for analytic calculations
         precomputed_toxicity_scores = precompute_toxicity_scores_for_all_tokens(
@@ -587,6 +602,12 @@ def train(args):
         )
         strategy.print(f"Precomputed toxicity scores shape: {precomputed_toxicity_scores.shape}")
         strategy.print(f"Toxicity scores range: [{precomputed_toxicity_scores.min().item():.4f}, {precomputed_toxicity_scores.max().item():.4f}]")
+        
+        # Compute threshold-based bad word list if analytic_bad_word_calc is enabled
+        if args.analytic_bad_word_calc:
+            bad_word_tokens_ids_threshold = torch.where(precomputed_toxicity_scores < args.threshold)[0].cpu().tolist()
+            strategy.print(f"Threshold-based bad word list (reward < {args.threshold}): {bad_word_tokens_ids_threshold}")
+            strategy.print(f"Number of tokens with reward < {args.threshold}: {len(bad_word_tokens_ids_threshold)}")
 
     # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
     for fit_step in range(args.fit_steps):
@@ -608,12 +629,28 @@ def train(args):
                                           total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
                                           individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
                                           actor_to_test=base_actor, generate_max_len=args.generate_max_len)
+                # Parallel calculation with threshold-based bad word list
+                if bad_word_tokens_ids_threshold is not None and len(bad_word_tokens_ids_threshold) > 0:
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids_threshold, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_sampling_threshold, individual_bad_word_log_probs_t0_list_sampling_threshold,
+                                              individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold,
+                                              actor_to_test=actor, generate_max_len=args.generate_max_len)
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids_threshold, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_base_threshold, individual_bad_word_log_probs_t0_list_base_threshold,
+                                              individual_bad_word_log_probs_t1_list_base_threshold, individual_bad_word_log_probs_combined_list_base_threshold,
+                                              actor_to_test=base_actor, generate_max_len=args.generate_max_len)
             else:
                 # For non-harmlessness training, just use the standard actor
                 do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                           total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
                                           individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
                                           generate_max_len=args.generate_max_len)
+                # Parallel calculation with threshold-based bad word list
+                if bad_word_tokens_ids_threshold is not None and len(bad_word_tokens_ids_threshold) > 0:
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids_threshold, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_threshold, individual_bad_word_log_probs_t0_list_threshold,
+                                              individual_bad_word_log_probs_t1_list_threshold, individual_bad_word_log_probs_combined_list_threshold,
+                                              generate_max_len=args.generate_max_len)
             
             if args.do_harmlessness_training:
                 if "indicator" in args.rm_type: 
@@ -744,6 +781,12 @@ def train(args):
                                               total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
                                               individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
                                               actor_to_test=actor, generate_max_len=args.generate_max_len)
+                    # Parallel calculation with threshold-based bad word list
+                    if bad_word_tokens_ids_threshold is not None and len(bad_word_tokens_ids_threshold) > 0:
+                        do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids_threshold, base_actor, prompt, tokenizer,
+                                                  total_log_prob_bad_list_sampling_threshold, individual_bad_word_log_probs_t0_list_sampling_threshold,
+                                                  individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold,
+                                                  actor_to_test=actor, generate_max_len=args.generate_max_len)
                 else:
                     # Calculate for both sampling_actor (q) and base_actor (p)
                     precomputed_q = do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
@@ -754,12 +797,28 @@ def train(args):
                                               total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
                                               individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
                                               actor_to_test=base_actor, generate_max_len=args.generate_max_len)
+                    # Parallel calculation with threshold-based bad word list
+                    if bad_word_tokens_ids_threshold is not None and len(bad_word_tokens_ids_threshold) > 0:
+                        do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids_threshold, base_actor, prompt, tokenizer,
+                                                  total_log_prob_bad_list_sampling_threshold, individual_bad_word_log_probs_t0_list_sampling_threshold,
+                                                  individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold,
+                                                  actor_to_test=actor, generate_max_len=args.generate_max_len)
+                        do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids_threshold, base_actor, prompt, tokenizer,
+                                                  total_log_prob_bad_list_base_threshold, individual_bad_word_log_probs_t0_list_base_threshold,
+                                                  individual_bad_word_log_probs_t1_list_base_threshold, individual_bad_word_log_probs_combined_list_base_threshold,
+                                                  actor_to_test=base_actor, generate_max_len=args.generate_max_len)
             else:
                 # For non-harmlessness training, just use the standard actor
                 do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids, base_actor, prompt, tokenizer,
                                           total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
                                           individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
                                           generate_max_len=args.generate_max_len)
+                # Parallel calculation with threshold-based bad word list
+                if bad_word_tokens_ids_threshold is not None and len(bad_word_tokens_ids_threshold) > 0:
+                    do_analytic_bad_word_calc(actor, args, bad_word_tokens_ids_threshold, base_actor, prompt, tokenizer,
+                                              total_log_prob_bad_list_threshold, individual_bad_word_log_probs_t0_list_threshold,
+                                              individual_bad_word_log_probs_t1_list_threshold, individual_bad_word_log_probs_combined_list_threshold,
+                                              generate_max_len=args.generate_max_len)
             
             if args.do_harmlessness_training:
                 if "indicator" in args.rm_type:
@@ -840,17 +899,26 @@ def train(args):
             save_str = f"{args.save_info_path}/analyticlogprob_rewsample_base_{info_name_str}"
             torch.save((total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
                        individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
-                       rew_over_time_list_base, untrans_ret_over_time_list_base), save_str)
+                       rew_over_time_list_base, untrans_ret_over_time_list_base,
+                       total_log_prob_bad_list_base_threshold, individual_bad_word_log_probs_t0_list_base_threshold,
+                       individual_bad_word_log_probs_t1_list_base_threshold, individual_bad_word_log_probs_combined_list_base_threshold), save_str)
             print("Base actor (p) results:")
             print(total_log_prob_bad_list_base)
             print(individual_bad_word_log_probs_t0_list_base)
             print(individual_bad_word_log_probs_t1_list_base)
             print(individual_bad_word_log_probs_combined_list_base)
+            print("Base actor (p) threshold-based results:")
+            print(total_log_prob_bad_list_base_threshold)
+            print(individual_bad_word_log_probs_t0_list_base_threshold)
+            print(individual_bad_word_log_probs_t1_list_base_threshold)
+            print(individual_bad_word_log_probs_combined_list_base_threshold)
             
             save_str = f"{args.save_info_path}/analyticlogprob_rewsample_sampling_{info_name_str}"
             torch.save((total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
                        individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                       rew_over_time_list_sampling, untrans_ret_over_time_list_sampling, bonus_vals_over_time_list_sampling), save_str)
+                       rew_over_time_list_sampling, untrans_ret_over_time_list_sampling, bonus_vals_over_time_list_sampling,
+                       total_log_prob_bad_list_sampling_threshold, individual_bad_word_log_probs_t0_list_sampling_threshold,
+                       individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold), save_str)
             print("Sampling actor (q) results:")
             print(total_log_prob_bad_list_sampling)
             print(individual_bad_word_log_probs_t0_list_sampling)
@@ -858,18 +926,30 @@ def train(args):
             print(individual_bad_word_log_probs_combined_list_sampling)
             print(rew_over_time_list_sampling)
             print(untrans_ret_over_time_list_sampling)
+            print("Sampling actor (q) threshold-based results:")
+            print(total_log_prob_bad_list_sampling_threshold)
+            print(individual_bad_word_log_probs_t0_list_sampling_threshold)
+            print(individual_bad_word_log_probs_t1_list_sampling_threshold)
+            print(individual_bad_word_log_probs_combined_list_sampling_threshold)
         else:
             # For non-harmlessness training, use the standard lists (which are now base lists)
             save_str = f"{args.save_info_path}/analyticlogprob_rewsample_{info_name_str}"
             torch.save((total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
                        individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
-                       rew_over_time_list_base, untrans_ret_over_time_list_base), save_str)
+                       rew_over_time_list_base, untrans_ret_over_time_list_base,
+                       total_log_prob_bad_list_threshold, individual_bad_word_log_probs_t0_list_threshold,
+                       individual_bad_word_log_probs_t1_list_threshold, individual_bad_word_log_probs_combined_list_threshold), save_str)
             print(total_log_prob_bad_list)
             print(individual_bad_word_log_probs_t0_list)
             print(individual_bad_word_log_probs_t1_list)
             print(individual_bad_word_log_probs_combined_list)
             print(rew_over_time_list_base)
             print(untrans_ret_over_time_list_base)
+            print("Threshold-based results:")
+            print(total_log_prob_bad_list_threshold)
+            print(individual_bad_word_log_probs_t0_list_threshold)
+            print(individual_bad_word_log_probs_t1_list_threshold)
+            print(individual_bad_word_log_probs_combined_list_threshold)
         
         if total_kl_sigma_q_list:
             save_str = f"{args.save_info_path}/analytic_kls_indicator_{info_name_str}"

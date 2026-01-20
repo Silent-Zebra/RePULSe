@@ -251,6 +251,25 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
     except:
         print(f"Failed to generate untransformed_ret plot for {file_type_suffix}")
     
+    # Plot threshold-based log probability of bad output (if available)
+    try:
+        # Check if data has threshold-based results (10 elements for base, 11 for sampling)
+        has_threshold_data = False
+        for result_group in results_list:
+            if len(result_group) > 0 and len(result_group[0]) >= 10:
+                has_threshold_data = True
+                break
+        
+        if has_threshold_data:
+            # For base: threshold data starts at index 6, for sampling: at index 7
+            threshold_index = 7 if file_type_suffix == "sampling" else 6
+            plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+                                  index_to_use=threshold_index, plot_name="logprobbad_threshold",
+                                  ylabel=r"Log Total Probability of Bad Output (Threshold-based)",
+                                  file_type_suffix=file_type_suffix)
+    except Exception as e:
+        print(f"Failed to generate logprobbad_threshold plot for {file_type_suffix}: {e}")
+    
     # Plot exploration bonus values (only for sampling actor, and only if available)
     if file_type_suffix == "sampling":
         try:
