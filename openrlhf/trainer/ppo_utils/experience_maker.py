@@ -1246,7 +1246,8 @@ class BaseExperienceMaker(ABC):
             assert self.reward_transform is None  # Others not yet implemented
 
         # Initialize exploration_bonus (will be set for specific rm_types)
-        exploration_bonus = None
+        # Initialize to zeros (will be recalculated for specific rm_types that need it)
+        exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=False)
 
         if self.rm_type == "exp_beta_toxicity_class_logprob":
             if self.exploration_bonus:
@@ -1310,8 +1311,7 @@ class BaseExperienceMaker(ABC):
                 print(f"Exploration bonus calculated for rlhf. Mean bonus: {exploration_bonus.mean().item():.4f}, "
                       f"Min bonus: {exploration_bonus.min().item():.4f}, "
                       f"Max bonus: {exploration_bonus.max().item():.4f}")
-            else:
-                exploration_bonus = None
+            # else: exploration_bonus already initialized to zeros above
             
             capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
 
