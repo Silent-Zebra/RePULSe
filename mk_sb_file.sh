@@ -62,16 +62,37 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
         if($i == "--num_episodes") num_episodes = $(i+1)
         if($i == "--harmlessness_training_num_episodes") num_episodes_h = $(i+1)
         if($i == "--generate_max_len") gen_max_len = $(i+1)
-        if($i == "--actor_learning_rate") actor_lr = $(i+1)
-        if($i == "--critic_learning_rate") critic_lr = $(i+1)
-        if($i == "--base_actor_learning_rate") baseactor_lr = "_baselr"$(i+1)
-        if($i ~ /^--target_dist_beta(=|$)/) target_beta = ($i ~ /=/) ? gensub(/^[^=]+=/, "", "g", $i) : "_beta"$(i+1)
+        if($i == "--actor_learning_rate") actor_lr = "_alr"$(i+1)
+        if($i == "--critic_learning_rate") critic_lr = "_clr"$(i+1)
+        if($i == "--base_actor_learning_rate") baseactor_lr = "_blr"$(i+1)
+        if($i ~ /^--target_dist_beta(=|$)/) {
+            # Abbreviate target beta
+            beta_val = ($i ~ /=/) ? gensub(/^[^=]+=/, "", "g", $i) : $(i+1)
+            target_beta = "_b" beta_val
+        }
         if($i ~ /^--save_negdata_threshold(=|$)/) save_negdata_threshold = ($i ~ /=/) ? "_savethr" gensub(/^[^=]+=/, "", "g", $i) : "_savethr" $(i+1)
-        if($i ~ /^--threshold(=|$)/) threshold = ($i ~ /=/) ? "_thresh" gensub(/^[^=]+=/, "", "g", $i) : "_thresh" $(i+1)
+        if($i ~ /^--threshold(=|$)/) {
+            # Abbreviate threshold
+            thresh_val = ($i ~ /=/) ? gensub(/^[^=]+=/, "", "g", $i) : $(i+1)
+            threshold = "_t" thresh_val
+        }
         if($i == "--lr_scheduler") lr_sched = $(i+1)
-        if($i == "--actor_loss_type") actor_loss = $(i+1)
+        if($i == "--actor_loss_type") {
+            # Abbreviate actor loss type
+            loss = $(i+1)
+            if(loss == "ctl") actor_loss = "_ctl"
+            else actor_loss = "_" substr(loss, 1, 3)
+        }
         if($i == "--custom_single_prompt") custom_prompt = "_custom"
-        if($i == "--parameterization") parameterization = $(i+1)
+        if($i == "--parameterization") {
+            # Abbreviate parameterization: take first char of each component
+            n = split($(i+1), arr, "_")
+            abbrev = ""
+            for (j = 1; j <= n; j++) {
+                abbrev = abbrev substr(arr[j], 1, 1)
+            }
+            parameterization = abbrev
+        }
         if($i == "--adam_betas") adam_beta2 = "_adambeta2_"$(i+2)
         if($i == "--rm_type") rm_type = $(i+1)
         if($i == "--duplicate_rollout_batch_by") dup_rollout = "_"$(i+1)
@@ -105,13 +126,33 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
                 reward_pretrain = abbrev
             }
         }
-        if($i == "--prompt_data") prompt_data = gensub("_.*", "", "g", gensub(".*/", "", "g", $(i+1)))
+        if($i == "--prompt_data") {
+            # Abbreviate prompt_data: take first 2 chars of each component after splitting by "/" and "_"
+            full_path = gensub(".*/", "", "g", $(i+1))
+            n = split(gensub("_.*", "", "g", full_path), arr, "-")
+            abbrev = ""
+            for (j = 1; j <= n && j <= 2; j++) {  # Limit to first 2 components
+                abbrev = abbrev substr(arr[j], 1, 2)
+            }
+            prompt_data = abbrev
+        }
         if($i == "--init_head_from_base") init_head_from_base = "_initheadbase"
         if($i == "--additional_sd_divider") sd_divider = "_sddivider"$(i+1)
-        if($i == "--harmlessness_training_loss_type") harmloss = "_harml"$(i+1)
-        if($i == "--reinforce_baseline_type") harmlossreinbaseline = "_"$(i+1)
+        if($i == "--harmlessness_training_loss_type") {
+            # Abbreviate harmlessness loss type
+            loss_type = $(i+1)
+            if(loss_type ~ /neg_training/) harmloss = "_harmlneg"
+            else if(loss_type ~ /neg/) harmloss = "_harmlneg"
+            else harmloss = "_harml" substr(loss_type, 1, 3)
+        }
+        if($i == "--reinforce_baseline_type") {
+            # Abbreviate baseline type
+            baseline = $(i+1)
+            if(baseline ~ /expectation/) harmlossreinbaseline = "_exp"
+            else harmlossreinbaseline = "_" substr(baseline, 1, 3)
+        }
         if($i == "--reinforce_hardcoded_baseline") hlrbval = "_"$(i+1)
-        if($i == "--alpha") alpha = "_alpha"$(i+1)
+        if($i == "--alpha") alpha = "_a"$(i+1)
         if($i == "--init_kl_coef") kl = "_kl"$(i+1)
         if($i == "--only_evaluate_on_neg_data") only_eval_neg = "_onlyevalneg"
         if($i == "--do_harmlessness_training") do_harmlessness = 1
@@ -122,7 +163,12 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
         if($i == "--start_alpha") starta = "_start"$(i+1)
         if($i == "--separate_reweighting_beta") sepb = "_sepb"$(i+1)
         if($i == "--uniform_reweight") uniw = "_uniw"
-        if($i == "--exploration_bonus_sampling_actor") exploration_bonus_sa = "_expsa"$(i+1)
+        if($i == "--exploration_bonus_sampling_actor") {
+            # Abbreviate exploration bonus type
+            bonus_type = $(i+1)
+            if(bonus_type ~ /coin_flip/) exploration_bonus_sa = "_expsacf"
+            else exploration_bonus_sa = "_expsa" substr(bonus_type, 1, 2)
+        }
         if($i == "--exploration_bonus_base_actor") exploration_bonus_ba = "_expba"$(i+1)
         if($i == "--bonus_alpha") bonus_alpha = "_a"$(i+1)
         if($i == "--coin_flip_dim") coin_flip_dim = "_cfd"$(i+1)
@@ -132,7 +178,13 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
         if($i == "--coin_flip_head_init_std") coin_flip_head_init_std = "_cfhis"$(i+1)
         if($i == "--frozen_prior_init_std") frozen_prior_init_std = "_fpis"$(i+1)
         if($i == "--coin_flip_linear_bias") coin_flip_linear_bias = "_cfbias"
-        if($i == "--coin_flip_architecture") coin_flip_architecture = "_cfarch"$(i+1)
+        if($i == "--coin_flip_architecture") {
+            # Abbreviate coin flip architecture
+            arch = $(i+1)
+            if(arch ~ /separate_nn/) coin_flip_architecture = "_cfarchsnn"
+            else if(arch ~ /separate/) coin_flip_architecture = "_cfarchsep"
+            else coin_flip_architecture = "_cfarch" substr(arch, 1, 3)
+        }
         if($i == "--train_coin_flip_before") train_coin_flip_before = "_before"
         if($i == "--coin_flip_first_online") coin_flip_first_online = "_firstonline"
         if($i == "--coin_flip_use_prioritization") coin_flip_use_prioritization = "_pri"
@@ -160,8 +212,8 @@ IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS EPI_STR GEN_MAX_
 # Get current date in required format
 CURRENT_DATE=$(date +%Y-%m-%d-%H-%M)
 
-# Generate output filename using dcs pattern (most complete)
-PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${BASE_PROP}${THRESH}${STARTB}${TARGET_BETA}${SEPB}${UNIW}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_batch${MICRO_TRAIN}_${TRAIN}${ANALYTIC_BATCH}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_epo${MAX_EPOCHS}${EPI_STR}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${STARTA}${ALPHA}${RTA}${RTB}${BASEACTOR_LR}_${ACTOR_LOSS}_alr${ACTOR_LR}_clr${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}${EXPLORATION_BONUS_SA}${EXPLORATION_BONUS_BA}${BONUS_ALPHA}${COIN_FLIP_DIM}${COIN_FLIP_LR}${COIN_FLIP_NORM_MOMENTUM}${COIN_FLIP_UPDATE_STEPS}${COIN_FLIP_HEAD_INIT_STD}${FROZEN_PRIOR_INIT_STD}${COIN_FLIP_LINEAR_BIAS}${COIN_FLIP_ARCHITECTURE}${TRAIN_COIN_FLIP_BEFORE}${COIN_FLIP_FIRST_ONLINE}${COIN_FLIP_USE_PRIORITIZATION}"
+# Generate output filename using dcs pattern (shortened)
+PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${BASE_PROP}${THRESH}${STARTB}${TARGET_BETA}${SEPB}${UNIW}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_b${MICRO_TRAIN}_${TRAIN}${ANALYTIC_BATCH}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_epo${MAX_EPOCHS}${EPI_STR}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${STARTA}${ALPHA}${RTA}${RTB}${BASEACTOR_LR}_${ACTOR_LOSS}${ACTOR_LR}${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}${EXPLORATION_BONUS_SA}${EXPLORATION_BONUS_BA}${BONUS_ALPHA}${COIN_FLIP_DIM}${COIN_FLIP_LR}${COIN_FLIP_NORM_MOMENTUM}${COIN_FLIP_UPDATE_STEPS}${COIN_FLIP_HEAD_INIT_STD}${FROZEN_PRIOR_INIT_STD}${COIN_FLIP_LINEAR_BIAS}${COIN_FLIP_ARCHITECTURE}${TRAIN_COIN_FLIP_BEFORE}${COIN_FLIP_FIRST_ONLINE}${COIN_FLIP_USE_PRIORITIZATION}"
 SBATCH_FILE="sbatch_${PATTERN}"
 OUTPUT_FILE="result_${PATTERN}_s1.txt"
 
