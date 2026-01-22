@@ -127,13 +127,13 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
             }
         }
         if($i ~ /^--custom_prompt(=|$)/) {
-            # Simple: just first 2 chars of path
-            abbrev = substr($(i+1), 1, 2)
+            # Simple: just first 1 char of path after quote
+            abbrev = substr($(i+1), 2, 1)
             prompt_data = abbrev
         }
         if($i == "--prompt_data" && prompt_data == "") {
-            # Simple: just first 2 chars of path
-            abbrev = substr($(i+1), 1, 2)
+            # Simple: just first 1 char of path after quote
+            abbrev = substr($(i+1), 2, 1)
             prompt_data = abbrev
         }
         if($i == "--init_head_from_base") init_head_from_base = "_initheadbase"
