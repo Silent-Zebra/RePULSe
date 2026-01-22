@@ -225,8 +225,10 @@ def get_info_name_str(args):
 
     # Check if custom_prompt is set (different from default)
     if hasattr(args, 'custom_prompt') and args.custom_prompt and args.custom_prompt != "This man is a":
+        # Remove quotes from beginning and end
+        custom_prompt_val = args.custom_prompt.strip('"\'')
         # Extract first character of first word
-        words = args.custom_prompt.split()
+        words = custom_prompt_val.split()
         first_word = words[0] if words else ""
         prompt_data_str = first_word[0] if first_word else ""
     else:

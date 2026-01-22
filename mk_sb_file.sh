@@ -133,6 +133,8 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
             } else {
                 custom_prompt_val = $(i+1)
             }
+            # Remove quotes from beginning and end
+            custom_prompt_val = gensub(/^["']|["']$/, "", "g", custom_prompt_val)
             # Get first character of first word
             n = split(custom_prompt_val, words, " ")
             if(n > 0 && words[1] != "") {
@@ -141,7 +143,7 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
         }
         if($i == "--prompt_data" && prompt_data == "") {
             # Simple: just first 2 chars of path
-            abbrev = substr($(i+1), 2, 2)
+            abbrev = substr($(i+1), 1, 2)
             prompt_data = abbrev
         }
         if($i == "--init_head_from_base") init_head_from_base = "_initheadbase"
