@@ -264,11 +264,27 @@ class CombinedHarmlessnessTrainer(ABC):
             frozen_prior_init_std = getattr(strategy.args, 'frozen_prior_init_std', 0.1)
             coin_flip_linear_bias = getattr(strategy.args, 'coin_flip_linear_bias', False)
             base_actor_lr = getattr(strategy.args, 'base_actor_learning_rate', None)
-            coin_flip_architecture = getattr(strategy.args, 'coin_flip_architecture', 'linear_head_on_base')
-            # Initialize coin flip network from sampling_actor
+            coin_flip_architecture = getattr(strategy.args, 'coin_flip_architecture', 'linear_head_on_static_initial_base')
+            
+            # Determine which model to use as base_model for CoinFlipNetwork initialization
+            # For learning architectures, we pass the appropriate model (base_actor or sampling_actor)
+            # The network will store it as backbone_model
+            from openrlhf.models.coin_flip_network import LEARNING_ARCHITECTURES, STATIC_ARCHITECTURES
+            
+            if coin_flip_architecture == "linear_head_on_learning_base":
+                # Use base_actor as the backbone model
+                coin_flip_base_model = base_actor
+            elif coin_flip_architecture == "linear_head_on_learning_proposal":
+                # Use sampling_actor as the backbone model
+                coin_flip_base_model = sampling_actor
+            else:
+                # For static architecture or separate_nn, use sampling_actor (will create copy for static)
+                coin_flip_base_model = sampling_actor
+            
+            # Initialize coin flip network
             # If pre-initialized networks are provided (for separate_nn mode), use them
             self.coin_flip_network = CoinFlipNetwork(
-                sampling_actor, 
+                coin_flip_base_model, 
                 coin_flip_dim=coin_flip_dim, 
                 normalization_momentum=normalization_momentum,
                 head_init_std=head_init_std,
@@ -393,7 +409,9 @@ class CombinedHarmlessnessTrainer(ABC):
             coin_flip_scheduler=self.coin_flip_scheduler,
             coin_flip_first_online=self.coin_flip_first_online,
             coin_flip_use_prioritization=getattr(strategy.args, 'coin_flip_use_prioritization', False),
-            coin_flip_architecture=getattr(strategy.args, 'coin_flip_architecture', 'linear_head_on_base')
+            coin_flip_architecture=getattr(strategy.args, 'coin_flip_architecture', 'linear_head_on_static_initial_base'),
+            base_actor=base_actor,
+            sampling_actor=sampling_actor
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)

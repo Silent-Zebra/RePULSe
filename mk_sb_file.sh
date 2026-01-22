@@ -183,6 +183,9 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
             arch = $(i+1)
             if(arch ~ /separate_nn/) coin_flip_architecture = "_cfarchsnn"
             else if(arch ~ /separate/) coin_flip_architecture = "_cfarchsep"
+            else if(arch ~ /linear_head_on_static_initial_base/) coin_flip_architecture = "_cfarchsib"
+            else if(arch ~ /linear_head_on_learning_base/) coin_flip_architecture = "_cfarchlp"
+            else if(arch ~ /linear_head_on_learning_proposal/) coin_flip_architecture = "_cfarchlq"
             else coin_flip_architecture = "_cfarch" substr(arch, 1, 3)
         }
         if($i == "--train_coin_flip_before") train_coin_flip_before = "_before"

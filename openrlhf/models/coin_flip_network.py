@@ -7,6 +7,11 @@ from transformers import AutoConfig
 
 from .utils import masked_mean, reset_position_ids
 
+# Architecture constants
+STATIC_ARCHITECTURES = ["linear_head_on_static_initial_base"]
+LEARNING_ARCHITECTURES = ["linear_head_on_learning_base", "linear_head_on_learning_proposal"]
+TOKEN_STORAGE_ARCHITECTURES = ["separate_nn"] + LEARNING_ARCHITECTURES
+
 
 
 
@@ -28,7 +33,10 @@ class CoinFlipNetwork(nn.Module):
         coin_flip_linear_bias: If True, adds bias to the linear head for the trainable coin flip network (default: False)
         base_actor_learning_rate: Learning rate of the base actor. If provided and != 0, raises
             NotImplementedError as the random prior structure should be reviewed when base_model is trainable (default: None)
-        coin_flip_architecture: Architecture type: "linear_head_on_base" (linear head on frozen base) or "separate_nn" (separate trainable and frozen networks) (default: "linear_head_on_base")
+        coin_flip_architecture: Architecture type: "linear_head_on_static_initial_base" (linear head on frozen base copy), 
+            "linear_head_on_learning_base" (linear head on live base_actor), "linear_head_on_learning_proposal" 
+            (linear head on live sampling_actor), or "separate_nn" (separate trainable and frozen networks) 
+            (default: "linear_head_on_static_initial_base")
     """
     
     def __init__(
@@ -40,7 +48,7 @@ class CoinFlipNetwork(nn.Module):
         frozen_prior_init_std: float = 0.1,
         coin_flip_linear_bias: bool = False,
         base_actor_learning_rate: Optional[float] = None,
-        coin_flip_architecture: str = "linear_head_on_base",
+        coin_flip_architecture: str = "linear_head_on_static_initial_base",
         trainable_network: Optional[nn.Module] = None,
         frozen_prior_network: Optional[nn.Module] = None,
     ):
@@ -68,6 +76,14 @@ class CoinFlipNetwork(nn.Module):
         except (ImportError, AttributeError):
             pass
         
+        # CRITICAL: Always create a static frozen copy for random prior head
+        # This ensures the random prior is always fixed, regardless of architecture
+        self.frozen_prior_model = copy.deepcopy(unwrapped_model)
+        # Freeze the frozen prior model completely
+        for param in self.frozen_prior_model.parameters():
+            param.requires_grad = False
+        
+        # Determine architecture type and set up models accordingly
         if coin_flip_architecture == "separate_nn":
             # TODO: Allow for different architectures later (currently both networks are copies of base_actor)
             # Use pre-initialized networks if provided (avoids deepcopy issues with DeepSpeed-wrapped models)
@@ -92,27 +108,39 @@ class CoinFlipNetwork(nn.Module):
             # The trainable network will be trainable end-to-end (no freezing)
             # We'll add coin flip heads to both networks below
             
-            # For separate_nn mode, we don't use base_model
+            # For separate_nn mode, we don't use base_model or backbone_model
             self.base_model = None
-        else:
-            # linear_head_on_base mode: keep current behavior
-            # TODO: Review random prior structure when base_model becomes trainable (base actor LR != 0)
-            # Currently assumes base_model is frozen. When training the base actor, the random prior
-            # approach may need adjustment.
-            if base_actor_learning_rate is not None and abs(base_actor_learning_rate) > 1e-10:
-                raise NotImplementedError(
-                    "Coin flip network with random prior is not yet implemented for trainable base_model. "
-                    "The random prior structure should be reviewed when base_actor_learning_rate != 0."
-                )
+            self.backbone_model = None
+            self.use_learning_backbone = False
+        elif coin_flip_architecture in LEARNING_ARCHITECTURES:
+            # Learning architectures: use live model reference, no copy
+            # Store reference to the live model (will be set by caller)
+            self.backbone_model = base_model  # Store the original Actor reference
+            self.use_learning_backbone = True
             
+            # For learning architectures, we don't use base_model (frozen copy)
+            self.base_model = None
+            
+            # Only for separate_nn mode. Here, these will be None as they are not used.
+            self.trainable_network = None
+            self.frozen_prior_network = None
+        elif coin_flip_architecture in STATIC_ARCHITECTURES:
+            # Static architecture: create frozen copy (existing behavior)
             # Create a deep copy of the base model to ensure complete separation
             # This ensures the coin flip network is entirely independent from the
             # base/sampling actors and won't be interfered with by their training
             self.base_model = copy.deepcopy(unwrapped_model)
             
+            # For static architecture, we don't use backbone_model
+            self.backbone_model = None
+            self.use_learning_backbone = False
+            
             # Only for separate_nn mode. Here, these will be None as they are not used.
             self.trainable_network = None
             self.frozen_prior_network = None
+        else:
+            raise ValueError(f"Unknown coin_flip_architecture: {coin_flip_architecture}. "
+                           f"Must be one of: {['separate_nn'] + LEARNING_ARCHITECTURES + STATIC_ARCHITECTURES}")
         
         # Get hidden size from config or model architecture
         # Helper function to get hidden size from a model
@@ -168,7 +196,11 @@ class CoinFlipNetwork(nn.Module):
         # Get hidden size based on architecture
         if coin_flip_architecture == "separate_nn":
             hidden_size = get_hidden_size_from_model(self.trainable_network)
+        elif coin_flip_architecture in LEARNING_ARCHITECTURES:
+            # For learning architectures, get hidden size from backbone model
+            hidden_size = get_hidden_size_from_model(self.backbone_model)
         else:
+            # Static architecture
             hidden_size = get_hidden_size_from_model(self.base_model)
         
         # Fallback to original base_model if still None
@@ -186,6 +218,12 @@ class CoinFlipNetwork(nn.Module):
             # Get device from trainable_network
             base_model_device = None
             for param in self.trainable_network.parameters():
+                base_model_device = param.device
+                break
+        elif coin_flip_architecture in LEARNING_ARCHITECTURES:
+            # Get device from backbone_model
+            base_model_device = None
+            for param in self.backbone_model.parameters():
                 base_model_device = param.device
                 break
         else:
@@ -220,7 +258,7 @@ class CoinFlipNetwork(nn.Module):
             self.coin_flip_head = None
             self.random_prior_head = None
         else:
-            # linear_head_on_base mode: create heads as before
+            # linear_head_on_* architectures: create heads
             # Create coin flip head: maps hidden_size -> coin_flip_dim
             self.coin_flip_head = nn.Linear(hidden_size, coin_flip_dim, bias=coin_flip_linear_bias)
             self.coin_flip_head = self.coin_flip_head.to(base_model_device)
@@ -232,6 +270,7 @@ class CoinFlipNetwork(nn.Module):
             
             # Create random prior head: frozen linear layer with same architecture
             # This ensures new states have ~1 pseudocount at initialization
+            # The random prior head always uses frozen_prior_model (created above)
             self.random_prior_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
             self.random_prior_head = self.random_prior_head.to(base_model_device)
             nn.init.normal_(self.random_prior_head.weight, mean=0.0, std=frozen_prior_init_std)
@@ -240,16 +279,26 @@ class CoinFlipNetwork(nn.Module):
             for param in self.random_prior_head.parameters():
                 param.requires_grad = False
             
-            # Freeze the base model - we only train the coin_flip_head
-            # This avoids DeepSpeed ZeRO hook conflicts and keeps training simple
-            # The optimizer will automatically exclude frozen parameters (requires_grad=False)
-            for param in self.base_model.parameters():
-                param.requires_grad = False
+            # For static architecture, freeze the base model
+            # For learning architectures, backbone_model is not frozen (it's trainable)
+            if coin_flip_architecture in STATIC_ARCHITECTURES:
+                # Freeze the base model - we only train the coin_flip_head
+                # This avoids DeepSpeed ZeRO hook conflicts and keeps training simple
+                # The optimizer will automatically exclude frozen parameters (requires_grad=False)
+                for param in self.base_model.parameters():
+                    param.requires_grad = False
         
         # Support gradient checkpointing if base model does
         if coin_flip_architecture == "separate_nn":
             self.supports_gradient_checkpointing = getattr(self.trainable_network.model, 'supports_gradient_checkpointing', False) if hasattr(self.trainable_network, 'model') else getattr(self.trainable_network, 'supports_gradient_checkpointing', False)
+        elif coin_flip_architecture in LEARNING_ARCHITECTURES:
+            # For learning architectures, check backbone_model
+            if hasattr(self.backbone_model, 'model'):
+                self.supports_gradient_checkpointing = getattr(self.backbone_model.model, 'supports_gradient_checkpointing', False)
+            else:
+                self.supports_gradient_checkpointing = getattr(self.backbone_model, 'supports_gradient_checkpointing', False)
         else:
+            # Static architecture
             self.supports_gradient_checkpointing = getattr(self.base_model, 'supports_gradient_checkpointing', False)
         
         # Running statistics for normalization of exploration bonus
@@ -279,12 +328,131 @@ class CoinFlipNetwork(nn.Module):
         if self.coin_flip_architecture == "separate_nn":
             for param in self.trainable_network.parameters():
                 return param.device
+        elif self.use_learning_backbone:
+            for param in self.backbone_model.parameters():
+                return param.device
         else:
             for param in self.base_model.parameters():
                 return param.device
         
         # Fallback: use cuda if available, else cpu
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    def _compute_position_ids(self, attention_mask: Optional[torch.Tensor] = None) -> Optional[torch.Tensor]:
+        """
+        Compute position_ids from attention_mask.
+        
+        Args:
+            attention_mask: Attention mask, shape (batch_size, seq_len)
+            
+        Returns:
+            Position IDs, shape (batch_size, seq_len), or None if attention_mask is None
+        """
+        if attention_mask is not None:
+            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 1)
+            return position_ids
+        return None
+    
+    def _forward_through_model(
+        self,
+        model: nn.Module,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        apply_no_grad: bool = False,
+    ) -> dict:
+        """
+        Forward pass through a model to get hidden states.
+        
+        Args:
+            model: The model to forward through (can be Actor or raw transformer)
+            input_ids: Token IDs, shape (batch_size, seq_len)
+            attention_mask: Attention mask, shape (batch_size, seq_len)
+            position_ids: Position IDs, shape (batch_size, seq_len). If None, computed from attention_mask
+            apply_no_grad: If True, wrap forward pass in torch.no_grad()
+            
+        Returns:
+            Model outputs dictionary containing hidden_states or last_hidden_state
+        """
+        # Compute position_ids if not provided
+        if position_ids is None:
+            position_ids = self._compute_position_ids(attention_mask)
+        
+        # Get the actual model (unwrap Actor if needed)
+        if hasattr(model, 'model'):
+            actual_model = model.model
+        else:
+            actual_model = model
+        
+        # Forward pass
+        if apply_no_grad:
+            with torch.no_grad():
+                outputs = actual_model(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
+        else:
+            outputs = actual_model(
+                input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+        
+        return outputs
+    
+    def _extract_hidden_states_from_outputs(
+        self,
+        outputs: dict,
+    ) -> torch.Tensor:
+        """
+        Extract hidden states from model outputs dictionary.
+        
+        Args:
+            outputs: Model outputs dictionary
+            
+        Returns:
+            Hidden states tensor, shape (batch_size, seq_len, hidden_size)
+        """
+        if "hidden_states" in outputs:
+            return outputs["hidden_states"][-1]
+        elif "last_hidden_state" in outputs:
+            return outputs["last_hidden_state"]
+        else:
+            raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
+    
+    def _extract_final_hidden_states(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Extract final token hidden states from sequence hidden states.
+        
+        Args:
+            hidden_states: Hidden states for all positions, shape (batch_size, seq_len, hidden_size)
+            attention_mask: Attention mask, shape (batch_size, seq_len)
+            
+        Returns:
+            Final hidden states, shape (batch_size, hidden_size)
+        """
+        if attention_mask is not None:
+            # Find the last valid position for each sequence
+            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
+            # Use advanced indexing to extract final hidden states: (batch_size, hidden_size)
+            batch_size = hidden_states.size(0)
+            batch_indices = torch.arange(batch_size, device=hidden_states.device)
+            final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (batch_size, hidden_size)
+        else:
+            # Use last position
+            final_hidden_states = hidden_states[:, -1, :]  # (batch_size, hidden_size)
+        
+        return final_hidden_states
     
     def _get_final_hidden_states(
         self,
@@ -297,7 +465,10 @@ class CoinFlipNetwork(nn.Module):
         
         This is a helper method that can be used by training code to get final hidden states
         for saving to replay buffers, without computing the full forward pass.
-        Only used for "linear_head_on_base" architecture.
+        Works for all linear_head architectures (static and learning).
+        
+        For non-separate_nn architectures, applies torch.no_grad() to prevent gradients
+        from flowing through the backbone/base model.
         
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
@@ -308,52 +479,31 @@ class CoinFlipNetwork(nn.Module):
             Final hidden states, shape (batch_size, hidden_size)
             If return_outputs=True, also returns base model outputs
         """
-        assert self.coin_flip_architecture == "linear_head_on_base", "_get_final_hidden_states only works for linear_head_on_base architecture"
-        # Actually, could be repurposed if needed, but leave as assertion for now
+        assert self.coin_flip_architecture in STATIC_ARCHITECTURES + LEARNING_ARCHITECTURES, \
+            f"_get_final_hidden_states only works for linear_head architectures, got {self.coin_flip_architecture}"
 
-        # Compute position_ids
-        if attention_mask is not None:
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
+        # Determine which model to use
+        if self.coin_flip_architecture in LEARNING_ARCHITECTURES:
+            model = self.backbone_model
         else:
-            position_ids = None
+            model = self.base_model
         
-        # Forward through base model
-        # Note: No torch.no_grad() here - let caller decide if gradients are needed
-        outputs = self.base_model(
-            input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            output_hidden_states=True,
-            return_dict=True,
+        # For non-separate_nn architectures, always use torch.no_grad() to prevent gradients
+        # from flowing through backbone/base model (only coin_flip_head should receive gradients)
+        outputs = self._forward_through_model(
+            model, input_ids, attention_mask, apply_no_grad=True
         )
         
-        # Get last hidden state (all sequence positions)
-        # This contains hidden states for all positions in the sequence
-        if "hidden_states" in outputs:
-            hidden_states = outputs["hidden_states"][-1]  # (batch_size, seq_len, hidden_size)
-        elif "last_hidden_state" in outputs:
-            hidden_states = outputs["last_hidden_state"]  # (batch_size, seq_len, hidden_size)
-        else:
-            raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
+        # Extract hidden states using helper method
+        hidden_states = self._extract_hidden_states_from_outputs(outputs)
         
         # Ensure hidden_states and coin_flip_head are on the same device
         coin_flip_head_device = next(self.coin_flip_head.parameters()).device
         if hidden_states.device != coin_flip_head_device:
             hidden_states = hidden_states.to(coin_flip_head_device)
         
-        # Extract final token hidden states (last valid position for each sequence)
-        # Only final states are used in reward computation and training
-        if attention_mask is not None:
-            # Find the last valid position for each sequence
-            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
-            # Use advanced indexing to extract final hidden states: (batch_size, hidden_size)
-            batch_size = hidden_states.size(0)
-            batch_indices = torch.arange(batch_size, device=hidden_states.device)
-            final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (batch_size, hidden_size)
-        else:
-            # Use last position
-            final_hidden_states = hidden_states[:, -1, :]  # (batch_size, hidden_size)
+        # Extract final token hidden states using helper method
+        final_hidden_states = self._extract_final_hidden_states(hidden_states, attention_mask)
         
         if return_outputs:
             return final_hidden_states, outputs
@@ -362,15 +512,21 @@ class CoinFlipNetwork(nn.Module):
     def _get_linear_head_components(
         self,
         final_hidden_states: torch.Tensor,
+        random_prior_final_hidden_states: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Get all components from linear_head_on_base forward pass.
+        Get all components from linear_head forward pass.
         
-        This helper method centralizes the linear_head_on_base forward pass logic to avoid duplication
+        This helper method centralizes the linear_head forward pass logic to avoid duplication
         between _predict_from_embeddings() and forward().
         
+        For static architectures, both heads use the same final_hidden_states.
+        For learning architectures, random_prior_final_hidden_states should be provided separately.
+        
         Args:
-            final_hidden_states: Final hidden states, shape (batch_size, hidden_size)
+            final_hidden_states: Final hidden states for trainable head, shape (batch_size, hidden_size)
+            random_prior_final_hidden_states: Final hidden states for random prior head, shape (batch_size, hidden_size).
+                If None, uses final_hidden_states (for static architectures).
             
         Returns:
             Tuple of (combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final)
@@ -379,9 +535,12 @@ class CoinFlipNetwork(nn.Module):
         # Apply coin flip head (trainable) only to final states
         coin_flip_predictions = self.coin_flip_head(final_hidden_states)  # (batch_size, coin_flip_dim)
         
-        # Apply random prior head (frozen) only to final states
-        # This ensures new states have ~1 pseudocount at initialization
-        random_prior_final = self.random_prior_head(final_hidden_states)  # (batch_size, coin_flip_dim)
+        # Apply random prior head (frozen) to final states, ensuring ~1 pseudocount at initialization
+        # For static architectures, use same embeddings; for learning, use separate frozen prior embeddings
+        if random_prior_final_hidden_states is None:
+            random_prior_final_hidden_states = final_hidden_states
+        
+        random_prior_final = self.random_prior_head(random_prior_final_hidden_states)  # (batch_size, coin_flip_dim)
         
         # Normalize random prior outputs dimension-wise to have mean 0, std 1
         # This ensures sqrt((1/d) * ||normalized_prior||^2) has expectation 1
@@ -429,7 +588,7 @@ class CoinFlipNetwork(nn.Module):
         Get all components from separate_nn forward pass.
         
         This helper method centralizes the separate_nn forward pass logic to avoid duplication
-        between _predict() and forward().
+        between _predict() and forward(). Uses extracted helper methods.
         
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
@@ -439,52 +598,26 @@ class CoinFlipNetwork(nn.Module):
             Tuple of (combined_predictions, trainable_predictions, frozen_predictions, normalized_frozen_predictions)
             All have shape (batch_size, coin_flip_dim)
         """
-        # Compute position_ids
-        if attention_mask is not None:
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-        else:
-            position_ids = None
+        # Compute position_ids using helper method
+        position_ids = self._compute_position_ids(attention_mask)
         
-        # Forward through trainable network
-        trainable_outputs = self.trainable_network.model(
-            input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            output_hidden_states=True,
-            return_dict=True,
+        # Forward through trainable network (no no_grad for separate_nn - it's trainable end-to-end)
+        trainable_outputs = self._forward_through_model(
+            self.trainable_network, input_ids, attention_mask, position_ids, apply_no_grad=False
         )
         
-        # Forward through frozen prior network
-        with torch.no_grad():
-            frozen_outputs = self.frozen_prior_network.model(
-                input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                output_hidden_states=True,
-                return_dict=True,
-            )
+        # Forward through frozen prior network (with no_grad)
+        frozen_outputs = self._forward_through_model(
+            self.frozen_prior_network, input_ids, attention_mask, position_ids, apply_no_grad=True
+        )
         
-        # Get last hidden states
-        if "hidden_states" in trainable_outputs:
-            trainable_hidden_states = trainable_outputs["hidden_states"][-1]
-            frozen_hidden_states = frozen_outputs["hidden_states"][-1]
-        elif "last_hidden_state" in trainable_outputs:
-            trainable_hidden_states = trainable_outputs["last_hidden_state"]
-            frozen_hidden_states = frozen_outputs["last_hidden_state"]
-        else:
-            raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
+        # Extract hidden states using helper method
+        trainable_hidden_states = self._extract_hidden_states_from_outputs(trainable_outputs)
+        frozen_hidden_states = self._extract_hidden_states_from_outputs(frozen_outputs)
         
-        # Extract final token hidden states
-        if attention_mask is not None:
-            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
-            batch_size = trainable_hidden_states.size(0)
-            batch_indices = torch.arange(batch_size, device=trainable_hidden_states.device)
-            trainable_final = trainable_hidden_states[batch_indices, eos_indices.squeeze(1), :]
-            frozen_final = frozen_hidden_states[batch_indices, eos_indices.squeeze(1), :]
-        else:
-            trainable_final = trainable_hidden_states[:, -1, :]
-            frozen_final = frozen_hidden_states[:, -1, :]
+        # Extract final token hidden states using helper method
+        trainable_final = self._extract_final_hidden_states(trainable_hidden_states, attention_mask)
+        frozen_final = self._extract_final_hidden_states(frozen_hidden_states, attention_mask)
         
         # Apply coin flip heads
         trainable_predictions = self.trainable_network.coin_flip_head(trainable_final)
@@ -503,6 +636,78 @@ class CoinFlipNetwork(nn.Module):
         
         return combined_predictions, trainable_predictions, frozen_predictions, normalized_frozen
     
+    def _get_learning_backbone_components(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get all components from learning backbone forward pass.
+        
+        This method handles learning architectures where the trainable head uses a live backbone model
+        and the random prior head uses the frozen_prior_model.
+        
+        Always applies torch.no_grad() to backbone model to prevent gradients from flowing through it
+        (only coin_flip_head should receive gradients).
+        
+        Args:
+            input_ids: Token IDs, shape (batch_size, seq_len)
+            attention_mask: Attention mask, shape (batch_size, seq_len)
+            
+        Returns:
+            Tuple of (combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final)
+            All have shape (batch_size, coin_flip_dim)
+        """
+        # Compute position_ids using helper method
+        position_ids = self._compute_position_ids(attention_mask)
+        
+        # Forward through backbone model (for trainable head)
+        # Always use torch.no_grad() to prevent gradients from flowing through backbone
+        backbone_outputs = self._forward_through_model(
+            self.backbone_model, input_ids, attention_mask, position_ids, apply_no_grad=True
+        )
+        
+        # Forward through frozen prior model (for random prior head, always with no_grad)
+        frozen_prior_outputs = self._forward_through_model(
+            self.frozen_prior_model, input_ids, attention_mask, position_ids, apply_no_grad=True
+        )
+        
+        # Extract hidden states using helper method
+        backbone_hidden_states = self._extract_hidden_states_from_outputs(backbone_outputs)
+        frozen_prior_hidden_states = self._extract_hidden_states_from_outputs(frozen_prior_outputs)
+        
+        # Extract final token hidden states using helper method
+        backbone_final = self._extract_final_hidden_states(backbone_hidden_states, attention_mask)
+        frozen_prior_final = self._extract_final_hidden_states(frozen_prior_hidden_states, attention_mask)
+        
+        # Ensure tensors are on the same device as coin_flip_head
+        coin_flip_head_device = next(self.coin_flip_head.parameters()).device
+        if backbone_final.device != coin_flip_head_device:
+            backbone_final = backbone_final.to(coin_flip_head_device)
+        if frozen_prior_final.device != coin_flip_head_device:
+            frozen_prior_final = frozen_prior_final.to(coin_flip_head_device)
+        
+        # Apply coin flip head (trainable) to backbone embeddings
+        coin_flip_predictions = self.coin_flip_head(backbone_final)  # (batch_size, coin_flip_dim)
+        
+        # Apply random prior head (frozen) to frozen prior embeddings
+        random_prior_final = self.random_prior_head(frozen_prior_final)  # (batch_size, coin_flip_dim)
+        
+        # Normalize random prior outputs dimension-wise to have mean 0, std 1
+        # This ensures sqrt((1/d) * ||normalized_prior||^2) has expectation 1
+        # Statistics are computed only on final states using Welford's algorithm
+        normalized_random_prior_final = self._normalize_with_welford_per_dim(
+            random_prior_final,
+            self.prior_running_mean,
+            self.prior_running_var,
+            self.prior_num_updates
+        )  # (batch_size, coin_flip_dim)
+        
+        # Combine main predictions with normalized random prior predictions
+        combined_predictions = coin_flip_predictions + normalized_random_prior_final  # (batch_size, coin_flip_dim)
+        
+        return combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final
+    
     def _predict(
         self,
         input_ids: torch.LongTensor,
@@ -511,9 +716,13 @@ class CoinFlipNetwork(nn.Module):
         """
         Compute combined predictions from inputs.
         
-        This method handles both architectures:
-        - For "linear_head_on_base": extracts embeddings and calls _predict_from_embeddings()
+        This method handles all architectures:
+        - For "linear_head_on_static_initial_base": extracts embeddings and calls _predict_from_embeddings()
+        - For "linear_head_on_learning_base" or "linear_head_on_learning_proposal": uses learning backbone
         - For "separate_nn": calls _get_separate_nn_components() and returns combined predictions
+        
+        For non-separate_nn architectures, applies torch.no_grad() to prevent gradients
+        from flowing through the backbone/base model.
         
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
@@ -522,10 +731,18 @@ class CoinFlipNetwork(nn.Module):
         Returns:
             Combined predictions, shape (batch_size, coin_flip_dim)
         """
-        if self.coin_flip_architecture == "linear_head_on_base":
+        if self.coin_flip_architecture in STATIC_ARCHITECTURES:
             # Get final hidden states and use _predict_from_embeddings
+            # _get_final_hidden_states already applies torch.no_grad() internally
             final_hidden_states = self._get_final_hidden_states(input_ids, attention_mask)
             return self._predict_from_embeddings(final_hidden_states)
+        elif self.coin_flip_architecture in LEARNING_ARCHITECTURES:
+            # Use helper method to get all components, return only combined predictions
+            # _get_learning_backbone_components already applies torch.no_grad() internally
+            combined_predictions, _, _, _ = self._get_learning_backbone_components(
+                input_ids, attention_mask
+            )
+            return combined_predictions
         elif self.coin_flip_architecture == "separate_nn":
             # Use helper method to get all components, return only combined predictions
             combined_predictions, _, _, _ = self._get_separate_nn_components(input_ids, attention_mask)
@@ -545,6 +762,9 @@ class CoinFlipNetwork(nn.Module):
         Only computes predictions for final states (last valid token per sequence),
         as only final states are used in reward computation and training.
         
+        For non-separate_nn architectures, applies torch.no_grad() to prevent gradients
+        from flowing through the backbone/base model.
+        
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
@@ -554,22 +774,51 @@ class CoinFlipNetwork(nn.Module):
             Coin flip predictions for final states, shape (batch_size, coin_flip_dim)
             If return_output=True, also returns base model outputs
         """
-        if self.coin_flip_architecture == "linear_head_on_base":
-            # Get final hidden states using the shared helper method
+        if self.coin_flip_architecture in STATIC_ARCHITECTURES:
+            # Get final hidden states from base_model for coin_flip_head
             # Also get outputs if needed to avoid recomputation
+            # _get_final_hidden_states already applies torch.no_grad() internally
             if return_output:
                 final_hidden_states, outputs = self._get_final_hidden_states(
                     input_ids, attention_mask, return_outputs=True
                 )
             else:
-                final_hidden_states = self._get_final_hidden_states(input_ids, attention_mask)
+                final_hidden_states = self._get_final_hidden_states(
+                    input_ids, attention_mask
+                )
                 outputs = None
             
+            # For random prior, always use frozen_prior_model (even for static architecture)
+            # Extract embeddings from frozen_prior_model
+            frozen_prior_outputs = self._forward_through_model(
+                self.frozen_prior_model, input_ids, attention_mask, apply_no_grad=True
+            )
+            frozen_prior_hidden_states = self._extract_hidden_states_from_outputs(frozen_prior_outputs)
+            
+            # Ensure on same device as coin_flip_head
+            coin_flip_head_device = next(self.coin_flip_head.parameters()).device
+            if frozen_prior_hidden_states.device != coin_flip_head_device:
+                frozen_prior_hidden_states = frozen_prior_hidden_states.to(coin_flip_head_device)
+            
+            random_prior_final_hidden_states = self._extract_final_hidden_states(
+                frozen_prior_hidden_states, attention_mask
+            )
+            
             # Use helper method to get all components at once
-            # This avoids recomputation - we get predictions and components in one pass
+            # Pass separate embeddings for random prior
             combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final = \
-                self._get_linear_head_components(final_hidden_states)
-        else:
+                self._get_linear_head_components(final_hidden_states, random_prior_final_hidden_states)
+        elif self.coin_flip_architecture in LEARNING_ARCHITECTURES:
+            # Learning architectures: use learning backbone components
+            # _get_learning_backbone_components already applies torch.no_grad() internally
+            combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final = \
+                self._get_learning_backbone_components(input_ids, attention_mask)
+            outputs = None
+            if return_output:
+                # For learning architectures, return_output is not fully supported yet
+                # Could be added later if needed
+                raise NotImplementedError("return_output is not fully supported yet for learning architectures")
+        elif self.coin_flip_architecture == "separate_nn":
             # separate_nn mode: use helper method to get all components at once
             # This avoids recomputation - we get predictions and components in one forward pass
             combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final = \
@@ -579,6 +828,8 @@ class CoinFlipNetwork(nn.Module):
                 # For separate_nn mode, return_output is not fully supported yet
                 # Could be added later if needed
                 raise NotImplementedError("return_output is not fully supported yet for separate_nn mode")
+        else:
+            raise ValueError(f"Unknown coin flip architecture: {self.coin_flip_architecture}")
         
         # Combined bonus (for statistics)
         combined_norm_squared = (combined_predictions ** 2).sum(dim=-1)  # (B,)
@@ -615,6 +866,9 @@ class CoinFlipNetwork(nn.Module):
         Uses only the final token output (final state) since reward is computed
         over the full sequence.
         
+        For non-separate_nn architectures, applies torch.no_grad() to prevent gradients
+        from flowing through the backbone/base model.
+        
         Args:
             sequences: Input sequences, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
@@ -624,6 +878,7 @@ class CoinFlipNetwork(nn.Module):
             Intrinsic rewards per sequence, shape (batch_size,)
         """
         # Get coin flip predictions (already for final states only)
+        # forward() already applies torch.no_grad() internally for non-separate_nn architectures
         final_predictions = self.forward(sequences, attention_mask)  # (B, d)
         
         # Compute ||f_φ(x)||^2 for final token: sum over coin_flip_dim dimension
@@ -952,6 +1207,11 @@ class CoinFlipNetwork(nn.Module):
                     self.trainable_network.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
                 else:
                     self.trainable_network.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
+            elif self.use_learning_backbone:
+                if hasattr(self.backbone_model, 'model'):
+                    self.backbone_model.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
+                else:
+                    self.backbone_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
             else:
                 self.base_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
     
@@ -963,6 +1223,11 @@ class CoinFlipNetwork(nn.Module):
                     self.trainable_network.model.gradient_checkpointing_disable()
                 else:
                     self.trainable_network.gradient_checkpointing_disable()
+            elif self.use_learning_backbone:
+                if hasattr(self.backbone_model, 'model'):
+                    self.backbone_model.model.gradient_checkpointing_disable()
+                else:
+                    self.backbone_model.gradient_checkpointing_disable()
             else:
                 self.base_model.gradient_checkpointing_disable()
 

@@ -20,6 +20,7 @@ from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
 from openrlhf.utils.utils import tile_prompts
 from openrlhf.models.model import INDICATOR_REWARD_EPS
+from openrlhf.models.coin_flip_network import STATIC_ARCHITECTURES, LEARNING_ARCHITECTURES, TOKEN_STORAGE_ARCHITECTURES
 
 logger = init_logger(__name__)
 
@@ -128,8 +129,8 @@ class NumUpdatesBuffer:
 class CoinFlipReplayBuffer:
     """
     Replay buffer for coin flip network training.
-    Stores final embeddings from the base model (states) and associated coin flip vectors for "linear_head_on_base" mode,
-    or input_ids, attention_mask, and coin flip vectors for "separate_nn" mode.
+    Stores final embeddings from the base model (states) and associated coin flip vectors for "linear_head_on_static_initial_base" mode,
+    or input_ids, attention_mask, and coin flip vectors for "separate_nn" or learning architectures ("linear_head_on_learning_base", "linear_head_on_learning_proposal") mode.
     
     This follows a similar pattern to NaiveReplayBuffer but is optimized for storing
     just embeddings/inputs and coin flip vectors rather than full Experience objects.
@@ -138,7 +139,7 @@ class CoinFlipReplayBuffer:
     Supports prioritized sampling when use_prioritization is True.
     """
     
-    def __init__(self, limit: int = 0, cpu_offload: bool = True, use_prioritization: bool = False, coin_flip_first_online: bool = False, coin_flip_architecture: str = "linear_head_on_base"):
+    def __init__(self, limit: int = 0, cpu_offload: bool = True, use_prioritization: bool = False, coin_flip_first_online: bool = False, coin_flip_architecture: str = "linear_head_on_static_initial_base"):
         """
         Initialize the replay buffer.
         
@@ -147,7 +148,9 @@ class CoinFlipReplayBuffer:
             cpu_offload: Whether to offload data to CPU to save GPU memory. Defaults to True.
             use_prioritization: Whether to use prioritized sampling. Defaults to False.
             coin_flip_first_online: Whether the first update uses the actual samples (affects initial num_updates). Defaults to False.
-            coin_flip_architecture: Architecture type: "linear_head_on_base" (store embeddings) or "separate_nn" (store inputs). Defaults to "linear_head_on_base".
+            coin_flip_architecture: Architecture type: "linear_head_on_static_initial_base" (store embeddings) or 
+                "separate_nn"/"linear_head_on_learning_base"/"linear_head_on_learning_proposal" (store inputs). 
+                Defaults to "linear_head_on_static_initial_base".
         """
         self.limit = limit
         self.cpu_offload = cpu_offload
@@ -156,12 +159,13 @@ class CoinFlipReplayBuffer:
         self.coin_flip_architecture = coin_flip_architecture
         self.target_device = torch.device(f"cuda:{torch.cuda.current_device()}")
         
-        if coin_flip_architecture == "separate_nn":
+        # Determine if we should store tokens (for separate_nn and learning architectures) or embeddings (for static)
+        if coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
             # Store inputs (input_ids, attention_mask) and coin flip vectors
             self.input_ids_list: List[torch.Tensor] = []
             self.attention_mask_list: List[torch.Tensor] = []
         else:
-            # Store embeddings and coin flip vectors
+            # Store embeddings and coin flip vectors (for static architecture)
             self.embeddings: List[torch.Tensor] = []
         
         self.coin_flip_vectors: List[torch.Tensor] = []
@@ -175,44 +179,99 @@ class CoinFlipReplayBuffer:
             self.priorities = None
             self.num_updates_buffer = None
     
+    def _add_tokens(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        coin_flip_vectors: torch.Tensor,
+        initial_priorities: Optional[torch.Tensor] = None,
+    ):
+        """
+        Helper method to add tokens to the buffer (used by separate_nn and learning architectures).
+        
+        Args:
+            input_ids: Input token IDs, shape (batch_size, seq_len)
+            attention_mask: Attention mask, shape (batch_size, seq_len)
+            coin_flip_vectors: Coin flip targets, shape (batch_size, coin_flip_dim)
+            initial_priorities: Optional initial priorities for new samples, shape (batch_size,).
+        """
+        batch_size = input_ids.shape[0]
+        
+        # Move to CPU if cpu_offload is enabled
+        if self.cpu_offload:
+            input_ids = input_ids.detach().cpu()
+            attention_mask = attention_mask.detach().cpu()
+            coin_flip_vectors = coin_flip_vectors.detach().cpu()
+        else:
+            input_ids = input_ids.detach()
+            attention_mask = attention_mask.detach()
+            coin_flip_vectors = coin_flip_vectors.detach()
+        
+        # Store inputs
+        self.input_ids_list.extend(torch.unbind(input_ids, dim=0))
+        self.attention_mask_list.extend(torch.unbind(attention_mask, dim=0))
+        self.coin_flip_vectors.extend(torch.unbind(coin_flip_vectors, dim=0))
+        
+        # Initialize priorities and num_updates for new samples
+        if self.use_prioritization:
+            if initial_priorities is not None:
+                priorities_list = initial_priorities.cpu().tolist()
+                self.priorities.extend(priorities_list)
+            else:
+                self.priorities.extend([1.0] * batch_size)
+            for _ in range(batch_size):
+                self.num_updates_buffer.add(0.0)
+        
+        self.size += batch_size
+    
     @torch.no_grad()
     def add(self, embeddings_or_input_ids: torch.Tensor, coin_flip_vectors: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, initial_priorities: Optional[torch.Tensor] = None):
         """
         Add data to the buffer.
         
-        For "linear_head_on_base": adds embeddings and coin flip vectors.
-        For "separate_nn": adds input_ids, attention_mask, and coin flip vectors.
+        For "linear_head_on_static_initial_base": adds embeddings and coin flip vectors.
+        For "separate_nn" or learning architectures: adds input_ids, attention_mask, and coin flip vectors.
         
         Args:
-            embeddings_or_input_ids: For "linear_head_on_base": final hidden states, shape (batch_size, hidden_size).
-                                     For "separate_nn": input_ids, shape (batch_size, seq_len).
+            embeddings_or_input_ids: For "linear_head_on_static_initial_base": final hidden states, shape (batch_size, hidden_size).
+                                     For token storage modes: input_ids, shape (batch_size, seq_len).
             coin_flip_vectors: Coin flip targets, shape (batch_size, coin_flip_dim)
-            attention_mask: For "separate_nn" mode only: attention mask, shape (batch_size, seq_len). Defaults to None.
+            attention_mask: For token storage modes: attention mask, shape (batch_size, seq_len). Defaults to None.
             initial_priorities: Optional initial priorities for new samples, shape (batch_size,).
                               If None, defaults to 1.0. If provided, should be one_over_counts values.
         """
         batch_size = embeddings_or_input_ids.shape[0]
         
-        # Move to CPU if cpu_offload is enabled
-        if self.cpu_offload:
-            embeddings_or_input_ids = embeddings_or_input_ids.detach().cpu()
-            coin_flip_vectors = coin_flip_vectors.detach().cpu()
-            if attention_mask is not None:
-                attention_mask = attention_mask.detach().cpu()
+        # Determine architecture type
+        if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
+            # Use helper method for token storage
+            assert attention_mask is not None, f"attention_mask is required for {self.coin_flip_architecture} mode"
+            self._add_tokens(embeddings_or_input_ids, attention_mask, coin_flip_vectors, initial_priorities)
         else:
-            embeddings_or_input_ids = embeddings_or_input_ids.detach()
-            coin_flip_vectors = coin_flip_vectors.detach()
-            if attention_mask is not None:
-                attention_mask = attention_mask.detach()
-        
-        if self.coin_flip_architecture == "separate_nn":
-            # Store inputs
-            assert attention_mask is not None, "attention_mask is required for separate_nn mode"
-            self.input_ids_list.extend(torch.unbind(embeddings_or_input_ids, dim=0))
-            self.attention_mask_list.extend(torch.unbind(attention_mask, dim=0))
-        else:
+            # Store embeddings (for static architecture)
+            # Move to CPU if cpu_offload is enabled
+            if self.cpu_offload:
+                embeddings_or_input_ids = embeddings_or_input_ids.detach().cpu()
+                coin_flip_vectors = coin_flip_vectors.detach().cpu()
+            else:
+                embeddings_or_input_ids = embeddings_or_input_ids.detach()
+                coin_flip_vectors = coin_flip_vectors.detach()
+            
             # Store embeddings; convert 2D tensors to list of 1D using unbind, then extend
             self.embeddings.extend(torch.unbind(embeddings_or_input_ids, dim=0))
+            self.coin_flip_vectors.extend(torch.unbind(coin_flip_vectors, dim=0))
+            
+            # Initialize priorities and num_updates for new samples
+            if self.use_prioritization:
+                if initial_priorities is not None:
+                    priorities_list = initial_priorities.cpu().tolist()
+                    self.priorities.extend(priorities_list)
+                else:
+                    self.priorities.extend([1.0] * batch_size)
+                for _ in range(batch_size):
+                    self.num_updates_buffer.add(0.0)
+            
+            self.size += batch_size
         
         self.coin_flip_vectors.extend(torch.unbind(coin_flip_vectors, dim=0))
         
@@ -237,7 +296,7 @@ class CoinFlipReplayBuffer:
         # Keep all lists synchronized by popping from the same index
         if self.limit > 0:
             while self.size > self.limit:
-                if self.coin_flip_architecture == "separate_nn":
+                if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                     self.input_ids_list.pop(0)
                     self.attention_mask_list.pop(0)
                 else:
@@ -253,16 +312,16 @@ class CoinFlipReplayBuffer:
         """
         Sample a batch from the buffer.
         
-        For "linear_head_on_base": returns (embeddings, coin_flip_vectors, indices).
-        For "separate_nn": returns ((input_ids, attention_mask), coin_flip_vectors, indices).
+        For "linear_head_on_static_initial_base": returns (embeddings, coin_flip_vectors, indices).
+        For "separate_nn" or learning architectures: returns ((input_ids, attention_mask), coin_flip_vectors, indices).
         
         Args:
             batch_size: Number of samples to return
             device: Device to move tensors to. If None, uses target_device. Defaults to None.
         
         Returns:
-            For "linear_head_on_base": Tuple of (embeddings, coin_flip_vectors, indices)
-            For "separate_nn": Tuple of ((input_ids, attention_mask), coin_flip_vectors, indices)
+            For "linear_head_on_static_initial_base": Tuple of (embeddings, coin_flip_vectors, indices)
+            For token storage modes: Tuple of ((input_ids, attention_mask), coin_flip_vectors, indices)
             If prioritization is disabled, indices will be None.
         """
         if self.size == 0:
@@ -310,7 +369,8 @@ class CoinFlipReplayBuffer:
         # Collect sampled tensors and stack them
         sampled_coin_flips = [self.coin_flip_vectors[i].to(device) for i in indices]
         
-        if self.coin_flip_architecture == "separate_nn":
+        # Determine architecture type
+        if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
             # Sample input_ids and attention_mask
             sampled_input_ids = [self.input_ids_list[i].to(device) for i in indices]
             sampled_attention_mask = [self.attention_mask_list[i].to(device) for i in indices]
@@ -366,7 +426,7 @@ class CoinFlipReplayBuffer:
     
     def clear(self):
         """Clear the replay buffer."""
-        if self.coin_flip_architecture == "separate_nn":
+        if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
             self.input_ids_list = []
             self.attention_mask_list = []
         else:
@@ -520,7 +580,9 @@ class BaseExperienceMaker(ABC):
         coin_flip_scheduler: Optional[object] = None,
         coin_flip_first_online: bool = False,
         coin_flip_use_prioritization: bool = False,
-        coin_flip_architecture: str = "linear_head_on_base",
+        coin_flip_architecture: str = "linear_head_on_static_initial_base",
+        base_actor: Optional[Actor] = None,
+        sampling_actor: Optional[Actor] = None,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -572,6 +634,10 @@ class BaseExperienceMaker(ABC):
         self.coin_flip_use_prioritization = coin_flip_use_prioritization
         
         self.coin_flip_architecture = coin_flip_architecture
+        
+        # Store references to base_actor and sampling_actor for learning architectures
+        self.base_actor_ref = base_actor
+        self.sampling_actor_ref = sampling_actor
         
         # Initialize coin flip replay buffer if using coin_flip exploration bonus
         # Follows same pattern as NaiveReplayBuffer: limit=0 means unlimited, cpu_offload=True saves GPU memory
@@ -737,17 +803,17 @@ class BaseExperienceMaker(ABC):
         
         # Step 2: Save data to replay buffer
         if self.coin_flip_replay_buffer is not None:
-            if self.coin_flip_architecture == "separate_nn":
+            if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                 # Save inputs (input_ids, attention_mask) instead of embeddings
                 self.coin_flip_replay_buffer.add(sequences, coin_flip_targets, attention_mask=attention_mask)
                 # For first_online mode, we'll need sequences and attention_mask later
                 final_hidden_states = None
             else:
-                # Save embeddings (get final hidden states first)
-                with torch.no_grad():
-                    final_hidden_states = self.coin_flip_network._get_final_hidden_states(
-                        sequences, attention_mask
-                    )  # (B, hidden_size)
+                # Save embeddings (get final hidden states first) - for static architecture
+                # _get_final_hidden_states already applies torch.no_grad() internally
+                final_hidden_states = self.coin_flip_network._get_final_hidden_states(
+                    sequences, attention_mask
+                )  # (B, hidden_size)
                 self.coin_flip_replay_buffer.add(final_hidden_states, coin_flip_targets)
         
         # Step 3: Get replay buffer batch size (defaults to train_batch_size if None)
@@ -769,12 +835,15 @@ class BaseExperienceMaker(ABC):
             is_deepspeed_wrapped = False
         
         # Step 4: Loop over update steps
+        # Cache embeddings for learning architectures (reuse across update steps)
+        cached_embeddings = None
+        
         for update_step in range(update_steps):
             # For the first update step only, if coin_flip_first_online is True, use current batch
             # After this step, continue sampling uniformly at random from the replay buffer
             if self.coin_flip_first_online and update_step == 0:
                 # Use current batch for first update step
-                if self.coin_flip_architecture == "separate_nn":
+                if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                     sampled_input_ids = sequences
                     sampled_attention_mask = attention_mask
                 else:
@@ -786,13 +855,13 @@ class BaseExperienceMaker(ABC):
                 buffer_sample = self.coin_flip_replay_buffer.sample(
                     replay_buffer_batch_size, coin_flip_head_device
                 )
-                if self.coin_flip_architecture == "separate_nn":
+                if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                     (sampled_input_ids, sampled_attention_mask), sampled_coin_flips, sampled_indices = buffer_sample
                 else:
                     sampled_embeddings, sampled_coin_flips, sampled_indices = buffer_sample
             else:
                 # Use current batch (first few iterations before buffer has data)
-                if self.coin_flip_architecture == "separate_nn":
+                if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                     sampled_input_ids = sequences
                     sampled_attention_mask = attention_mask
                 else:
@@ -804,8 +873,20 @@ class BaseExperienceMaker(ABC):
             if self.coin_flip_architecture == "separate_nn":
                 # Use _predict() which does full forward pass from inputs
                 final_predictions = self.coin_flip_network._predict(sampled_input_ids, sampled_attention_mask)  # (B, d)
+            elif self.coin_flip_architecture in LEARNING_ARCHITECTURES:
+                # For learning architectures, recompute embeddings from current backbone model
+                # Cache embeddings for reuse if this is the first update step and we have multiple steps
+                if update_step == 0 or cached_embeddings is None:
+                    # Recompute embeddings from current backbone model
+                    # _get_final_hidden_states already applies torch.no_grad() internally
+                    # This ensures gradients only flow through coin_flip_head, not backbone
+                    cached_embeddings = self.coin_flip_network._get_final_hidden_states(
+                        sampled_input_ids, sampled_attention_mask
+                    )  # (B, hidden_size)
+                # Use cached embeddings (reuse for subsequent update steps)
+                final_predictions = self.coin_flip_network._predict_from_embeddings(cached_embeddings)  # (B, d)
             else:
-                # Use _predict_from_embeddings() for linear_head_on_base mode
+                # Use _predict_from_embeddings() for static architecture
                 final_predictions = self.coin_flip_network._predict_from_embeddings(sampled_embeddings)  # (B, d)
             
             # Compute MSE loss: L(x, c) = ||f_combined(x_final) - c||^2
@@ -1000,6 +1081,7 @@ class BaseExperienceMaker(ABC):
         
         # Compute intrinsic reward using coin flip network
         # The network expects full sequences and computes r_I(x) = sqrt((1/d) * ||f_φ(x)||^2)
+        # For non-separate_nn architectures, forward pass uses torch.no_grad() internally
         intrinsic_reward = self.coin_flip_network.compute_intrinsic_reward(
             sequences,
             attention_mask,

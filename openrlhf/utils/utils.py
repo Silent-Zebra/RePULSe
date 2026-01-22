@@ -256,7 +256,10 @@ def get_info_name_str(args):
             coin_flip_head_init_std = getattr(args, 'coin_flip_head_init_std', 0.001)
             frozen_prior_init_std = getattr(args, 'frozen_prior_init_std', 0.1)
             coin_flip_linear_bias = getattr(args, 'coin_flip_linear_bias', False)
-            coin_flip_architecture = getattr(args, 'coin_flip_architecture', 'linear_head_on_base')
+            coin_flip_architecture = getattr(args, 'coin_flip_architecture', 'linear_head_on_static_initial_base')
+            # Backward compatibility: map old name to new name
+            if coin_flip_architecture == "linear_head_on_base":
+                coin_flip_architecture = "linear_head_on_static_initial_base"
             exploration_bonus_str += f"_cfd{coin_flip_dim}"
             if coin_flip_lr is not None:
                 exploration_bonus_str += f"_cflr{coin_flip_lr}"
@@ -268,8 +271,12 @@ def get_info_name_str(args):
                 exploration_bonus_str += f"_fpis{frozen_prior_init_std}"
             if coin_flip_linear_bias:
                 exploration_bonus_str += "_cfbias"
-            if coin_flip_architecture == "linear_head_on_base":
-                exploration_bonus_str += f"_cflin"
+            if coin_flip_architecture == "linear_head_on_static_initial_base":
+                exploration_bonus_str += f"_cflsib"
+            elif coin_flip_architecture == "linear_head_on_learning_base":
+                exploration_bonus_str += f"_cfllp"
+            elif coin_flip_architecture == "linear_head_on_learning_proposal":
+                exploration_bonus_str += f"_cfllq"
             elif coin_flip_architecture == "separate_nn":
                 exploration_bonus_str += f"_cfsepnn"
             else:
