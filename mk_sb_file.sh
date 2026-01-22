@@ -126,8 +126,25 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
                 reward_pretrain = abbrev
             }
         }
-        if($i == "--prompt_data") {
+        if($i ~ /^--custom_prompt(=|$)/) {
+            # Extract first word and take up to 3 characters
+            # Handle both --custom_prompt value and --custom_prompt=value formats
+            if($i ~ /=/) {
+                custom_prompt_val = gensub(/^[^=]+=/, "", "g", $i)
+            } else {
+                custom_prompt_val = $(i+1)
+            }
+            # Split by space and get first word
+            n = split(custom_prompt_val, words, " ")
+            if(n > 0 && words[1] != "") {
+                first_word = words[1]
+                # Take up to 3 characters
+                prompt_data = substr(first_word, 1, 3)
+            }
+        }
+        if($i == "--prompt_data" && prompt_data == "") {
             # Abbreviate prompt_data: take first 2 chars of each component after splitting by "/" and "_"
+            # Only process if custom_prompt wasn't set (prompt_data is still empty)
             full_path = gensub(".*/", "", "g", $(i+1))
             n = split(gensub("_.*", "", "g", full_path), arr, "-")
             abbrev = ""

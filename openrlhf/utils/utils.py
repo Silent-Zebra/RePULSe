@@ -223,7 +223,18 @@ def get_info_name_str(args):
     # reward_pretrain_str = args.reward_pretrain.split("/")[-1]
     reward_pretrain_str = "".join([x[:2] for x in re.split(r"[-_]", args.reward_pretrain.split("/")[-1])])
 
-    prompt_data_str = "".join([x[:2] for x in re.split(r"[-_]", args.prompt_data.split("/")[-1])])
+    # Check if custom_prompt is set (different from default)
+    if hasattr(args, 'custom_prompt') and args.custom_prompt and args.custom_prompt != "This man is a":
+        # Extract first word and take up to 3 characters
+        words = args.custom_prompt.split()
+        first_word = words[0] if words else ""
+        prompt_data_str = first_word[:3] if first_word else ""
+    else:
+        # Use prompt_data if available
+        if args.prompt_data:
+            prompt_data_str = "".join([x[:2] for x in re.split(r"[-_]", args.prompt_data.split("/")[-1])])
+        else:
+            prompt_data_str = ""
 
     # adam_betas_str = f"_adambetas{(args.adam_betas[0])}_{(args.adam_betas[1])}"
     adam_betas_str = ""
