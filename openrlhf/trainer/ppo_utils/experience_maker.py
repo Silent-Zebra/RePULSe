@@ -273,25 +273,6 @@ class CoinFlipReplayBuffer:
             
             self.size += batch_size
         
-        self.coin_flip_vectors.extend(torch.unbind(coin_flip_vectors, dim=0))
-        
-        # Initialize priorities and num_updates for new samples
-        if self.use_prioritization:
-            if initial_priorities is not None:
-                # Use provided initial priorities (e.g., one_over_counts)
-                # Convert to list and extend
-                priorities_list = initial_priorities.cpu().tolist()
-                self.priorities.extend(priorities_list)
-            else:
-                # Initialize priority to 1.0 for new samples (max priority)
-                self.priorities.extend([1.0] * batch_size)
-            # Initialize num_updates to 0 for all new samples (will be incremented after first update)
-            # This ensures consistency: after the first update, num_updates will be 1 for all samples
-            for _ in range(batch_size):
-                self.num_updates_buffer.add(0.0)
-        
-        self.size += batch_size
-        
         # If limit is set and we exceed it, remove oldest entries
         # Keep all lists synchronized by popping from the same index
         if self.limit > 0:
