@@ -139,11 +139,10 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
                 prompt_data = substr(words[1], 1, 1)
             }
         }
-        if($i == "--prompt_data" && prompt_data == "") {
+        if($i == "--prompt_data") {
             # Simple: just first 2 chars of path
-            # Only process if custom_prompt wasn't set - prompt_data is still empty
-            full_path = gensub(".*/", "", "g", $(i+1))
-            prompt_data = substr(full_path, 1, 2)
+            abbrev = substr($(i+1), 1, 2)
+            prompt_data = abbrev
         }
         if($i == "--init_head_from_base") init_head_from_base = "_initheadbase"
         if($i == "--additional_sd_divider") sd_divider = "_sddivider"$(i+1)
