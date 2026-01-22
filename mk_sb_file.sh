@@ -144,7 +144,7 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
         }
         if($i == "--prompt_data" && prompt_data == "") {
             # Abbreviate prompt_data: take first 2 chars of each component after splitting by "/" and "_"
-            # Only process if custom_prompt wasn't set (prompt_data is still empty)
+            # Only process if custom_prompt wasn't set - prompt_data is still empty
             full_path = gensub(".*/", "", "g", $(i+1))
             n = split(gensub("_.*", "", "g", full_path), arr, "-")
             abbrev = ""
