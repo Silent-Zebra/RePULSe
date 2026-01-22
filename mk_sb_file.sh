@@ -127,32 +127,23 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
             }
         }
         if($i ~ /^--custom_prompt(=|$)/) {
-            # Extract first word and take up to 3 characters
-            # Handle both --custom_prompt value and --custom_prompt=value formats
+            # Extract first character of first word
             if($i ~ /=/) {
                 custom_prompt_val = gensub(/^[^=]+=/, "", "g", $i)
             } else {
                 custom_prompt_val = $(i+1)
             }
-            # Split by space and get first word
+            # Get first character of first word
             n = split(custom_prompt_val, words, " ")
             if(n > 0 && words[1] != "") {
-                first_word = words[1]
-                # Take up to 3 characters
-                prompt_data = substr(first_word, 1, 3)
+                prompt_data = substr(words[1], 1, 1)
             }
         }
         if($i == "--prompt_data" && prompt_data == "") {
-            # Abbreviate prompt_data: take first 2 chars of each component after splitting by "/" and "_"
+            # Simple: just first 2 chars of path
             # Only process if custom_prompt wasn't set - prompt_data is still empty
-            next_field = $(i+1)
-            full_path = gensub(".*/", "", "g", next_field)
-            n = split(gensub("_.*", "", "g", full_path), arr, "-")
-            abbrev = ""
-            for (j = 1; j <= n && j <= 2; j++) {  # Limit to first 2 components
-                abbrev = abbrev substr(arr[j], 1, 2)
-            }
-            prompt_data = abbrev
+            full_path = gensub(".*/", "", "g", $(i+1))
+            prompt_data = substr(full_path, 1, 2)
         }
         if($i == "--init_head_from_base") init_head_from_base = "_initheadbase"
         if($i == "--additional_sd_divider") sd_divider = "_sddivider"$(i+1)
