@@ -168,34 +168,54 @@ def get_info_name_str(args):
     # extra_str = ""
     if args.no_critic:
         critic_loss_str = ""
-        lr_str = f"alr{args.actor_learning_rate}"
+        lr_str = f"al{args.actor_learning_rate}"
     else:
-        critic_loss_str = f"_closs{args.critic_loss_type}"
-        lr_str = f"alr{args.actor_learning_rate}_clr{args.critic_learning_rate}"
+        # Shorten critic_loss_type
+        critic_loss_short = args.critic_loss_type
+        critic_loss_map = {
+            "mse": "mse",
+            "ctl": "ctl",
+            "mixed_ctl_mse": "mcm",
+            "sixo": "sixo",
+            "sixo_approxneg": "sixoa"
+        }
+        if critic_loss_short in critic_loss_map:
+            critic_loss_short = critic_loss_map[critic_loss_short]
+        critic_loss_str = f"_ct{critic_loss_short}"
+        lr_str = f"al{args.actor_learning_rate}_cl{args.critic_learning_rate}"
     # if args.actor_modulates_base:
     #     extra_str = "actormodbase"
     if args.shared_actorcritic:
-        lr_str = f"sharedac_lr{args.actor_learning_rate}"
+        lr_str = f"sac_l{args.actor_learning_rate}"
     if args.model_eval:
-        eval_str = "_eval"
+        eval_str = "_ev"
     if args.bc_coef > 0:
         lr_str += f"_bc{args.bc_coef}"
 
     if args.init_head_from_base:
-        init_head_base_str = "_initheadbase"
+        init_head_base_str = "_ihb"
 
     if args.critic_loss_type == "mixed_ctl_mse":
-        lr_str += f"_alpha{args.alpha}"
+        lr_str += f"_a{args.alpha}"
 
     harmlessness_train_str = ""
     if args.do_harmlessness_training:
-        lr_str += f"_blr{args.base_actor_learning_rate}"
+        lr_str += f"_bl{args.base_actor_learning_rate}"
 
         start_alpha_str = ""
         if args.start_alpha is not None:
-            start_alpha_str = f"_start{args.start_alpha}"
+            start_alpha_str = f"_s{args.start_alpha}"
 
-        harmlessness_train_str = f"_harml_{args.harmlessness_training_loss_type}{start_alpha_str}_a{args.alpha}"
+        # Shorten harmlessness training loss type
+        loss_type_short = args.harmlessness_training_loss_type
+        if loss_type_short == "reinforce":
+            loss_type_short = "r"
+        elif loss_type_short == "neg_training":
+            loss_type_short = "nt"
+        elif loss_type_short == "neg_reinforce":
+            loss_type_short = "nr"
+        
+        harmlessness_train_str = f"_hl{loss_type_short}{start_alpha_str}_a{args.alpha}"
 
     # pretrain_str = args.pretrain.split("/")[-1]
     pretrain_str = "".join([x[:2] for x in re.split(r"[-_]", args.pretrain.split("/")[-1])])
@@ -212,40 +232,40 @@ def get_info_name_str(args):
     sddiv_str = ""
 
     # Include both episode values separately
-    epi_str = f"_epi{args.num_episodes}"
+    epi_str = f"_e{args.num_episodes}"
     if args.do_harmlessness_training:
-        epi_str += f"_hepi{args.harmlessness_training_num_episodes}"
+        epi_str += f"_he{args.harmlessness_training_num_episodes}"
 
 
     rm_type_str = args.rm_type
     if args.rm_type == "indicator_below_threshold":
-        rm_type_str = f"ind_thresh{args.threshold}"
+        rm_type_str = f"it{args.threshold}"
     if args.use_base_as_proposal:
-        rm_type_str += "_baseprop"
+        rm_type_str += "_bp"
 
     rew_trans_str = ""
     if args.reward_transform:
         if args.reward_transform == "minus_alpha_exp_beta_r":
-            rew_trans_str = f"rta{args.rew_trans_alpha}_b{args.rew_trans_beta}"
+            rew_trans_str = f"rt{args.rew_trans_alpha}_b{args.rew_trans_beta}"
         elif args.reward_transform == "minus_alpha_ind":
-            rew_trans_str = f"rta{args.rew_trans_alpha}_t{args.threshold}"
+            rew_trans_str = f"rt{args.rew_trans_alpha}_t{args.threshold}"
 
     start_beta_str = ""
     if args.anneal_target_dist_beta:
-        start_beta_str = f"_start{args.start_target_dist_beta}"
+        start_beta_str = f"_s{args.start_target_dist_beta}"
 
     sep_beta_str = ""
     if args.uniform_reweight:
-        sep_beta_str = f"_uniwgt"
+        sep_beta_str = f"_uw"
     elif args.separate_reweighting_beta is not None:
-        sep_beta_str = f"_sepb{args.separate_reweighting_beta}"
+        sep_beta_str = f"_sb{args.separate_reweighting_beta}"
 
     exploration_bonus_str = ""
     if hasattr(args, 'exploration_bonus_sampling_actor') and args.exploration_bonus_sampling_actor is not None:
         if args.exploration_bonus_sampling_actor == "exact_count":
-            exploration_bonus_str = "_count" + str(args.bonus_alpha)
+            exploration_bonus_str = "_c" + str(args.bonus_alpha)
         elif args.exploration_bonus_sampling_actor == "coin_flip":
-            exploration_bonus_str = "_cfn" + str(args.bonus_alpha)
+            exploration_bonus_str = "_cf" + str(args.bonus_alpha)
             # Add coin_flip parameters
             coin_flip_dim = getattr(args, 'coin_flip_dim', 64)
             coin_flip_lr = getattr(args, 'coin_flip_lr', None)
@@ -260,37 +280,79 @@ def get_info_name_str(args):
             # Backward compatibility: map old name to new name
             if coin_flip_architecture == "linear_head_on_base":
                 coin_flip_architecture = "linear_head_on_static_initial_base"
-            exploration_bonus_str += f"_cfd{coin_flip_dim}"
+            exploration_bonus_str += f"_cd{coin_flip_dim}"
             if coin_flip_lr is not None:
-                exploration_bonus_str += f"_cflr{coin_flip_lr}"
+                exploration_bonus_str += f"_cfr{coin_flip_lr}"
             if coin_flip_update_steps != 1:
-                exploration_bonus_str += f"_cfus{coin_flip_update_steps}"
+                exploration_bonus_str += f"_cfu{coin_flip_update_steps}"
             if coin_flip_head_init_std != 0.001:
-                exploration_bonus_str += f"_cfhis{coin_flip_head_init_std}"
+                exploration_bonus_str += f"_cfh{coin_flip_head_init_std}"
             if frozen_prior_init_std != 0.1:
-                exploration_bonus_str += f"_fpis{frozen_prior_init_std}"
+                exploration_bonus_str += f"_fp{frozen_prior_init_std}"
             if coin_flip_linear_bias:
-                exploration_bonus_str += "_cfbias"
+                exploration_bonus_str += "_cfb"
             if coin_flip_architecture == "linear_head_on_static_initial_base":
-                exploration_bonus_str += f"_cflsib"
+                exploration_bonus_str += f"_cfs"
             elif coin_flip_architecture == "linear_head_on_learning_base":
-                exploration_bonus_str += f"_cfllp"
+                exploration_bonus_str += f"_cfl"
             elif coin_flip_architecture == "linear_head_on_learning_proposal":
-                exploration_bonus_str += f"_cfllq"
+                exploration_bonus_str += f"_cfq"
             elif coin_flip_architecture == "separate_nn":
-                exploration_bonus_str += f"_cfsepnn"
+                exploration_bonus_str += f"_cfsn"
             else:
                 raise ValueError(f"Unknown coin flip architecture: {coin_flip_architecture}")
             if train_coin_flip_before:
-                exploration_bonus_str += "_before"
+                exploration_bonus_str += "_bf"
             else:
-                exploration_bonus_str += "_after"
+                exploration_bonus_str += "_af"
             if coin_flip_first_online:
-                exploration_bonus_str += "_firstonline"
+                exploration_bonus_str += "_fo"
             if coin_flip_use_prioritization:
-                exploration_bonus_str += "_pri"
+                exploration_bonus_str += "_pr"
 
-    info_name_str = f"{rm_type_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_len{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_beta{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{args.parameterization}_{args.actor_loss_type}_epo{args.max_epochs}{epi_str}{eval_str}_sch{args.lr_scheduler}_{lr_str}{critic_loss_str}{adam_betas_str}_{args.parameterization}{init_head_base_str}{sddiv_str}{exploration_bonus_str}_tbs{args.train_batch_size}_s{args.seed}"
+    # Shorten parameterization
+    param_short = args.parameterization
+    param_map = {
+        "policy": "p",
+        "policy_psi_unnorm": "ppu",
+        "policy_psi_q_p_s_t": "ppq",
+        "policy_psi_q_p_s_1_to_t": "ppq1",
+        "modulation_model": "mm",
+        "modulation_linear_head": "mlh",
+        "modulation_nn_head": "mnh"
+    }
+    if param_short in param_map:
+        param_short = param_map[param_short]
+    
+    # Shorten actor_loss_type
+    loss_type_short = args.actor_loss_type
+    loss_map = {
+        "ppo": "ppo",
+        "ctl": "ctl",
+        "ctl_nosecondterm": "ctln",
+        "sixo": "sixo",
+        "sixo_approxneg": "sixoa",
+        "dpg": "dpg"
+    }
+    if loss_type_short in loss_map:
+        loss_type_short = loss_map[loss_type_short]
+    
+    # Shorten lr_scheduler
+    scheduler_short = args.lr_scheduler
+    scheduler_map = {
+        "linear": "lin",
+        "cosine": "cos",
+        "cosine_with_restarts": "cosr",
+        "polynomial": "poly",
+        "constant": "c",
+        "constant_with_warmup": "cw",
+        "inverse_sqrt": "isq",
+        "reduce_lr_on_plateau": "rlop"
+    }
+    if scheduler_short in scheduler_map:
+        scheduler_short = scheduler_map[scheduler_short]
+    
+    info_name_str = f"{rm_type_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_l{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_b{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{param_short}_{loss_type_short}_ep{args.max_epochs}{epi_str}{eval_str}_sc{scheduler_short}_{lr_str}{critic_loss_str}{adam_betas_str}_{param_short}{init_head_base_str}{sddiv_str}{exploration_bonus_str}_tb{args.train_batch_size}_s{args.seed}"
 
     return info_name_str
 

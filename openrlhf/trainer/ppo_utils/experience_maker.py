@@ -816,8 +816,6 @@ class BaseExperienceMaker(ABC):
             is_deepspeed_wrapped = False
         
         # Step 4: Loop over update steps
-        # Cache embeddings for learning architectures (reuse across update steps)
-        cached_embeddings = None
         
         for update_step in range(update_steps):
             # For the first update step only, if coin_flip_first_online is True, use current batch
@@ -854,18 +852,6 @@ class BaseExperienceMaker(ABC):
             if self.coin_flip_architecture == "separate_nn":
                 # Use _predict() which does full forward pass from inputs
                 final_predictions = self.coin_flip_network._predict(sampled_input_ids, sampled_attention_mask)  # (B, d)
-            elif self.coin_flip_architecture in LEARNING_ARCHITECTURES:
-                # For learning architectures, recompute embeddings from current backbone model
-                # Cache embeddings for reuse if this is the first update step and we have multiple steps
-                if update_step == 0 or cached_embeddings is None:
-                    # Recompute embeddings from current backbone model
-                    # _get_final_hidden_states already applies torch.no_grad() internally
-                    # This ensures gradients only flow through coin_flip_head, not backbone
-                    cached_embeddings = self.coin_flip_network._get_final_hidden_states(
-                        sampled_input_ids, sampled_attention_mask
-                    )  # (B, hidden_size)
-                # Use cached embeddings (reuse for subsequent update steps)
-                final_predictions = self.coin_flip_network._predict_from_embeddings(cached_embeddings)  # (B, d)
             else:
                 # Use _predict_from_embeddings() for static architecture
                 final_predictions = self.coin_flip_network._predict_from_embeddings(sampled_embeddings)  # (B, d)

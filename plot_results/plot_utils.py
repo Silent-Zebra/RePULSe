@@ -45,6 +45,8 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
     It handles different run types: "Exact Count", "Coin Flip Net", and "No Exploration Bonus".
     For Coin Flip Net runs, it extracts additional parameters like updates, head_std, prior_std, etc.
     
+    Supports both old and new abbreviated naming conventions.
+    
     Args:
         load_prefixes_to_use: List of lists of prefixes (each inner list contains prefixes for one series)
     
@@ -54,11 +56,15 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
     labels = []
     for a in load_prefixes_to_use:
         prefix = a[0]
-        # Determine training run type
-        if "count" in prefix:
-            run_type = "Exact Count"
-        elif "cfn" in prefix:
+        # Determine training run type (support both old and new abbreviations)
+        # Check patterns in order of specificity
+        # 1. Coin flip: old _cfn or new _cf followed by number
+        if "cfn" in prefix or re.search(r'_cf([\d.]+)', prefix):
             run_type = "Coin Flip Net"
+        # 2. Exact count: old _count or new _c followed by number (not _cf, _cl, _ct)
+        elif "_count" in prefix or re.search(r'_c([\d.]+)(?![a-z])', prefix):
+            # The negative lookahead (?![a-z]) ensures _c is not followed by a letter (like _cf, _cl)
+            run_type = "Exact Count"
         else:
             run_type = "No Exploration Bonus"
         
@@ -66,73 +72,74 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
         if run_type == "Coin Flip Net":
             label_parts = [run_type]
             
-            # # Extract cfd (dimension)
-            # cfd_match = re.search(r'_cfd(\d+)', prefix)
-            # if cfd_match:
-            #     cfd_num = cfd_match.group(1)
-            #     label_parts.append(f"{cfd_num}-d")
-            
-            # Extract cfus (updates)
-            cfus_match = re.search(r'_cfus(\d+)', prefix)
+            # Extract cfus/cfu (updates) - support both old and new
+            cfus_match = re.search(r'_cfus(\d+)', prefix) or re.search(r'_cfu(\d+)', prefix)
             if cfus_match:
                 cfus_num = cfus_match.group(1)
                 label_parts.append(f"{cfus_num} updates")
             else:
                 label_parts.append("1 update")
             
-            # Extract cfhis (coin flip head init std)
-            cfhis_match = re.search(r'_cfhis([\d.e-]+)', prefix)
+            # Extract cfhis/cfh (coin flip head init std) - support both old and new
+            cfhis_match = re.search(r'_cfhis([\d.e-]+)', prefix) or re.search(r'_cfh([\d.e-]+)', prefix)
             if cfhis_match:
                 cfhis_num = cfhis_match.group(1)
                 label_parts.append(f"head_std={cfhis_num}")
             
-            # Extract fpis (frozen prior init std)
-            fpis_match = re.search(r'_fpis([\d.e-]+)', prefix)
+            # Extract fpis/fp (frozen prior init std) - support both old and new
+            fpis_match = re.search(r'_fpis([\d.e-]+)', prefix) or re.search(r'_fp([\d.e-]+)', prefix)
             if fpis_match:
                 fpis_num = fpis_match.group(1)
                 label_parts.append(f"prior_std={fpis_num}")
             
-            # Check for coin_flip_linear_bias
-            if "_cfbias" in prefix:
+            # Check for coin_flip_linear_bias (old _cfbias or new _cfb)
+            if "_cfbias" in prefix or "_cfb" in prefix:
                 label_parts.append("with bias")
             
-            # Extract cflr (learning rate)
-            cflr_match = re.search(r'_cflr([\d.e-]+)', prefix)
+            # Extract cflr/cfr (learning rate) - support both old and new
+            cflr_match = re.search(r'_cflr([\d.e-]+)', prefix) or re.search(r'_cfr([\d.e-]+)', prefix)
             if cflr_match:
                 cflr_num = cflr_match.group(1)
                 label_parts.append(f"{cflr_num} Coin Flip LR")
             
-            # # Check for "after" or "before" in the prefix
-            # if "after" in prefix:
-            #     label_parts.append("Update After")
-            # elif "before" in prefix:
-            #     label_parts.append("Update Before")
+            # Check for "after"/"before" or new abbreviations "af"/"bf"
+            if "after" in prefix or "_af" in prefix:
+                label_parts.append("Update After")
+            elif "before" in prefix or "_bf" in prefix:
+                label_parts.append("Update Before")
 
-            if "firstonline" in prefix:
+            if "firstonline" in prefix or "_fo" in prefix:
                 label_parts.append("First Update Online")
-            if "pri" in prefix:
+            if "pri" in prefix or "_pr" in prefix:
                 label_parts.append("Prioritized")
-            if "sepnn" in prefix:
+            if "sepnn" in prefix or "_cfsn" in prefix:
                 label_parts.append("Sep. NN")
+            # Architecture checks - support both old and new abbreviations
+            elif "cflsib" in prefix or "_cfs" in prefix:
+                label_parts.append("Lin. Head on Static Base")
+            elif "cfllq" in prefix or "_cfq" in prefix:
+                label_parts.append("Lin. Head on q")
+            elif "cfllp" in prefix or "_cfl" in prefix:
+                label_parts.append("Lin. Head on p")
 
             labels.append(", ".join(label_parts))
         elif run_type == "Exact Count":
             label_parts = [run_type]
             
-            # Extract bonus_alpha (encoded as _count followed by value)
-            count_match = re.search(r'_count([\d.]+)', prefix)
+            # Extract bonus_alpha (encoded as _count or _c followed by value)
+            count_match = re.search(r'_count([\d.]+)', prefix) or re.search(r'_c([\d.]+)', prefix)
             if count_match:
                 bonus_alpha = count_match.group(1)
                 label_parts.append(f"bonus_alpha={bonus_alpha}")
             
-            # Extract num_episodes (encoded as _epi followed by value)
-            epi_match = re.search(r'_epi(\d+)', prefix)
+            # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
+            epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
             if epi_match:
                 num_episodes = epi_match.group(1)
                 label_parts.append(f"num_episodes={num_episodes}")
             
-            # Extract batch_size (encoded as _tbs followed by value)
-            tbs_match = re.search(r'_tbs(\d+)', prefix)
+            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
+            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
             if tbs_match:
                 batch_size = tbs_match.group(1)
                 label_parts.append(f"batch_size={batch_size}")
@@ -141,14 +148,14 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
         else:
             label_parts = [run_type]
 
-            # Extract num_episodes (encoded as _epi followed by value)
-            epi_match = re.search(r'_epi(\d+)', prefix)
+            # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
+            epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
             if epi_match:
                 num_episodes = epi_match.group(1)
                 label_parts.append(f"num_episodes={num_episodes}")
 
-            # Extract batch_size (encoded as _tbs followed by value)
-            tbs_match = re.search(r'_tbs(\d+)', prefix)
+            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
+            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
             if tbs_match:
                 batch_size = tbs_match.group(1)
                 label_parts.append(f"batch_size={batch_size}")
