@@ -139,7 +139,7 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
                 prompt_data = substr(words[1], 1, 1)
             }
         }
-        if($i == "--prompt_data") {
+        if($i == "--prompt_data" && prompt_data == "") {
             # Simple: just first 2 chars of path
             abbrev = substr($(i+1), 1, 2)
             prompt_data = abbrev
