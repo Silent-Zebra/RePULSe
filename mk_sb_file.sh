@@ -134,7 +134,8 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
                 custom_prompt_val = $(i+1)
             }
             # Remove quotes from beginning and end
-            custom_prompt_val = gensub(/^["']|["']$/, "", "g", custom_prompt_val)
+            sub(/^["']/, "", custom_prompt_val)
+            sub(/["']$/, "", custom_prompt_val)
             # Get first character of first word
             n = split(custom_prompt_val, words, " ")
             if(n > 0 && words[1] != "") {
