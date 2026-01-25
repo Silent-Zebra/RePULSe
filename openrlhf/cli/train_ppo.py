@@ -18,7 +18,7 @@ from openrlhf.trainer import BasePPOTrainer
 # from openrlhf.trainer.harmlessness_trainer import HarmlessnessTrainer # Have not tested this in a while
 from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessTrainer
 
-from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
+from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
 from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_posterior_samples_filename
 from openrlhf.models.utils import (
@@ -2071,8 +2071,10 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
             iteration += 1
             
             # Generate batch of samples from base actor
+            # Use tile_prompts (as in make_experience / generate_seqs_and_get_all_data) to repeat
+            # the prompt rollout_batch_size times for batched generation
             batch_size = args.rollout_batch_size
-            prompt_batch = [prompt] * batch_size
+            prompt_batch = tile_prompts(prompt, batch_size)
             
             # Tokenize prompts
             inputs = tokenize_fn(prompt_batch, args.prompt_max_len, device=device)
