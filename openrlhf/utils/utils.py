@@ -371,15 +371,15 @@ def get_info_name_str(args):
     return info_name_str
 
 
-def get_posterior_samples_filename(args):
+def get_target_samples_filename(args):
     """
-    Generate filename for posterior samples based on args, similar to get_info_name_str pattern.
+    Generate filename for target samples based on args, similar to get_info_name_str pattern.
     
     Args:
         args: Command line arguments
         
     Returns:
-        str: Full path to save posterior samples file
+        str: Full path to save target samples file
     """
     import re
     
@@ -413,7 +413,7 @@ def get_posterior_samples_filename(args):
             prompt_str = ""
     
     # Construct filename
-    filename = f"posterior_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_{beta_str}_{seed_str}_{prompt_str}.pt"
+    filename = f"target_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_{beta_str}_{seed_str}_{prompt_str}.pt"
     
     # Return full path
     return f"{args.save_path}/{filename}"
@@ -649,7 +649,7 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
 
 def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_estimates_list,
                        iwae_lbs_list, iwae_ubs_list,
-                       prompt_text, true_posterior_samples):
+                       prompt_text, true_target_samples):
     """
     Evaluate f_q, g_q, and IWAE bounds.
     
@@ -662,7 +662,7 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
         iwae_lbs_list: List to append IWAE lower bounds to
         iwae_ubs_list: List to append IWAE upper bounds to
         prompt_text: Prompt text for evaluation
-        true_posterior_samples: True posterior samples
+        true_target_samples: True target samples
     """
     # This function appends to f_q_estimates_list and g_q_estimates_list
     iwae_lbs = torch.zeros((trainer.n_seeds_f_q,))
@@ -682,21 +682,21 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
             torch.tensor(f_qs.shape[0]))
         print(iwae_lower_bound_estimate)
         iwae_lbs[i] = iwae_lower_bound_estimate.item()
-        # # TODO load the posterior samples, pass through to get g_q estimate
-        # if true_posterior_samples is not None:
-        #     true_posterior_samples = true_posterior_samples.to(
+        # # TODO load the target samples, pass through to get g_q estimate
+        # if true_target_samples is not None:
+        #     true_target_samples = true_target_samples.to(
         #         q_seqs.device)
         #     # TODO later account for the above possiblity
         eos_token_id = trainer.generate_kwargs["eos_token_id"]
         pad_token_id = trainer.generate_kwargs["pad_token_id"]
 
         if i == 0:
-            assert true_posterior_samples is not None
+            assert true_target_samples is not None
             range_val = (math.ceil(
-                true_posterior_samples.shape[0] / args.n_samples_for_f_q))
+                true_target_samples.shape[0] / args.n_samples_for_f_q))
             print(range_val)
             for j in range(range_val):
-                samples = true_posterior_samples[
+                samples = true_target_samples[
                           j * args.n_samples_for_f_q: (j + 1) * args.n_samples_for_f_q]
                 if samples.shape[0] != 0:
                     print("G_q Estimates Learned Model")
@@ -722,9 +722,9 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
                         print("Total G_qs shape")
                         print(total_g_qs.shape)
 
-        if true_posterior_samples is not None:
+        if true_target_samples is not None:
             iwae_mixture_with_one_post = q_seqs.detach().clone()
-            iwae_mixture_with_one_post[i] = true_posterior_samples[
+            iwae_mixture_with_one_post[i] = true_target_samples[
                 i]  # To keep the conditioning tokens constant
             attention_mask_g_q = (
                 iwae_mixture_with_one_post.ne(eos_token_id) & iwae_mixture_with_one_post.ne(
@@ -768,5 +768,5 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
 
     if total_g_qs is not None:
         g_q_estimates_list.append(
-            total_g_qs.cpu())  # Only one G_q estimate (over all the posterior samples)
+            total_g_qs.cpu())  # Only one G_q estimate (over all the target samples)
     f_q_estimates_list.append(total_f_qs.cpu())

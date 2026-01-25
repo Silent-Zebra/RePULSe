@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_posterior_samples_filename
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -432,20 +432,20 @@ def train(args):
     else:
         vf_coef = args.critic_learning_rate / args.actor_learning_rate
 
-    true_posterior_samples = None
-    if args.load_posterior_samples:
+    true_target_samples = None
+    if args.load_target_samples_name is not None:
 
-        strategy.print("Loading true posterior samples")
+        strategy.print("Loading true target samples")
 
-        true_posterior_samples_by_prompt_and_by_token = torch.load(f"{args.load_posterior_samples_name}")
-        true_posterior_samples = \
-            true_posterior_samples_by_prompt_and_by_token[
+        true_target_samples_by_prompt_and_by_token = torch.load(f"{args.load_target_samples_name}")
+        true_target_samples = \
+            true_target_samples_by_prompt_and_by_token[
                 0]
-        true_posterior_samples = torch.tensor(
-            true_posterior_samples,
+        true_target_samples = torch.tensor(
+            true_target_samples,
             dtype=torch.int64)
 
-        true_posterior_samples = true_posterior_samples.to(next(actor.parameters()).device)
+        true_target_samples = true_target_samples.to(next(actor.parameters()).device)
 
     # Early exit for rejection sampling mode
     if args.rejection_sample_true_target_only:
@@ -471,7 +471,7 @@ def train(args):
             # For custom prompt, we'll handle it in the function
             strategy.print(f"Using custom prompt: {args.custom_prompt}")
         
-        do_rejection_sampling_for_posterior_samples(
+        do_rejection_sampling_for_target_samples(
             args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader
         )
         strategy.print("Rejection sampling complete. Exiting.")
@@ -535,7 +535,7 @@ def train(args):
             rm_type=args.rm_type,
             bc_coef=args.bc_coef,
             bc_steps=args.bc_steps,
-            true_posterior_samples=true_posterior_samples,
+            true_target_samples=true_target_samples,
             sampling_actor_loss_type=args.actor_loss_type,
             sampling_critic_loss_type=args.critic_loss_type,
             base_actor_loss_type=args.harmlessness_training_loss_type,
@@ -566,7 +566,7 @@ def train(args):
     else:
         trainer = get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, critic, critic_optim,
                                        critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
-                                       true_posterior_samples, vf_coef)
+                                       true_target_samples, vf_coef)
 
     # Lists for base_actor (p) results
     total_log_prob_bad_list_base = []
@@ -722,13 +722,13 @@ def train(args):
                 # assert args.num_episodes == 1  # Right now only supports 1 twist/proposal update per base_actor update
                 estimates_list = harmlessness_trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-                    num_update_steps_per_episodes, true_posterior_samples
+                    num_update_steps_per_episodes, true_target_samples
                 )
         else:
             if args.num_episodes > 0:
                 estimates_list = trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-                    num_update_steps_per_episodes, true_posterior_samples
+                    num_update_steps_per_episodes, true_target_samples
                 )
 
         rewards_list = None
@@ -1083,7 +1083,7 @@ def train(args):
             strategy.print("DOING evaluate_heldout_sampling")
             do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                          critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
-                                         strategy, tokenizer, true_posterior_samples, vf_coef)
+                                         strategy, tokenizer, true_target_samples, vf_coef)
 
         if args.evaluate_on_neg_data:
             strategy.print("DOING evaluate_on_neg_data")
@@ -1977,9 +1977,9 @@ def calculate_analytic_kl_toxicity_single_token(
     return kl_sigma_q, kl_q_sigma, metrics_dict
 
 
-def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader):
+def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader):
     """
-    Perform rejection sampling to generate true posterior samples.
+    Perform rejection sampling to generate true target samples.
     
     Target distribution: target(x) ∝ p(x) * e^(β * r(x))
     Proposal distribution: p(x) (base actor)
@@ -1995,7 +1995,7 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
     if args.true_target_sample_amount <= 0:
         raise ValueError(f"--true_target_sample_amount must be > 0, got {args.true_target_sample_amount}")
     
-    strategy.print("Starting rejection sampling for posterior samples...")
+    strategy.print("Starting rejection sampling for target samples...")
     
     # Setup
     base_actor.eval()
@@ -2003,8 +2003,8 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
     device = next(base_actor.parameters()).device
     
     # Generate filename
-    filename = get_posterior_samples_filename(args)
-    strategy.print(f"Will save posterior samples to: {filename}")
+    filename = get_target_samples_filename(args)
+    strategy.print(f"Will save target samples to: {filename}")
     
     # Calculate rejection bound in log space: log_M = |clamp * beta|
     clamp_beta_product = args.reward_clamp * args.target_dist_beta
@@ -2032,7 +2032,7 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
         strategy.print(f"Found {len(prompts)} prompts from dataloader")
     
     # Storage for accepted samples per prompt
-    posterior_samples_by_prompt = []
+    target_samples_by_prompt = []
     
     # Generation kwargs
     generate_kwargs = {
@@ -2152,7 +2152,7 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
         strategy.print("---")
         
         # Store for this prompt
-        posterior_samples_by_prompt.append(accepted_samples)
+        target_samples_by_prompt.append(accepted_samples)
         
         # Print statistics for this prompt
         final_acceptance_rate = total_accepted / total_generated if total_generated > 0 else 0.0
@@ -2163,12 +2163,12 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
         total_accepted_all += total_accepted
     
     # Format output (matching loading format)
-    true_posterior_samples_by_prompt_and_by_token = posterior_samples_by_prompt
+    true_target_samples_by_prompt_and_by_token = target_samples_by_prompt
     
     # Save on rank 0 only
     if strategy.is_rank_0():
-        torch.save(true_posterior_samples_by_prompt_and_by_token, filename)
-        strategy.print(f"\nSaved posterior samples to: {filename}")
+        torch.save(true_target_samples_by_prompt_and_by_token, filename)
+        strategy.print(f"\nSaved target samples to: {filename}")
     
     # Print final statistics
     overall_acceptance_rate = total_accepted_all / total_generated_all if total_generated_all > 0 else 0.0
@@ -2181,11 +2181,11 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
 
 def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                  critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
-                                 strategy, tokenizer, true_posterior_samples, vf_coef):
+                                 strategy, tokenizer, true_target_samples, vf_coef):
     trainer = get_base_ppo_trainer(actor_to_test, actor_optim, actor_scheduler, args, initial_model, critic,
                                    critic_optim,
                                    critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
-                                   true_posterior_samples, vf_coef)
+                                   true_target_samples, vf_coef)
     rewards = []
     returns = []
     entropy = []
@@ -2416,7 +2416,7 @@ def get_reward_model(args, strategy):
 
 
 def get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, critic, critic_optim, critic_scheduler,
-                         ema_model, neg_data, reward_model, strategy, tokenizer, true_posterior_samples, vf_coef):
+                         ema_model, neg_data, reward_model, strategy, tokenizer, true_target_samples, vf_coef):
     # configure Trainer
     trainer = BasePPOTrainer(
         strategy,
@@ -2465,7 +2465,7 @@ def get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, 
         rm_type=args.rm_type,
         bc_coef=args.bc_coef,
         bc_steps=args.bc_steps,
-        true_posterior_samples=true_posterior_samples,
+            true_target_samples=true_target_samples,
         actor_loss_type=args.actor_loss_type,
         critic_loss_type=args.critic_loss_type,
         alpha=args.alpha,
@@ -2608,7 +2608,7 @@ if __name__ == "__main__":
     parser.add_argument("--analytic_batch_size", type=int, default=None, help="Batch size for analytic calculations. Defaults to train_batch_size if not set.")
     parser.add_argument("--normalize_reward", action="store_true", default=False, help="Enable Reward Normalization")
 
-    parser.add_argument("--bc_coef", type=float, default=0.0, help="Do behaviour cloning on exact posterior samples (cheating for the sake of illustrating optimality)")
+    parser.add_argument("--bc_coef", type=float, default=0.0, help="Do behaviour cloning on exact target samples (cheating for the sake of illustrating optimality)")
     parser.add_argument("--bc_steps", type=int, default=-1, help="Default -1 means always use bc_coef; otherwise, after bc_steps, set bc_coef to 0")
 
     parser.add_argument("--top_p", type=float, default=1.0)
@@ -2747,9 +2747,8 @@ if __name__ == "__main__":
     parser.add_argument("--uniform_reweight", action="store_true", help="if set, use uniform weights for reweighting. Basically skips the reweighting operation.")
 
 
-    parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
-    parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
-    parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true posterior samples. Saves samples to file. Requires --rm_type rlhf and --reward_clamp to be set.")
+    parser.add_argument("--load_target_samples_name", type=str, default=None, help="Path to load target samples from. If None, target samples are not loaded.")
+    parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true target samples. Saves samples to file. Requires --rm_type rlhf and --reward_clamp to be set.")
     parser.add_argument("--true_target_sample_amount", type=int, default=1000, help="Number of accepted samples to collect via rejection sampling (continues sampling until this many are accepted)")
     parser.add_argument("--save_info_path", type=str, default="./info")
     parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for f_q_g_q_eval)")

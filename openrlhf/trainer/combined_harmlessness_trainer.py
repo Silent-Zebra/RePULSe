@@ -96,7 +96,7 @@ class CombinedHarmlessnessTrainer(ABC):
         rm_type: str = '',
         bc_coef: float = 0,
         bc_steps: int = -1,
-        true_posterior_samples = None, # would otherwise be torch.Tensor
+        true_target_samples = None, # would otherwise be torch.Tensor
         base_actor_loss_type: str = 'reinforce',
         base_critic_loss_type: str = 'mse',
         sampling_actor_loss_type: str = 'ctl',
@@ -222,7 +222,7 @@ class CombinedHarmlessnessTrainer(ABC):
 
         self.bc_steps = bc_steps
 
-        self.true_posterior_samples = true_posterior_samples
+        self.true_target_samples = true_target_samples
 
         self.model_eval = model_eval
 
@@ -472,7 +472,7 @@ class CombinedHarmlessnessTrainer(ABC):
         pretrain_dataloader,
         consumed_samples=0,
         num_update_steps_per_episodes=1,
-        true_posterior_samples=None,
+        true_target_samples=None,
     ) -> (List, List, List, List):
 
         # Assertion: f_q/g_q evaluation requires f_q_g_q_eval flag and single prompt case
@@ -570,7 +570,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
                                         g_q_estimates_list, iwae_lbs_list,
                                         iwae_ubs_list, prompt_text,
-                                        true_posterior_samples)
+                                        true_target_samples)
 
         for episode in range(start_episode, args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop): # Actually with this current setup is kind of redundant to have these 2 hyperparameters, loops here or in the outer loop, just pick one, doesn't really matter with 1 update each...
             print(f"HARMLESSNESS TRAINING EPISODE {episode}", flush=True)
@@ -620,7 +620,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
                                         g_q_estimates_list, iwae_lbs_list,
                                         iwae_ubs_list, prompt_text,
-                                        true_posterior_samples)
+                                        true_target_samples)
 
         # Always return the non-f_q_g_q metrics, and if f_q_g_q_eval is enabled, also return f_q/g_q/iwae lists
         if args.f_q_g_q_eval:

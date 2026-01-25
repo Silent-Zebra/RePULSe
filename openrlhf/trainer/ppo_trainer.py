@@ -109,7 +109,7 @@ class BasePPOTrainer(ABC):
         rm_type: str = '',
         bc_coef: float = 0,
         bc_steps: int = -1,
-        true_posterior_samples = None, # would otherwise be torch.Tensor
+        true_target_samples = None, # would otherwise be torch.Tensor
         actor_loss_type: str = 'ppo',
         critic_loss_type: str = 'mse',
         alpha: float = 0.5,
@@ -208,7 +208,7 @@ class BasePPOTrainer(ABC):
 
         self.bc_steps = bc_steps
 
-        self.true_posterior_samples = true_posterior_samples
+        self.true_target_samples = true_target_samples
 
         self.model_eval = model_eval
 
@@ -286,7 +286,7 @@ class BasePPOTrainer(ABC):
         pretrain_dataloader,
         consumed_samples=0,
         num_update_steps_per_episodes=1,
-        true_posterior_samples=None,
+        true_target_samples=None,
     ) -> (List, List, List, List):
         num_rollouts_per_episodes = (
             num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
@@ -678,10 +678,10 @@ class BasePPOTrainer(ABC):
             # First try just with it all the way through, later try taking away halfway through
 
             # Attend to all tokens in exact sample
-            attention_mask_sigma_samples = torch.ones_like(self.true_posterior_samples).to(
+            attention_mask_sigma_samples = torch.ones_like(self.true_target_samples).to(
                 dtype=torch.long)
 
-            action_log_probs = self.experience_maker.actor(self.true_posterior_samples,
+            action_log_probs = self.experience_maker.actor(self.true_target_samples,
                                                            experience.action_mask.size(1),
                                                            attention_mask_sigma_samples)
             action_log_probs = action_log_probs.float() * action_mask  # more precision
