@@ -2006,9 +2006,11 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
     filename = get_posterior_samples_filename(args)
     strategy.print(f"Will save posterior samples to: {filename}")
     
-    # Calculate rejection bound M = e^(|clamp * beta|)
-    M = torch.exp(torch.abs(torch.tensor(args.reward_clamp * args.target_dist_beta, device=device, dtype=torch.float32)))
-    strategy.print(f"Rejection bound M = e^(|{args.reward_clamp} * {args.target_dist_beta}|) = {M.item():.4f}")
+    # Calculate rejection bound in log space: log_M = |clamp * beta|
+    clamp_beta_product = args.reward_clamp * args.target_dist_beta
+    log_M = abs(clamp_beta_product)
+    strategy.print(f"Computing rejection bound in log space: log_M = |{args.reward_clamp} * {args.target_dist_beta}| = |{clamp_beta_product}| = {log_M}")
+    strategy.print(f"  This corresponds to M = e^({log_M}) = {torch.exp(torch.tensor(log_M, dtype=torch.float32)).item():.4e} (for reference, may be inf)")
     
     # Handle prompts
     if args.new_custom_single_prompt:
@@ -2090,11 +2092,13 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
             # Clamp rewards
             clamped_rewards = rewards.clamp(min=-args.reward_clamp, max=args.reward_clamp)
             
-            # Compute e^(beta * clamped_r) for monitoring
-            exp_beta_clamped_r = torch.exp(args.target_dist_beta * clamped_rewards)
+            # Compute log_phi = beta * clamped_r (in log space)
+            log_phi = args.target_dist_beta * clamped_rewards
             
-            # Compute acceptance probabilities
-            accept_prob = exp_beta_clamped_r / M
+            # Compute acceptance probabilities in log space to avoid overflow
+            # accept_prob = e^(beta * clamped_r) / e^(log_M) = e^(log_phi - log_M)
+            log_ratio = log_phi - log_M
+            accept_prob = torch.exp(log_ratio)
             accept_prob = torch.clamp(accept_prob, min=0.0, max=1.0)
             
             # Perform rejection sampling
@@ -2116,12 +2120,20 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
             # Print progress periodically
             if iteration % 10 == 0 or len(accepted_samples) >= args.true_target_sample_amount:
                 acceptance_rate = total_accepted / total_generated if total_generated > 0 else 0.0
-                exp_beta_mean = exp_beta_clamped_r.mean().item()
-                exp_beta_min = exp_beta_clamped_r.min().item()
-                exp_beta_max = exp_beta_clamped_r.max().item()
+                log_phi_mean = log_phi.mean().item()
+                log_phi_min = log_phi.min().item()
+                log_phi_max = log_phi.max().item()
+                clamped_r_mean = clamped_rewards.mean().item()
+                clamped_r_min = clamped_rewards.min().item()
+                clamped_r_max = clamped_rewards.max().item()
+                log_ratio_mean = log_ratio.mean().item()
+                accept_prob_mean = accept_prob.mean().item()
                 strategy.print(f"  Iteration {iteration}: {len(accepted_samples)}/{args.true_target_sample_amount} accepted, "
                              f"{total_generated} generated, acceptance rate: {acceptance_rate:.4f}")
-                strategy.print(f"    e^(beta * clamped_r): mean={exp_beta_mean:.6f}, min={exp_beta_min:.6f}, max={exp_beta_max:.6f}, bound M={M.item():.6f}")
+                strategy.print(f"    clamped_r: mean={clamped_r_mean:.4f}, min={clamped_r_min:.4f}, max={clamped_r_max:.4f}")
+                strategy.print(f"    log_phi (beta * clamped_r): mean={log_phi_mean:.4f}, min={log_phi_min:.4f}, max={log_phi_max:.4f}")
+                strategy.print(f"    log_M={log_M:.4f}, log_ratio (log_phi - log_M): mean={log_ratio_mean:.4f}")
+                strategy.print(f"    accept_prob: mean={accept_prob_mean:.6f}, beta={args.target_dist_beta}, clamp={args.reward_clamp}")
         
         # Truncate to exact target amount
         accepted_samples = accepted_samples[:args.true_target_sample_amount]
