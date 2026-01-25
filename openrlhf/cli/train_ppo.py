@@ -2062,6 +2062,7 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
     for prompt_idx, prompt in enumerate(prompts):
         strategy.print(f"\nProcessing prompt {prompt_idx + 1}/{len(prompts)}")
         accepted_samples = []
+        accepted_rewards = []  # clamped reward for each accepted sample
         total_generated = 0
         total_accepted = 0
         iteration = 0
@@ -2106,12 +2107,14 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
             u = torch.rand_like(accept_prob)
             accept_mask = u < accept_prob
             
-            # Extract accepted sequences
+            # Extract accepted sequences and their clamped rewards
             accepted_sequences = sequences[accept_mask]
+            accepted_clamped_rewards_batch = clamped_rewards[accept_mask]
             
             # Convert to CPU and store
-            for seq in accepted_sequences:
+            for seq, rew in zip(accepted_sequences, accepted_clamped_rewards_batch):
                 accepted_samples.append(seq.cpu().tolist())
+                accepted_rewards.append(rew.cpu().item())
             
             # Update counters
             batch_size_actual = sequences.shape[0]
@@ -2138,6 +2141,15 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
         
         # Truncate to exact target amount
         accepted_samples = accepted_samples[:args.true_target_sample_amount]
+        accepted_rewards = accepted_rewards[:args.true_target_sample_amount]
+        
+        # Print decoded text and clamped reward for each accepted sample
+        strategy.print(f"\n--- Accepted samples for prompt {prompt_idx + 1} (decoded text and clamped reward) ---")
+        for i, (tokens, rew) in enumerate(zip(accepted_samples, accepted_rewards)):
+            text = tokenizer.decode(tokens, skip_special_tokens=True)
+            strategy.print(f"[{i + 1}] reward (clamped) = {rew:.4f}")
+            strategy.print(f"    text: {text}")
+        strategy.print("---")
         
         # Store for this prompt
         posterior_samples_by_prompt.append(accepted_samples)
