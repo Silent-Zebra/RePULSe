@@ -2073,8 +2073,7 @@ def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, 
             # Generate batch of samples from base actor
             # Use tile_prompts (as in make_experience / generate_seqs_and_get_all_data) to repeat
             # the prompt rollout_batch_size times for batched generation
-            batch_size = args.rollout_batch_size
-            prompt_batch = tile_prompts(prompt, batch_size)
+            prompt_batch = tile_prompts(prompt, args.duplicate_rollout_batch_by)
             
             # Tokenize prompts
             inputs = tokenize_fn(prompt_batch, args.prompt_max_len, device=device)
