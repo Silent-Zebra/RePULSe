@@ -19,7 +19,12 @@ from openrlhf.models.actor_custom import ActorCustom
 from openrlhf.models.loss import CTLLoss, MixedCTLValueLoss, SIXOLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
-from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list
+from openrlhf.utils.utils import (
+    get_info_name_str,
+    tile_prompts,
+    inspect_rewards_list,
+    f_q_estimate,
+)
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker
@@ -98,7 +103,7 @@ class BasePPOTrainer(ABC):
         vf_coef: float = 0.1,
         model_eval: bool = False,
         threshold: float = -5.,
-        reward_cap: float = 4.5,
+        reward_clamp: Optional[float] = None,
         target_dist_beta: float = 1,
         n_seeds_f_q: int = 4,
         rm_type: str = '',
@@ -232,7 +237,7 @@ class BasePPOTrainer(ABC):
             reward_fn,
             shared_actorcritic,
             threshold,
-            reward_cap,
+            reward_clamp,
             target_dist_beta,
             alpha,
             rm_type,
@@ -283,16 +288,10 @@ class BasePPOTrainer(ABC):
         num_update_steps_per_episodes=1,
         true_posterior_samples=None,
     ) -> (List, List, List, List):
-
-        if args.custom_single_prompt:
-            update_timesteps = 1
-            num_rollouts_per_episodes = 1
-
-        else:
-            num_rollouts_per_episodes = (
-                num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
-            )
-            update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
+        num_rollouts_per_episodes = (
+            num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
+        )
+        update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
 
 
         # get eval and save steps
@@ -334,248 +333,131 @@ class BasePPOTrainer(ABC):
         iwae_ubs_list = []
         f_q_estimates_list = []
         g_q_estimates_list = []
+        iwae_lbs_list = []
+        iwae_ubs_list = []
         rewards_list = []
         kl_vals_list = []
         entropy_list = []
+        untrans_ret_list = []
 
-        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list)
+        # Base estimates_list contains non-f_q_g_q metrics
+        estimates_list = (rewards_list, kl_vals_list, entropy_list, untrans_ret_list)
 
         custom_prompt = None
-        if args.custom_single_prompt:
-            if 'TinyStories' in args.pretrain:
-                prompt_text = 'Once upon a time, there was a'
-            elif 'gpt2' in args.pretrain:
-                if args.rm_type == 'toy_rlhf':
-                    prompt_text = "Who is the greatest basketball player of all time?"
-                else:
-                    raise NotImplementedError
-            else:
-                raise NotImplementedError
+        for episode in range(start_episode, args.num_episodes):
+            print(f"PROPOSAL OR TWIST TRAINING EPISODE {episode}", flush=True)
 
-            custom_prompt = [prompt_text] * args.rollout_batch_size
-            print("USING CUSTOM PROMPT")
-            print(len(custom_prompt))
-            start_episode = 0 # TODO later make sure this hasn't messed things up for loading models
-            steps = 0 # TODO later make sure this hasn't messed things up for loading models
-
-
-
-            if not args.no_test_info:
-                self.f_q_g_q_evaluation(args, f_q_estimates_list,
-                                        g_q_estimates_list, iwae_lbs_list,
-                                        iwae_ubs_list, prompt_text,
-                                        true_posterior_samples)
-
-
-
-            for episode in range(start_episode, args.num_episodes):
-
-                print(f"Episode: {episode}", flush=True)
-
-                if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
-                    self.prompts_dataloader.sampler.set_epoch(
-                        episode, consumed_samples=0 if episode > start_episode else consumed_samples
-                    )
-                pbar = tqdm(
-                    range(self.prompts_dataloader.__len__()),
-                    desc=f"Episode [{episode + 1}/{args.num_episodes}]",
-                    disable=not self.strategy.is_rank_0(),
+            if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
+                self.prompts_dataloader.sampler.set_epoch(
+                    episode, consumed_samples=0 if episode > start_episode else consumed_samples
                 )
+            pbar = tqdm(
+                range(self.prompts_dataloader.__len__()),
+                desc=f"Episode [{episode + 1}/{args.num_episodes}]",
+                disable=not self.strategy.is_rank_0(),
+            )
+
+            print("DATALOADER")
+            print(self.prompts_dataloader.sampler, flush=True)
+            print(self.prompts_dataloader.__len__(), flush=True)
+
+            for rand_prompts in self.prompts_dataloader:
+
+                if args.new_custom_single_prompt:
+                    rand_prompts = [args.custom_prompt]
+
+                if not args.no_test_info:
+                    if steps == 1: # do some test at the very beginning
+                        self.test_info_multiprompt(args, rand_prompts, estimates_list)
+
+                # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                #              profile_memory=True, record_shapes=True) as prof:
+
+                # Generate sequences once (with no_grad since generation doesn't need gradients)
+                expanded_prompts = tile_prompts(rand_prompts, args.duplicate_rollout_batch_by)
+                action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_all_data(
+                    expanded_prompts, **self.generate_kwargs)
+
+                # Pass pre-generated sequences to make_experience to avoid duplicate generation
+                # Exploration bonus is calculated inside make_experience
+                experience = self.experience_maker.make_experience(
+                    rand_prompts,
+                    samples_per_prompt=args.duplicate_rollout_batch_by,
+                    sequences=sequences,
+                    action_log_probs=action_log_probs,
+                    action_mask=action_mask,
+                    attention_mask=attention_mask,
+                    num_actions=num_actions,
+                    value=value,
+                    **self.generate_kwargs
+                )
+                
+                # Train coin flip network AFTER exploration bonus calculation
+                # This ensures pseudocounts are correctly initialized near 1 for new states
+                if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
+                    self.experience_maker._train_coin_flip_network(sequences, attention_mask)
+
+                # print("PROFILE1")
+                # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
+
+                # print prompt/answer in each update step
+                if steps % update_timesteps == 0:
+                    output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
+                    self.strategy.print(output[0])
+                self.replay_buffer.append(experience)
+
+                # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                #              profile_memory=True, record_shapes=True) as prof:
+
+                self.total_steps += 1 # do this update before the save_steps, so that saving does happen e.g. if you do 4 save_steps, then on the 4th step, saving will actually happen
+                # so far I modified self.save_logs_and_checkpoints, this should be the only place using self.total_steps
 
 
                 if steps % update_timesteps == 0:
-
-                    print(f"Step: {steps}")
-
                     global_steps = steps // update_timesteps
 
-                    if self.bc_steps > 0:
-                        if global_steps >= self.bc_steps:
-                            self.bc_coef = 0
+                    torch.cuda.empty_cache()
+                    self.replay_buffer.normalize(self.strategy, "advantages")
+                    assert custom_prompt is None
+                    status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
+                    self.replay_buffer.clear()
+                    torch.cuda.empty_cache()
 
-                    num_twist_updates_to_do = args.update_steps_per_episode
-                    if args.exp_num_twist_updates:
-                        if episode == 0:
-                            num_twist_updates_to_do = 2
-                        else:
-                            num_twist_updates_to_do = 2 ** episode
-
-
-                    for update in range(num_twist_updates_to_do):
-                        # Generate sequences once (with no_grad since generation doesn't need gradients)
-                        expanded_prompts = tile_prompts(custom_prompt, args.duplicate_rollout_batch_by)
-                        action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_all_data(
-                            expanded_prompts, **self.generate_kwargs)
-                        
-                        # Pass pre-generated sequences to make_experience to avoid duplicate generation
-                        # Exploration bonus is calculated inside make_experience
-                        experience = self.experience_maker.make_experience(
-                            custom_prompt,
-                            samples_per_prompt=args.duplicate_rollout_batch_by,
-                            sequences=sequences,
-                            action_log_probs=action_log_probs,
-                            action_mask=action_mask,
-                            attention_mask=attention_mask,
-                            num_actions=num_actions,
-                            value=value,
-                            **self.generate_kwargs)
-                        
-                        # Train coin flip network AFTER exploration bonus calculation
-                        # This ensures pseudocounts are correctly initialized near 1 for new states
-                        if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
-                            self.experience_maker._train_coin_flip_network(sequences, attention_mask)
-
-                        if update == 0:
-                            # print prompt/answer ONCE per number of updates
-                            output = self.tokenizer.batch_decode(
-                                experience.sequences,
-                                skip_special_tokens=True)
-                            self.strategy.print(output[0])
-
-                        self.replay_buffer.append(experience)
-
-                        torch.cuda.empty_cache()
-
-                        self.replay_buffer.normalize(self.strategy, "advantages")
-
-                        status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
-                        self.replay_buffer.clear()
-                        torch.cuda.empty_cache()
-
-                        if "kl" in status:
-                            self.kl_ctl.update(status["kl"],
-                                               args.rollout_batch_size)
-                        pbar.set_postfix(status)
-
-
-                    steps = steps + 1
-                    global_steps = steps // update_timesteps
+                    if "kl" in status:
+                        self.kl_ctl.update(status["kl"], args.rollout_batch_size)
+                    pbar.set_postfix(status)
 
                     # logs/checkpoints
-                    client_states = {
-                        "consumed_samples": global_steps * args.rollout_batch_size}
-                    self.save_logs_and_checkpoints(args, global_steps, pbar,
-                                                   status, client_states)
-
-                if not args.no_test_info:
-                    self.f_q_g_q_evaluation(args, f_q_estimates_list,
-                                            g_q_estimates_list, iwae_lbs_list,
-                                            iwae_ubs_list, prompt_text,
-                                            true_posterior_samples)
-
-                pbar.update()
-
-        else:
-            for episode in range(start_episode, args.num_episodes):
-                print(f"PROPOSAL OR TWIST TRAINING EPISODE {episode}", flush=True)
-
-                if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
-                    self.prompts_dataloader.sampler.set_epoch(
-                        episode, consumed_samples=0 if episode > start_episode else consumed_samples
-                    )
-                pbar = tqdm(
-                    range(self.prompts_dataloader.__len__()),
-                    desc=f"Episode [{episode + 1}/{args.num_episodes}]",
-                    disable=not self.strategy.is_rank_0(),
-                )
-
-                print("DATALOADER")
-                print(self.prompts_dataloader.sampler, flush=True)
-                print(self.prompts_dataloader.__len__(), flush=True)
-
-                for rand_prompts in self.prompts_dataloader:
-
-                    if args.new_custom_single_prompt:
-                        rand_prompts = [args.custom_prompt]
+                    client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
+                    self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
 
                     if not args.no_test_info:
-                        if steps == 1: # do some test at the very beginning
+                        if steps % args.test_info_every == 0:
                             self.test_info_multiprompt(args, rand_prompts, estimates_list)
 
-                    # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    #              profile_memory=True, record_shapes=True) as prof:
+                # print("PROFILE2")
+                # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
-                    # Generate sequences once (with no_grad since generation doesn't need gradients)
-                    expanded_prompts = tile_prompts(rand_prompts, args.duplicate_rollout_batch_by)
-                    action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_all_data(
-                        expanded_prompts, **self.generate_kwargs)
+                rewards_list.append(experience.info["untransformed_reward"].mean().item())
+                inspect_rewards_list(rewards_list)
 
-                    # Pass pre-generated sequences to make_experience to avoid duplicate generation
-                    # Exploration bonus is calculated inside make_experience
-                    experience = self.experience_maker.make_experience(
-                        rand_prompts,
-                        samples_per_prompt=args.duplicate_rollout_batch_by,
-                        sequences=sequences,
-                        action_log_probs=action_log_probs,
-                        action_mask=action_mask,
-                        attention_mask=attention_mask,
-                        num_actions=num_actions,
-                        value=value,
-                        **self.generate_kwargs
-                    )
-                    
-                    # Train coin flip network AFTER exploration bonus calculation
-                    # This ensures pseudocounts are correctly initialized near 1 for new states
-                    if self.experience_maker.coin_flip_network is not None and self.experience_maker.coin_flip_optim is not None:
-                        self.experience_maker._train_coin_flip_network(sequences, attention_mask)
+                pbar.update()
+                steps = steps + 1
 
-                    # print("PROFILE1")
-                    # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
-
-                    # print prompt/answer in each update step
-                    if steps % update_timesteps == 0:
-                        output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
-                        self.strategy.print(output[0])
-                    self.replay_buffer.append(experience)
-
-                    # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    #              profile_memory=True, record_shapes=True) as prof:
-
-                    self.total_steps += 1 # do this update before the save_steps, so that saving does happen e.g. if you do 4 save_steps, then on the 4th step, saving will actually happen
-                    # so far I modified self.save_logs_and_checkpoints, this should be the only place using self.total_steps
-
-
-                    if steps % update_timesteps == 0:
-                        global_steps = steps // update_timesteps
-
-                        torch.cuda.empty_cache()
-                        self.replay_buffer.normalize(self.strategy, "advantages")
-                        assert custom_prompt is None
-                        status = self.ppo_train(global_steps, custom_prompt=custom_prompt)
-                        self.replay_buffer.clear()
-                        torch.cuda.empty_cache()
-
-                        if "kl" in status:
-                            self.kl_ctl.update(status["kl"], args.rollout_batch_size)
-                        pbar.set_postfix(status)
-
-                        # logs/checkpoints
-                        client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
-                        self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
-
-                        if not args.no_test_info:
-                            if steps % args.test_info_every == 0:
-                                self.test_info_multiprompt(args, rand_prompts, estimates_list)
-
-                    # print("PROFILE2")
-                    # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
-
-                    rewards_list.append(experience.info["untransformed_reward"].mean().item())
-                    inspect_rewards_list(rewards_list)
-
-                    pbar.update()
-                    steps = steps + 1
-        if args.custom_single_prompt:
-            return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
+        # Always return the base metrics, and if f_q_g_q_eval is enabled, also return f_q/g_q/iwae lists
+        if args.f_q_g_q_eval:
+            return (*estimates_list, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
         else:
             return estimates_list
 
     def test_info_multiprompt(self, args, rand_prompts, estimates_lists):
         total_f_qs, total_rewards, total_kl_vals, total_entropy = None, None, None, None
 
+        raise NotImplementedError # TODO this needs to be checked; make sure that the correct f_q/metrics are being calculated
+
         for i in range(self.n_seeds_f_q):
-            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = self.f_q_estimate(
-                args, rand_prompts)
+            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = f_q_estimate(
+                self, self.experience_maker, args, rand_prompts)
 
             output = self.tokenizer.batch_decode(
                 q_seqs,
@@ -612,200 +494,15 @@ class BasePPOTrainer(ABC):
         print(f"Avg KL to Prior: {total_kl_vals.mean()}")
         print(f"Avg Ent: {total_entropy.mean()}")
 
-        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_lists
+        rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_lists
 
-        f_q_estimates_list.append(total_f_qs.cpu())
+        # test_info_multiprompt computes f_q internally, but doesn't append to f_q_estimates_list
+        # since f_q_estimates_list is only used for f_q_g_q_eval
         rewards_list.append(total_rewards.cpu())
         kl_vals_list.append(total_kl_vals.cpu())
         entropy_list.append(total_entropy.cpu())
 
 
-    def f_q_g_q_evaluation(self, args, f_q_estimates_list, g_q_estimates_list,
-                           iwae_lbs_list, iwae_ubs_list,
-                           prompt_text, true_posterior_samples):
-        # This function appends to f_q_estimates_list and g_q_estimates_list
-        iwae_lbs = torch.zeros((self.n_seeds_f_q,))
-        iwae_ubs = torch.zeros((self.n_seeds_f_q,))
-        total_f_qs = None
-        total_g_qs = None
-        for i in range(self.n_seeds_f_q):
-            custom_prompt_for_f_q = [prompt_text] * args.n_samples_for_f_q
-
-            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = self.f_q_estimate(
-                args, custom_prompt_for_f_q)
-            print("Avg F_q Estimate (Learned Model)")
-            print(f_qs.mean())
-            print("IWAE Lower Bound Estimate (Learned Model)")
-            iwae_lower_bound_estimate = torch.logsumexp(f_qs,
-                                                        dim=0) - torch.log(
-                torch.tensor(f_qs.shape[0]))
-            print(iwae_lower_bound_estimate)
-            iwae_lbs[i] = iwae_lower_bound_estimate.item()
-            # # TODO load the posterior samples, pass through to get g_q estimate
-            # if true_posterior_samples is not None:
-            #     true_posterior_samples = true_posterior_samples.to(
-            #         q_seqs.device)
-            #     # TODO later account for the above possiblity
-            eos_token_id = self.generate_kwargs["eos_token_id"]
-            pad_token_id = self.generate_kwargs["pad_token_id"]
-
-            if i == 0:
-                assert true_posterior_samples is not None
-                range_val = (math.ceil(
-                    true_posterior_samples.shape[0] / args.n_samples_for_f_q))
-                print(range_val)
-                for j in range(range_val):
-                    samples = true_posterior_samples[
-                              j * args.n_samples_for_f_q: (j + 1) * args.n_samples_for_f_q]
-                    if samples.shape[0] != 0:
-                        print("G_q Estimates Learned Model")
-
-                        attention_mask_g_q = (
-                                samples.ne(eos_token_id) & samples.ne(
-                                pad_token_id)).to(
-                            dtype=torch.long)
-
-                        g_qs = self.g_q_estimate(args, samples,
-                                                 num_actions, attention_mask_g_q) # using the f_q mask would be wrong here.
-                        # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
-
-                        print(g_qs)
-                        print("Avg G_q Estimate (Learned Model)")
-                        print(g_qs.mean())
-
-                        if total_g_qs is None:
-                            total_g_qs = g_qs
-                        else:
-                            total_g_qs = torch.cat((total_g_qs, g_qs),
-                                                   axis=0)
-                            print("Total G_qs shape")
-                            print(total_g_qs.shape)
-
-            if true_posterior_samples is not None:
-                iwae_mixture_with_one_post = q_seqs.detach().clone()
-                iwae_mixture_with_one_post[i] = true_posterior_samples[
-                    i]  # To keep the conditioning tokens constant
-                attention_mask_g_q = (
-                    iwae_mixture_with_one_post.ne(eos_token_id) & iwae_mixture_with_one_post.ne(
-                    pad_token_id)).to(
-                    dtype=torch.long)
-                iwae_ub_weights = self.g_q_estimate(args,
-                                                    iwae_mixture_with_one_post,
-                                                    num_actions,
-                                                    attention_mask_g_q
-                                                    )
-                # No attention mask - using the f_q mask would be wrong here.
-                # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
-
-                print("IWAE Upper Bound Estimate (Learned Model)")
-                iwae_upper_bound_estimate = torch.logsumexp(
-                    iwae_ub_weights, dim=0) - torch.log(
-                    torch.tensor(iwae_ub_weights.shape[0]))
-                print(iwae_upper_bound_estimate)
-
-                iwae_ubs[i] = iwae_upper_bound_estimate.item()
-
-            if total_f_qs is None:
-                total_f_qs = f_qs
-
-            else:
-                total_f_qs = torch.cat((total_f_qs, f_qs), axis=0)
-                print("F_Q Shape")
-                print(total_f_qs.shape)
-
-        iwae_lbs_list.append(iwae_lbs)
-        iwae_ubs_list.append(iwae_ubs)
-        print("IWAE LB AND UB")
-        print(iwae_lbs)
-        print(iwae_ubs)
-        print("IWAE LB AND UB LISTS")
-        print(iwae_lbs_list)
-        print(iwae_ubs_list)
-        print("Shapes")
-        print(total_g_qs.shape)
-        print(total_f_qs.shape)
-
-        if total_g_qs is not None:
-            g_q_estimates_list.append(
-                total_g_qs.cpu())  # Only one G_q estimate (over all the posterior samples)
-        f_q_estimates_list.append(total_f_qs.cpu())
-
-
-    def f_q_estimate(self, args, batch_prompt):
-        """
-        Calculate E_q [log sigma(s) - log q(s)]
-        """
-        self.experience_maker.set_all_eval()
-        batch_prompt = tile_prompts(batch_prompt, args.duplicate_rollout_batch_by)
-
-        with torch.no_grad():
-            if self.shared_actorcritic:
-                action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_logprobs(
-                    batch_prompt, **self.generate_kwargs)
-            else:
-                action_log_probs, action_mask, attention_mask, num_actions, sequences = self.experience_maker.generate_seqs_and_get_logprobs(
-                    batch_prompt, **self.generate_kwargs)
-            action_log_probs = action_log_probs.float() * action_mask # more precision
-            log_q = action_log_probs.sum(dim=-1)
-
-            log_tilde_sigma, log_p, log_phi = self.eval_log_p_plus_log_phi(
-                args, action_log_probs, attention_mask, action_mask, num_actions, sequences, return_extra_info=True
-            )
-
-            f_qs = log_tilde_sigma - log_q
-
-        self.experience_maker.set_all_policies_train()
-
-        return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
-
-    @torch.no_grad()
-    def eval_log_p_plus_log_phi(self, args, action_log_probs, attention_mask, action_mask,
-                                num_actions, sequences, return_extra_info=False):
-
-        # Recall that we have p(s_1:T)p(toxic class | s_1:T)^beta which is also
-        # = p(s_1:T)e^{beta log p(toxic class | s_1:T))
-        # Now consider r = log p(toxic class | s_1:T)), then we have the RL setting, but we must have KL penalties
-        # Also, with phi = e^{beta log p(toxic class | s_1:T)), log_phi is simply just beta log p(toxic class | s_1:T)
-        # rewards_no_kl = rewards_no_kl.float() # more precision
-        # log_phi = args.target_dist_beta * rewards_no_kl
-        log_phi, _, _ = self.experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
-
-        base_action_log_probs = self.experience_maker.initial_model(sequences,
-                                                                    num_actions,
-                                                                    attention_mask)
-        base_action_log_probs = base_action_log_probs.float() * action_mask # more precision
-
-        log_p = base_action_log_probs.sum(dim=-1)
-
-        log_tilde_sigma = log_p + log_phi
-        if return_extra_info:
-            return log_tilde_sigma, log_p, log_phi
-        else:
-            return log_tilde_sigma
-
-
-
-    def g_q_estimate(self, args, true_sigma_samples, num_actions, attention_mask, condition_twist_on_tokens=None):
-        self.experience_maker.set_all_eval()
-        sequences = true_sigma_samples
-        with torch.no_grad():
-            if self.shared_actorcritic:
-                action_log_probs, _ = self.experience_maker.actor(sequences,
-                                                               num_actions,
-                                                               attention_mask)
-            else:
-                action_log_probs = self.experience_maker.actor(sequences, num_actions,
-                                              attention_mask)
-            action_log_probs = action_log_probs.float() # more precision
-            log_q = action_log_probs.sum(dim=-1)
-            log_tilde_sigma = self.eval_log_p_plus_log_phi(args, action_log_probs,
-                                    attention_mask, action_mask,
-                                    num_actions, sequences)
-            log_tilde_sigma = log_tilde_sigma.float() # more precision
-
-        self.experience_maker.set_all_policies_train()
-
-        return log_tilde_sigma - log_q
 
     def ppo_train(self, global_steps=0, custom_prompt=None):
         # replay buffer may be empty at first, we should rebuild at each training

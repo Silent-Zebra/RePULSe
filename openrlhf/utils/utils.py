@@ -1,4 +1,5 @@
 import os
+import math
 from pathlib import Path
 
 from datasets import interleave_datasets, load_dataset, load_from_disk
@@ -370,6 +371,54 @@ def get_info_name_str(args):
     return info_name_str
 
 
+def get_posterior_samples_filename(args):
+    """
+    Generate filename for posterior samples based on args, similar to get_info_name_str pattern.
+    
+    Args:
+        args: Command line arguments
+        
+    Returns:
+        str: Full path to save posterior samples file
+    """
+    import re
+    
+    # Abbreviate pretrain (first 2 chars of each segment)
+    pretrain_str = "".join([x[:2] for x in re.split(r"[-_]", args.pretrain.split("/")[-1])])
+    
+    # Abbreviate reward_pretrain (first 2 chars of each segment)
+    reward_pretrain_str = "".join([x[:2] for x in re.split(r"[-_]", args.reward_pretrain.split("/")[-1])])
+    
+    # Get rm_type
+    rm_type_str = args.rm_type
+    
+    # Format target_dist_beta
+    beta_str = f"b{args.target_dist_beta}"
+    
+    # Format seed
+    seed_str = f"s{args.seed}"
+    
+    # Get prompt abbreviation
+    if hasattr(args, 'custom_prompt') and args.custom_prompt and args.custom_prompt != "This man is a":
+        # Use first character of first word
+        custom_prompt_val = args.custom_prompt.strip('"\'')
+        words = custom_prompt_val.split()
+        first_word = words[0] if words else ""
+        prompt_str = first_word[0] if first_word else ""
+    else:
+        # Use abbreviation of prompt_data
+        if args.prompt_data:
+            prompt_str = "".join([x[:2] for x in re.split(r"[-_]", args.prompt_data.split("/")[-1])])
+        else:
+            prompt_str = ""
+    
+    # Construct filename
+    filename = f"posterior_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_{beta_str}_{seed_str}_{prompt_str}.pt"
+    
+    # Return full path
+    return f"{args.save_path}/{filename}"
+
+
 def inspect_rewards_list(rewards_list):
     # print(rewards_list)
     rewards_tensor = torch.tensor(rewards_list)
@@ -455,3 +504,269 @@ def log_sequence_for_negatives(start, end, steps):
     logs = np.linspace(np.log(start_abs), np.log(end_abs), steps)
     seq = np.exp(logs)
     return (sign * seq).tolist()
+
+
+def compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad_token_id):
+    """
+    Compute action_mask from sequences following the pattern in actor.py's process_sequences.
+    
+    Args:
+        sequences: Full sequences tensor of shape (batch_size, seq_len)
+        num_actions: Number of action tokens (response tokens)
+        eos_token_id: End-of-sequence token ID
+        pad_token_id: Padding token ID
+        
+    Returns:
+        action_mask: Boolean tensor of shape (batch_size, num_actions) indicating valid action tokens
+    """
+    # Compute input_len from sequence length and num_actions
+    # sequences shape is (batch_size, seq_len), where seq_len = input_len + num_actions
+    input_len = sequences.shape[1] - num_actions
+    
+    # Extract state sequence (response tokens): state_i (current token) + action_i (next token) -> state_i+1
+    # Following the pattern from actor.py process_sequences
+    state_seq = sequences[:, input_len - 1 : -1]
+    action_mask = state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id)
+    action_mask[:, 0] = 1  # First token is always valid
+    
+    return action_mask
+
+
+@torch.no_grad()
+def eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs, attention_mask, action_mask,
+                            num_actions, sequences, return_extra_info=False):
+    """
+    Evaluate log(p) + log(phi) for target distribution computation.
+    
+    Args:
+        trainer: Trainer instance (needed for access to methods, but not used directly here)
+        experience_maker: Experience maker instance
+        args: Training arguments
+        action_log_probs: Action log probabilities
+        attention_mask: Attention mask
+        action_mask: Action mask
+        num_actions: Number of actions
+        sequences: Generated sequences
+        return_extra_info: Whether to return extra info (log_p, log_phi)
+        
+    Returns:
+        log_tilde_sigma or (log_tilde_sigma, log_p, log_phi) if return_extra_info
+    """
+    log_phi, _, _ = experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
+
+    base_action_log_probs = experience_maker.initial_model(sequences,
+                                                            num_actions,
+                                                            attention_mask)
+    base_action_log_probs = base_action_log_probs.float() * action_mask # more precision
+
+    log_p = base_action_log_probs.sum(dim=-1)
+
+    log_tilde_sigma = log_p + log_phi
+    if return_extra_info:
+        return log_tilde_sigma, log_p, log_phi
+    else:
+        return log_tilde_sigma
+
+
+def f_q_estimate(trainer, experience_maker, args, batch_prompt):
+    """
+    Calculate E_q [log sigma(s) - log q(s)]
+    
+    Args:
+        trainer: Trainer instance (needed for shared_actorcritic and generate_kwargs)
+        experience_maker: Experience maker instance
+        args: Training arguments
+        batch_prompt: Batch of prompts
+        
+    Returns:
+        f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
+    """
+    experience_maker.set_all_eval()
+    batch_prompt = tile_prompts(batch_prompt, args.duplicate_rollout_batch_by)
+
+    with torch.no_grad():
+        if trainer.shared_actorcritic:
+            action_log_probs, action_mask, attention_mask, num_actions, sequences, value = experience_maker.generate_seqs_and_get_logprobs(
+                batch_prompt, **trainer.generate_kwargs)
+        else:
+            action_log_probs, action_mask, attention_mask, num_actions, sequences = experience_maker.generate_seqs_and_get_logprobs(
+                batch_prompt, **trainer.generate_kwargs)
+        action_log_probs = action_log_probs.float() * action_mask # more precision
+        log_q = action_log_probs.sum(dim=-1)
+
+        log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
+            trainer, experience_maker, args, action_log_probs, attention_mask, action_mask, num_actions, sequences, return_extra_info=True
+        )
+
+        f_qs = log_tilde_sigma - log_q
+
+    experience_maker.set_all_policies_train()
+
+    return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
+
+
+def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_actions, attention_mask, condition_twist_on_tokens=None):
+    """
+    Calculate g_q estimate: log(sigma) - log(q) for true sigma samples.
+    
+    Args:
+        trainer: Trainer instance (needed for shared_actorcritic and generate_kwargs)
+        experience_maker: Experience maker instance
+        args: Training arguments
+        true_sigma_samples: True samples from sigma distribution
+        num_actions: Number of actions
+        attention_mask: Attention mask
+        condition_twist_on_tokens: Optional condition tokens
+        
+    Returns:
+        log_tilde_sigma - log_q
+    """
+    experience_maker.set_all_eval()
+    sequences = true_sigma_samples
+    with torch.no_grad():
+        if trainer.shared_actorcritic:
+            action_log_probs, _ = experience_maker.actor(sequences,
+                                                           num_actions,
+                                                           attention_mask)
+        else:
+            action_log_probs = experience_maker.actor(sequences, num_actions,
+                                          attention_mask)
+        action_log_probs = action_log_probs.float() # more precision
+        log_q = action_log_probs.sum(dim=-1)
+        # Compute action_mask from sequences respecting EOS and pad tokens
+        eos_token_id = trainer.generate_kwargs["eos_token_id"]
+        pad_token_id = trainer.generate_kwargs["pad_token_id"]
+        action_mask = compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad_token_id)
+        log_tilde_sigma = eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs,
+                                attention_mask, action_mask,
+                                num_actions, sequences)
+        log_tilde_sigma = log_tilde_sigma.float() # more precision
+
+    experience_maker.set_all_policies_train()
+
+    return log_tilde_sigma - log_q
+
+
+def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_estimates_list,
+                       iwae_lbs_list, iwae_ubs_list,
+                       prompt_text, true_posterior_samples):
+    """
+    Evaluate f_q, g_q, and IWAE bounds.
+    
+    Args:
+        trainer: Trainer instance (needed for n_seeds_f_q, generate_kwargs, and method calls)
+        experience_maker: Experience maker instance
+        args: Training arguments
+        f_q_estimates_list: List to append f_q estimates to
+        g_q_estimates_list: List to append g_q estimates to
+        iwae_lbs_list: List to append IWAE lower bounds to
+        iwae_ubs_list: List to append IWAE upper bounds to
+        prompt_text: Prompt text for evaluation
+        true_posterior_samples: True posterior samples
+    """
+    # This function appends to f_q_estimates_list and g_q_estimates_list
+    iwae_lbs = torch.zeros((trainer.n_seeds_f_q,))
+    iwae_ubs = torch.zeros((trainer.n_seeds_f_q,))
+    total_f_qs = None
+    total_g_qs = None
+    for i in range(trainer.n_seeds_f_q):
+        custom_prompt_for_f_q = [prompt_text] * args.n_samples_for_f_q
+
+        f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = f_q_estimate(
+            trainer, experience_maker, args, custom_prompt_for_f_q)
+        print("Avg F_q Estimate (Learned Model)")
+        print(f_qs.mean())
+        print("IWAE Lower Bound Estimate (Learned Model)")
+        iwae_lower_bound_estimate = torch.logsumexp(f_qs,
+                                                    dim=0) - torch.log(
+            torch.tensor(f_qs.shape[0]))
+        print(iwae_lower_bound_estimate)
+        iwae_lbs[i] = iwae_lower_bound_estimate.item()
+        # # TODO load the posterior samples, pass through to get g_q estimate
+        # if true_posterior_samples is not None:
+        #     true_posterior_samples = true_posterior_samples.to(
+        #         q_seqs.device)
+        #     # TODO later account for the above possiblity
+        eos_token_id = trainer.generate_kwargs["eos_token_id"]
+        pad_token_id = trainer.generate_kwargs["pad_token_id"]
+
+        if i == 0:
+            assert true_posterior_samples is not None
+            range_val = (math.ceil(
+                true_posterior_samples.shape[0] / args.n_samples_for_f_q))
+            print(range_val)
+            for j in range(range_val):
+                samples = true_posterior_samples[
+                          j * args.n_samples_for_f_q: (j + 1) * args.n_samples_for_f_q]
+                if samples.shape[0] != 0:
+                    print("G_q Estimates Learned Model")
+
+                    attention_mask_g_q = (
+                            samples.ne(eos_token_id) & samples.ne(
+                            pad_token_id)).to(
+                        dtype=torch.long)
+
+                    g_qs = g_q_estimate(trainer, experience_maker, args, samples,
+                                         num_actions, attention_mask_g_q) # using the f_q mask would be wrong here.
+                    # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
+
+                    print(g_qs)
+                    print("Avg G_q Estimate (Learned Model)")
+                    print(g_qs.mean())
+
+                    if total_g_qs is None:
+                        total_g_qs = g_qs
+                    else:
+                        total_g_qs = torch.cat((total_g_qs, g_qs),
+                                               axis=0)
+                        print("Total G_qs shape")
+                        print(total_g_qs.shape)
+
+        if true_posterior_samples is not None:
+            iwae_mixture_with_one_post = q_seqs.detach().clone()
+            iwae_mixture_with_one_post[i] = true_posterior_samples[
+                i]  # To keep the conditioning tokens constant
+            attention_mask_g_q = (
+                iwae_mixture_with_one_post.ne(eos_token_id) & iwae_mixture_with_one_post.ne(
+                pad_token_id)).to(
+                dtype=torch.long)
+            iwae_ub_weights = g_q_estimate(trainer, experience_maker, args,
+                                            iwae_mixture_with_one_post,
+                                            num_actions,
+                                            attention_mask_g_q
+                                            )
+            # No attention mask - using the f_q mask would be wrong here.
+            # No attention mask could cause issues with padding TODO should investigate, but at least for my current experiments is not an issue
+
+            print("IWAE Upper Bound Estimate (Learned Model)")
+            iwae_upper_bound_estimate = torch.logsumexp(
+                iwae_ub_weights, dim=0) - torch.log(
+                torch.tensor(iwae_ub_weights.shape[0]))
+            print(iwae_upper_bound_estimate)
+
+            iwae_ubs[i] = iwae_upper_bound_estimate.item()
+
+        if total_f_qs is None:
+            total_f_qs = f_qs
+
+        else:
+            total_f_qs = torch.cat((total_f_qs, f_qs), axis=0)
+            print("F_Q Shape")
+            print(total_f_qs.shape)
+
+    iwae_lbs_list.append(iwae_lbs)
+    iwae_ubs_list.append(iwae_ubs)
+    print("IWAE LB AND UB")
+    print(iwae_lbs)
+    print(iwae_ubs)
+    print("IWAE LB AND UB LISTS")
+    print(iwae_lbs_list)
+    print(iwae_ubs_list)
+    print("Shapes")
+    print(total_g_qs.shape)
+    print(total_f_qs.shape)
+
+    if total_g_qs is not None:
+        g_q_estimates_list.append(
+            total_g_qs.cpu())  # Only one G_q estimate (over all the posterior samples)
+    f_q_estimates_list.append(total_f_qs.cpu())

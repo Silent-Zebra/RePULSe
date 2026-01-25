@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_posterior_samples_filename
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -261,8 +261,6 @@ def train(args):
     # configure scheduler
     num_update_steps_per_episodes = len(prompts_dataset) // args.train_batch_size * args.max_epochs
     num_update_steps_per_episodes = max(num_update_steps_per_episodes, 1) # ensure at least 1
-    if args.custom_single_prompt:
-        num_update_steps_per_episodes = args.max_epochs
 
 
     max_steps = math.ceil(args.num_episodes * num_update_steps_per_episodes)
@@ -449,6 +447,35 @@ def train(args):
 
         true_posterior_samples = true_posterior_samples.to(next(actor.parameters()).device)
 
+    # Early exit for rejection sampling mode
+    if args.rejection_sample_true_target_only:
+        strategy.print("Running rejection sampling mode - skipping normal training")
+        
+        # Validation
+        if args.rm_type != "rlhf":
+            raise NotImplementedError(f"Rejection sampling currently only supports rm_type='rlhf', got '{args.rm_type}'")
+        if args.reward_clamp is None:
+            raise ValueError("--reward_clamp must be set (not None) when using --rejection_sample_true_target_only")
+        if args.target_dist_beta is None:
+            raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
+        
+        # Ensure we have prompts_dataloader set up (if not using custom prompt)
+        prompts_dataloader = None
+        if not args.new_custom_single_prompt:
+            if args.only_evaluate_on_neg_data:
+                raise ValueError("Cannot use --rejection_sample_true_target_only with --only_evaluate_on_neg_data when not using --new_custom_single_prompt")
+            # Get prompts dataset
+            pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+            prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
+        else:
+            # For custom prompt, we'll handle it in the function
+            strategy.print(f"Using custom prompt: {args.custom_prompt}")
+        
+        do_rejection_sampling_for_posterior_samples(
+            args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader
+        )
+        strategy.print("Rejection sampling complete. Exiting.")
+        return
 
     estimates_list = None
     untrans_ret_list = None
@@ -503,7 +530,7 @@ def train(args):
             vf_coef=vf_coef,
             model_eval=args.model_eval,
             threshold=args.threshold,
-            reward_cap=args.reward_cap,
+            reward_clamp=args.reward_clamp,
             n_seeds_f_q=args.n_seeds_f_q,
             rm_type=args.rm_type,
             bc_coef=args.bc_coef,
@@ -709,8 +736,50 @@ def train(args):
         untrans_ret_list_sampling = None
 
         if estimates_list is not None:
-            if args.custom_single_prompt:
-                iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list = estimates_list
+            # Unpack the base estimates_list (always returned)
+            if args.do_harmlessness_training:
+                # CombinedHarmlessnessTrainer format: (rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling) = 7 elements
+                # With f_q_g_q_eval: + (f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list) = 11 elements total
+                if len(estimates_list) == 11:
+                    # New format with f_q_g_q_eval: 7 base + 4 f_q/g_q/iwae
+                    rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = estimates_list
+                elif len(estimates_list) == 7:
+                    # Base format without f_q_g_q_eval: 7 elements
+                    rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling = estimates_list
+                    f_q_estimates_list = None
+                    g_q_estimates_list = None
+                    iwae_lbs_list = None
+                    iwae_ubs_list = None
+                else:
+                    # Old format (6 elements without bonus)
+                    rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling = estimates_list
+                    bonus_vals_list_sampling = None
+                    f_q_estimates_list = None
+                    g_q_estimates_list = None
+                    iwae_lbs_list = None
+                    iwae_ubs_list = None
+            else:
+                # BasePPOTrainer format: (rewards_list, kl_vals_list, entropy_list, untrans_ret_list) = 4 elements
+                # With f_q_g_q_eval: + (f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list) = 8 elements total
+                if len(estimates_list) == 8:
+                    # Base format with f_q_g_q_eval: 4 base + 4 f_q/g_q/iwae
+                    rewards_list, kl_vals_list, entropy_list, untrans_ret_list, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = estimates_list
+                    rewards_list_sampling = None
+                    untrans_ret_list_sampling = None
+                    bonus_vals_list_sampling = None
+                else:
+                    # Base format without f_q_g_q_eval: 4 elements
+                    rewards_list, kl_vals_list, entropy_list, untrans_ret_list = estimates_list
+                    rewards_list_sampling = None
+                    untrans_ret_list_sampling = None
+                    bonus_vals_list_sampling = None
+                    f_q_estimates_list = None
+                    g_q_estimates_list = None
+                    iwae_lbs_list = None
+                    iwae_ubs_list = None
+
+            # Save f_q/g_q/iwae stuff separately (only if f_q_g_q_eval was done and lists are not empty)
+            if args.f_q_g_q_eval and f_q_estimates_list is not None and len(f_q_estimates_list) > 0:
                 print("FINAL RESULTS IWAE LB LIST", flush=True)
                 print(iwae_lbs_list)
                 print("FINAL RESULTS IWAE UB LIST", flush=True)
@@ -719,8 +788,7 @@ def train(args):
                 print(f_q_estimates_list)
                 print("FINAL RESULTS G_Q", flush=True)
                 print(g_q_estimates_list)
-
-                print("SAVING RESULTS", flush=True)
+                print("SAVING F_Q/G_Q/IWAE RESULTS", flush=True)
 
                 target_to_save = (
                     f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
@@ -728,40 +796,47 @@ def train(args):
                 save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
                 torch.save(target_to_save, save_str)
 
-            else:
-                # Unpack sampling rewards for harmlessness training (even if neg_sample_only)
-                if args.do_harmlessness_training:
-                    # Handle both old format (7 elements) and new format (8 elements with bonus)
-                    if len(estimates_list) == 8:
-                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling = estimates_list
-                    else:
-                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling = estimates_list
-                        bonus_vals_list_sampling = None  # Old format doesn't have bonus
-                else:
-                    f_q_estimates_list, rewards_list, kl_vals_list, entropy_list = estimates_list
-                    bonus_vals_list_sampling = None
-                
-                if not args.neg_sample_only: # This stuff records it for p (base actor), so if skipping training p, this stuff will be empty
-                    # Also true for new_custom_single_prompt
-                    print("FINAL RESULTS F_Q", flush=True)
-                    print(f_q_estimates_list)
-                    print("FINAL RESULTS REWARD", flush=True)
-                    print(rewards_list)
-                    print("FINAL RESULTS KL TO PRIOR", flush=True)
-                    print(kl_vals_list)
-                    print("FINAL RESULTS ENTROPY", flush=True)
-                    print(entropy_list)
-                    print("FINAL RESULTS UNTRANSFORMED RETURN (Including KL)", flush=True)
-                    print(untrans_ret_list)
-                    print("SAVING RESULTS", flush=True)
+            # Save the base metrics separately (always saved if not empty)
+            if not args.neg_sample_only: # This stuff records it for p (base actor), so if skipping training p, this stuff will be empty
+                print("FINAL RESULTS REWARD", flush=True)
+                print(rewards_list)
+                print("FINAL RESULTS KL TO PRIOR", flush=True)
+                print(kl_vals_list)
+                print("FINAL RESULTS ENTROPY", flush=True)
+                print(entropy_list)
+                print("FINAL RESULTS UNTRANSFORMED RETURN (Including KL)", flush=True)
+                print(untrans_ret_list)
+                print("SAVING BASE METRICS", flush=True)
 
+                target_to_save = (
+                    rewards_list, kl_vals_list, entropy_list, untrans_ret_list
+                )
+                save_str = f"{args.save_info_path}/rew_kltoprior_ent_untransret_{info_name_str}"
+                torch.save(target_to_save, save_str)
+
+                inspect_rewards_list(rewards_list)
+
+            # Save sampling metrics for harmlessness training (if available)
+            if args.do_harmlessness_training and rewards_list_sampling is not None and len(rewards_list_sampling) > 0:
+                print("FINAL RESULTS SAMPLING REWARD", flush=True)
+                print(rewards_list_sampling)
+                print("FINAL RESULTS SAMPLING UNTRANSFORMED RETURN", flush=True)
+                print(untrans_ret_list_sampling)
+                if bonus_vals_list_sampling is not None and len(bonus_vals_list_sampling) > 0:
+                    print("FINAL RESULTS SAMPLING BONUS", flush=True)
+                    print(bonus_vals_list_sampling)
+                print("SAVING SAMPLING METRICS", flush=True)
+
+                if bonus_vals_list_sampling is not None:
                     target_to_save = (
-                        f_q_estimates_list, rewards_list, kl_vals_list, entropy_list
+                        rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling
                     )
-                    save_str = f"{args.save_info_path}/f_q_rew_kltoprior_ent_{info_name_str}"
-                    torch.save(target_to_save, save_str)
-
-                    inspect_rewards_list(rewards_list)
+                else:
+                    target_to_save = (
+                        rewards_list_sampling, untrans_ret_list_sampling
+                    )
+                save_str = f"{args.save_info_path}/rew_untransret_sampling_{info_name_str}"
+                torch.save(target_to_save, save_str)
 
         if args.save_negdata:
             strategy.print("SAVING NEG DATA")
@@ -1902,6 +1977,183 @@ def calculate_analytic_kl_toxicity_single_token(
     return kl_sigma_q, kl_q_sigma, metrics_dict
 
 
+def do_rejection_sampling_for_posterior_samples(args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader):
+    """
+    Perform rejection sampling to generate true posterior samples.
+    
+    Target distribution: target(x) ∝ p(x) * e^(β * r(x))
+    Proposal distribution: p(x) (base actor)
+    Acceptance probability: e^(β * clamped_r) / M, where M = e^(|clamp * beta|)
+    """
+    # Validation
+    if args.rm_type != "rlhf":
+        raise NotImplementedError(f"Rejection sampling currently only supports rm_type='rlhf', got '{args.rm_type}'")
+    if args.reward_clamp is None:
+        raise ValueError("--reward_clamp must be set (not None) when using --rejection_sample_true_target_only")
+    if args.target_dist_beta is None:
+        raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
+    if args.true_target_sample_amount <= 0:
+        raise ValueError(f"--true_target_sample_amount must be > 0, got {args.true_target_sample_amount}")
+    
+    strategy.print("Starting rejection sampling for posterior samples...")
+    
+    # Setup
+    base_actor.eval()
+    reward_model.eval()
+    device = next(base_actor.parameters()).device
+    
+    # Generate filename
+    filename = get_posterior_samples_filename(args)
+    strategy.print(f"Will save posterior samples to: {filename}")
+    
+    # Calculate rejection bound M = e^(|clamp * beta|)
+    M = torch.exp(torch.abs(torch.tensor(args.reward_clamp * args.target_dist_beta, device=device, dtype=torch.float32)))
+    strategy.print(f"Rejection bound M = e^(|{args.reward_clamp} * {args.target_dist_beta}|) = {M.item():.4f}")
+    
+    # Handle prompts
+    if args.new_custom_single_prompt:
+        # Use custom prompt
+        prompts = [args.custom_prompt]
+        strategy.print(f"Using custom prompt: {args.custom_prompt}")
+    else:
+        # Extract prompts from dataloader
+        prompts = []
+        for batch in prompts_dataloader:
+            # Dataloader returns batches, which are lists/tuples of prompt strings
+            if isinstance(batch, (list, tuple)):
+                prompts.extend(batch)
+            elif isinstance(batch, str):
+                prompts.append(batch)
+            else:
+                # If it's a tensor or other type, try to convert
+                prompts.extend([str(p) for p in batch])
+        strategy.print(f"Found {len(prompts)} prompts from dataloader")
+    
+    # Storage for accepted samples per prompt
+    posterior_samples_by_prompt = []
+    
+    # Generation kwargs
+    generate_kwargs = {
+        "max_new_tokens": args.generate_max_len,
+        "eos_token_id": tokenizer.eos_token_id,
+        "pad_token_id": tokenizer.pad_token_id,
+        "do_sample": True,
+        "temperature": 1.0,
+    }
+    
+    # Tokenize function (similar to experience_maker)
+    def tokenize_fn(texts, max_length, device):
+        batch = tokenizer(
+            texts,
+            return_tensors="pt",
+            add_special_tokens=False,
+            max_length=max_length,
+            padding=True,
+            truncation=True,
+        )
+        return {k: v.to(device) for k, v in batch.items()}
+    
+    # Process each prompt
+    total_generated_all = 0
+    total_accepted_all = 0
+    
+    for prompt_idx, prompt in enumerate(prompts):
+        strategy.print(f"\nProcessing prompt {prompt_idx + 1}/{len(prompts)}")
+        accepted_samples = []
+        total_generated = 0
+        total_accepted = 0
+        iteration = 0
+        
+        # Continue sampling until we have enough accepted samples
+        while len(accepted_samples) < args.true_target_sample_amount:
+            iteration += 1
+            
+            # Generate batch of samples from base actor
+            batch_size = args.rollout_batch_size
+            prompt_batch = [prompt] * batch_size
+            
+            # Tokenize prompts
+            inputs = tokenize_fn(prompt_batch, args.prompt_max_len, device=device)
+            
+            # Generate sequences
+            with torch.no_grad():
+                sequences, attention_mask, action_mask = base_actor.generate(
+                    **inputs,
+                    **generate_kwargs
+                )
+            
+            # Compute rewards
+            with torch.no_grad():
+                rewards = reward_model(sequences, attention_mask)
+                rewards = rewards.squeeze(-1) if rewards.dim() > 1 else rewards  # Ensure shape (batch_size,)
+            
+            # Clamp rewards
+            clamped_rewards = rewards.clamp(min=-args.reward_clamp, max=args.reward_clamp)
+            
+            # Compute e^(beta * clamped_r) for monitoring
+            exp_beta_clamped_r = torch.exp(args.target_dist_beta * clamped_rewards)
+            
+            # Compute acceptance probabilities
+            accept_prob = exp_beta_clamped_r / M
+            accept_prob = torch.clamp(accept_prob, min=0.0, max=1.0)
+            
+            # Perform rejection sampling
+            u = torch.rand_like(accept_prob)
+            accept_mask = u < accept_prob
+            
+            # Extract accepted sequences
+            accepted_sequences = sequences[accept_mask]
+            
+            # Convert to CPU and store
+            for seq in accepted_sequences:
+                accepted_samples.append(seq.cpu().tolist())
+            
+            # Update counters
+            batch_size_actual = sequences.shape[0]
+            total_generated += batch_size_actual
+            total_accepted += accept_mask.sum().item()
+            
+            # Print progress periodically
+            if iteration % 10 == 0 or len(accepted_samples) >= args.true_target_sample_amount:
+                acceptance_rate = total_accepted / total_generated if total_generated > 0 else 0.0
+                exp_beta_mean = exp_beta_clamped_r.mean().item()
+                exp_beta_min = exp_beta_clamped_r.min().item()
+                exp_beta_max = exp_beta_clamped_r.max().item()
+                strategy.print(f"  Iteration {iteration}: {len(accepted_samples)}/{args.true_target_sample_amount} accepted, "
+                             f"{total_generated} generated, acceptance rate: {acceptance_rate:.4f}")
+                strategy.print(f"    e^(beta * clamped_r): mean={exp_beta_mean:.6f}, min={exp_beta_min:.6f}, max={exp_beta_max:.6f}, bound M={M.item():.6f}")
+        
+        # Truncate to exact target amount
+        accepted_samples = accepted_samples[:args.true_target_sample_amount]
+        
+        # Store for this prompt
+        posterior_samples_by_prompt.append(accepted_samples)
+        
+        # Print statistics for this prompt
+        final_acceptance_rate = total_accepted / total_generated if total_generated > 0 else 0.0
+        strategy.print(f"Prompt {prompt_idx + 1} complete: {len(accepted_samples)} samples accepted "
+                      f"from {total_generated} generated (acceptance rate: {final_acceptance_rate:.4f})")
+        
+        total_generated_all += total_generated
+        total_accepted_all += total_accepted
+    
+    # Format output (matching loading format)
+    true_posterior_samples_by_prompt_and_by_token = posterior_samples_by_prompt
+    
+    # Save on rank 0 only
+    if strategy.is_rank_0():
+        torch.save(true_posterior_samples_by_prompt_and_by_token, filename)
+        strategy.print(f"\nSaved posterior samples to: {filename}")
+    
+    # Print final statistics
+    overall_acceptance_rate = total_accepted_all / total_generated_all if total_generated_all > 0 else 0.0
+    strategy.print(f"\nFinal statistics:")
+    strategy.print(f"  Total samples generated: {total_generated_all}")
+    strategy.print(f"  Total samples accepted: {total_accepted_all}")
+    strategy.print(f"  Overall acceptance rate: {overall_acceptance_rate:.4f}")
+    strategy.print(f"  Samples per prompt: {args.true_target_sample_amount}")
+
+
 def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                  critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
                                  strategy, tokenizer, true_posterior_samples, vf_coef):
@@ -2120,8 +2372,6 @@ def get_reward_model(args, strategy):
             )
 
         else:
-            if args.custom_single_prompt:
-                raise NotImplementedError  # Below does not necessarily work with my custom reward models
 
             reward_model = get_llm_for_sequence_regression(
                 args.reward_pretrain,
@@ -2414,9 +2664,6 @@ if __name__ == "__main__":
         "--apply_chat_template", action="store_true", default=False, help="Use HF tokenizer chat template"
     )
     parser.add_argument(
-        "--custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
-    )
-    parser.add_argument(
         "--new_custom_single_prompt", action="store_true", default=False, help="Use only a single custom prompt"
     )
     parser.add_argument(
@@ -2438,7 +2685,7 @@ if __name__ == "__main__":
                                  "indicator_below_threshold", "sentiment_threshold",
                                  "p_last_tokens", "toy_test", "rlhf"])
     parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score (or whatever score used for indicator_below_threshold)")
-    parser.add_argument("--reward_cap", type=float, default=10000, help="Only for use with rlhf rm_type")
+    parser.add_argument("--reward_clamp", type=float, default=None, help="Clamp reward values between [-clamp, +clamp]. If None, no clamping is performed. Only for use with rlhf rm_type")
     parser.add_argument(
         "--save_negdata", action="store_true", default=False, help="Save a dataset of negative examples"
     )
@@ -2477,14 +2724,17 @@ if __name__ == "__main__":
 
     parser.add_argument("--load_posterior_samples", action="store_true", help="load posterior samples from saved checkpoint instead of creating new ones")
     parser.add_argument("--load_posterior_samples_name", type=str, default='.', help="Full filename of what to load for posterior samples")
+    parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true posterior samples. Saves samples to file. Requires --rm_type rlhf and --reward_clamp to be set.")
+    parser.add_argument("--true_target_sample_amount", type=int, default=1000, help="Number of accepted samples to collect via rejection sampling (continues sampling until this many are accepted)")
     parser.add_argument("--save_info_path", type=str, default="./info")
-    parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for custom_single_prompt)")
+    parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for f_q_g_q_eval)")
     parser.add_argument("--n_seeds_f_q", type=int, default=4, help="Number of seeds to use for f_q")
 
 
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss outer loop) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
     parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
+    parser.add_argument("--f_q_g_q_eval", action="store_true", default=False, help="Enable f_q/g_q/IWAE evaluation (requires --new_custom_single_prompt)")
     parser.add_argument("--test_info_every", type=int, default=1, help="Test info (e.g., F_q) after this many number of gradient updates")
 
     parser.add_argument(
@@ -2613,8 +2863,8 @@ if __name__ == "__main__":
         args.input_template = None
 
     assert not args.clamp_reward # TODO I have this as default no clamp everywhere; if you want clamp, modify the code for it
-    if not args.custom_single_prompt:
-        print("[Warning] stuff like clamp reward, and probably some other things changed, and not yet tested without custom_single_prompt. The rm_type stuff might also need to be modified too") # TODO
+    if not args.new_custom_single_prompt:
+        print("[Warning] stuff like clamp reward, and probably some other things changed, and not yet tested without new_custom_single_prompt. The rm_type stuff might also need to be modified too") # TODO
 
     if args.actor_loss_type == "ppo":
         assert args.parameterization not in ["policy_psi_unnorm", "policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]

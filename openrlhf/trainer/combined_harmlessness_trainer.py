@@ -20,7 +20,13 @@ from openrlhf.models.coin_flip_network import CoinFlipNetwork
 from openrlhf.models.loss import REINFORCELoss, NegTrainingLoss, NegREINFORCELoss, CTLLoss, DPGLoss
 from openrlhf.models.utils import masked_mean, compute_approx_kl, compute_reward
 from openrlhf.utils.distributed_sampler import DistributedSampler
-from openrlhf.utils.utils import get_info_name_str, tile_prompts, inspect_rewards_list, log_sequence_for_negatives
+from openrlhf.utils.utils import (
+    get_info_name_str,
+    tile_prompts,
+    inspect_rewards_list,
+    log_sequence_for_negatives,
+    f_q_g_q_evaluation,
+)
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
 from openrlhf.trainer.ppo_utils.experience_maker import BaseExperienceMaker, generate_coin_flip_vectors
@@ -84,7 +90,7 @@ class CombinedHarmlessnessTrainer(ABC):
         vf_coef: float = 0.1,
         model_eval: bool = False,
         threshold: float = -5.,
-        reward_cap: float = 4.5,
+        reward_clamp: Optional[float] = None,
         target_dist_beta: float = 1,
         n_seeds_f_q: int = 4,
         rm_type: str = '',
@@ -354,7 +360,7 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_fn,
             shared_actorcritic,
             threshold,
-            reward_cap,
+            reward_clamp,
             1, # target_dist_beta 1 here, because this is just going to need regular rewards for REINFORCE
             self.rew_trans_alpha,
             base_rm_type, 
@@ -389,7 +395,7 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_fn,
             shared_actorcritic,
             threshold,
-            reward_cap,
+            reward_clamp,
             target_dist_beta,
             self.rew_trans_alpha,
             rm_type,
@@ -469,14 +475,15 @@ class CombinedHarmlessnessTrainer(ABC):
         true_posterior_samples=None,
     ) -> (List, List, List, List):
 
-        if args.custom_single_prompt:
-            raise NotImplementedError
+        # Assertion: f_q/g_q evaluation requires f_q_g_q_eval flag and single prompt case
+        if args.f_q_g_q_eval and not args.new_custom_single_prompt:
+            raise NotImplementedError("f_q/g_q evaluation (--f_q_g_q_eval) requires --new_custom_single_prompt (multi-prompt case needs checking)")
 
-        else:
-            num_rollouts_per_episodes = (
-                num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
-            )
-            update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
+        # Extract prompt_text for new_custom_single_prompt case
+        num_rollouts_per_episodes = (
+            num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
+        )
+        update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
 
         print("UPDATE TIMESTEPS")
         print(update_timesteps)
@@ -533,7 +540,8 @@ class CombinedHarmlessnessTrainer(ABC):
         untrans_ret_list_sampling = []
         bonus_vals_list_sampling = []  # TODO: Add support for base_actor bonus tracking
 
-        estimates_list = (f_q_estimates_list, rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling)
+        # estimates_list contains all non-f_q_g_q/iwae metrics
+        estimates_list = (rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling)
 
         custom_prompt = None
 
@@ -552,6 +560,17 @@ class CombinedHarmlessnessTrainer(ABC):
             alpha_schedule = log_sequence_for_negatives(args.start_alpha, args.alpha, total_update_steps)
             print("ALPHA SCHEDULE:")
             print(alpha_schedule)
+
+        # Extract prompt_text for new_custom_single_prompt case
+        prompt_text = None
+        if args.new_custom_single_prompt:
+            prompt_text = args.custom_prompt
+            # Initialize evaluation at start if f_q_g_q_eval is enabled
+            if args.f_q_g_q_eval:
+                f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
+                                        g_q_estimates_list, iwae_lbs_list,
+                                        iwae_ubs_list, prompt_text,
+                                        true_posterior_samples)
 
         for episode in range(start_episode, args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop): # Actually with this current setup is kind of redundant to have these 2 hyperparameters, loops here or in the outer loop, just pick one, doesn't really matter with 1 update each...
             print(f"HARMLESSNESS TRAINING EPISODE {episode}", flush=True)
@@ -596,8 +615,16 @@ class CombinedHarmlessnessTrainer(ABC):
                                                    untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only,
                                                    rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling, bonus_vals_list_sampling=bonus_vals_list_sampling)
 
-        if args.custom_single_prompt:
-            return iwae_lbs_list, iwae_ubs_list, f_q_estimates_list, g_q_estimates_list
+            # Evaluation call after each episode for new_custom_single_prompt case
+            if args.new_custom_single_prompt and args.f_q_g_q_eval and prompt_text is not None:
+                f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
+                                        g_q_estimates_list, iwae_lbs_list,
+                                        iwae_ubs_list, prompt_text,
+                                        true_posterior_samples)
+
+        # Always return the non-f_q_g_q metrics, and if f_q_g_q_eval is enabled, also return f_q/g_q/iwae lists
+        if args.f_q_g_q_eval:
+            return (*estimates_list, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
         else:
             return estimates_list
 

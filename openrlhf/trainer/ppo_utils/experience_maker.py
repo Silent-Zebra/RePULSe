@@ -540,7 +540,7 @@ class BaseExperienceMaker(ABC):
         reward_fn=None,
         shared_actorcritic=False,
         threshold=-5.,
-        reward_cap=4.5,
+        reward_clamp: Optional[float] = None,
         target_dist_beta=1.,
         alpha=0.,
         rm_type=None,
@@ -578,7 +578,7 @@ class BaseExperienceMaker(ABC):
         self.reward_fn = reward_fn
         self.shared_actorcritic = shared_actorcritic
         self.threshold = threshold
-        self.reward_cap = reward_cap
+        self.reward_clamp = reward_clamp
         self.target_dist_beta = target_dist_beta
         self.alpha = alpha
         self.rm_type = rm_type
@@ -736,6 +736,74 @@ class BaseExperienceMaker(ABC):
         
         return exploration_bonus
     
+    def _update_priorities_for_indices(
+        self,
+        indices: torch.Tensor,
+        one_over_counts: torch.Tensor,
+        device: torch.device,
+        update_step: int,
+        debug_label: str,
+        truncate_debug: bool = False
+    ):
+        """
+        Helper method to update priorities for given indices in the replay buffer.
+        
+        Args:
+            indices: Tensor of indices to update, shape (B,)
+            one_over_counts: Tensor of (1/d) * ||f(s)||^2 values, shape (B,)
+            device: Device to use for tensors
+            update_step: Current update step number
+            debug_label: Label for debug prints
+            truncate_debug: Whether to truncate debug output to first 10 elements
+        """
+        # Ensure indices are on the same device
+        indices = indices.to(device)
+        
+        # Debug: Print priorities before update
+        if self.strategy and self.strategy.is_rank_0():
+            old_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in indices.cpu().tolist()])
+            print(f"\n[Priority Debug - {debug_label}]")
+            print(f"  Update step: {update_step}")
+            if truncate_debug:
+                print(f"  Indices being updated: {indices.cpu().tolist()[:min(10, len(indices))]}...")  # First 10
+                print(f"  Priorities BEFORE update: {old_priorities.tolist()[:min(10, len(old_priorities))]}")
+            else:
+                print(f"  Indices being updated: {indices.cpu().tolist()}")
+                print(f"  Priorities BEFORE update: {old_priorities.tolist()}")
+        
+        # Get num_updates for indices (ensure on same device)
+        num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(indices, device=device)  # (B,)
+        
+        # Compute new priorities with fixed α = 0.5
+        # priority(s) = α(1/n_updates(s)) + (1-α)(1/d)(||f(s)||^2)
+        priority_alpha = 0.5
+        new_priorities = priority_alpha * (1.0 / (num_updates + 1.0)) + (1.0 - priority_alpha) * one_over_counts
+        
+        # Debug: Print intermediate values
+        if self.strategy and self.strategy.is_rank_0():
+            if truncate_debug:
+                print(f"  num_updates: {num_updates.cpu().tolist()[:min(10, len(num_updates))]}")
+                print(f"  one_over_counts: {one_over_counts.cpu().tolist()[:min(10, len(one_over_counts))]}")
+                print(f"  new_priorities (computed): {new_priorities.cpu().tolist()[:min(10, len(new_priorities))]}")
+            else:
+                print(f"  num_updates: {num_updates.cpu().tolist()}")
+                print(f"  one_over_counts: {one_over_counts.cpu().tolist()}")
+                print(f"  new_priorities (computed): {new_priorities.cpu().tolist()}")
+        
+        # Update priorities in replay buffer
+        self.coin_flip_replay_buffer.update_priorities(indices, new_priorities)
+        
+        # Debug: Print priorities after update
+        if self.strategy and self.strategy.is_rank_0():
+            updated_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in indices.cpu().tolist()])
+            if truncate_debug:
+                print(f"  Priorities AFTER update: {updated_priorities.tolist()[:min(10, len(updated_priorities))]}")
+            else:
+                print(f"  Priorities AFTER update: {updated_priorities.tolist()}")
+        
+        # Increment num_updates for indices
+        self.coin_flip_replay_buffer.num_updates_buffer.increment(indices)
+    
     def _train_coin_flip_network(self, sequences: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
         """
         Train the coin flip network on the given sequences.
@@ -839,7 +907,7 @@ class BaseExperienceMaker(ABC):
                 else:
                     sampled_embeddings, sampled_coin_flips, sampled_indices = buffer_sample
             else:
-                # Use current batch (first few iterations before buffer has data)
+                # Use current batch (if buffer does not have enough data)
                 if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                     sampled_input_ids = sequences
                     sampled_attention_mask = attention_mask
@@ -872,83 +940,23 @@ class BaseExperienceMaker(ABC):
                 if self.coin_flip_first_online and update_step == 0 and sampled_indices is None:
                     # First update step with coin_flip_first_online: update priorities for newly added samples
                     # The samples were just added, so they are at the end of the buffer
-                    batch_size = sampled_embeddings.shape[0]
+                    current_batch_size = final_predictions.shape[0]
                     new_indices = torch.arange(
-                        self.coin_flip_replay_buffer.size - batch_size,
+                        self.coin_flip_replay_buffer.size - current_batch_size,
                         self.coin_flip_replay_buffer.size,
                         dtype=torch.long,
                         device=device
                     )
-                    
-                    # Debug: Print priorities before update
-                    if self.strategy and self.strategy.is_rank_0():
-                        old_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in new_indices.cpu().tolist()])
-                        print(f"\n[Priority Debug - First Online Update]")
-                        print(f"  Update step: {update_step}")
-                        print(f"  Indices being updated: {new_indices.cpu().tolist()}")
-                        print(f"  Priorities BEFORE update: {old_priorities.tolist()}")
-                    
-                    # Get num_updates for newly added samples (ensure on same device)
-                    num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(new_indices, device=device)  # (B,)
-                    
-                    # Compute new priorities with fixed α = 0.5
-                    # priority(s) = α(1/n_updates(s)) + (1-α)(1/d)(||f(s)||^2)
-                    priority_alpha = 0.5
-                    new_priorities = priority_alpha * (1.0 / (num_updates + 1.0)) + (1.0 - priority_alpha) * one_over_counts
-                    
-                    # Debug: Print intermediate values
-                    if self.strategy and self.strategy.is_rank_0():
-                        print(f"  num_updates: {num_updates.cpu().tolist()}")
-                        print(f"  one_over_counts: {one_over_counts.cpu().tolist()}")
-                        print(f"  new_priorities (computed): {new_priorities.cpu().tolist()}")
-                    
-                    # Update priorities in replay buffer
-                    self.coin_flip_replay_buffer.update_priorities(new_indices, new_priorities)
-                    
-                    # Debug: Print priorities after update
-                    if self.strategy and self.strategy.is_rank_0():
-                        updated_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in new_indices.cpu().tolist()])
-                        print(f"  Priorities AFTER update: {updated_priorities.tolist()}")
-                    
-                    # Increment num_updates for newly added samples
-                    self.coin_flip_replay_buffer.num_updates_buffer.increment(new_indices)
+                    self._update_priorities_for_indices(
+                        new_indices, one_over_counts, device, update_step,
+                        "First Online Update", truncate_debug=False
+                    )
                 elif sampled_indices is not None:
                     # Sampled from buffer: update priorities for sampled indices
-                    # Ensure sampled_indices is on the same device
-                    sampled_indices = sampled_indices.to(device)
-                    
-                    # Debug: Print priorities before update
-                    if self.strategy and self.strategy.is_rank_0():
-                        old_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in sampled_indices.cpu().tolist()])
-                        print(f"\n[Priority Debug - Buffer Sample Update]")
-                        print(f"  Update step: {update_step}")
-                        print(f"  Indices being updated: {sampled_indices.cpu().tolist()[:min(10, len(sampled_indices))]}...")  # First 10
-                        print(f"  Priorities BEFORE update: {old_priorities.tolist()[:min(10, len(old_priorities))]}")
-                    
-                    # Get num_updates for sampled indices (ensure on same device)
-                    num_updates = self.coin_flip_replay_buffer.num_updates_buffer.get(sampled_indices, device=device)  # (B,)
-                    
-                    # Compute new priorities with fixed α = 0.5
-                    # priority(s) = α(1/n_updates(s)) + (1-α)(1/d)(||f(s)||^2)
-                    priority_alpha = 0.5
-                    new_priorities = priority_alpha * (1.0 / (num_updates + 1.0)) + (1.0 - priority_alpha) * one_over_counts
-                    
-                    # Debug: Print intermediate values
-                    if self.strategy and self.strategy.is_rank_0():
-                        print(f"  num_updates: {num_updates.cpu().tolist()[:min(10, len(num_updates))]}")
-                        print(f"  one_over_counts: {one_over_counts.cpu().tolist()[:min(10, len(one_over_counts))]}")
-                        print(f"  new_priorities (computed): {new_priorities.cpu().tolist()[:min(10, len(new_priorities))]}")
-                    
-                    # Update priorities in replay buffer
-                    self.coin_flip_replay_buffer.update_priorities(sampled_indices, new_priorities)
-                    
-                    # Debug: Print priorities after update
-                    if self.strategy and self.strategy.is_rank_0():
-                        updated_priorities = torch.tensor([self.coin_flip_replay_buffer.priorities[i] for i in sampled_indices.cpu().tolist()])
-                        print(f"  Priorities AFTER update: {updated_priorities.tolist()[:min(10, len(updated_priorities))]}")
-                    
-                    # Increment num_updates for sampled indices
-                    self.coin_flip_replay_buffer.num_updates_buffer.increment(sampled_indices)
+                    self._update_priorities_for_indices(
+                        sampled_indices, one_over_counts, device, update_step,
+                        "Buffer Sample Update", truncate_debug=True
+                    )
 
             print_info = False # True
             if print_info:
@@ -1245,7 +1253,7 @@ class BaseExperienceMaker(ABC):
                       f"Max bonus: {exploration_bonuses.max().item():.4f}")
 
         elif self.remote_rm_url is not None:
-            # TODO not yet supported/checked with custom_single_prompt
+            # TODO not yet supported/checked with new_custom_single_prompt
 
             # remote RM
             queries = self.tokenizer.batch_decode(sequences.cpu(),
@@ -1362,13 +1370,16 @@ class BaseExperienceMaker(ABC):
                       f"Max bonus: {exploration_bonus.max().item():.4f}")
             # else: exploration_bonus already initialized to zeros above
             
-            capped_reward = torch.minimum(score, self.reward_cap * torch.ones_like(score))
+            if self.reward_clamp is not None:
+                clamped_reward = torch.clamp(score, min=-self.reward_clamp, max=self.reward_clamp)
+            else:
+                clamped_reward = score
 
             # print(score)
-            # print(capped_reward)
+            # print(clamped_reward)
             # print(self.target_dist_beta) # Debug only
 
-            final_reward = capped_reward # Here, 1/beta log phi = 1/beta log e^beta (capped r) = capped r.
+            final_reward = clamped_reward # Here, 1/beta log phi = 1/beta log e^beta (clamped r) = clamped r.
 
         else:
             raise NotImplementedError
