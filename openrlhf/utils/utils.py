@@ -398,6 +398,11 @@ def get_target_samples_filename(args):
     # Format seed
     seed_str = f"s{args.seed}"
     
+    # Format reward_clamp if rm_type is rlhf
+    reward_clamp_str = ""
+    if args.rm_type == "rlhf" and hasattr(args, 'reward_clamp') and args.reward_clamp is not None:
+        reward_clamp_str = f"_rc{args.reward_clamp}"
+    
     # Get prompt abbreviation
     if hasattr(args, 'custom_prompt') and args.custom_prompt and args.custom_prompt != "This man is a":
         # Use first character of first word
@@ -412,8 +417,11 @@ def get_target_samples_filename(args):
         else:
             prompt_str = ""
     
+    # Format true_target_sample_amount (at the end)
+    tsa_str = f"tsa{args.true_target_sample_amount}"
+    
     # Construct filename
-    filename = f"target_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_{beta_str}_{seed_str}_{prompt_str}.pt"
+    filename = f"target_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_{beta_str}_{seed_str}{reward_clamp_str}_{prompt_str}_{tsa_str}.pt"
     
     # Return full path
     return f"{args.save_path}/{filename}"
