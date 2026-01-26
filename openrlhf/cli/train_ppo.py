@@ -719,7 +719,6 @@ def train(args):
             strategy.print("-----HARMLESSNESS TRAINING-----")
             # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
             if args.harmlessness_training_num_episodes > 0:
-                # assert args.num_episodes == 1  # Right now only supports 1 twist/proposal update per base_actor update
                 estimates_list = harmlessness_trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
                     num_update_steps_per_episodes, true_target_samples
@@ -2940,8 +2939,7 @@ if __name__ == "__main__":
         assert args.target_dist_beta is not None
 
     if args.fit_steps != 1:
-        assert args.new_custom_single_prompt
-        assert args.analytic_bad_word_calc or args.analytic_calc # otherwise not yet tested
+        assert args.new_custom_single_prompt # otherwise not yet tested
 
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
