@@ -615,12 +615,12 @@ class CombinedHarmlessnessTrainer(ABC):
                                                    untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only,
                                                    rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling, bonus_vals_list_sampling=bonus_vals_list_sampling)
 
-            # Evaluation call after each episode for new_custom_single_prompt case
-            if args.new_custom_single_prompt and args.f_q_g_q_eval and prompt_text is not None:
-                f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
-                                        g_q_estimates_list, iwae_lbs_list,
-                                        iwae_ubs_list, prompt_text,
-                                        true_target_samples)
+        # Evaluation call after each set of harmlessness training episodes for new_custom_single_prompt case
+        if args.new_custom_single_prompt and args.f_q_g_q_eval and prompt_text is not None:
+            f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
+                                    g_q_estimates_list, iwae_lbs_list,
+                                    iwae_ubs_list, prompt_text,
+                                    true_target_samples)
 
         # Always return the non-f_q_g_q metrics, and if f_q_g_q_eval is enabled, also return f_q/g_q/iwae lists
         if args.f_q_g_q_eval:

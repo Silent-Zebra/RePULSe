@@ -251,7 +251,7 @@ def make_frontier_bootstrap(
     print(f"Figure saved to {figname}")
 
 
-def make_frontier_kl_bootstrap(
+def make_frontier_exact_kl_bootstrap(
     xlabel, ylabel, figname, labels, results_list,
     color_list, marker_list, xlimlow=None, xlimhigh=None, fontsize=7, legendfontsize=7,
     aggregate_seeds=False, alpha_error=0.2,
@@ -260,8 +260,9 @@ def make_frontier_kl_bootstrap(
     ylimlow=None, ylimhigh=None,
 ):
     """
-    Plot KL divergence on two axes (KL(sigma_p || q) vs KL(q || sigma_p)).
-    
+    Plot KL divergence on two axes (KL(sigma_p || q) vs KL(q || sigma_p)),
+    using exact/analytic KL values per seed.
+
     results_list should contain tuples of (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
     where kl_sigma_q_list and kl_q_sigma_list are lists of KL values per prompt/evaluation.
     """
@@ -416,6 +417,126 @@ def make_frontier_kl_bootstrap(
 
     plt.savefig(figname)
     print(f"Figure saved to {figname}")
+
+
+def _to_scalar(x):
+    """Convert list/tensor to a single float (mean over all elements)."""
+    return float(np.asarray(x).ravel().mean())
+
+
+def load_f_q_g_q_iwae_and_compute_approx_kl(load_dir, f_q_load_prefixes_to_use, map_location='cpu'):
+    """
+    Load f_q/g_q/IWAE bound files, compute a single global log Z (median over all
+    per-seed and per-experiment estimates), then build results_list of (kl_sigma_q, kl_q_sigma)
+    per seed in the format expected by make_frontier_exact_kl_bootstrap.
+
+    f_q_load_prefixes_to_use: list of lists of filenames; inner list = one experiment,
+    each filename = one seed (full basename, e.g. f_q_g_q_iwae_bounds_OpenRLHF_..._s1).
+    """
+    # Phase 1: load all data and collect log Z estimates (per seed and per experiment)
+    all_logZ_estimates = []
+    cached = []  # cached[i] = list of (f_q_list, g_q_list, iwae_lbs_list, iwae_ubs_list) for each seed
+
+    for i in range(len(f_q_load_prefixes_to_use)):
+        prefix_list = f_q_load_prefixes_to_use[i]
+        exp_data = []
+        for fn in prefix_list:
+            path = os.path.join(load_dir, fn)
+            try:
+                data = torch.load(path, map_location=map_location)
+            except Exception as e:
+                print(f"Warning: Failed to load {path}: {e}")
+                continue
+            if not isinstance(data, (tuple, list)) or len(data) < 4:
+                print(f"Warning: Expected 4-tuple for {path}, got {type(data)}. Skipping.")
+                continue
+            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = data[:4]
+            exp_data.append((f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list))
+
+            # Per-seed log Z
+            if len(iwae_lbs_list) == 0 or len(iwae_ubs_list) == 0:
+                continue
+            lb_per_t = [_to_scalar(iwae_lbs_list[t]) for t in range(len(iwae_lbs_list))]
+            ub_per_t = [_to_scalar(iwae_ubs_list[t]) for t in range(len(iwae_ubs_list))]
+            logZ_seed = (max(lb_per_t) + min(ub_per_t)) / 2.0
+            all_logZ_estimates.append(logZ_seed)
+
+        cached.append(exp_data)
+
+        # Per-experiment log Z (average lb/ub per timestep across seeds, then midpoint)
+        if len(exp_data) == 0:
+            continue
+        T = len(exp_data[0][2])
+        lb_per_t = [
+            np.mean([_to_scalar(exp_data[s][2][t]) for s in range(len(exp_data)) if t < len(exp_data[s][2])])
+            for t in range(T)
+        ]
+        ub_per_t = [
+            np.mean([_to_scalar(exp_data[s][3][t]) for s in range(len(exp_data)) if t < len(exp_data[s][3])])
+            for t in range(T)
+        ]
+        if lb_per_t and ub_per_t:
+            all_logZ_estimates.append((max(lb_per_t) + min(ub_per_t)) / 2.0)
+
+    if not all_logZ_estimates:
+        return [[] for _ in range(len(f_q_load_prefixes_to_use))]
+
+    global_logZ = float(np.median(all_logZ_estimates))
+
+    # Phase 2: build results_list using global_logZ for every seed
+    results_list = []
+    for i in range(len(f_q_load_prefixes_to_use)):
+        exp_data = cached[i]
+        row = []
+        for f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list in exp_data:
+            if len(f_q_estimates_list) == 0 or len(g_q_estimates_list) == 0:
+                continue
+            f_q_last = _to_scalar(f_q_estimates_list[-1])
+            g_q_last = _to_scalar(g_q_estimates_list[-1])
+            kl_q_sigma_seed = global_logZ - f_q_last
+            kl_sigma_q_seed = g_q_last - global_logZ
+            row.append((np.array([kl_sigma_q_seed]), np.array([kl_q_sigma_seed])))
+        results_list.append(row)
+    return results_list
+
+
+def make_frontier_approx_kl_bootstrap(
+    load_dir, f_q_load_prefixes_to_use, labels, color_list, marker_list,
+    xlabel, ylabel, figname,
+    xlimlow=None, xlimhigh=None, fontsize=7, legendfontsize=7,
+    aggregate_seeds=False, alpha_error=0.2,
+    n_bootstrap_draws=5000,
+    compare_to_reference=False,
+    ylimlow=None, ylimhigh=None,
+    map_location='cpu',
+):
+    """
+    Plot approx KL frontier from f_q/g_q/IWAE bound files. Loads those files, computes
+    a global log Z (median of per-seed and per-experiment estimates), then KL(q||sigma)
+    and KL(sigma||q) per seed and forwards to make_frontier_exact_kl_bootstrap.
+    """
+    results_list = load_f_q_g_q_iwae_and_compute_approx_kl(
+        load_dir, f_q_load_prefixes_to_use, map_location=map_location
+    )
+    make_frontier_exact_kl_bootstrap(
+        xlabel=xlabel,
+        ylabel=ylabel,
+        figname=figname,
+        labels=labels,
+        results_list=results_list,
+        color_list=color_list,
+        marker_list=marker_list,
+        xlimlow=xlimlow,
+        xlimhigh=xlimhigh,
+        fontsize=fontsize,
+        legendfontsize=legendfontsize,
+        aggregate_seeds=aggregate_seeds,
+        alpha_error=alpha_error,
+        n_bootstrap_draws=n_bootstrap_draws,
+        compare_to_reference=compare_to_reference,
+        ylimlow=ylimlow,
+        ylimhigh=ylimhigh,
+    )
 
 
 def plot_top_tokens_bar_chart(
@@ -654,6 +775,9 @@ figname_modifier = "toy_len1_01_14_kl_div_fixed_combined2"
 figname_modifier = "toy_len1_01_15_kl_div_fixed_combined"
 figname_modifier = "toy_len1_01_16_kl_div_fixed_combined"
 figname_modifier = "toy_len1_01_17_kl_div_wnn"
+
+
+figname_modifier = "toy_len1_01_27_kl_div_approx"
 
 
 do_1B_experiments = False
@@ -895,215 +1019,225 @@ elif do_1B_experiments and "kl2" in figname_modifier and "len100" in figname_mod
 
 else:
     if "kl_div" in figname_modifier:
-        # Load KL divergence data from analytic_kls_toxicity files
-        # Option 1: Manually specify your KL divergence file prefixes (recommended)
-        # Uncomment and modify the section below:
-        #
-        kl_load_prefixes_to_use = [
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn_s1",
-            #     1, 10),
-            # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd16_cflr0.0001_cfus1024_s1",1,5),
-            # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd1024_cflr0.0001_cfus1024_s1",1,10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_count_s1",
-                1, 10),
+
+        if "approx" not in figname_modifier:
+            # Load KL divergence data from analytic_kls_toxicity files
+            # Option 1: Manually specify your KL divergence file prefixes (recommended)
+            # Uncomment and modify the section below:
+            #
+            kl_load_prefixes_to_use = [
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
+                    1, 10),
+                # make_list(
+                #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn_s1",
+                #     1, 10),
+                # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd16_cflr0.0001_cfus1024_s1",1,5),
+                # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd1024_cflr0.0001_cfus1024_s1",1,10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_count_s1",
+                    1, 10),
 
 
-            # 0 CFUS (or 0 CF lr) is just testing the effect of essentially just adding noise to the reward model (random, unguided noise)
-            # for x in $(ls info/exploretoyrlhfmultifixedcombined/ | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
-            # make_list(
-            #     "after_not_before_analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus64_s3",
-            #     1, 10),
-            make_list(
-                "after_not_before_analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus64_s3",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_s3",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_before_s3",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_s3",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_before_s3",
-                1, 10),
-            # make_list(
-            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus64_before_s3",
-            #     1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_after_s3",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_before_s3",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus4_after_s3",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus4_before_s3",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus64_before_s3",
-                1, 10),
-            # make_list(
-            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0_after_s3",
-            #     1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0_cfus0_after_s3",
-                1, 10),
+                # 0 CFUS (or 0 CF lr) is just testing the effect of essentially just adding noise to the reward model (random, unguided noise)
+                # for x in $(ls info/exploretoyrlhfmultifixedcombined/ | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
+                # make_list(
+                #     "after_not_before_analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus64_s3",
+                #     1, 10),
+                make_list(
+                    "after_not_before_analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus64_s3",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_s3",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_before_s3",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_s3",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_before_s3",
+                    1, 10),
+                # make_list(
+                #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus64_before_s3",
+                #     1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_after_s3",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_before_s3",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus4_after_s3",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus4_before_s3",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus64_before_s3",
+                    1, 10),
+                # make_list(
+                #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0_after_s3",
+                #     1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0_cfus0_after_s3",
+                    1, 10),
 
-            # for x in $(ls info/exploretoyrlhfmultifixedcombined/ | grep firstonl | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_firstonline_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_before_firstonline_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_before_firstonline_s2",
-                1, 10),
+                # for x in $(ls info/exploretoyrlhfmultifixedcombined/ | grep firstonl | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_firstonline_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_before_firstonline_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_before_firstonline_s2",
+                    1, 10),
 
-            # for x in $(ls info/exploretoyrlhfmultifixedcombined2/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_pri_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_before_pri_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_pri_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_pri_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_before_firstonline_pri_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_before_pri_s2",
-                1, 10),
+                # for x in $(ls info/exploretoyrlhfmultifixedcombined2/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_pri_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_before_pri_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_pri_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_pri_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_before_firstonline_pri_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_before_pri_s2",
+                    1, 10),
 
-        ]
+            ]
 
-        kl_load_prefixes_to_use = [
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
-                1, 10),
-            # make_list(
-            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn_s1",
-            #     1, 10),
-            # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd16_cflr0.0001_cfus1024_s1",1,5),
-            # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd1024_cflr0.0001_cfus1024_s1",1,10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_count_s1",
-                1, 10),
+            kl_load_prefixes_to_use = [
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
+                    1, 10),
+                # make_list(
+                #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn_s1",
+                #     1, 10),
+                # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd16_cflr0.0001_cfus1024_s1",1,5),
+                # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd1024_cflr0.0001_cfus1024_s1",1,10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_count_s1",
+                    1, 10),
 
-            # 0 CFUS (or 0 CF lr) is just testing the effect of essentially just adding noise to the reward model (random, unguided noise)
-            # for x in $(ls info/exploretoyrlhfmultifixedcombined/ | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
-            # make_list(
-            #     "after_not_before_analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus64_s3",
-            #     1, 10),
-            make_list(
-                "after_not_before_analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus64_s3",
-                1, 10),
+                # 0 CFUS (or 0 CF lr) is just testing the effect of essentially just adding noise to the reward model (random, unguided noise)
+                # for x in $(ls info/exploretoyrlhfmultifixedcombined/ | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
+                # make_list(
+                #     "after_not_before_analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus64_s3",
+                #     1, 10),
+                make_list(
+                    "after_not_before_analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.003_cfus64_s3",
+                    1, 10),
 
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0_cfus0_after_s3",
-                1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0_cfus0_after_s3",
+                    1, 10),
 
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_s3",
-                1, 10),
-
-
-
-
-            # for x in $(ls info/exploretoyrlhfmultifixedcombined/ | grep firstonl | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_firstonline_s2",
-                1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_s3",
+                    1, 10),
 
 
 
 
-            # for x in $(ls info/exploretoyrlhfmultifixedcombined2/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_pri_s2",
-                1, 10),
+                # for x in $(ls info/exploretoyrlhfmultifixedcombined/ | grep firstonl | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_firstonline_s2",
+                    1, 10),
 
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_s3",
-                1, 10),
 
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_pri_s2",
-                1, 10),
 
-            # for x in $(ls info/exploretoyrlhfmultifixedcombined3/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfbias_after_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.001_after_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.001_fpis0.1_after_s2",
-                1, 10),
-            # make_list(
-            #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.1_fpis0.1_after_s2",
-            #     1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_fpis0.001_after_s2",
-                1, 10),
 
-            # for x in $(ls info/explorecoinflipnn/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfsepnn_after_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfus64_cfsepnn_after_s2",
-                1, 10),
-            make_list(
-                "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfsepnn_after_s2",
-                1, 10),
+                # for x in $(ls info/exploretoyrlhfmultifixedcombined2/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_pri_s2",
+                    1, 10),
 
-        ]
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_s3",
+                    1, 10),
 
-        # kl_load_prefixes_to_use = [
-        #     make_list(
-        #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
-        #         1, 10),
-        #     make_list(
-        #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn_s1",
-        #         1, 10),
-        #     make_list(
-        #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_count_s1",
-        #         1, 10),
-        # ]
-        load_prefixes_to_use = kl_load_prefixes_to_use
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfus4_after_firstonline_pri_s2",
+                    1, 10),
 
-        marker_list = ["D", "o", "P", "v", "x", "x", "x", "^", "^", "^", "o", "P", "v", "v", "v", "P", "o", "o",
-                       "P", "o", "o", "P", "^", "^", "P", "v", "v", "v",
-                       "v", "v", "^", "P", "v", "D", "v", "v", "x", "v",
-                       # 22 23 25 27 28 reinf, ours, baseprop, reinftransf ppo
-                       "v", "v", "v", "^", "^", "x", "x", "x", "x", "D",
-                       "P", "P", "P", "v", "v", "v", "^", "^", "x", "x", "x", "x", "D", "P", "P", "P"]
+                # for x in $(ls info/exploretoyrlhfmultifixedcombined3/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_after_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfbias_after_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.001_after_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.001_fpis0.1_after_s2",
+                    1, 10),
+                # make_list(
+                #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfhis0.1_fpis0.1_after_s2",
+                #     1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_fpis0.001_after_s2",
+                    1, 10),
 
+                # for x in $(ls info/explorecoinflipnn/ | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfsepnn_after_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.0001_cfus64_cfsepnn_after_s2",
+                    1, 10),
+                make_list(
+                    "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi5_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn3.0_cfd64_cflr0.001_cfsepnn_after_s2",
+                    1, 10),
+
+            ]
+
+            # kl_load_prefixes_to_use = [
+            #     make_list(
+            #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_s1",
+            #         1, 10),
+            #     make_list(
+            #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_cfn_s1",
+            #         1, 10),
+            #     make_list(
+            #         "analytic_kls_toxicity_rlhf_di_To_thmaisa_len1_kl0.0_beta-1.0_harml_neg_training_a0.0_policy_psi_q_p_s_t_ctl_epo1_epi10_schconstant_alr3e-05_blr0.0_policy_psi_q_p_s_t_count_s1",
+            #         1, 10),
+            # ]
+            load_prefixes_to_use = kl_load_prefixes_to_use
+
+            marker_list = ["D", "o", "P", "v", "x", "x", "x", "^", "^", "^", "o", "P", "v", "v", "v", "P", "o", "o",
+                           "P", "o", "o", "P", "^", "^", "P", "v", "v", "v",
+                           "v", "v", "^", "P", "v", "D", "v", "v", "x", "v",
+                           # 22 23 25 27 28 reinf, ours, baseprop, reinftransf ppo
+                           "v", "v", "v", "^", "^", "x", "x", "x", "x", "D",
+                           "P", "P", "P", "v", "v", "v", "^", "^", "x", "x", "x", "x", "D", "P", "P", "P"]
+        else:
+            # approx KL stuff
+            kl_load_prefixes_to_use = [
+                make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he5_scc_al3e-05_bl0.0_ppq_c3.0_tb5_s1",1,10),
+                make_list(
+                    "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he5_scc_al3e-05_bl0.0_ppq_tb5_s1",
+                    1, 10),
+
+            ]
 
     else:
         raise Exception("Figname does not correspond to any set of data")
@@ -1280,7 +1414,7 @@ if "final" in figname_modifier:
 else:
     # labels = ['_'.join(a[0].split('len20_')[-1].split('_policy_psi_q_p_s_t_ctl_epo1_')).split('_policy_psi_q_p_s_t')[0] for a in load_prefixes_to_use]
     if "kl_div" in figname_modifier:
-        labels = generate_labels_from_prefixes(load_prefixes_to_use)
+        labels = generate_labels_from_prefixes(kl_load_prefixes_to_use)
     else:
 
         labels = [
@@ -1314,11 +1448,6 @@ else:
 #             labels.append("No Exploration Bonus")
 
 
-results_list = [[] for i in range(len(load_prefixes_to_use))]
-
-
-
-do_load_prefixes(results_list, load_prefixes_to_use, map_location='cpu', load_dir=load_dir)
 
 
 # Below is for new exploration based experiments (toy env for now only with analytic kls)
@@ -1372,34 +1501,59 @@ if do_kl_plot:
     kl_results_list = [[] for i in range(len(kl_load_prefixes_to_use))]
     do_load_prefixes(kl_results_list, kl_load_prefixes_to_use, map_location='cpu', load_dir=load_dir)
 
-    # Plot KL divergence on two axes
-    make_frontier_kl_bootstrap(
-        xlabel="KL(sigma_p || q)",
-        ylabel="KL(q || sigma_p)",
-        figname=f"{figname_modifier}_frontier_kl",
-        labels=kl_labels,
-        results_list=kl_results_list,
-        color_list=kl_color_list,
-        marker_list=kl_marker_list,
-        fontsize=fontsize,
-        legendfontsize=legendfontsize,
-        aggregate_seeds=True,
-        compare_to_reference=compare_to_reference,
-    )
-    
-    # Plot bar chart of top tokens
-    plot_top_tokens_bar_chart(
-        figname=f"{figname_modifier}_top_tokens_bar",
-        labels=kl_labels,
-        results_list=kl_results_list,
-        color_list=kl_color_list,
-        fontsize=fontsize,
-        legendfontsize=legendfontsize,
-        n_bootstrap_draws=5000,
-        n_top_tokens=10,
-    )
+    if "approx" in figname_modifier:
+
+        make_frontier_approx_kl_bootstrap(
+            xlabel="KL(sigma_p || q)",
+            ylabel="KL(q || sigma_p)",
+            figname=f"{figname_modifier}_frontier_kl",
+            load_dir=load_dir,
+            f_q_load_prefixes_to_use=kl_load_prefixes_to_use,
+            labels=kl_labels,
+            color_list=kl_color_list,
+            marker_list=kl_marker_list,
+            fontsize=fontsize,
+            legendfontsize=legendfontsize,
+            aggregate_seeds=True,
+            compare_to_reference=compare_to_reference,
+
+        )
+
+    else:
+
+        # Plot KL divergence on two axes
+        make_frontier_exact_kl_bootstrap(
+            xlabel="KL(sigma_p || q)",
+            ylabel="KL(q || sigma_p)",
+            figname=f"{figname_modifier}_frontier_kl",
+            labels=kl_labels,
+            results_list=kl_results_list,
+            color_list=kl_color_list,
+            marker_list=kl_marker_list,
+            fontsize=fontsize,
+            legendfontsize=legendfontsize,
+            aggregate_seeds=True,
+            compare_to_reference=compare_to_reference,
+        )
+
+        # Plot bar chart of top tokens
+        plot_top_tokens_bar_chart(
+            figname=f"{figname_modifier}_top_tokens_bar",
+            labels=kl_labels,
+            results_list=kl_results_list,
+            color_list=kl_color_list,
+            fontsize=fontsize,
+            legendfontsize=legendfontsize,
+            n_bootstrap_draws=5000,
+            n_top_tokens=10,
+        )
     
     raise SystemExit(0)
+
+
+results_list = [[] for i in range(len(load_prefixes_to_use))]
+
+do_load_prefixes(results_list, load_prefixes_to_use, map_location='cpu', load_dir=load_dir)
 
 if do_gcg:
     gcg_results_list = [[] for i in range(len(gcg_prefixes))]
