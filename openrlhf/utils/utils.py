@@ -395,9 +395,6 @@ def get_target_samples_filename(args):
     # Format target_dist_beta
     beta_str = f"b{args.target_dist_beta}"
     
-    # Format seed
-    seed_str = f"s{args.seed}"
-    
     # Format reward_clamp if rm_type is rlhf
     reward_clamp_str = ""
     if args.rm_type == "rlhf" and hasattr(args, 'reward_clamp') and args.reward_clamp is not None:
@@ -421,7 +418,7 @@ def get_target_samples_filename(args):
     tsa_str = f"tsa{args.true_target_sample_amount}"
     
     # Construct filename
-    filename = f"target_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_{beta_str}_{seed_str}{reward_clamp_str}_{prompt_str}_{tsa_str}.pt"
+    filename = f"target_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_{beta_str}{reward_clamp_str}_{prompt_str}_{tsa_str}.pt"
     
     # Return full path
     return f"{args.save_path}/{filename}"

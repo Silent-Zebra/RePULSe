@@ -504,26 +504,26 @@ class CombinedHarmlessnessTrainer(ABC):
         # if args.num_episodes > 1:
         #     raise NotImplementedError # Later: can create an additional outer loop to allow for more proposal/twist updates per harmlessness update. But 1 is a decent baseline, to keep overhead to a minimum and learn fast...
 
-        print("INSPECT_HARMLESS")
-        print(num_update_steps_per_episodes)
-        print(args.train_batch_size)
-        print(args.max_epochs)
-        print(args.rollout_batch_size)
-        print(args.train_batch_size // args.max_epochs // args.rollout_batch_size)
-
-        print(consumed_samples)
-        print(args.rollout_batch_size)
-        print(num_rollouts_per_episodes)
+        # print("INSPECT_HARMLESS")
+        # print(num_update_steps_per_episodes)
+        # print(args.train_batch_size)
+        # print(args.max_epochs)
+        # print(args.rollout_batch_size)
+        # print(args.train_batch_size // args.max_epochs // args.rollout_batch_size)
+        #
+        # print(consumed_samples)
+        # print(args.rollout_batch_size)
+        # print(num_rollouts_per_episodes)
 
 
         steps = consumed_samples // args.rollout_batch_size * update_timesteps + 1
         start_episode = consumed_samples // args.rollout_batch_size // num_rollouts_per_episodes
         consumed_samples = consumed_samples % (num_rollouts_per_episodes * args.rollout_batch_size)
 
-        print("INSPECT_HARMLESS2")
-        print(steps)
-        print(start_episode)
-        print(consumed_samples)
+        # print("INSPECT_HARMLESS2")
+        # print(steps)
+        # print(start_episode)
+        # print(consumed_samples)
 
         if consumed_samples > 0:
             raise NotImplementedError # Should check that this all works correctly after I modified it.
