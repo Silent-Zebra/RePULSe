@@ -418,7 +418,7 @@ def get_target_samples_filename(args):
     tsa_str = f"tsa{args.true_target_sample_amount}"
     
     # Construct filename
-    filename = f"target_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_{beta_str}{reward_clamp_str}_{prompt_str}_{tsa_str}.pt"
+    filename = f"target_samples_{pretrain_str}_{reward_pretrain_str}_{rm_type_str}_l{args.generate_max_len}_{beta_str}{reward_clamp_str}_{prompt_str}_{tsa_str}.pt"
     
     # Return full path
     return f"{args.save_path}/{filename}"
