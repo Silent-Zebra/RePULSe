@@ -636,6 +636,20 @@ def train(args):
             strategy.print(f"Threshold-based bad word list (reward < {args.threshold}): {bad_word_tokens_ids_threshold}")
             strategy.print(f"Number of tokens with reward < {args.threshold}: {len(bad_word_tokens_ids_threshold)}")
 
+    # Initialize lists to track metrics across all fit_steps
+    # These will be passed into fit() so they accumulate data across all fit steps
+    iwae_lbs_list = []
+    iwae_ubs_list = []
+    f_q_estimates_list = []
+    g_q_estimates_list = []
+    rewards_list = []
+    kl_vals_list = []
+    entropy_list = []
+    untrans_ret_list = []
+    rewards_list_sampling = []
+    untrans_ret_list_sampling = []
+    bonus_vals_list_sampling = []
+
     # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
     for fit_step in range(args.fit_steps):
         prompt = args.custom_prompt  # Define prompt for analytic calculations
@@ -721,7 +735,18 @@ def train(args):
             if args.harmlessness_training_num_episodes > 0:
                 estimates_list = harmlessness_trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-                    num_update_steps_per_episodes, true_target_samples
+                    num_update_steps_per_episodes, true_target_samples,
+                    iwae_lbs_list=iwae_lbs_list,
+                    iwae_ubs_list=iwae_ubs_list,
+                    f_q_estimates_list=f_q_estimates_list,
+                    g_q_estimates_list=g_q_estimates_list,
+                    rewards_list=rewards_list,
+                    kl_vals_list=kl_vals_list,
+                    entropy_list=entropy_list,
+                    untrans_ret_list=untrans_ret_list,
+                    rewards_list_sampling=rewards_list_sampling,
+                    untrans_ret_list_sampling=untrans_ret_list_sampling,
+                    bonus_vals_list_sampling=bonus_vals_list_sampling,
                 )
         else:
             if args.num_episodes > 0:
@@ -730,10 +755,8 @@ def train(args):
                     num_update_steps_per_episodes, true_target_samples
                 )
 
-        rewards_list = None
-        rewards_list_sampling = None
-        untrans_ret_list_sampling = None
-
+        # Lists are now passed into fit() and modified in place, so we can use them directly
+        # The return value from fit() contains the same list objects for backward compatibility
         if estimates_list is not None:
             # Unpack the base estimates_list (always returned)
             if args.do_harmlessness_training:

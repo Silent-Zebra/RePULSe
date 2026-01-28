@@ -473,6 +473,17 @@ class CombinedHarmlessnessTrainer(ABC):
         consumed_samples=0,
         num_update_steps_per_episodes=1,
         true_target_samples=None,
+        iwae_lbs_list=None,
+        iwae_ubs_list=None,
+        f_q_estimates_list=None,
+        g_q_estimates_list=None,
+        rewards_list=None,
+        kl_vals_list=None,
+        entropy_list=None,
+        untrans_ret_list=None,
+        rewards_list_sampling=None,
+        untrans_ret_list_sampling=None,
+        bonus_vals_list_sampling=None,
     ) -> (List, List, List, List):
 
         # Assertion: f_q/g_q evaluation requires f_q_g_q_eval flag and single prompt case
@@ -528,17 +539,29 @@ class CombinedHarmlessnessTrainer(ABC):
         if consumed_samples > 0:
             raise NotImplementedError # Should check that this all works correctly after I modified it.
 
-        iwae_lbs_list = []
-        iwae_ubs_list = []
-        f_q_estimates_list = []
-        g_q_estimates_list = []
-        rewards_list = []
-        kl_vals_list = []
-        entropy_list = []
-        untrans_ret_list = []
-        rewards_list_sampling = []
-        untrans_ret_list_sampling = []
-        bonus_vals_list_sampling = []  # TODO: Add support for base_actor bonus tracking
+        # Initialize lists if not provided (for backward compatibility)
+        if iwae_lbs_list is None:
+            iwae_lbs_list = []
+        if iwae_ubs_list is None:
+            iwae_ubs_list = []
+        if f_q_estimates_list is None:
+            f_q_estimates_list = []
+        if g_q_estimates_list is None:
+            g_q_estimates_list = []
+        if rewards_list is None:
+            rewards_list = []
+        if kl_vals_list is None:
+            kl_vals_list = []
+        if entropy_list is None:
+            entropy_list = []
+        if untrans_ret_list is None:
+            untrans_ret_list = []
+        if rewards_list_sampling is None:
+            rewards_list_sampling = []
+        if untrans_ret_list_sampling is None:
+            untrans_ret_list_sampling = []
+        if bonus_vals_list_sampling is None:
+            bonus_vals_list_sampling = []  # TODO: Add support for base_actor bonus tracking
 
         # estimates_list contains all non-f_q_g_q/iwae metrics
         estimates_list = (rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling)
