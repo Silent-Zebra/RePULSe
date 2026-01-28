@@ -539,7 +539,7 @@ def compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad
 
 @torch.no_grad()
 def eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs, attention_mask, action_mask,
-                            num_actions, sequences, return_extra_info=False):
+                            num_actions, sequences, return_extra_info=False, force_no_exploration_bonus=False):
     """
     Evaluate log(p) + log(phi) for target distribution computation.
     
@@ -553,11 +553,12 @@ def eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs, a
         num_actions: Number of actions
         sequences: Generated sequences
         return_extra_info: Whether to return extra info (log_p, log_phi)
+        force_no_exploration_bonus: If True, compute_reward_no_kl skips exploration bonus (e.g. for f_q/g_q evaluation)
         
     Returns:
         log_tilde_sigma or (log_tilde_sigma, log_p, log_phi) if return_extra_info
     """
-    log_phi, _, _ = experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True)
+    log_phi, _, _ = experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True, force_no_exploration_bonus=force_no_exploration_bonus)
 
     base_action_log_probs = experience_maker.initial_model(sequences,
                                                             num_actions,
@@ -600,7 +601,7 @@ def f_q_estimate(trainer, experience_maker, args, batch_prompt):
         log_q = action_log_probs.sum(dim=-1)
 
         log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
-            trainer, experience_maker, args, action_log_probs, attention_mask, action_mask, num_actions, sequences, return_extra_info=True
+            trainer, experience_maker, args, action_log_probs, attention_mask, action_mask, num_actions, sequences, return_extra_info=True, force_no_exploration_bonus=True
         )
 
         f_qs = log_tilde_sigma - log_q
@@ -644,7 +645,7 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
         action_mask = compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad_token_id)
         log_tilde_sigma = eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs,
                                 attention_mask, action_mask,
-                                num_actions, sequences)
+                                num_actions, sequences, force_no_exploration_bonus=True)
         log_tilde_sigma = log_tilde_sigma.float() # more precision
 
     experience_maker.set_all_policies_train()

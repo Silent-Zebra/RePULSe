@@ -1196,6 +1196,7 @@ class BaseExperienceMaker(ABC):
 
     def compute_reward_no_kl(
         self, sequences, attention_mask, class_num=0, multiply_by_beta=False,
+        force_no_exploration_bonus=False,
     ):
         # rewards
         if self.reward_pretrain == "indicator_bad_token":
@@ -1241,8 +1242,8 @@ class BaseExperienceMaker(ABC):
             t0_bad_token_counts = dict(zip(self.bad_word_tokens_ids, t0_counts.cpu().tolist()))
             print("Bad token counts at t=0:", t0_bad_token_counts)
             
-            # Apply exploration bonus if enabled
-            if self.exploration_bonus:
+                # Apply exploration bonus if enabled
+            if self.exploration_bonus and not force_no_exploration_bonus:
                 raise NotImplementedError("Check that exploration bonus is applied correctly for p vs q")
                 exploration_bonuses = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
                 # Add exploration bonus to base reward
@@ -1303,8 +1304,11 @@ class BaseExperienceMaker(ABC):
             assert self.reward_transform is None  # Others not yet implemented
 
         # Initialize exploration_bonus (will be set for specific rm_types)
-        # Initialize to zeros (will be recalculated for specific rm_types that need it)
-        exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=False)
+        # When force_no_exploration_bonus, keep zeros; else recalculate for rm_types that need it
+        if force_no_exploration_bonus:
+            exploration_bonus = torch.zeros(sequences.shape[0], device=sequences.device, dtype=torch.float32)
+        else:
+            exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=False)
 
         if self.rm_type == "exp_beta_toxicity_class_logprob":
             if self.exploration_bonus:
@@ -1348,22 +1352,24 @@ class BaseExperienceMaker(ABC):
             # print("score")
             # print(score)
             
-            # Calculate exploration bonus if enabled
-            exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
+            # Calculate exploration bonus if enabled (and not forced off for e.g. f_q/g_q evaluation)
+            if not force_no_exploration_bonus:
+                exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
+            bonus_for_log = exploration_bonus if not force_no_exploration_bonus else torch.zeros(sequences.shape[0], device=sequences.device, dtype=torch.float32)
             
-            if self.exploration_bonus:
+            if self.exploration_bonus and not force_no_exploration_bonus:
                 raise NotImplementedError("Check sign on bonus")
                 print(f"Exploration bonus applied for indicator_below_threshold. Mean bonus: {exploration_bonus.mean().item():.4f}, "
                       f"Min bonus: {exploration_bonus.min().item():.4f}, "
                       f"Max bonus: {exploration_bonus.max().item():.4f}")
             
             # Add exploration bonus to the log argument: log((score < threshold) + eps + bonus)
-            final_reward = torch.log((score < self.threshold) + eps + exploration_bonus)            
+            final_reward = torch.log((score < self.threshold) + eps + bonus_for_log)            
         elif self.rm_type == "rlhf":
             score = r
             
             # Calculate exploration bonus if enabled (will be added after transformations)
-            if self.exploration_bonus:
+            if self.exploration_bonus and not force_no_exploration_bonus:
                 exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=False)
                 print(f"Exploration bonus calculated for rlhf. Mean bonus: {exploration_bonus.mean().item():.4f}, "
                       f"Min bonus: {exploration_bonus.min().item():.4f}, "
