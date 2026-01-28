@@ -233,7 +233,7 @@ case "$CLUSTER" in
 #SBATCH --partition=ml
 #SBATCH --qos=ml
 #SBATCH --account=ml
-#SBATCH --nodelist=overture,quartet[1-5]
+#SBATCH --nodelist=overture,quartet[1-5],concerto[1-3]
 #SBATCH --nodes=1
 #SBATCH --export=ALL
 #SBATCH --output=$OUTPUT_FILE
