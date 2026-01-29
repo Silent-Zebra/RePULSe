@@ -2220,6 +2220,7 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             experience = trainer.experience_maker.make_experience(
                 rand_prompts,
                 samples_per_prompt=args.duplicate_rollout_batch_by,
+                force_no_exploration_bonus=True,  # Don't update counts during evaluation
                 # force_no_transform=True,
                 **trainer.generate_kwargs
             )

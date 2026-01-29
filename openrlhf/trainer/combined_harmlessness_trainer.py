@@ -676,6 +676,11 @@ class CombinedHarmlessnessTrainer(ABC):
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                 expanded_prompts, **self.generate_kwargs)
 
+            # Update exact_count visits if enabled (before make_experience)
+            if self.sampling_experience_maker_neg.exploration_bonus == "exact_count":
+                track_both = (self.sampling_experience_maker_neg.rm_type == "indicator_below_threshold")
+                self.sampling_experience_maker_neg._update_exact_count_visits(sequences, track_both_positions=track_both)
+
             if self.train_coin_flip_before:
                 if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
                     self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
@@ -1076,7 +1081,11 @@ class CombinedHarmlessnessTrainer(ABC):
                 final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
             else:
                 # experience_neg_sampling = experience here
-                log_phi, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(experience_neg_sampling.sequences, experience_neg_sampling.attention_mask, multiply_by_beta=True)
+                # Use force_no_exploration_bonus=True to avoid double-counting if these sequences were already processed
+                log_phi, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(
+                    experience_neg_sampling.sequences, experience_neg_sampling.attention_mask, 
+                    multiply_by_beta=True, force_no_exploration_bonus=True
+                )
                 final_reward_neg = log_phi.view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
 
 

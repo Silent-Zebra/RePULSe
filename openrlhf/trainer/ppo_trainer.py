@@ -378,6 +378,11 @@ class BasePPOTrainer(ABC):
                 action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.experience_maker.generate_seqs_and_get_all_data(
                     expanded_prompts, **self.generate_kwargs)
 
+                # Update exact_count visits if enabled (before make_experience)
+                if self.experience_maker.exploration_bonus == "exact_count":
+                    track_both = (self.experience_maker.rm_type == "indicator_below_threshold")
+                    self.experience_maker._update_exact_count_visits(sequences, track_both_positions=track_both)
+
                 # Pass pre-generated sequences to make_experience to avoid duplicate generation
                 # Exploration bonus is calculated inside make_experience
                 experience = self.experience_maker.make_experience(

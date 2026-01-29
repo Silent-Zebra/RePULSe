@@ -679,6 +679,8 @@ class BaseExperienceMaker(ABC):
     ) -> torch.Tensor:
         """
         Calculate exploration bonus using exact state visitation counts.
+        NOTE: Counts must be updated separately via _update_exact_count_visits.
+        This method only reads counts and calculates bonuses.
         
         Args:
             sequences: Tensor of shape (B, S) containing sequences
@@ -704,11 +706,7 @@ class BaseExperienceMaker(ABC):
         t0_tokens = response_tokens[:, 0]  # Shape: (B,)
         t0_tokens_long = t0_tokens.long()  # Ensure integer type
         
-        # Update state visitation counts for t=0 tokens (vectorized)
-        updates_t0 = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
-        self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates_t0)
-        
-        # Get counts for each t=0 token (after update)
+        # Get counts for each t=0 token (READ ONLY - no updates)
         counts_t0 = self.state_visitation_counts[t0_tokens_long]  # (B,)
         
         # Calculate bonus for t=0: bonus_alpha * (1/sqrt(N(x)))
@@ -719,11 +717,7 @@ class BaseExperienceMaker(ABC):
             t1_tokens = response_tokens[:, 1]  # Shape: (B,)
             t1_tokens_long = t1_tokens.long()  # Ensure integer type
             
-            # Update state visitation counts for t=1 tokens (vectorized)
-            updates_t1 = torch.ones_like(t1_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
-            self.state_visitation_counts.scatter_add_(0, t1_tokens_long, updates_t1)
-            
-            # Get counts for each t=1 token (after update)
+            # Get counts for each t=1 token (READ ONLY - no updates)
             counts_t1 = self.state_visitation_counts[t1_tokens_long]  # (B,)
             
             # Calculate bonus for t=1: bonus_alpha * (1/sqrt(N(x)))
@@ -735,6 +729,53 @@ class BaseExperienceMaker(ABC):
             exploration_bonus = bonus_t0
         
         return exploration_bonus
+    
+    def _update_exact_count_visits(
+        self,
+        sequences: torch.Tensor,
+        track_both_positions: bool = False
+    ) -> None:
+        """
+        Update state visitation counts for exact_count exploration bonus.
+        This is called separately from bonus calculation to avoid side effects.
+        
+        Args:
+            sequences: Tensor of shape (B, S) containing sequences
+            track_both_positions: If True, track both t=0 and t=1 tokens.
+                                If False, only track t=0 tokens.
+        """
+        if self.exploration_bonus != "exact_count":
+            return
+        
+        assert self.max_new_tokens is not None, "max_new_tokens must be set for exploration_bonus='exact_count'"
+        if track_both_positions:
+            assert self.max_new_tokens >= 2, "exploration_bonus='exact_count' requires max_new_tokens >= 2 to track both t=0 and t=1"
+        else:
+            assert self.max_new_tokens >= 1, "exploration_bonus='exact_count' requires max_new_tokens >= 1"
+        
+        device = sequences.device
+        
+        # Move state_visitation_counts to device if needed
+        if self.state_visitation_counts.device != device:
+            self.state_visitation_counts = self.state_visitation_counts.to(device)
+        
+        # Extract tokens from response (last max_new_tokens tokens)
+        response_tokens = sequences[:, -self.max_new_tokens:]  # Shape: (B, max_new_tokens)
+        t0_tokens = response_tokens[:, 0]  # Shape: (B,)
+        t0_tokens_long = t0_tokens.long()  # Ensure integer type
+        
+        # Update state visitation counts for t=0 tokens (vectorized)
+        updates_t0 = torch.ones_like(t0_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+        self.state_visitation_counts.scatter_add_(0, t0_tokens_long, updates_t0)
+        
+        if track_both_positions:
+            # Also track t=1 tokens
+            t1_tokens = response_tokens[:, 1]  # Shape: (B,)
+            t1_tokens_long = t1_tokens.long()  # Ensure integer type
+            
+            # Update state visitation counts for t=1 tokens (vectorized)
+            updates_t1 = torch.ones_like(t1_tokens_long, dtype=self.state_visitation_counts.dtype)  # (B,)
+            self.state_visitation_counts.scatter_add_(0, t1_tokens_long, updates_t1)
     
     def _update_priorities_for_indices(
         self,
@@ -1098,6 +1139,7 @@ class BaseExperienceMaker(ABC):
         attention_mask: Optional[torch.Tensor] = None,
         num_actions: Optional[int] = None,
         value: Optional[torch.Tensor] = None,
+        force_no_exploration_bonus: bool = False,
         **generate_kwargs
     ) -> Experience:
         print(f"Current target_dist_beta: {self.target_dist_beta}")
@@ -1123,12 +1165,25 @@ class BaseExperienceMaker(ABC):
             expanded_prompts = tile_prompts(prompts, samples_per_prompt)
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.generate_seqs_and_get_all_data(
                 expanded_prompts, **generate_kwargs)
+            
+            # Update exact_count visits if enabled (only during training, not evaluation)
+            # Only update here if sequences were generated inside make_experience (backward compatibility)
+            # If sequences are pre-provided, count updates should happen in trainers before calling make_experience
+            # force_no_exploration_bonus indicates evaluation, so skip count updates
+            if self.exploration_bonus == "exact_count" and not force_no_exploration_bonus:
+                # Determine track_both_positions based on rm_type
+                track_both = (self.rm_type == "indicator_below_threshold")
+                self._update_exact_count_visits(sequences, track_both_positions=track_both)
 
         # init log probs
         with torch.no_grad():
             base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
 
-        r, untransformed_reward, exploration_bonus = self.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=self.multiply_by_beta)
+        r, untransformed_reward, exploration_bonus = self.compute_reward_no_kl(
+            sequences, attention_mask, 
+            multiply_by_beta=self.multiply_by_beta,
+            force_no_exploration_bonus=force_no_exploration_bonus
+        )
 
         rewards, kl = compute_reward(
             r,
@@ -1304,11 +1359,16 @@ class BaseExperienceMaker(ABC):
             assert self.reward_transform is None  # Others not yet implemented
 
         # Initialize exploration_bonus (will be set for specific rm_types)
-        # When force_no_exploration_bonus, keep zeros; else recalculate for rm_types that need it
+        # When force_no_exploration_bonus, keep zeros; else calculate for rm_types that need it
+        # Note: Counts are updated separately via _update_exact_count_visits, so this only calculates bonuses
         if force_no_exploration_bonus:
             exploration_bonus = torch.zeros(sequences.shape[0], device=sequences.device, dtype=torch.float32)
         else:
-            exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=False)
+            # Calculate exploration bonus if enabled (for rm_types that don't calculate it in their specific branch)
+            if self.exploration_bonus and self.rm_type not in ["indicator_below_threshold", "rlhf"]:
+                exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=False)
+            else:
+                exploration_bonus = torch.zeros(sequences.shape[0], device=sequences.device, dtype=torch.float32)
 
         if self.rm_type == "exp_beta_toxicity_class_logprob":
             if self.exploration_bonus:
