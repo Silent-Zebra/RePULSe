@@ -2036,9 +2036,16 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     
     # Handle prompts
     if args.new_custom_single_prompt:
-        # Use custom prompt
-        prompts = [args.custom_prompt]
-        strategy.print(f"Using custom prompt: {args.custom_prompt}")
+        # Use custom prompt; apply chat template when reward model expects chat-formatted sequences
+        if args.apply_chat_template:
+            chat = [{"role": "user", "content": args.custom_prompt}]
+            if tokenizer.chat_template is None:
+                raise ValueError("Tokenizer does not have chat_template set, but apply_chat_template is True")
+            prompts = [tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)]
+            strategy.print(f"Using custom prompt (with chat template): {args.custom_prompt}")
+        else:
+            prompts = [args.custom_prompt]
+            strategy.print(f"Using custom prompt: {args.custom_prompt}")
     else:
         # Extract prompts from dataloader
         prompts = []
