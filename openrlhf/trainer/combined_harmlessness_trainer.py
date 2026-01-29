@@ -92,7 +92,7 @@ class CombinedHarmlessnessTrainer(ABC):
         threshold: float = -5.,
         reward_clamp: Optional[float] = None,
         target_dist_beta: float = 1,
-        n_seeds_f_q: int = 4,
+        n_seeds_f_q: int = 1,
         rm_type: str = '',
         bc_coef: float = 0,
         bc_steps: int = -1,
