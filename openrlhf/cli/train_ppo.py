@@ -454,8 +454,8 @@ def train(args):
         # Validation
         if args.rm_type != "rlhf":
             raise NotImplementedError(f"Rejection sampling currently only supports rm_type='rlhf', got '{args.rm_type}'")
-        if args.reward_clamp is None:
-            raise ValueError("--reward_clamp must be set (not None) when using --rejection_sample_true_target_only")
+        if args.reward_clamp is None and args.reward_cap is None:
+            raise ValueError("Either --reward_clamp or --reward_cap must be set when using --rejection_sample_true_target_only")
         if args.target_dist_beta is None:
             raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
         
@@ -531,6 +531,7 @@ def train(args):
             model_eval=args.model_eval,
             threshold=args.threshold,
             reward_clamp=args.reward_clamp,
+            reward_cap=args.reward_cap,
             n_seeds_f_q=args.n_seeds_f_q,
             rm_type=args.rm_type,
             bc_coef=args.bc_coef,
@@ -2010,8 +2011,8 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     # Validation
     if args.rm_type != "rlhf":
         raise NotImplementedError(f"Rejection sampling currently only supports rm_type='rlhf', got '{args.rm_type}'")
-    if args.reward_clamp is None:
-        raise ValueError("--reward_clamp must be set (not None) when using --rejection_sample_true_target_only")
+    if args.reward_clamp is None and args.reward_cap is None:
+        raise ValueError("Either --reward_clamp or --reward_cap must be set when using --rejection_sample_true_target_only")
     if args.target_dist_beta is None:
         raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
     if args.true_target_sample_amount <= 0:
@@ -2028,10 +2029,15 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     filename = get_target_samples_filename(args)
     strategy.print(f"Will save target samples to: {filename}")
     
-    # Calculate rejection bound in log space: log_M = |clamp * beta|
-    clamp_beta_product = args.reward_clamp * args.target_dist_beta
+    # Calculate rejection bound in log space: log_M = |clamp/cap * beta|
+    if args.reward_clamp is not None:
+        clamp_val = args.reward_clamp
+        clamp_beta_product = args.reward_clamp * args.target_dist_beta
+    else:
+        clamp_val = args.reward_cap
+        clamp_beta_product = args.reward_cap * args.target_dist_beta
     log_M = abs(clamp_beta_product)
-    strategy.print(f"Computing rejection bound in log space: log_M = |{args.reward_clamp} * {args.target_dist_beta}| = |{clamp_beta_product}| = {log_M}")
+    strategy.print(f"Computing rejection bound in log space: log_M = |{clamp_val} * {args.target_dist_beta}| = |{clamp_beta_product}| = {log_M}")
     strategy.print(f"  This corresponds to M = e^({log_M}) = {torch.exp(torch.tensor(log_M, dtype=torch.float32)).item():.4e} (for reference, may be inf)")
     
     # Handle prompts
@@ -2120,8 +2126,11 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                 rewards = reward_model(sequences, attention_mask)
                 rewards = rewards.squeeze(-1) if rewards.dim() > 1 else rewards  # Ensure shape (batch_size,)
             
-            # Clamp rewards
-            clamped_rewards = rewards.clamp(min=-args.reward_clamp, max=args.reward_clamp)
+            # Clamp/cap rewards
+            if args.reward_clamp is not None:
+                clamped_rewards = rewards.clamp(min=-args.reward_clamp, max=args.reward_clamp)
+            else:
+                clamped_rewards = rewards.clamp(max=args.reward_cap)
             
             # Compute log_phi = beta * clamped_r (in log space)
             log_phi = args.target_dist_beta * clamped_rewards
@@ -2166,7 +2175,7 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                 strategy.print(f"    clamped_r: mean={clamped_r_mean:.4f}, min={clamped_r_min:.4f}, max={clamped_r_max:.4f}")
                 strategy.print(f"    log_phi (beta * clamped_r): mean={log_phi_mean:.4f}, min={log_phi_min:.4f}, max={log_phi_max:.4f}")
                 strategy.print(f"    log_M={log_M:.4f}, log_ratio (log_phi - log_M): mean={log_ratio_mean:.4f}")
-                strategy.print(f"    accept_prob: mean={accept_prob_mean:.6f}, beta={args.target_dist_beta}, clamp={args.reward_clamp}")
+                strategy.print(f"    accept_prob: mean={accept_prob_mean:.6f}, beta={args.target_dist_beta}, clamp/cap={clamp_val}")
         
         # Truncate to exact target amount
         accepted_samples = accepted_samples[:args.true_target_sample_amount]
@@ -2490,6 +2499,7 @@ def get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, 
         vf_coef=vf_coef,
         model_eval=args.model_eval,
         threshold=args.threshold,
+        reward_clamp=args.reward_clamp,
         reward_cap=args.reward_cap,
         n_seeds_f_q=args.n_seeds_f_q,
         rm_type=args.rm_type,
@@ -2740,7 +2750,8 @@ if __name__ == "__main__":
                                  "indicator_below_threshold", "sentiment_threshold",
                                  "p_last_tokens", "toy_test", "rlhf"])
     parser.add_argument("--threshold", type=float, default=-5., help="The threshold for the toxicity score (or whatever score used for indicator_below_threshold)")
-    parser.add_argument("--reward_clamp", type=float, default=None, help="Clamp reward values between [-clamp, +clamp]. If None, no clamping is performed. Only for use with rlhf rm_type")
+    parser.add_argument("--reward_clamp", type=float, default=None, help="Clamp reward values between [-clamp, +clamp]. If None, no clamping is performed. Only for use with rlhf rm_type. Mutually exclusive with --reward_cap.")
+    parser.add_argument("--reward_cap", type=float, default=None, help="Cap reward values at the high end only (clamp max=cap). If None, no capping. Only for use with rlhf rm_type. Mutually exclusive with --reward_clamp.")
     parser.add_argument(
         "--save_negdata", action="store_true", default=False, help="Save a dataset of negative examples"
     )
@@ -2778,7 +2789,7 @@ if __name__ == "__main__":
 
 
     parser.add_argument("--load_target_samples_name", type=str, default=None, help="Path to load target samples from. If None, target samples are not loaded.")
-    parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true target samples. Saves samples to file. Requires --rm_type rlhf and --reward_clamp to be set.")
+    parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true target samples. Saves samples to file. Requires --rm_type rlhf and either --reward_clamp or --reward_cap to be set.")
     parser.add_argument("--true_target_sample_amount", type=int, default=1000, help="Number of accepted samples to collect via rejection sampling (continues sampling until this many are accepted)")
     parser.add_argument("--save_info_path", type=str, default="./info")
     parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for f_q_g_q_eval)")
@@ -2983,5 +2994,8 @@ if __name__ == "__main__":
 
     if args.anneal_target_dist_beta:
         assert args.start_target_dist_beta is not None
+
+    if args.reward_clamp is not None and args.reward_cap is not None:
+        raise ValueError("Only one of --reward_clamp and --reward_cap may be set, not both.")
 
     train(args)

@@ -395,10 +395,12 @@ def get_target_samples_filename(args):
     # Format target_dist_beta
     beta_str = f"b{args.target_dist_beta}"
     
-    # Format reward_clamp if rm_type is rlhf
+    # Format reward_clamp or reward_cap if rm_type is rlhf (only one may be set)
     reward_clamp_str = ""
     if args.rm_type == "rlhf" and hasattr(args, 'reward_clamp') and args.reward_clamp is not None:
         reward_clamp_str = f"_rc{args.reward_clamp}"
+    elif args.rm_type == "rlhf" and hasattr(args, 'reward_cap') and args.reward_cap is not None:
+        reward_clamp_str = f"_rcap{args.reward_cap}"
     
     # Get prompt abbreviation
     if hasattr(args, 'custom_prompt') and args.custom_prompt and args.custom_prompt != "This man is a":

@@ -91,6 +91,7 @@ class CombinedHarmlessnessTrainer(ABC):
         model_eval: bool = False,
         threshold: float = -5.,
         reward_clamp: Optional[float] = None,
+        reward_cap: Optional[float] = None,
         target_dist_beta: float = 1,
         n_seeds_f_q: int = 1,
         rm_type: str = '',
@@ -361,6 +362,7 @@ class CombinedHarmlessnessTrainer(ABC):
             shared_actorcritic,
             threshold,
             reward_clamp,
+            reward_cap,
             1, # target_dist_beta 1 here, because this is just going to need regular rewards for REINFORCE
             self.rew_trans_alpha,
             base_rm_type, 
@@ -396,6 +398,7 @@ class CombinedHarmlessnessTrainer(ABC):
             shared_actorcritic,
             threshold,
             reward_clamp,
+            reward_cap,
             target_dist_beta,
             self.rew_trans_alpha,
             rm_type,

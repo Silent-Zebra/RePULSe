@@ -541,6 +541,7 @@ class BaseExperienceMaker(ABC):
         shared_actorcritic=False,
         threshold=-5.,
         reward_clamp: Optional[float] = None,
+        reward_cap: Optional[float] = None,
         target_dist_beta=1.,
         alpha=0.,
         rm_type=None,
@@ -579,6 +580,8 @@ class BaseExperienceMaker(ABC):
         self.shared_actorcritic = shared_actorcritic
         self.threshold = threshold
         self.reward_clamp = reward_clamp
+        self.reward_cap = reward_cap
+        assert reward_clamp is None or reward_cap is None, "Only one of reward_clamp and reward_cap may be set."
         self.target_dist_beta = target_dist_beta
         self.alpha = alpha
         self.rm_type = rm_type
@@ -745,7 +748,7 @@ class BaseExperienceMaker(ABC):
                                 If False, only track t=0 tokens.
         """
         if self.exploration_bonus != "exact_count":
-            return
+            raise NotImplementedError("update_exact_count_visits is only implemented for exploration_bonus='exact_count'")
         
         assert self.max_new_tokens is not None, "max_new_tokens must be set for exploration_bonus='exact_count'"
         if track_both_positions:
@@ -1438,6 +1441,8 @@ class BaseExperienceMaker(ABC):
             
             if self.reward_clamp is not None:
                 clamped_reward = torch.clamp(score, min=-self.reward_clamp, max=self.reward_clamp)
+            elif self.reward_cap is not None:
+                clamped_reward = torch.clamp(score, max=self.reward_cap)
             else:
                 clamped_reward = score
 
