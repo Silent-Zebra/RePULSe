@@ -2792,7 +2792,7 @@ if __name__ == "__main__":
     parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true target samples. Saves samples to file. Requires --rm_type rlhf and either --reward_clamp or --reward_cap to be set.")
     parser.add_argument("--true_target_sample_amount", type=int, default=1000, help="Number of accepted samples to collect via rejection sampling (continues sampling until this many are accepted)")
     parser.add_argument("--save_info_path", type=str, default="./info")
-    parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for f_q_g_q_eval)")
+    parser.add_argument("--n_samples_for_f_q", type=int, default=1, help="Number of samples to use for f_q (only for f_q_g_q_eval)")
     parser.add_argument("--n_seeds_f_q", type=int, default=1, help="Number of seeds to use for f_q")
 
 
