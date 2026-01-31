@@ -1504,6 +1504,11 @@ class BaseExperienceMaker(ABC):
         else:
             self.set_all_policies_train()
 
+            print(sequences)
+            print(num_actions)
+            print(attention_mask)
+            print(sequences.shape)
+
             action_log_probs = self.actor(sequences, num_actions, attention_mask)
 
             return action_log_probs, action_mask, attention_mask, num_actions, sequences
