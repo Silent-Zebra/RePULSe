@@ -576,7 +576,7 @@ def eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs, a
         return log_tilde_sigma
 
 
-def f_q_estimate(trainer, experience_maker, args, batch_prompt):
+def f_q_estimate(trainer, experience_maker, args, prompt):
     """
     Calculate E_q [log sigma(s) - log q(s)]
     
@@ -584,13 +584,13 @@ def f_q_estimate(trainer, experience_maker, args, batch_prompt):
         trainer: Trainer instance (needed for shared_actorcritic and generate_kwargs)
         experience_maker: Experience maker instance
         args: Training arguments
-        batch_prompt: Batch of prompts
+        prompt: prompt
         
     Returns:
         f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
     """
     experience_maker.set_all_eval()
-    batch_prompt = tile_prompts(batch_prompt, args.duplicate_rollout_batch_by)
+    batch_prompt = tile_prompts(prompt, args.n_samples_for_f_q)
 
     with torch.no_grad():
         if trainer.shared_actorcritic:
@@ -678,7 +678,7 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
     total_f_qs = None
     total_g_qs = None
     for i in range(trainer.n_seeds_f_q):
-        custom_prompt_for_f_q = [prompt_text] * args.n_samples_for_f_q
+        custom_prompt_for_f_q = prompt_text
 
         f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = f_q_estimate(
             trainer, experience_maker, args, custom_prompt_for_f_q)
