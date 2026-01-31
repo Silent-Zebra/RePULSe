@@ -30,6 +30,37 @@ def tile_prompts(prompts, samples_per_prompt):
     # print(expanded_prompts)
     return expanded_prompts
 
+
+def get_custom_prompt_with_chat_template(tokenizer, custom_prompt, apply_chat_template, strategy=None):
+    """
+    Return the prompt string for a custom prompt, applying the tokenizer's chat template if requested.
+
+    When apply_chat_template is True, wraps custom_prompt in a user message and applies the
+    tokenizer's chat template with add_generation_prompt=True. If the tokenizer has no
+    chat_template, falls back to OpenRLHF/Llama-3-8b-sft-mixture and logs a warning.
+
+    Args:
+        tokenizer: HF tokenizer (may be mutated with chat_template if None and apply_chat_template).
+        custom_prompt: Raw custom prompt string.
+        apply_chat_template: If True, apply chat template; otherwise return custom_prompt as-is.
+        strategy: Optional object with .print() for warning output; if None, uses print().
+
+    Returns:
+        Prompt string (either chat-templated or raw custom_prompt).
+    """
+    if not apply_chat_template:
+        return custom_prompt
+    chat = [{"role": "user", "content": custom_prompt}]
+    if tokenizer.chat_template is None:
+        msg = "[Warning]: no chat template specified, defaulting to the one from OpenRLHF/Llama-3-8b-sft-mixture"
+        if strategy is not None and hasattr(strategy, "print"):
+            strategy.print(msg)
+        else:
+            print(msg)
+        tokenizerchat = AutoTokenizer.from_pretrained("OpenRLHF/Llama-3-8b-sft-mixture")
+        tokenizer.chat_template = tokenizerchat.chat_template
+    return tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+
 def get_tokenizer(pretrain, model, padding_side="left", strategy=None, use_fast=True):
     tokenizer = AutoTokenizer.from_pretrained(pretrain, trust_remote_code=True, use_fast=use_fast)
     tokenizer.padding_side = padding_side

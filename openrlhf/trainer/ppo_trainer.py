@@ -24,6 +24,7 @@ from openrlhf.utils.utils import (
     tile_prompts,
     inspect_rewards_list,
     f_q_estimate,
+    get_custom_prompt_with_chat_template,
 )
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
@@ -366,7 +367,10 @@ class BasePPOTrainer(ABC):
             for rand_prompts in self.prompts_dataloader:
 
                 if args.new_custom_single_prompt:
-                    rand_prompts = [args.custom_prompt]
+                    prompt_str = get_custom_prompt_with_chat_template(
+                        self.tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), self.strategy
+                    )
+                    rand_prompts = [prompt_str]
 
                 if not args.no_test_info:
                     if steps == 1: # do some test at the very beginning

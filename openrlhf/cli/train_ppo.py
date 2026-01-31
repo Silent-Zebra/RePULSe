@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -2043,15 +2043,11 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     # Handle prompts
     if args.new_custom_single_prompt:
         # Use custom prompt; apply chat template when reward model expects chat-formatted sequences
-        if args.apply_chat_template:
-            chat = [{"role": "user", "content": args.custom_prompt}]
-            if tokenizer.chat_template is None:
-                raise ValueError("Tokenizer does not have chat_template set, but apply_chat_template is True")
-            prompts = [tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)]
-            strategy.print(f"Using custom prompt (with chat template): {args.custom_prompt}")
-        else:
-            prompts = [args.custom_prompt]
-            strategy.print(f"Using custom prompt: {args.custom_prompt}")
+        prompt_str = get_custom_prompt_with_chat_template(
+            tokenizer, args.custom_prompt, args.apply_chat_template, strategy
+        )
+        prompts = [prompt_str]
+        strategy.print(f"Using custom prompt (with chat template): {args.custom_prompt}" if args.apply_chat_template else f"Using custom prompt: {args.custom_prompt}")
     else:
         # Extract prompts from dataloader
         prompts = []

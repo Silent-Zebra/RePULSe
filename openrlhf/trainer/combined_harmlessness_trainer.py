@@ -26,6 +26,7 @@ from openrlhf.utils.utils import (
     inspect_rewards_list,
     log_sequence_for_negatives,
     f_q_g_q_evaluation,
+    get_custom_prompt_with_chat_template,
 )
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
@@ -590,7 +591,9 @@ class CombinedHarmlessnessTrainer(ABC):
         # Extract prompt_text for new_custom_single_prompt case
         prompt_text = None
         if args.new_custom_single_prompt:
-            prompt_text = args.custom_prompt
+            prompt_text = get_custom_prompt_with_chat_template(
+                self.tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), self.strategy
+            )
             # Initialize evaluation at start if f_q_g_q_eval is enabled
             if args.f_q_g_q_eval:
                 f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
@@ -622,7 +625,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     print(f"Using new alpha: {new_alpha}")
 
                 if args.new_custom_single_prompt:
-                    rand_prompts = [args.custom_prompt]
+                    rand_prompts = [prompt_text]
 
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:
