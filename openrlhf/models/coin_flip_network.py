@@ -13,6 +13,13 @@ LEARNING_ARCHITECTURES = ["linear_head_on_learning_base", "linear_head_on_learni
 TOKEN_STORAGE_ARCHITECTURES = ["separate_nn"] + LEARNING_ARCHITECTURES
 
 
+def _get_param_dtype(module: nn.Module) -> torch.dtype:
+    """Return the dtype of the first parameter of the module (e.g. backbone output dtype)."""
+    for param in module.parameters():
+        return param.dtype
+    return torch.float32  # fallback if module has no parameters
+
+
 
 
 class CoinFlipNetwork(nn.Module):
@@ -237,18 +244,26 @@ class CoinFlipNetwork(nn.Module):
         if base_model_device is None:
             base_model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
+        # Get feature dtype from backbone so coin flip heads match (avoids bf16 vs float32 mismatch)
+        if coin_flip_architecture == "separate_nn":
+            head_dtype = _get_param_dtype(self.trainable_network)
+        elif coin_flip_architecture in LEARNING_ARCHITECTURES:
+            head_dtype = _get_param_dtype(self.backbone_model)
+        else:
+            head_dtype = _get_param_dtype(self.base_model)
+        
         if coin_flip_architecture == "separate_nn":
             # Create coin flip heads for both networks
             # Trainable network head
             self.trainable_network.coin_flip_head = nn.Linear(hidden_size, coin_flip_dim, bias=coin_flip_linear_bias)
-            self.trainable_network.coin_flip_head = self.trainable_network.coin_flip_head.to(base_model_device)
+            self.trainable_network.coin_flip_head = self.trainable_network.coin_flip_head.to(device=base_model_device, dtype=head_dtype)
             nn.init.normal_(self.trainable_network.coin_flip_head.weight, mean=0.0, std=head_init_std)
             if coin_flip_linear_bias and self.trainable_network.coin_flip_head.bias is not None:
                 nn.init.zeros_(self.trainable_network.coin_flip_head.bias)
             
             # Frozen prior network head
             self.frozen_prior_network.coin_flip_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
-            self.frozen_prior_network.coin_flip_head = self.frozen_prior_network.coin_flip_head.to(base_model_device)
+            self.frozen_prior_network.coin_flip_head = self.frozen_prior_network.coin_flip_head.to(device=base_model_device, dtype=head_dtype)
             nn.init.normal_(self.frozen_prior_network.coin_flip_head.weight, mean=0.0, std=frozen_prior_init_std)
             # Freeze the head (network is already frozen, but be explicit)
             for param in self.frozen_prior_network.coin_flip_head.parameters():
@@ -261,7 +276,7 @@ class CoinFlipNetwork(nn.Module):
             # linear_head_on_* architectures: create heads
             # Create coin flip head: maps hidden_size -> coin_flip_dim
             self.coin_flip_head = nn.Linear(hidden_size, coin_flip_dim, bias=coin_flip_linear_bias)
-            self.coin_flip_head = self.coin_flip_head.to(base_model_device)
+            self.coin_flip_head = self.coin_flip_head.to(device=base_model_device, dtype=head_dtype)
             
             # Reinitialize coin flip head with custom standard deviation for smaller initial outputs
             nn.init.normal_(self.coin_flip_head.weight, mean=0.0, std=head_init_std)
@@ -272,7 +287,7 @@ class CoinFlipNetwork(nn.Module):
             # This ensures new states have ~1 pseudocount at initialization
             # The random prior head always uses frozen_prior_model (created above)
             self.random_prior_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
-            self.random_prior_head = self.random_prior_head.to(base_model_device)
+            self.random_prior_head = self.random_prior_head.to(device=base_model_device, dtype=head_dtype)
             nn.init.normal_(self.random_prior_head.weight, mean=0.0, std=frozen_prior_init_std)
 
             # Freeze the random prior head - it should never be trained
