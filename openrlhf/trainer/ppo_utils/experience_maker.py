@@ -1457,17 +1457,15 @@ class BaseExperienceMaker(ABC):
 
         if multiply_by_beta: # Use for twist formulation # For twists: target potential phi is e^{beta r}, so log potential is beta r
             result = final_reward * self.target_dist_beta
-            if exploration_bonus is not None:
-                result = result + exploration_bonus
-            return result, untransformed_reward, exploration_bonus
         else: # Use for PPO formulation # For PPO, e.g. see the RL with KL penalties is better viewed as Bayesian inference paper, we have that reward - 1/beta (KL to prior) is equivalent to targeting base e^{beta r}
             if self.target_dist_beta < 0:
                 result = -final_reward
             else:
                 result = final_reward
-            if exploration_bonus is not None:
-                result = result + exploration_bonus
-            return result, untransformed_reward, exploration_bonus
+                
+        if exploration_bonus is not None:
+            result = result + exploration_bonus
+        return result, untransformed_reward, exploration_bonus
 
     def set_all_eval(self):
         self.actor.eval()
