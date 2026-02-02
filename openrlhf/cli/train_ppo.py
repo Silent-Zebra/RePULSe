@@ -2209,7 +2209,7 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     strategy.print(f"\nFinal statistics:")
     strategy.print(f"  Total samples generated: {total_generated_all}")
     strategy.print(f"  Total samples accepted: {total_accepted_all}")
-    strategy.print(f"  Overall acceptance rate: {overall_acceptance_rate:.4f}")
+    strategy.print(f"  Overall acceptance rate: {overall_acceptance_rate:.7f}")
     strategy.print(f"  Samples per prompt: {args.true_target_sample_amount}")
 
 
