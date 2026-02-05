@@ -14,8 +14,9 @@ sys.path.append(parent_dir)
 import datetime
 import copy
 import scipy.stats as stats
+import torch
 
-from plot_utils import make_list, do_load_prefixes, generate_labels_from_prefixes
+from plot_utils import make_list, do_load_prefixes, generate_labels_from_prefixes, to_scalar, compute_global_logZ_from_iwae_bounds, compute_approx_kl_from_f_q_g_q
 
 # Color and linestyle lists (defined early for use in plotting functions)
 color_list_for_variances = ['xkcd:light blue', 'xkcd:light green', 'xkcd:light orange', 'xkcd:light red',
@@ -23,10 +24,11 @@ color_list_for_variances = ['xkcd:light blue', 'xkcd:light green', 'xkcd:light o
                             'xkcd:light navy blue', 'xkcd:light indigo', 'xkcd:olive yellow', 'xkcd:peach',
                             'xkcd:light lavender', 'xkcd:bright pink']
 color_list_for_fqs = [
-    'xkcd:orange', 'xkcd:red', 'xkcd:purple', 'xkcd:green', 'xkcd:blue',
+    'xkcd:green', 'xkcd:blue', 'xkcd:red', 'xkcd:orange',  'xkcd:purple',
     'xkcd:black',  'xkcd:gray',  'xkcd:light brown',
     'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:magenta',
 ] * 5
+
 linestyle_list = ['solid', 'dashed', 'dotted', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))] * 5
 
 
@@ -152,26 +154,99 @@ def transform_prefixes_for_kl(load_prefixes_to_use, file_type_suffix=None):
     return transformed
 
 
-def plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
+def plot_results_over_time(results_list, labels, x_range=None, fontsize=7, figname_modifier="",
                            index_to_use=0, plot_name="logprobbad", 
                            ylabel=r"Log Total Probability of Bad Output",
-                           file_type_suffix=""):
+                           file_type_suffix="", load_prefixes_to_use=None):
     """
     Generic function to plot results over time with confidence bounds.
     
     Args:
         results_list: List of lists of loaded data
         labels: List of labels for each series
-        x_range: X-axis range
+        x_range: X-axis range (optional, will be computed from data if None)
         fontsize: Font size for labels
         figname_modifier: Base name for the output file
         index_to_use: Index into the data tuple to plot
         plot_name: Name for the plot file
         ylabel: Y-axis label
         file_type_suffix: Suffix to add to filename ("base", "sampling", or "")
+        load_prefixes_to_use: Optional list of lists of prefixes (used to extract parameters for samples per time step)
     """
+    import re
     fig, ax1 = plt.subplots()
 
+    # Calculate samples per time step from prefixes if available (needed for both x_range creation and extension)
+    samples_per_timestep = 5000  # Default fallback
+    if load_prefixes_to_use is not None and len(load_prefixes_to_use) > 0:
+
+        # Try to extract parameters from the first prefix of the first series
+        first_prefix = None
+        for prefix_list in load_prefixes_to_use:
+            if len(prefix_list) > 0:
+                first_prefix = prefix_list[0]
+                break
+        
+        if first_prefix is not None:
+            # Extract harmlessness_training_num_episodes from _hepi pattern
+            hepi_match = re.search(r'_he(\d+)', first_prefix) or re.search(r'_hepi(\d+)', first_prefix)
+            harmlessness_training_num_episodes = int(hepi_match.group(1)) if hepi_match else None
+            
+            # Extract batch_size from _tbs or _tb pattern
+            tbs_match = re.search(r'_tbs(\d+)', first_prefix) or re.search(r'_tb(\d+)', first_prefix)
+            batch_size = int(tbs_match.group(1)) if tbs_match else None
+            
+            # Extract fit_steps from _fs pattern (another multiplier on samples_per_timestep)
+            fs_match = re.search(r'_fs(\d+)', first_prefix)
+            fit_steps = int(fs_match.group(1)) if fs_match else None
+            
+            # Calculate samples per time step if both parameters found
+            if harmlessness_training_num_episodes is not None and batch_size is not None:
+                samples_per_timestep = harmlessness_training_num_episodes * batch_size
+                print(f"Auto-detected samples per fit step: {harmlessness_training_num_episodes} (episodes) * {batch_size} (batch_size) = {samples_per_timestep}")
+            elif harmlessness_training_num_episodes is not None or batch_size is not None:
+                print(f"Warning: Could not extract both parameters from prefix '{first_prefix}'. Using default 5000 samples per timestep.")
+                print(f"  Found harmlessness_training_num_episodes: {harmlessness_training_num_episodes}, batch_size: {batch_size}")
+            else:
+                raise NotImplementedError
+
+    # First pass: determine max timesteps across all series if x_range not provided
+    max_timesteps = 0
+    if x_range is None:
+        for i in range(len(results_list)):
+            if len(results_list[i]) == 0:
+                continue
+            filtered_results = []
+            for x in results_list[i]:
+                if isinstance(x, tuple) and len(x) > index_to_use:
+                    filtered_results.append(x[index_to_use])
+                elif not isinstance(x, tuple):
+                    filtered_results.append(x)
+            if len(filtered_results) > 0:
+                # Get shape of first result to determine timesteps
+                first_result = filtered_results[0]
+                if hasattr(first_result, 'shape'):
+                    if len(first_result.shape) > 0:
+                        max_timesteps = max(max_timesteps, first_result.shape[0])
+                    else:
+                        # Scalar, treat as single timestep
+                        max_timesteps = max(max_timesteps, 1)
+                elif isinstance(first_result, (list, tuple)):
+                    max_timesteps = max(max_timesteps, len(first_result))
+                else:
+                    max_timesteps = max(max_timesteps, 1)
+        
+        if max_timesteps == 0:
+            print("Warning: Could not determine number of timesteps from data, using default")
+            max_timesteps = 51
+        else:
+            print(f"Detected max time steps: {max_timesteps}")
+        
+        # Create x_range: use indices scaled by calculated or default interval
+        x_range = np.arange(max_timesteps) * samples_per_timestep
+
+
+    # Second pass: plot each series
     for i in range(len(results_list)):
         if len(results_list[i]) == 0:
             continue
@@ -187,8 +262,23 @@ def plot_results_over_time(results_list, labels, x_range, fontsize, figname_modi
             continue
         np_results = np.stack(filtered_results)
         print(np_results.shape)
+        
+        # Ensure x_range matches the actual data length
+        actual_timesteps = np_results.shape[1] if len(np_results.shape) > 1 else 1
+        if len(x_range) != actual_timesteps:
+            # Adjust x_range to match actual data length
+            if actual_timesteps > len(x_range):
+                # Extend x_range
+                interval = x_range[1] - x_range[0] if len(x_range) > 1 else samples_per_timestep
+                x_range_adjusted = np.arange(actual_timesteps) * interval
+            else:
+                # Truncate x_range
+                x_range_adjusted = x_range[:actual_timesteps]
+        else:
+            x_range_adjusted = x_range
+        
         plot_with_conf_bounds(
-            ax1, np_results, x_range, label=labels[i],
+            ax1, np_results, x_range_adjusted, label=labels[i],
             color=color_list_for_fqs[i],
             linestyle=linestyle_list[i],
         )
@@ -207,7 +297,7 @@ def plot_results_over_time(results_list, labels, x_range, fontsize, figname_modi
     plt.clf()
 
 
-def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize):
+def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7):
     """
     Process one file type (base or sampling) and generate all standard plots.
     
@@ -227,11 +317,12 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
     do_load_prefixes(results_list, transformed_prefixes)
     
     # Generate plots
+    # Pass transformed_prefixes (which preserve the parameter encoding) for auto-detection
     try:
         plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                               index_to_use=0, plot_name="logprobbad",
                               ylabel=r"Log Total Probability of Bad Output",
-                              file_type_suffix=file_type_suffix)
+                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
     except:
         print(f"Failed to generate logprobbad plot for {file_type_suffix}")
 
@@ -239,7 +330,7 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
         plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                               index_to_use=4, plot_name="rew",
                               ylabel=r"Average Reward",
-                              file_type_suffix=file_type_suffix)
+                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
     except:
         print(f"Failed to generate rew plot for {file_type_suffix}")
 
@@ -247,7 +338,7 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
         plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                               index_to_use=5, plot_name="untransformed_ret",
                               ylabel=r"Average Return",
-                              file_type_suffix=file_type_suffix)
+                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
     except:
         print(f"Failed to generate untransformed_ret plot for {file_type_suffix}")
     
@@ -266,7 +357,7 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
             plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                                   index_to_use=threshold_index, plot_name="logprobbad_threshold",
                                   ylabel=r"Log Total Probability of Bad Output (Threshold-based)",
-                                  file_type_suffix=file_type_suffix)
+                                  file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
     except Exception as e:
         print(f"Failed to generate logprobbad_threshold plot for {file_type_suffix}: {e}")
     
@@ -285,14 +376,14 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
                 plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                                       index_to_use=6, plot_name="bonus",
                                       ylabel=r"Average Exploration Bonus",
-                                      file_type_suffix=file_type_suffix)
+                                      file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
         except Exception as e:
             print(f"Failed to generate bonus plot for {file_type_suffix}: {e}")
 
     return results_list
 
 
-def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize):
+def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7):
     """
     Plot KL divergence metrics from analytic_kls_toxicity files.
     
@@ -321,13 +412,213 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
     plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
                           index_to_use=0, plot_name="kl_sigma_q", 
                           ylabel=r"KL($\sigma$|q) = KL(target|proposal)",
-                          file_type_suffix=file_type_suffix)
+                          file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
     
     # Plot KL(q|sigma) = KL(proposal|target) from index 1
     plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
                           index_to_use=1, plot_name="kl_q_sigma", 
                           ylabel=r"KL(q|$\sigma$) = KL(proposal|target)",
-                          file_type_suffix=file_type_suffix)
+                          file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
+
+
+def load_heldout_over_time_files(load_prefixes_to_use, load_dir="./info", map_location='cpu', threshold=-5):
+    """
+    Load heldout_over_time_* files (3-tuple: list of reward tensors, list of return tensors, f_q_mean_list).
+    Convert to (reward_means, return_means, f_q_means, prob_bad_output) per file for plotting.
+    
+    Args:
+        load_prefixes_to_use: List of lists of filenames (e.g. heldout_over_time_OpenRLHF_xxx_s1)
+        load_dir: Directory to load from
+        map_location: Device for tensors
+        threshold: Reward threshold for computing probability of bad output (default -5)
+    
+    Returns:
+        List of lists of (reward_means, return_means, f_q_means, prob_bad_output) as numpy arrays, one per seed per experiment.
+    """
+    loaded_data = []
+    for prefix_list in load_prefixes_to_use:
+        exp_data = []
+        for fn in prefix_list:
+            path = os.path.join(load_dir, fn)
+            try:
+                data = torch.load(path, map_location=map_location)
+            except Exception as e:
+                print(f"Warning: Failed to load {path}: {e}")
+                continue
+            if not isinstance(data, (tuple, list)) or len(data) < 3:
+                print(f"Warning: Expected 3-tuple for {path}, got {type(data)}. Skipping.")
+                continue
+            heldout_reward_list, heldout_return_list, f_q_mean_list = data[:3]
+            # Compute means per time point from tensors
+            reward_means = np.array([t.float().mean().item() for t in heldout_reward_list])
+            return_means = np.array([t.float().mean().item() for t in heldout_return_list])
+            f_q_means = np.array(f_q_mean_list) if not isinstance(f_q_mean_list, np.ndarray) else f_q_mean_list
+            # Compute probability of bad output (rewards < threshold) per time point
+            prob_bad_output = np.array([(t.float().cpu().numpy() < threshold).mean() for t in heldout_reward_list])
+            exp_data.append((reward_means, return_means, f_q_means, prob_bad_output))
+        loaded_data.append(exp_data)
+
+    return loaded_data
+
+
+def plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7, load_dir="./info", threshold=-5):
+    """
+    Load heldout_over_time_* files and plot reward mean, return mean, f_q mean, and probability of bad output over time.
+    """
+    loaded_data = load_heldout_over_time_files(load_prefixes_to_use, load_dir=load_dir, threshold=threshold)
+
+    has_data = any(len(exp_data) > 0 for exp_data in loaded_data)
+    if not has_data:
+        print("Warning: No heldout_over_time data found, skipping plots")
+        return
+
+    # Plot reward mean over time
+    plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=0, plot_name="heldout_reward",
+                          ylabel=r"Heldout reward (mean)", load_prefixes_to_use=load_prefixes_to_use)
+    # Plot return mean over time
+    plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=1, plot_name="heldout_return",
+                          ylabel=r"Heldout return (mean)", load_prefixes_to_use=load_prefixes_to_use)
+    # Plot f_q mean over time
+    plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=2, plot_name="heldout_f_q",
+                          ylabel=r"$f_q$ (mean)", load_prefixes_to_use=load_prefixes_to_use)
+    # Plot probability of bad output over time
+    plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=3, plot_name="heldout_prob_bad_output",
+                          ylabel=f"Probability of bad output (reward < {threshold})", load_prefixes_to_use=load_prefixes_to_use)
+
+
+def load_f_q_g_q_files_over_time(load_prefixes_to_use, load_dir="./info", map_location='cpu'):
+    """
+    Load f_q/g_q/IWAE bound files and extract time-series data.
+    
+    Args:
+        load_prefixes_to_use: List of lists of filenames; inner list = one experiment,
+                              each filename = one seed (full basename, e.g. f_q_g_q_iwae_bounds_OpenRLHF_..._s1)
+        load_dir: Directory to load files from
+        map_location: Device to load tensors to (default 'cpu')
+    
+    Returns:
+        List of lists, where each inner list contains loaded data tuples per seed.
+        Each tuple is (f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
+    """
+    loaded_data = []
+    
+    for prefix_list in load_prefixes_to_use:
+        exp_data = []
+        for fn in prefix_list:
+            path = os.path.join(load_dir, fn)
+            try:
+                data = torch.load(path, map_location=map_location)
+            except Exception as e:
+                print(f"Warning: Failed to load {path}: {e}")
+                continue
+            if not isinstance(data, (tuple, list)) or len(data) < 4:
+                print(f"Warning: Expected 4-tuple for {path}, got {type(data)}. Skipping.")
+                continue
+            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = data[:4]
+            exp_data.append((f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list))
+        loaded_data.append(exp_data)
+    
+    return loaded_data
+
+
+def compute_approx_kl_over_time(loaded_data, global_logZ):
+    """
+    Compute approximate KL divergence estimates over time from loaded f_q/g_q data.
+    
+    Args:
+        loaded_data: List of experiments, where each experiment is a list of seeds.
+                     Each seed contains a tuple (f_q_estimates_list, g_q_estimates_list, 
+                     iwae_lbs_list, iwae_ubs_list)
+        global_logZ: Global log Z value (float)
+    
+    Returns:
+        List of lists of tuples, where each tuple is (kl_sigma_q_array, kl_q_sigma_array)
+        per seed, compatible with plot_results_over_time format
+    """
+    results_list = []
+    
+    for exp_data in loaded_data:
+        row = []
+
+        for f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list in exp_data:
+            if len(f_q_estimates_list) == 0 or len(g_q_estimates_list) == 0:
+                continue
+
+            print(len(iwae_lbs_list))
+            # Compute KL for each timestep
+            T = len(f_q_estimates_list)
+            kl_sigma_q_per_t = []
+            kl_q_sigma_per_t = []
+            
+            for t in range(T):
+                f_q_t = to_scalar(f_q_estimates_list[t])
+                g_q_t = to_scalar(g_q_estimates_list[t])
+                
+                kl_sigma_q_t, kl_q_sigma_t = compute_approx_kl_from_f_q_g_q(
+                    f_q_t, g_q_t, global_logZ
+                )
+                kl_sigma_q_per_t.append(kl_sigma_q_t)
+                kl_q_sigma_per_t.append(kl_q_sigma_t)
+            
+            row.append((np.array(kl_sigma_q_per_t), np.array(kl_q_sigma_per_t)))
+        results_list.append(row)
+    
+    return results_list
+
+
+def plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7, load_dir="./info"):
+    """
+    Plot approximate KL divergence metrics over time from f_q/g_q/IWAE bound files.
+    
+    Args:
+        load_prefixes_to_use: List of lists of prefixes for f_q_g_q files
+        labels: List of labels for each series
+        figname_modifier: Figure name modifier
+        x_range: X-axis range
+        fontsize: Font size
+        load_dir: Directory to load files from
+    """
+    # Load f_q/g_q files
+    loaded_data = load_f_q_g_q_files_over_time(load_prefixes_to_use, load_dir=load_dir)
+    
+    # Check if we have any data
+    has_data = any(len(exp_data) > 0 for exp_data in loaded_data)
+    if not has_data:
+        print(f"Warning: No f_q/g_q data found, skipping KL plots")
+        return
+    
+    # Compute global log Z
+    try:
+        global_logZ = compute_global_logZ_from_iwae_bounds(loaded_data)
+        print(f"Global log Z: {global_logZ}")
+    except ValueError as e:
+        print(f"Warning: Failed to compute global log Z: {e}, skipping KL plots")
+        return
+    
+    # Compute KL estimates over time
+    kl_results_list = compute_approx_kl_over_time(loaded_data, global_logZ)
+    
+    # Check if we have any results
+    has_results = any(len(row) > 0 for row in kl_results_list)
+    if not has_results:
+        print(f"Warning: No KL results computed, skipping KL plots")
+        return
+    
+    # Plot KL(sigma|q) = KL(target|proposal) from index 0
+    plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=0, plot_name="kl_sigma_q", 
+                          ylabel=r"KL($\sigma$|q) = KL(target|proposal)",
+                          file_type_suffix="", load_prefixes_to_use=load_prefixes_to_use)
+    
+    # Plot KL(q|sigma) = KL(proposal|target) from index 1
+    plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
+                          index_to_use=1, plot_name="kl_q_sigma", 
+                          ylabel=r"KL(q|$\sigma$) = KL(proposal|target)",
+                          file_type_suffix="", load_prefixes_to_use=load_prefixes_to_use)
 
 
 # Comment out/select as needed
@@ -337,6 +628,7 @@ figname_modifier = "toyrlhf_10_18_final"
 figname_modifier = "toyrepulse_01_19_v2"
 figname_modifier = "toyrepulse_01_20"
 figname_modifier = "toyrepulse_01_20_v2"
+
 
 
 if "final" in figname_modifier:
@@ -803,15 +1095,309 @@ if "final" not in figname_modifier:
 
 
 
-x_range = np.arange(51) * 10 * 500
+# x_range is now computed dynamically from data, but can be overridden if needed
+# x_range = np.arange(51) * 10 * 500  # Uncomment to use custom x_range
 
 
-# Process both base and sampling file types
-for file_type_suffix in ["base", "sampling"]:
-    print(f"\nProcessing {file_type_suffix} files...")
-    process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range, fontsize)
 
-plot_kl_divergences("sampling", load_prefixes_to_use, labels, figname_modifier, x_range, fontsize)
+load_prefixes_to_use = [
+    # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfsn_bf_fo_tb5_s2", 1,5),
+    make_list(
+        "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+        1, 10),
+    make_list(
+        "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s2",
+        1, 10),
+
+    # make_list(
+    #     "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+    #     1, 5),
+    # make_list(
+    #     "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+    #     1, 5),
+    # make_list(
+    #     "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+    #     1, 5),
+    # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfu4_cfsn_af_fo_tb5_s1",1,5),
+    # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfu4_cfsn_bf_fo_tb5_s1",1,5),
+]
+figname_modifier = "toy_len2_01_28_kl_div_approx_1000_clean"
+
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/toyrepulse2p2len4/ | grep f_q | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
+#
+# load_prefixes_to_use = [
+#     make_list(
+#         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3",
+#         1, 10),
+#     make_list(
+#         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s3",
+#         1, 10),    ]
+# figname_modifier = "toy_len4_01_28_kl_div_approx_1000"
+#
+#
+# # load_prefixes_to_use = [
+# #     make_list(
+# #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_c3.0_tb5_s2",
+# #         1, 5),
+# #     make_list(
+# #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+# #         1, 5),
+# #     make_list(
+# #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s2",
+# #         1, 5),
+# #
+# # ]
+# # figname_modifier = "toy_len1_01_28_kl_div_approx"
+#
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/thismanl1/ | grep analyt | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
+# load_prefixes_to_use = [
+#     # make_list(
+#     #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_c3.0_tb5_s2",
+#     #     1, 10),
+#     make_list(
+#         "analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_tb5_s2",
+#         1, 10),
+#     # make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_c100.0_tb5_s3", 1,10),
+#     make_list(
+#         "analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_c10.0_tb5_s3",
+#         1, 10),
+#     # make_list(
+#     #     "analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_c7.0_tb5_s3",
+#     #     1, 10),
+#         make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_c30.0_tb5_s3", 1,10),
+# make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.0003_cfu64_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("analytic_kls_toxicity_rlhf_di_To_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.0003_cfu64_cfsn_bf_fo_tb5_s3", 1,10),
+# ]
+# figname_modifier = "toy_len1_01_28_tm_beta10_kl_div_exact"
+#
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/toyrepulse2p2len4/ | grep f_q | grep al3e-05 | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
+load_prefixes_to_use = [
+#     # make_list(
+#     #     "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al0.0001_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3",
+#     #     1, 10),
+#     # make_list(
+#     #     "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al0.0001_bl0.0_ppq_tb5_s3",
+#     #     1, 10),
+#     make_list(
+#         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3",
+#         1, 10),
+#     make_list(
+#         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s3",
+#         1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/toyrepulse2p2len4/ | grep f_q | grep he40 | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he40_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he40_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he40_scc_al1e-05_bl0.0_ppq_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he40_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he40_scc_al3e-05_bl0.0_ppq_cf5.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he40_scc_al3e-05_bl0.0_ppq_tb5_s3", 1,10),
+]
+figname_modifier = "toy_len4_01_28_2p2_kl_div_approx_v2"
+
+
+load_prefixes_to_use = [
+
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/toy2p2len4/ | grep f_q | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,9),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,6) + make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 8,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_s-1.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb5_s3", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb5_s3", 1,10),
+]
+figname_modifier = "toy_len4_01_31_2p2_b10_kl_div_approx_w1e-5"
+
+#
+load_prefixes_to_use = [
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/murder50/ | grep f_q | grep _s1 | grep al3e-05); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s1", 1,10),
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/murder50/ | grep f_q | grep _s2 | grep al1e-05); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.0001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf30.0_cd64_cfr0.0001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr1e-05_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb5_s2", 1,10),
+
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/murder50/ | grep f_q | grep _s1 | grep -E 'al1e-06|al3e-06'); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-06_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-06_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-06_bl0.0_ppq_tb5_s1", 1,10),
+
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/murder50/ | grep f_q | grep _s1 | grep al3e-06); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf100.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_tb5_s1", 1,10),
+]
+figname_modifier = "len50_m_02_01_b-10_kl_div_approx_v2"
+
+
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/murderp50/ | grep f_q | grep _s1); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb5_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_tb5_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_Sm13In_remodev3lav2_H_l50_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he5_scc_al3e-05_bl0.0_ppq_tb5_s1", 1,10),
+
+]
+figname_modifier = "len50_m_02_01_b5_kl_div_approx"
+
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/cryp/ | grep f_q | grep _s1); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_t_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb500_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_t_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb500_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_t_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_tb500_s1", 1,10),
+
+]
+figname_modifier = "len20_cryp_02_02_b-20_kl_div_approx"
+
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/friendcar/ | grep he20 | grep f_q | grep _s1); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_H_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb500_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_H_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb500_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_H_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_tb500_s1", 1,10),
+
+]
+figname_modifier = "len20_friendcar_02_02_b-20_kl_div_approx"
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/plunger/ | grep he20 | grep f_q | grep _s1); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_W_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb500_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_W_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb500_s1", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_W_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_tb500_s1", 1,10),
+]
+figname_modifier = "len20_plunger_02_02_b-20_kl_div_approx"
+
+
+
+
+
+
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/drinkwater/ | grep f_q | grep _s2); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc5.0_Sm13In_remodev3lav2_D_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_tb5_s2", 1,10),
+
+]
+figname_modifier = "len20_drinkwater_02_04_b-20_1e-5_kl_div_approx"
+
+
+# load_prefixes_to_use = [
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/dis/  | grep f_q | grep _s2); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb5_s2", 1,10),
+#
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-06_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-06_bl0.0_ppq_tb5_s2", 1,10),
+#
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf0.1_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_tb5_s2", 1,10),
+#
+# ]
+# figname_modifier = "len20_dis_02_04_b-20_combined_kl_div_approx"
+
+
+
+
+# load_prefixes_to_use = [
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/smtest/ | grep f_q | grep _s2); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al1e-05_bl0.0_ppq_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc7.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-06_bl0.0_ppq_tb5_s2", 1,10),
+#
+# ]
+# figname_modifier = "len20_homeless_02_04_b-10_kl_div_approx"
+
+
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/repulsedis/ | grep heldout | grep he20 | grep _s1); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl1e-05_ppq_tb5_s1", 1,10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl3e-05_ppq_tb5_s1", 1,10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl3e-05_ppq_tb5_s1", 1,10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-06_bl3e-05_ppq_tb5_s1", 1,10),
+
+]
+figname_modifier = "len20_repulse_dis_02_04_b-20"
+
+
+labels = generate_labels_from_prefixes(load_prefixes_to_use)
+
+
+# Check prefix type for routing
+use_f_q_g_q = False
+use_heldout_over_time = False
+if len(load_prefixes_to_use) > 0 and len(load_prefixes_to_use[0]) > 0:
+    first_prefix = load_prefixes_to_use[0][0]
+
+    if isinstance(first_prefix, str):
+        if first_prefix.startswith("f_q_g_q_iwae_bounds"):
+            use_f_q_g_q = True
+        elif first_prefix.startswith("heldout_over_time_"):
+            use_heldout_over_time = True
+
+
+if use_heldout_over_time:
+    # Plot heldout reward/return/f_q means over time (from heldout_over_time_* files)
+    print("\nPlotting heldout and f_q over time...")
+
+    plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
+elif use_f_q_g_q:
+    # Plot approximate KL divergences from f_q/g_q files
+    print("\nPlotting approximate KL divergences from f_q/g_q files...")
+    # x_range will be computed dynamically from data (can pass custom x_range if needed)
+    plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
+else:
+    # Process both base and sampling file types
+    for file_type_suffix in ["base", "sampling"]:
+        print(f"\nProcessing {file_type_suffix} files...")
+        # x_range will be computed dynamically from data (can pass custom x_range if needed)
+        process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
+
+    # x_range will be computed dynamically from data (can pass custom x_range if needed)
+    plot_kl_divergences("sampling", load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
 
 
 raise SystemExit(0)

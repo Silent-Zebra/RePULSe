@@ -19,7 +19,7 @@ import scipy.stats as stats
 
 from scipy.stats import norm
 
-from plot_utils import generate_labels_from_prefixes
+from plot_utils import generate_labels_from_prefixes, to_scalar, compute_global_logZ_from_iwae_bounds, compute_approx_kl_from_f_q_g_q
 # from scipy import stats
 
 load_dir = "./info"
@@ -419,11 +419,6 @@ def make_frontier_exact_kl_bootstrap(
     print(f"Figure saved to {figname}")
 
 
-def _to_scalar(x):
-    """Convert list/tensor to a single float (mean over all elements)."""
-    return float(np.asarray(x).ravel().mean())
-
-
 def load_f_q_g_q_iwae_and_compute_approx_kl(load_dir, f_q_load_prefixes_to_use, map_location='cpu'):
     """
     Load f_q/g_q/IWAE bound files, compute a single global log Z (median over all
@@ -433,8 +428,7 @@ def load_f_q_g_q_iwae_and_compute_approx_kl(load_dir, f_q_load_prefixes_to_use, 
     f_q_load_prefixes_to_use: list of lists of filenames; inner list = one experiment,
     each filename = one seed (full basename, e.g. f_q_g_q_iwae_bounds_OpenRLHF_..._s1).
     """
-    # Phase 1: load all data and collect log Z estimates (per seed and per experiment)
-    all_logZ_estimates = []
+    # Phase 1: load all data
     cached = []  # cached[i] = list of (f_q_list, g_q_list, iwae_lbs_list, iwae_ubs_list) for each seed
 
     for i in range(len(f_q_load_prefixes_to_use)):
@@ -452,36 +446,18 @@ def load_f_q_g_q_iwae_and_compute_approx_kl(load_dir, f_q_load_prefixes_to_use, 
                 continue
             f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = data[:4]
             exp_data.append((f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list))
-
-            # Per-seed log Z
-            if len(iwae_lbs_list) == 0 or len(iwae_ubs_list) == 0:
-                continue
-            lb_per_t = [_to_scalar(iwae_lbs_list[t]) for t in range(len(iwae_lbs_list))]
-            ub_per_t = [_to_scalar(iwae_ubs_list[t]) for t in range(len(iwae_ubs_list))]
-            logZ_seed = (max(lb_per_t) + min(ub_per_t)) / 2.0
-            all_logZ_estimates.append(logZ_seed)
-
         cached.append(exp_data)
 
-        # Per-experiment log Z (average lb/ub per timestep across seeds, then midpoint)
-        if len(exp_data) == 0:
-            continue
-        T = len(exp_data[0][2])
-        lb_per_t = [
-            np.mean([_to_scalar(exp_data[s][2][t]) for s in range(len(exp_data)) if t < len(exp_data[s][2])])
-            for t in range(T)
-        ]
-        ub_per_t = [
-            np.mean([_to_scalar(exp_data[s][3][t]) for s in range(len(exp_data)) if t < len(exp_data[s][3])])
-            for t in range(T)
-        ]
-        if lb_per_t and ub_per_t:
-            all_logZ_estimates.append((max(lb_per_t) + min(ub_per_t)) / 2.0)
-
-    if not all_logZ_estimates:
+    if not cached or all(len(exp_data) == 0 for exp_data in cached):
         return [[] for _ in range(len(f_q_load_prefixes_to_use))]
 
-    global_logZ = float(np.median(all_logZ_estimates))
+    # Compute global log Z using extracted utility
+    try:
+        global_logZ = compute_global_logZ_from_iwae_bounds(cached)
+    except ValueError:
+        return [[] for _ in range(len(f_q_load_prefixes_to_use))]
+
+    print(f"Global log Z: {global_logZ}")
 
     # Phase 2: build results_list using global_logZ for every seed
     results_list = []
@@ -491,10 +467,12 @@ def load_f_q_g_q_iwae_and_compute_approx_kl(load_dir, f_q_load_prefixes_to_use, 
         for f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list in exp_data:
             if len(f_q_estimates_list) == 0 or len(g_q_estimates_list) == 0:
                 continue
-            f_q_last = _to_scalar(f_q_estimates_list[-1])
-            g_q_last = _to_scalar(g_q_estimates_list[-1])
-            kl_q_sigma_seed = global_logZ - f_q_last
-            kl_sigma_q_seed = g_q_last - global_logZ
+            f_q_last = to_scalar(f_q_estimates_list[-1])
+            g_q_last = to_scalar(g_q_estimates_list[-1])
+
+            kl_sigma_q_seed, kl_q_sigma_seed = compute_approx_kl_from_f_q_g_q(
+                f_q_last, g_q_last, global_logZ
+            )
             row.append((np.array([kl_sigma_q_seed]), np.array([kl_q_sigma_seed])))
         results_list.append(row)
     return results_list
@@ -778,6 +756,8 @@ figname_modifier = "toy_len1_01_17_kl_div_wnn"
 
 
 figname_modifier = "toy_len1_01_27_kl_div_approx"
+figname_modifier = "toy_len1_01_27_kl_div_approx_400"
+figname_modifier = "toy_len1_01_27_kl_div_approx_400_v2"
 
 
 do_1B_experiments = False
@@ -789,7 +769,7 @@ linestyle_list = ['solid'] * 30
 
 
 color_list = [
-    'xkcd:orange', 'xkcd:red', 'xkcd:purple', 'xkcd:green', 'xkcd:blue',
+    'xkcd:green', 'xkcd:blue', 'xkcd:red', 'xkcd:orange',  'xkcd:purple',
     'xkcd:black',  'xkcd:gray',  'xkcd:light brown',
     'xkcd:pink', 'xkcd:gold', 'xkcd:teal', 'xkcd:magenta',
 ] * 5
@@ -798,6 +778,7 @@ marker_list = ["D", "x", "^", "o", "P", "v", "v", "v", "P", "o", "o",
                "v", "v", "^", "P", "v", "D", "v", "v", "x", "v", # 22 23 25 27 28 reinf, ours, baseprop, reinftransf ppo
                "v", "v", "v", "^", "^", "x", "x", "x", "x", "D",
                "P", "P", "P", "v", "v", "v", "^", "^", "x", "x", "x", "x", "D", "P", "P", "P"]
+
 
 marker_list = ["D"] * 12
 marker_list.extend(["P"] * 12)
@@ -1231,16 +1212,80 @@ else:
                            "P", "P", "P", "v", "v", "v", "^", "^", "x", "x", "x", "x", "D", "P", "P", "P"]
         else:
             # approx KL stuff
+            # for x in $(ls info/toyrepulse2p2v2/ | grep f_q_g_q | grep he20 | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+
             kl_load_prefixes_to_use = [
-                make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he5_scc_al3e-05_bl0.0_ppq_c3.0_tb5_s1",1,10),
                 make_list(
-                    "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he5_scc_al3e-05_bl0.0_ppq_tb5_s1",
+                    "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_c3.0_tb5_s2",
+                    1, 10),
+                make_list(
+                    "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+                    1, 10),
+                make_list(
+                    "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s2",
                     1, 10),
 
             ]
+            figname_modifier = "toy_len1_01_27_kl_div_approx_400_fixed"
+
+            # # for x in $(ls /scratch/zhaostep/OpenRLHF/info/toyrepulse2p2len2/ | grep f_q_g_q | grep he20 | grep s2); do echo make_list\(\"$x\", 1,10\)\,; done
+            # kl_load_prefixes_to_use = [
+            #     make_list(
+            #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0001_cfsn_af_fo_tb5_s2",
+            #         1, 10),
+            #     make_list(
+            #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0001_cfsn_bf_fo_tb5_s2",
+            #         1, 10),
+            #     make_list(
+            #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfsn_af_fo_tb5_s2",
+            #         1, 10),
+            #     make_list(
+            #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfsn_bf_fo_tb5_s2",
+            #         1, 10),
+            #     make_list(
+            #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+            #         1, 10),
+            #     make_list(
+            #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_bf_fo_tb5_s2",
+            #         1, 10),
+            #     make_list(
+            #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_fp0.01_cfsn_af_fo_tb5_s2",
+            #         1, 10),
+            #     make_list(
+            #         "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s2",
+            #         1, 10),
+            # ]
+            # figname_modifier = "toy_len2_01_27_kl_div_approx_400"
+            #
+            #
+            # for x in $(ls /scratch/zhaostep/OpenRLHF/info/toyrepulse2p2len2/ | grep f_q_g_q | grep 001 | grep af | grep he20 | grep s2); do echo make_list\(\"$x\", 1,5\)\,; done
+            kl_load_prefixes_to_use = [
+                # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfsn_bf_fo_tb5_s2", 1,5),
+                make_list(
+                    "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+                    1, 10),
+                make_list(
+                    "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_tb5_s2",
+                    1, 10),
+
+                # make_list(
+                #     "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+                #     1, 5),
+                # make_list(
+                #     "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+                #     1, 5),
+                # make_list(
+                #     "f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2",
+                #     1, 5),
+                # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfu4_cfsn_af_fo_tb5_s1",1,5),
+                # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_di_To_2_l2_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfu4_cfsn_bf_fo_tb5_s1",1,5),
+            ]
+            figname_modifier = "toy_len2_01_28_kl_div_approx_1000_clean"
+
 
     else:
         raise Exception("Figname does not correspond to any set of data")
+
 
 
 inds_to_use = None
@@ -1457,6 +1502,9 @@ do_kl_plot = False
 # You can also enable it by adding "kl_div" to figname_modifier
 if "kl_div" in figname_modifier:
     do_kl_plot = True
+
+
+
 
 if do_kl_plot:
 

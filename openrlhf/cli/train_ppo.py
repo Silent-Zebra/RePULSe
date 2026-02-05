@@ -1173,9 +1173,20 @@ def train(args):
 
         if args.evaluate_heldout_sampling == "end":
             strategy.print("DOING evaluate_heldout_sampling (end)")
+            # Use existing trainer's experience_maker if available
+            experience_maker = None
+            generate_kwargs = None
+            if args.do_harmlessness_training:
+                experience_maker = harmlessness_trainer.base_experience_maker
+                generate_kwargs = harmlessness_trainer.generate_kwargs
+            else:
+                # trainer is created in the else branch above
+                experience_maker = trainer.experience_maker
+                generate_kwargs = trainer.generate_kwargs
             do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                          critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
-                                         strategy, tokenizer, true_target_samples, vf_coef, mode="end")
+                                         strategy, tokenizer, true_target_samples, vf_coef, mode="end",
+                                         experience_maker=experience_maker, generate_kwargs=generate_kwargs)
 
         if args.evaluate_on_neg_data:
             strategy.print("DOING evaluate_on_neg_data")
@@ -2282,13 +2293,13 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     strategy.print(f"  Samples per prompt: {args.true_target_sample_amount}")
 
 
-def _heldout_one_batch_make_experience(trainer, prompts_batch, samples_per_prompt, return_entropy_kl=False):
+def _heldout_one_batch_make_experience(experience_maker, generate_kwargs, prompts_batch, samples_per_prompt, return_entropy_kl=False):
     """Run make_experience on one batch of prompts; return reward and return tensors (and optionally entropy, kl)."""
-    experience = trainer.experience_maker.make_experience(
+    experience = experience_maker.make_experience(
         prompts_batch,
         samples_per_prompt=samples_per_prompt,
         force_no_exploration_bonus=True,
-        **trainer.generate_kwargs
+        **generate_kwargs
     )
     if return_entropy_kl:
         return (
@@ -2307,19 +2318,27 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
                                  heldout_reward_over_time_list=None,
                                  heldout_return_over_time_list=None,
                                  prompt_text=None,
-                                 n_heldout_samples=None):
+                                 n_heldout_samples=None,
+                                 experience_maker=None,
+                                 generate_kwargs=None):
     """
     Heldout evaluation: sample from actor_to_test on prompts and record reward/return.
     mode: "end" = full eval and save to file (current behaviour); "each_fit_step" = one batch, append full tensors to over-time lists.
     For mode "each_fit_step", single-prompt only: pass prompt_text and n_heldout_samples (or use args.n_heldout_samples_per_fit_step).
+    If experience_maker and generate_kwargs are provided, use them instead of creating a new trainer.
     """
     n_heldout = n_heldout_samples if n_heldout_samples is not None else getattr(args, "n_heldout_samples_per_fit_step", 100)
-    trainer = get_base_ppo_trainer(actor_to_test, actor_optim, actor_scheduler, args, initial_model, critic,
-                                   critic_optim,
-                                   critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
-                                   true_target_samples, vf_coef)
+    if experience_maker is None or generate_kwargs is None:
+        raise NotImplementedError("Not tested, might do weird stuff")
+        trainer = get_base_ppo_trainer(actor_to_test, actor_optim, actor_scheduler, args, initial_model, critic,
+                                       critic_optim,
+                                       critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
+                                       true_target_samples, vf_coef)
+        experience_maker = trainer.experience_maker
+        generate_kwargs = trainer.generate_kwargs
 
     if mode == "each_fit_step":
+        assert args.new_custom_single_prompt # otherwise not yet tested
         # Single-prompt only: one batch, append full tensors to over-time lists
         if heldout_reward_over_time_list is None or heldout_return_over_time_list is None:
             raise ValueError("heldout_reward_over_time_list and heldout_return_over_time_list required when mode='each_fit_step'")
@@ -2328,7 +2347,7 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
                 tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
             )
         expanded_prompts = tile_prompts([prompt_text], n_heldout)
-        reward, return_ = _heldout_one_batch_make_experience(trainer, expanded_prompts, samples_per_prompt=1)
+        reward, return_ = _heldout_one_batch_make_experience(experience_maker, generate_kwargs, expanded_prompts, samples_per_prompt=1)
         heldout_reward_over_time_list.append(reward.cpu())
         heldout_return_over_time_list.append(return_.cpu())
         return
@@ -2342,7 +2361,7 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             )
         expanded_prompts = tile_prompts([prompt_text], n_heldout)
         reward, return_, entropy, kls = _heldout_one_batch_make_experience(
-            trainer, expanded_prompts, samples_per_prompt=1, return_entropy_kl=True
+            experience_maker, generate_kwargs, expanded_prompts, samples_per_prompt=1, return_entropy_kl=True
         )
         rewards = reward
         returns = return_
@@ -2357,11 +2376,11 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         for i in range(args.sampling_iters):
             strategy.print(f"Sampling iter: {i}")
             for rand_prompts in prompts_dataloader:
-                experience = trainer.experience_maker.make_experience(
+                experience = experience_maker.make_experience(
                     rand_prompts,
                     samples_per_prompt=args.duplicate_rollout_batch_by,
                     force_no_exploration_bonus=True,
-                    **trainer.generate_kwargs
+                    **generate_kwargs
                 )
                 rewards.append(experience.info["reward"])
                 returns.append(experience.info["return"])
@@ -2435,6 +2454,8 @@ def _run_per_fit_step_heldout_and_f_q(
         heldout_return_over_time_list=heldout_return_over_time_list,
         prompt_text=prompt_text_heldout,
         n_heldout_samples=getattr(args, "n_heldout_samples_per_fit_step", 100),
+        experience_maker=harmlessness_trainer.base_experience_maker,
+        generate_kwargs=harmlessness_trainer.generate_kwargs,
     )
     if getattr(args, "f_q_g_q_eval", False):
         f_q_g_q_evaluation(

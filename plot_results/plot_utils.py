@@ -1,5 +1,6 @@
 import torch
 import re
+import numpy as np
 
 
 def make_list(name, first_seed, last_seed):
@@ -43,7 +44,8 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
     
     This function extracts information from prefixes to create human-readable labels.
     It handles different run types: "Exact Count", "Coin Flip Net", and "No Exploration Bonus".
-    For Coin Flip Net runs, it extracts additional parameters like updates, head_std, prior_std, etc.
+    For all run types, LR (q) (sampling actor / actor learning rate from _al) is included when present.
+    For Coin Flip Net runs, it also extracts coin flip LR, updates, head_std, prior_std, etc.
     
     Supports both old and new abbreviated naming conventions.
     
@@ -72,6 +74,12 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
         if run_type == "Coin Flip Net":
             label_parts = [run_type]
             
+            # Extract bonus_alpha from _cf pattern (encoded as _cf followed by value)
+            cf_match = re.search(r'_cf([\d.]+)', prefix)
+            if cf_match:
+                bonus_alpha = cf_match.group(1)
+                label_parts.append(f"bonus_alpha={bonus_alpha}")
+            
             # Extract cfus/cfu (updates) - support both old and new
             cfus_match = re.search(r'_cfus(\d+)', prefix) or re.search(r'_cfu(\d+)', prefix)
             if cfus_match:
@@ -96,11 +104,23 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             if "_cfbias" in prefix or "_cfb" in prefix:
                 label_parts.append("with bias")
             
+            # Extract sampling actor LR from _al (actor_learning_rate in harmlessness = sampling_actor)
+            al_match = re.search(r'_al([\d.e-]+)', prefix)
+            if al_match:
+                al_num = al_match.group(1)
+                label_parts.append(f"{al_num} LR (q)")
+            
             # Extract cflr/cfr (learning rate) - support both old and new
             cflr_match = re.search(r'_cflr([\d.e-]+)', prefix) or re.search(r'_cfr([\d.e-]+)', prefix)
             if cflr_match:
                 cflr_num = cflr_match.group(1)
-                label_parts.append(f"{cflr_num} Coin Flip LR")
+                label_parts.append(f"{cflr_num} LR (CF)") # (coin flip net)
+            
+            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
+            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
+            if tbs_match:
+                batch_size = tbs_match.group(1)
+                label_parts.append(f"batch_size={batch_size}")
             
             # Check for "after"/"before" or new abbreviations "af"/"bf"
             if "after" in prefix or "_af" in prefix:
@@ -132,6 +152,12 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
                 bonus_alpha = count_match.group(1)
                 label_parts.append(f"bonus_alpha={bonus_alpha}")
             
+            # Extract LR (q) / sampling actor LR from _al
+            al_match = re.search(r'_al([\d.e-]+)', prefix)
+            if al_match:
+                al_num = al_match.group(1)
+                label_parts.append(f"{al_num} LR (q)")
+            
             # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
             epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
             if epi_match:
@@ -148,6 +174,12 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
         else:
             label_parts = [run_type]
 
+            # Extract LR (q) / sampling actor LR from _al
+            al_match = re.search(r'_al([\d.e-]+)', prefix)
+            if al_match:
+                al_num = al_match.group(1)
+                label_parts.append(f"{al_num} LR (q)")
+
             # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
             epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
             if epi_match:
@@ -163,3 +195,95 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             labels.append(", ".join(label_parts))
     
     return labels
+
+
+def to_scalar(x):
+    """
+    Convert list/tensor to a single float (mean over all elements).
+    
+    Args:
+        x: Input that can be converted to numpy array (list, tensor, array, etc.)
+    
+    Returns:
+        float: Mean value over all elements
+    """
+    return float(np.asarray(x).ravel().mean())
+
+
+def compute_global_logZ_from_iwae_bounds(loaded_data):
+    """
+    Compute global log Z from IWAE bounds across all experiments and seeds.
+    
+    Args:
+        loaded_data: List of experiments, where each experiment is a list of seeds.
+                     Each seed contains a tuple (f_q_estimates_list, g_q_estimates_list, 
+                     iwae_lbs_list, iwae_ubs_list)
+    
+    Returns:
+        float: Median global log Z value across all seed and experiment estimates
+    """
+    all_logZ_estimates = []
+    
+    for exp_data in loaded_data:
+        # Per-seed log Z
+        for f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list in exp_data:
+            if len(iwae_lbs_list) == 0 or len(iwae_ubs_list) == 0:
+                continue
+            lb_per_t = [to_scalar(iwae_lbs_list[t]) for t in range(len(iwae_lbs_list))]
+            ub_per_t = [to_scalar(iwae_ubs_list[t]) for t in range(len(iwae_ubs_list))]
+            logZ_seed = (max(lb_per_t) + min(ub_per_t)) / 2.0
+            all_logZ_estimates.append(logZ_seed)
+        
+        # Per-experiment log Z (average lb/ub per timestep across seeds, then midpoint)
+        if len(exp_data) == 0:
+            continue
+        T = len(exp_data[0][2])  # Length of iwae_lbs_list
+        lb_per_t = [
+            np.mean([to_scalar(exp_data[s][2][t]) for s in range(len(exp_data)) if t < len(exp_data[s][2])])
+            for t in range(T)
+        ]
+        ub_per_t = [
+            np.mean([to_scalar(exp_data[s][3][t]) for s in range(len(exp_data)) if t < len(exp_data[s][3])])
+            for t in range(T)
+        ]
+        if lb_per_t and ub_per_t:
+            all_logZ_estimates.append((max(lb_per_t) + min(ub_per_t)) / 2.0)
+    
+    if not all_logZ_estimates:
+        raise ValueError("No log Z estimates found in loaded data")
+    
+    global_logZ = float(np.median(all_logZ_estimates))
+    return global_logZ
+
+
+def compute_approx_kl_from_f_q_g_q(f_q_estimates, g_q_estimates, global_logZ):
+    """
+    Compute approximate KL divergence estimates from f_q, g_q, and global log Z.
+    
+    Args:
+        f_q_estimates: f_q estimate(s) - can be scalar, array, or tensor
+        g_q_estimates: g_q estimate(s) - can be scalar, array, or tensor  
+        global_logZ: Global log Z value (float)
+    
+    Returns:
+        tuple: (kl_sigma_q, kl_q_sigma) where:
+            - kl_sigma_q = g_q - global_logZ (KL(sigma_p || q))
+            - kl_q_sigma = global_logZ - f_q (KL(q || sigma_p))
+            Both have the same shape as the inputs
+    """
+    # Convert to numpy arrays for consistent handling
+    if isinstance(f_q_estimates, torch.Tensor):
+        f_q_array = f_q_estimates.float().cpu().numpy()
+    else:
+        f_q_array = np.asarray(f_q_estimates)
+    
+    if isinstance(g_q_estimates, torch.Tensor):
+        g_q_array = g_q_estimates.float().cpu().numpy()
+    else:
+        g_q_array = np.asarray(g_q_estimates)
+    
+    # Compute KL divergences
+    kl_q_sigma = global_logZ - f_q_array
+    kl_sigma_q = g_q_array - global_logZ
+    
+    return kl_sigma_q, kl_q_sigma
