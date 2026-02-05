@@ -1051,18 +1051,17 @@ class CombinedHarmlessnessTrainer(ABC):
             # final_reward = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             final_reward_including_kl = experience.info["return"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
 
-            if self.separate_neg_samples:
-                final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+            # Part 3 (base actor SIS): use reward without exploration bonus for reweighting q-samples.
+            # Use stored reward_no_bonus when available to avoid a duplicate reward model pass.
+            reward_no_bonus = experience_neg_sampling.info.get("reward_no_bonus")
+            if reward_no_bonus is not None:
+                final_reward_neg = reward_no_bonus.view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
             else:
-                # experience_neg_sampling = experience here
-                # Use force_no_exploration_bonus=True to avoid double-counting if these sequences were already processed
-                log_phi, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(
-                    experience_neg_sampling.sequences, experience_neg_sampling.attention_mask, 
+                log_phi, _, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(
+                    experience_neg_sampling.sequences, experience_neg_sampling.attention_mask,
                     multiply_by_beta=True, force_no_exploration_bonus=True
                 )
                 final_reward_neg = log_phi.view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
-
-
 
             exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
             exper_neg_action_mask = experience_neg_sampling.action_mask.view(num_prompts, samples_per_prompt, -1)
@@ -1118,9 +1117,17 @@ class CombinedHarmlessnessTrainer(ABC):
                     attention_mask=experience_neg_sampling.attention_mask, return_output=False
                 )
 
-
+            # Part 3 (base actor): use reward without exploration bonus for SIS and for compute_reward.
+            # Use stored reward_no_bonus when available to avoid a duplicate reward model pass.
+            reward_neg_no_bonus = experience_neg_sampling.info.get("reward_no_bonus")
+            if reward_neg_no_bonus is None:
+                reward_neg_no_bonus, _, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(
+                    experience_neg_sampling.sequences, experience_neg_sampling.attention_mask,
+                    multiply_by_beta=self.sampling_experience_maker_neg.multiply_by_beta,
+                    force_no_exploration_bonus=True
+                )
             reward_neg, _ = compute_reward(
-                experience_neg_sampling.info["reward"],
+                reward_neg_no_bonus,
                 self.kl_ctl.value,
                 action_log_probs_neg,
                 base_action_log_probs_neg,
@@ -1134,7 +1141,7 @@ class CombinedHarmlessnessTrainer(ABC):
             final_reward_no_kl = experience.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
             final_reward_including_kl = experience.info["return"].view(num_prompts, samples_per_prompt).to(action_log_probs.device)
 
-            final_reward_neg = experience_neg_sampling.info["reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
+            final_reward_neg = reward_neg_no_bonus.view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
             # untransformed_rewards_neg = experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
 
 

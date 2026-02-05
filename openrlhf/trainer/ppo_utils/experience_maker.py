@@ -1182,8 +1182,8 @@ class BaseExperienceMaker(ABC):
         with torch.no_grad():
             base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
 
-        r, untransformed_reward, exploration_bonus = self.compute_reward_no_kl(
-            sequences, attention_mask, 
+        r, untransformed_reward, exploration_bonus, r_no_bonus = self.compute_reward_no_kl(
+            sequences, attention_mask,
             multiply_by_beta=self.multiply_by_beta,
             force_no_exploration_bonus=force_no_exploration_bonus
         )
@@ -1222,6 +1222,7 @@ class BaseExperienceMaker(ABC):
         info = {
             "kl": masked_mean(kl, action_mask, dim=-1),
             "reward": r,
+            "reward_no_bonus": r_no_bonus,
             "return": rewards.sum(dim=-1),
             "return2": returns.sum(dim=-1),
             "response_length": action_mask.float().sum(dim=-1),
@@ -1303,13 +1304,13 @@ class BaseExperienceMaker(ABC):
                 # Apply exploration bonus if enabled
             if self.exploration_bonus and not force_no_exploration_bonus:
                 raise NotImplementedError("Check that exploration bonus is applied correctly for p vs q")
-                exploration_bonuses = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
-                # Add exploration bonus to base reward
-                r = r + exploration_bonuses
+                # exploration_bonuses = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
+                # # Add exploration bonus to base reward
+                # r = r + exploration_bonuses
                 
-                print(f"Exploration bonus applied. Mean bonus: {exploration_bonuses.mean().item():.4f}, "
-                      f"Min bonus: {exploration_bonuses.min().item():.4f}, "
-                      f"Max bonus: {exploration_bonuses.max().item():.4f}")
+                # print(f"Exploration bonus applied. Mean bonus: {exploration_bonuses.mean().item():.4f}, "
+                #       f"Min bonus: {exploration_bonuses.min().item():.4f}, "
+                #       f"Max bonus: {exploration_bonuses.max().item():.4f}")
 
         elif self.remote_rm_url is not None:
             # TODO not yet supported/checked with new_custom_single_prompt
@@ -1462,10 +1463,11 @@ class BaseExperienceMaker(ABC):
                 result = -final_reward
             else:
                 result = final_reward
-                
+
+        result_no_bonus = result.clone()
         if exploration_bonus is not None:
             result = result + exploration_bonus
-        return result, untransformed_reward, exploration_bonus
+        return result, untransformed_reward, exploration_bonus, result_no_bonus
 
     def set_all_eval(self):
         self.actor.eval()
