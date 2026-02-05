@@ -281,6 +281,8 @@ def get_info_name_str(args):
     if args.do_harmlessness_training:
         epi_str += f"_he{args.harmlessness_training_num_episodes}"
 
+    # Fit steps (multiplier on samples per timestep); only include when != 1
+    fit_steps_str = f"_fs{getattr(args, 'fit_steps', 1)}" if getattr(args, 'fit_steps', 1) != 1 else ""
 
     rm_type_str = args.rm_type
     if args.rm_type == "indicator_below_threshold":
@@ -401,7 +403,7 @@ def get_info_name_str(args):
     if scheduler_short in scheduler_map:
         scheduler_short = scheduler_map[scheduler_short]
     
-    info_name_str = f"{rm_type_str}{reward_clamp_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_l{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_b{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{param_short}_{loss_type_short}_ep{args.max_epochs}{epi_str}{eval_str}_sc{scheduler_short}_{lr_str}{critic_loss_str}{adam_betas_str}_{param_short}{init_head_base_str}{sddiv_str}{exploration_bonus_str}_tb{args.train_batch_size}_s{args.seed}"
+    info_name_str = f"{rm_type_str}{reward_clamp_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_l{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_b{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{param_short}_{loss_type_short}_ep{args.max_epochs}{epi_str}{fit_steps_str}{eval_str}_sc{scheduler_short}_{lr_str}{critic_loss_str}{adam_betas_str}_{param_short}{init_head_base_str}{sddiv_str}{exploration_bonus_str}_tb{args.train_batch_size}_s{args.seed}"
 
     return info_name_str
 
