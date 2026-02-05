@@ -1155,7 +1155,7 @@ def train(args):
             is_rlhf=True,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
-        if args.evaluate_heldout_sampling == "each_fit_step" and getattr(args, "new_custom_single_prompt", False):
+        if args.evaluate_heldout_sampling == "each_fit_step" and not args.new_custom_single_prompt:
             assert args.heldout_prompt_data is not None
             assert args.heldout_input_key is not None
         args.no_critic = True
