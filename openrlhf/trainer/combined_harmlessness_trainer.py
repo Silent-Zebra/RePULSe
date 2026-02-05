@@ -1,7 +1,7 @@
 import math
 import os.path
 from abc import ABC
-from typing import Any, Callable, Dict, List, Optional, Union, Set
+from typing import Any, Callable, Dict, List, NoReturn, Optional, Union, Set
 from openrlhf.models.loss import get_positive_weights_detached, get_normalized_positive_weights_detached
 
 import ray
@@ -25,7 +25,6 @@ from openrlhf.utils.utils import (
     tile_prompts,
     inspect_rewards_list,
     log_sequence_for_negatives,
-    f_q_g_q_evaluation,
     get_custom_prompt_with_chat_template,
 )
 
@@ -477,10 +476,7 @@ class CombinedHarmlessnessTrainer(ABC):
         consumed_samples=0,
         num_update_steps_per_episodes=1,
         true_target_samples=None,
-        iwae_lbs_list=None,
-        iwae_ubs_list=None,
-        f_q_estimates_list=None,
-        g_q_estimates_list=None,
+        is_first_fit_step=False,
         rewards_list=None,
         kl_vals_list=None,
         entropy_list=None,
@@ -489,10 +485,6 @@ class CombinedHarmlessnessTrainer(ABC):
         untrans_ret_list_sampling=None,
         bonus_vals_list_sampling=None,
     ) -> (List, List, List, List):
-
-        # Assertion: f_q/g_q evaluation requires f_q_g_q_eval flag and single prompt case
-        if args.f_q_g_q_eval and not args.new_custom_single_prompt:
-            raise NotImplementedError("f_q/g_q evaluation (--f_q_g_q_eval) requires --new_custom_single_prompt (multi-prompt case needs checking)")
 
         # Extract prompt_text for new_custom_single_prompt case
         num_rollouts_per_episodes = (
@@ -544,14 +536,6 @@ class CombinedHarmlessnessTrainer(ABC):
             raise NotImplementedError # Should check that this all works correctly after I modified it.
 
         # Initialize lists if not provided (for backward compatibility)
-        if iwae_lbs_list is None:
-            iwae_lbs_list = []
-        if iwae_ubs_list is None:
-            iwae_ubs_list = []
-        if f_q_estimates_list is None:
-            f_q_estimates_list = []
-        if g_q_estimates_list is None:
-            g_q_estimates_list = []
         if rewards_list is None:
             rewards_list = []
         if kl_vals_list is None:
@@ -594,12 +578,6 @@ class CombinedHarmlessnessTrainer(ABC):
             prompt_text = get_custom_prompt_with_chat_template(
                 self.tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), self.strategy
             )
-            # Initialize evaluation at start if f_q_g_q_eval is enabled
-            if args.f_q_g_q_eval:
-                f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
-                                        g_q_estimates_list, iwae_lbs_list,
-                                        iwae_ubs_list, prompt_text,
-                                        true_target_samples)
 
         for episode in range(start_episode, args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop): # Actually with this current setup is kind of redundant to have these 2 hyperparameters, loops here or in the outer loop, just pick one, doesn't really matter with 1 update each...
             print(f"HARMLESSNESS TRAINING EPISODE {episode}", flush=True)
@@ -644,18 +622,8 @@ class CombinedHarmlessnessTrainer(ABC):
                                                    untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only,
                                                    rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling, bonus_vals_list_sampling=bonus_vals_list_sampling)
 
-        # Evaluation call after each set of harmlessness training episodes for new_custom_single_prompt case
-        if args.new_custom_single_prompt and args.f_q_g_q_eval and prompt_text is not None:
-            f_q_g_q_evaluation(self, self.sampling_experience_maker_neg, args, f_q_estimates_list,
-                                    g_q_estimates_list, iwae_lbs_list,
-                                    iwae_ubs_list, prompt_text,
-                                    true_target_samples)
-
-        # Always return the non-f_q_g_q metrics, and if f_q_g_q_eval is enabled, also return f_q/g_q/iwae lists
-        if args.f_q_g_q_eval:
-            return (*estimates_list, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
-        else:
-            return estimates_list
+        # train_ppo now owns f_q/g_q evaluation: calls f_q_g_q_evaluation at initial and after each fit step
+        return estimates_list
 
     def make_experience_and_do_update(self, args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
                                       untrans_ret_list, update_timesteps, neg_sample_only=False,
@@ -794,7 +762,7 @@ class CombinedHarmlessnessTrainer(ABC):
         for epoch in range(self.max_epochs):
             if self.separate_neg_samples:
                 if neg_sample_only:
-                    pbar = tqdm(
+                    pbar = tqdm[NoReturn](
                         dataloader_neg,
                         desc=f"Train epoch (neg only) [{epoch + 1}/{self.max_epochs}]",
                         disable=not self.strategy.is_rank_0(),

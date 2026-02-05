@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -650,6 +650,53 @@ def train(args):
     rewards_list_sampling = []
     untrans_ret_list_sampling = []
     bonus_vals_list_sampling = []
+    # Per-fit-step heldout and f_q tracking (train_ppo owns these; populated when evaluate_heldout_sampling == "each_fit_step")
+    heldout_reward_over_time_list = []
+    heldout_return_over_time_list = []
+    f_q_over_time_list = []
+
+
+    # Initial point (before fit loop): heldout eval + f_q when each_fit_step + single-prompt + harmlessness
+    _per_fit_step_heldout = (
+        getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step"
+        and getattr(args, "new_custom_single_prompt", False)
+        and args.do_harmlessness_training
+    )
+    if getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step":
+        if not args.new_custom_single_prompt:
+            raise NotImplementedError("evaluate_heldout_sampling 'each_fit_step' requires --new_custom_single_prompt")
+
+    if _per_fit_step_heldout:
+        prompt_text_heldout = get_custom_prompt_with_chat_template(
+            tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
+        )
+        _run_per_fit_step_heldout_and_f_q(
+            prompt_text_heldout,
+            harmlessness_trainer,
+            args,
+            base_actor_optim,
+            base_actor_scheduler,
+            base_actor,
+            critic,
+            critic_optim,
+            critic_scheduler,
+            ema_model,
+            info_name_str,
+            static_initial_model,
+            neg_data,
+            reward_model,
+            strategy,
+            tokenizer,
+            true_target_samples,
+            vf_coef,
+            heldout_reward_over_time_list,
+            heldout_return_over_time_list,
+            f_q_estimates_list,
+            g_q_estimates_list,
+            iwae_lbs_list,
+            iwae_ubs_list,
+            f_q_over_time_list,
+        )
 
     # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
     for fit_step in range(args.fit_steps):
@@ -737,10 +784,7 @@ def train(args):
                 estimates_list = harmlessness_trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
                     num_update_steps_per_episodes, true_target_samples,
-                    iwae_lbs_list=iwae_lbs_list,
-                    iwae_ubs_list=iwae_ubs_list,
-                    f_q_estimates_list=f_q_estimates_list,
-                    g_q_estimates_list=g_q_estimates_list,
+                    is_first_fit_step=(fit_step == 0),
                     rewards_list=rewards_list,
                     kl_vals_list=kl_vals_list,
                     entropy_list=entropy_list,
@@ -761,26 +805,13 @@ def train(args):
         if estimates_list is not None:
             # Unpack the base estimates_list (always returned)
             if args.do_harmlessness_training:
-                # CombinedHarmlessnessTrainer format: (rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling) = 7 elements
-                # With f_q_g_q_eval: + (f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list) = 11 elements total
-                if len(estimates_list) == 11:
-                    # New format with f_q_g_q_eval: 7 base + 4 f_q/g_q/iwae
-                    rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = estimates_list
-                elif len(estimates_list) == 7:
-                    # Base format without f_q_g_q_eval: 7 elements
+                # CombinedHarmlessnessTrainer always returns 7 elements (f_q/g_q/iwae are owned by train_ppo and populated via f_q_g_q_evaluation calls)
+                if len(estimates_list) == 7:
                     rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling = estimates_list
-                    f_q_estimates_list = None
-                    g_q_estimates_list = None
-                    iwae_lbs_list = None
-                    iwae_ubs_list = None
                 else:
                     # Old format (6 elements without bonus)
                     rewards_list, kl_vals_list, entropy_list, untrans_ret_list, rewards_list_sampling, untrans_ret_list_sampling = estimates_list
                     bonus_vals_list_sampling = None
-                    f_q_estimates_list = None
-                    g_q_estimates_list = None
-                    iwae_lbs_list = None
-                    iwae_ubs_list = None
             else:
                 # BasePPOTrainer format: (rewards_list, kl_vals_list, entropy_list, untrans_ret_list) = 4 elements
                 # With f_q_g_q_eval: + (f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list) = 8 elements total
@@ -801,7 +832,38 @@ def train(args):
                     iwae_lbs_list = None
                     iwae_ubs_list = None
 
-            # Save f_q/g_q/iwae stuff separately (only if f_q_g_q_eval was done and lists are not empty)
+            # Per-fit-step heldout + f_q (after each fit step)
+            if _per_fit_step_heldout and args.do_harmlessness_training:
+                _run_per_fit_step_heldout_and_f_q(
+                    prompt_text_heldout,
+                    harmlessness_trainer,
+                    args,
+                    base_actor_optim,
+                    base_actor_scheduler,
+                    base_actor,
+                    critic,
+                    critic_optim,
+                    critic_scheduler,
+                    ema_model,
+                    info_name_str,
+                    static_initial_model,
+                    neg_data,
+                    reward_model,
+                    strategy,
+                    tokenizer,
+                    true_target_samples,
+                    vf_coef,
+                    heldout_reward_over_time_list,
+                    heldout_return_over_time_list,
+                    f_q_estimates_list,
+                    g_q_estimates_list,
+                    iwae_lbs_list,
+                    iwae_ubs_list,
+                    f_q_over_time_list,
+                )
+
+            # Save f_q/g_q/iwae stuff separately (only if f_q_g_q_eval was done and lists are not empty).
+            # Indexing: f_q_estimates_list[0] = initial (before training), f_q_estimates_list[k+1] = after fit step k.
             if args.f_q_g_q_eval and f_q_estimates_list is not None and len(f_q_estimates_list) > 0:
                 print("FINAL RESULTS IWAE LB LIST", flush=True)
                 print(iwae_lbs_list)
@@ -975,6 +1037,13 @@ def train(args):
                     bonus_vals_over_time_list_sampling.append(bonus_vals_tensor_sampling[0].item()) # Get value at start of training
                 bonus_vals_over_time_list_sampling.append(bonus_vals_tensor_sampling[-1].item())
 
+    # Save per-fit-step heldout and f_q over time (when each_fit_step mode was used)
+    if len(heldout_reward_over_time_list) > 0:
+        f_q_mean_list = [t.mean().item() for t in f_q_over_time_list]
+        save_str = f"{args.save_info_path}/heldout_over_time_{info_name_str}"
+        torch.save((heldout_reward_over_time_list, heldout_return_over_time_list, f_q_mean_list), save_str)
+        strategy.print(f"Saved heldout/f_q over time to {save_str}")
+
     # Calculate KL divergence one more time after training loop to get 51st value
     # (matching the 51 reward/return values: initial + 50 from loop)
     if args.analytic_calc:
@@ -1076,7 +1145,7 @@ def train(args):
     else:
         actor_to_test = actor
         initial_model = base_actor
-    if args.evaluate_heldout_sampling or args.evaluate_on_neg_data:
+    if (args.evaluate_heldout_sampling is not None and args.evaluate_heldout_sampling in ("end", "each_fit_step")) or args.evaluate_on_neg_data:
         args.rm_type = "rlhf"
         args.target_dist_beta = 1
         args.reward_transform = None
@@ -1086,9 +1155,9 @@ def train(args):
             is_rlhf=True,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
-
-        assert args.heldout_prompt_data is not None
-        assert args.heldout_input_key is not None
+        if args.evaluate_heldout_sampling == "each_fit_step" and getattr(args, "new_custom_single_prompt", False):
+            assert args.heldout_prompt_data is not None
+            assert args.heldout_input_key is not None
         args.no_critic = True
         critic, critic_optim, critic_scheduler = None, None, None
         actor_optim, actor_scheduler = None, None
@@ -1102,11 +1171,11 @@ def train(args):
         strategy = get_strategy(args)
         strategy.setup_distributed()
 
-        if args.evaluate_heldout_sampling:
-            strategy.print("DOING evaluate_heldout_sampling")
+        if args.evaluate_heldout_sampling == "end":
+            strategy.print("DOING evaluate_heldout_sampling (end)")
             do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                          critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
-                                         strategy, tokenizer, true_target_samples, vf_coef)
+                                         strategy, tokenizer, true_target_samples, vf_coef, mode="end")
 
         if args.evaluate_on_neg_data:
             strategy.print("DOING evaluate_on_neg_data")
@@ -2213,55 +2282,107 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     strategy.print(f"  Samples per prompt: {args.true_target_sample_amount}")
 
 
+def _heldout_one_batch_make_experience(trainer, prompts_batch, samples_per_prompt, return_entropy_kl=False):
+    """Run make_experience on one batch of prompts; return reward and return tensors (and optionally entropy, kl)."""
+    experience = trainer.experience_maker.make_experience(
+        prompts_batch,
+        samples_per_prompt=samples_per_prompt,
+        force_no_exploration_bonus=True,
+        **trainer.generate_kwargs
+    )
+    if return_entropy_kl:
+        return (
+            experience.info["reward"],
+            experience.info["return"],
+            experience.info["entropy"],
+            experience.info["kl"],
+        )
+    return experience.info["reward"], experience.info["return"]
+
+
 def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                  critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
-                                 strategy, tokenizer, true_target_samples, vf_coef):
+                                 strategy, tokenizer, true_target_samples, vf_coef,
+                                 mode="end",
+                                 heldout_reward_over_time_list=None,
+                                 heldout_return_over_time_list=None,
+                                 prompt_text=None,
+                                 n_heldout_samples=None):
+    """
+    Heldout evaluation: sample from actor_to_test on prompts and record reward/return.
+    mode: "end" = full eval and save to file (current behaviour); "each_fit_step" = one batch, append full tensors to over-time lists.
+    For mode "each_fit_step", single-prompt only: pass prompt_text and n_heldout_samples (or use args.n_heldout_samples_per_fit_step).
+    """
+    n_heldout = n_heldout_samples if n_heldout_samples is not None else getattr(args, "n_heldout_samples_per_fit_step", 100)
     trainer = get_base_ppo_trainer(actor_to_test, actor_optim, actor_scheduler, args, initial_model, critic,
                                    critic_optim,
                                    critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
                                    true_target_samples, vf_coef)
-    rewards = []
-    returns = []
-    entropy = []
-    kls = []
-    pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
-    prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
-    for i in range(args.sampling_iters):
-        strategy.print(f"Sampling iter: {i}")
-        for rand_prompts in prompts_dataloader:
-            experience = trainer.experience_maker.make_experience(
-                rand_prompts,
-                samples_per_prompt=args.duplicate_rollout_batch_by,
-                force_no_exploration_bonus=True,  # Don't update counts during evaluation
-                # force_no_transform=True,
-                **trainer.generate_kwargs
+
+    if mode == "each_fit_step":
+        # Single-prompt only: one batch, append full tensors to over-time lists
+        if heldout_reward_over_time_list is None or heldout_return_over_time_list is None:
+            raise ValueError("heldout_reward_over_time_list and heldout_return_over_time_list required when mode='each_fit_step'")
+        if prompt_text is None:
+            prompt_text = get_custom_prompt_with_chat_template(
+                tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
             )
+        expanded_prompts = tile_prompts([prompt_text], n_heldout)
+        reward, return_ = _heldout_one_batch_make_experience(trainer, expanded_prompts, samples_per_prompt=1)
+        heldout_reward_over_time_list.append(reward.cpu())
+        heldout_return_over_time_list.append(return_.cpu())
+        return
 
-            rewards.append(experience.info["reward"])
-            returns.append(experience.info["return"])
-            entropy.append(experience.info["entropy"])
-            kls.append(experience.info["kl"])
-            # print(experience.info["reward"])
-
-            reward_scores = experience.info["reward"]
-
-            for threshold in [0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10]:
-                below_threshold = reward_scores < threshold
-                total_below = below_threshold.sum().item()
-                if total_below > 0:
-                    print(f"BAD TEXT FOUND THRESHOLD {threshold}")
-                print(f"TOTAL BELOW REWARD {threshold}")
-                print(total_below)
-                print(total_below / below_threshold.shape[-1])
-
-                bad_text = tokenizer.batch_decode(experience.sequences[below_threshold], skip_special_tokens=True)
-                print(f"BAD TEXT: threshold {threshold}")
-                print(bad_text)
-
-    rewards = torch.cat(rewards)
-    returns = torch.cat(returns)
-    entropy = torch.cat(entropy)
-    kls = torch.cat(kls)
+    # mode == "end"
+    if getattr(args, "new_custom_single_prompt", False):
+        # Single-prompt: one batch with n_heldout_samples_per_fit_step
+        if prompt_text is None:
+            prompt_text = get_custom_prompt_with_chat_template(
+                tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
+            )
+        expanded_prompts = tile_prompts([prompt_text], n_heldout)
+        reward, return_, entropy, kls = _heldout_one_batch_make_experience(
+            trainer, expanded_prompts, samples_per_prompt=1, return_entropy_kl=True
+        )
+        rewards = reward
+        returns = return_
+    else:
+        # Prompt-data: use heldout dataloader, loop over batches (one make_experience per batch)
+        rewards = []
+        returns = []
+        entropy = []
+        kls = []
+        pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+        prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
+        for i in range(args.sampling_iters):
+            strategy.print(f"Sampling iter: {i}")
+            for rand_prompts in prompts_dataloader:
+                experience = trainer.experience_maker.make_experience(
+                    rand_prompts,
+                    samples_per_prompt=args.duplicate_rollout_batch_by,
+                    force_no_exploration_bonus=True,
+                    **trainer.generate_kwargs
+                )
+                rewards.append(experience.info["reward"])
+                returns.append(experience.info["return"])
+                entropy.append(experience.info["entropy"])
+                kls.append(experience.info["kl"])
+                reward_scores = experience.info["reward"]
+                for threshold in [0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10]:
+                    below_threshold = reward_scores < threshold
+                    total_below = below_threshold.sum().item()
+                    if total_below > 0:
+                        print(f"BAD TEXT FOUND THRESHOLD {threshold}")
+                    print(f"TOTAL BELOW REWARD {threshold}")
+                    print(total_below)
+                    print(total_below / below_threshold.shape[-1])
+                    bad_text = tokenizer.batch_decode(experience.sequences[below_threshold], skip_special_tokens=True)
+                    print(f"BAD TEXT: threshold {threshold}")
+                    print(bad_text)
+        rewards = torch.cat(rewards)
+        returns = torch.cat(returns)
+        entropy = torch.cat(entropy)
+        kls = torch.cat(kls)
 
     strategy.print(f"Average reward: {rewards.mean().item()}")
     total_samples = rewards.shape[0]
@@ -2273,10 +2394,60 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         strategy.print(
             f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
 
-
     save_str = f"{args.save_info_path}/info_eval_{info_name_str}"
     torch.save((rewards, returns, kls, entropy), save_str)
 
+
+def _run_per_fit_step_heldout_and_f_q(
+    prompt_text_heldout,
+    harmlessness_trainer,
+    args,
+    base_actor_optim,
+    base_actor_scheduler,
+    base_actor,
+    critic,
+    critic_optim,
+    critic_scheduler,
+    ema_model,
+    info_name_str,
+    static_initial_model,
+    neg_data,
+    reward_model,
+    strategy,
+    tokenizer,
+    true_target_samples,
+    vf_coef,
+    heldout_reward_over_time_list,
+    heldout_return_over_time_list,
+    f_q_estimates_list,
+    g_q_estimates_list,
+    iwae_lbs_list,
+    iwae_ubs_list,
+    f_q_over_time_list,
+):
+    """Run heldout evaluation (each_fit_step mode) and f_q tracking; append to over-time lists."""
+    do_evaluate_heldout_sampling(
+        base_actor_optim, base_actor_scheduler, base_actor, args, critic, critic_optim,
+        critic_scheduler, ema_model, info_name_str, static_initial_model, neg_data, reward_model,
+        strategy, tokenizer, true_target_samples, vf_coef,
+        mode="each_fit_step",
+        heldout_reward_over_time_list=heldout_reward_over_time_list,
+        heldout_return_over_time_list=heldout_return_over_time_list,
+        prompt_text=prompt_text_heldout,
+        n_heldout_samples=getattr(args, "n_heldout_samples_per_fit_step", 100),
+    )
+    if getattr(args, "f_q_g_q_eval", False):
+        f_q_g_q_evaluation(
+            harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list,
+            prompt_text_heldout, true_target_samples,
+        )
+        f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
+    else:
+        f_qs, *_ = f_q_estimate(
+            harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args, prompt_text_heldout
+        )
+        f_q_over_time_list.append(f_qs.cpu())
 
 
 def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy):
@@ -2866,7 +3037,10 @@ if __name__ == "__main__":
     parser.add_argument("--only_evaluate_on_neg_data", action="store_true", help="Only evaluate on neg_data")
     parser.add_argument("--neg_data_load_path", type=str, help="Where to load the neg_data")
 
-    parser.add_argument("--evaluate_heldout_sampling", action="store_true", help="Evaluate by doing sampling on prompts on heldout data after the training is done")
+    parser.add_argument("--evaluate_heldout_sampling", type=str, default=None, choices=["end", "each_fit_step"],
+                        help="Evaluate by sampling on heldout prompts: 'end' = once after training; 'each_fit_step' = before fit loop and after each fit step (single-prompt only)")
+    parser.add_argument("--n_heldout_samples_per_fit_step", type=int, default=100,
+                        help="Number of samples in single-prompt heldout batch (per fit step or for 'end')")
     parser.add_argument("--evaluate_on_neg_data", action="store_true", help="Evaluate on neg data (must provide --neg_data_load_path)")
     parser.add_argument("--analytic_bad_word_calc", action="store_true", help="Do analytic evaluation of bad word probabilities")
     parser.add_argument("--analytic_calc", action="store_true", help="Do analytic calculation with single token output and toxicity model")
