@@ -577,6 +577,49 @@ def compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad
 
 
 @torch.no_grad()
+def compute_actor_log_probs_for_sequences(actor, sequences, num_actions, attention_mask=None, 
+                                         eos_token_id=None, pad_token_id=None, shared_actorcritic=False):
+    """
+    Compute log probabilities for sequences using an actor model.
+    
+    This is a utility function that extracts the common pattern of calling actor.forward
+    and summing log probabilities, used by both g_q_estimate and compute_target_samples_logprob.
+    
+    Args:
+        actor: Actor model (can be Actor or ActorCritic)
+        sequences: Full sequences tensor of shape (batch_size, seq_len) where seq_len = prompt_len + num_actions
+        num_actions: Number of action tokens (response tokens)
+        attention_mask: Optional attention mask tensor. If None, will be created from sequences.
+        eos_token_id: Optional EOS token ID for creating attention mask
+        pad_token_id: Optional pad token ID for creating attention mask
+        shared_actorcritic: If True, actor returns (log_probs, values) tuple
+        
+    Returns:
+        log_probs_per_seq: Tensor of shape (batch_size,) containing log probability per sequence
+        action_log_probs: Tensor of shape (batch_size, num_actions) containing log probabilities for each action token
+    """
+    if attention_mask is None:
+        if eos_token_id is not None and pad_token_id is not None:
+            # Create attention mask respecting EOS and pad tokens
+            attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
+        else:
+            # Fallback: all ones (assumes no padding/EOS in sequences)
+            attention_mask = torch.ones_like(sequences, dtype=torch.long)
+    
+    if shared_actorcritic:
+        action_log_probs, _ = actor(sequences, num_actions, attention_mask)
+    else:
+        action_log_probs = actor(sequences, num_actions, attention_mask)
+    
+    action_log_probs = action_log_probs.float()  # More precision
+    
+    # Sum log probabilities for each sequence
+    log_probs_per_seq = action_log_probs.sum(dim=-1)
+    
+    return log_probs_per_seq, action_log_probs
+
+
+@torch.no_grad()
 def eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs, attention_mask, action_mask,
                             num_actions, sequences, return_extra_info=False, force_no_exploration_bonus=False):
     """
@@ -669,19 +712,23 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
     experience_maker.set_all_eval()
     sequences = true_sigma_samples
     with torch.no_grad():
-        if trainer.shared_actorcritic:
-            action_log_probs, _ = experience_maker.actor(sequences,
-                                                           num_actions,
-                                                           attention_mask)
-        else:
-            action_log_probs = experience_maker.actor(sequences, num_actions,
-                                          attention_mask)
-        action_log_probs = action_log_probs.float() # more precision
-        log_q = action_log_probs.sum(dim=-1)
-        # Compute action_mask from sequences respecting EOS and pad tokens
+        # Use common utility function to compute log_q and action_log_probs (avoid double computation)
         eos_token_id = trainer.generate_kwargs["eos_token_id"]
         pad_token_id = trainer.generate_kwargs["pad_token_id"]
+        log_q, action_log_probs = compute_actor_log_probs_for_sequences(
+            experience_maker.actor,
+            sequences,
+            num_actions,
+            attention_mask=attention_mask,
+            eos_token_id=eos_token_id,
+            pad_token_id=pad_token_id,
+            shared_actorcritic=trainer.shared_actorcritic
+        )
+        
+        # Compute action_mask from sequences respecting EOS and pad tokens
         action_mask = compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad_token_id)
+        
+        # Use the action_log_probs returned from compute_actor_log_probs_for_sequences
         log_tilde_sigma = eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs,
                                 attention_mask, action_mask,
                                 num_actions, sequences, force_no_exploration_bonus=True)

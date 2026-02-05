@@ -254,10 +254,14 @@ def plot_results_over_time(results_list, labels, x_range=None, fontsize=7, figna
         filtered_results = []
         for x in results_list[i]:
             if isinstance(x, tuple) and len(x) > index_to_use:
-                filtered_results.append(x[index_to_use])
+                value = x[index_to_use]
+                # Skip None values
+                if value is not None:
+                    filtered_results.append(value)
             elif not isinstance(x, tuple):
                 # Handle non-tuple data (shouldn't happen but be safe)
-                filtered_results.append(x)
+                if x is not None:
+                    filtered_results.append(x)
         if len(filtered_results) == 0:
             continue
         np_results = np.stack(filtered_results)
@@ -423,8 +427,8 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
 
 def load_heldout_over_time_files(load_prefixes_to_use, load_dir="./info", map_location='cpu', threshold=-5):
     """
-    Load heldout_over_time_* files (3-tuple: list of reward tensors, list of return tensors, f_q_mean_list).
-    Convert to (reward_means, return_means, f_q_means, prob_bad_output) per file for plotting.
+    Load heldout_over_time_* files (3-tuple or 4-tuple: list of reward tensors, list of return tensors, f_q_mean_list, optional target_samples_logprob_list).
+    Convert to (reward_means, return_means, f_q_means, prob_bad_output, target_samples_logprob) per file for plotting.
     
     Args:
         load_prefixes_to_use: List of lists of filenames (e.g. heldout_over_time_OpenRLHF_xxx_s1)
@@ -433,7 +437,7 @@ def load_heldout_over_time_files(load_prefixes_to_use, load_dir="./info", map_lo
         threshold: Reward threshold for computing probability of bad output (default -5)
     
     Returns:
-        List of lists of (reward_means, return_means, f_q_means, prob_bad_output) as numpy arrays, one per seed per experiment.
+        List of lists of (reward_means, return_means, f_q_means, prob_bad_output, target_samples_logprob) as numpy arrays, one per seed per experiment.
     """
     loaded_data = []
     for prefix_list in load_prefixes_to_use:
@@ -446,16 +450,28 @@ def load_heldout_over_time_files(load_prefixes_to_use, load_dir="./info", map_lo
                 print(f"Warning: Failed to load {path}: {e}")
                 continue
             if not isinstance(data, (tuple, list)) or len(data) < 3:
-                print(f"Warning: Expected 3-tuple for {path}, got {type(data)}. Skipping.")
+                print(f"Warning: Expected at least 3-tuple for {path}, got {type(data)}. Skipping.")
                 continue
             heldout_reward_list, heldout_return_list, f_q_mean_list = data[:3]
+            # Check if 4th element (target_samples_logprob_list) exists
+            target_samples_logprob_list = None
+            if len(data) >= 4:
+                target_samples_logprob_list = data[3]
+            
             # Compute means per time point from tensors
             reward_means = np.array([t.float().mean().item() for t in heldout_reward_list])
             return_means = np.array([t.float().mean().item() for t in heldout_return_list])
             f_q_means = np.array(f_q_mean_list) if not isinstance(f_q_mean_list, np.ndarray) else f_q_mean_list
             # Compute probability of bad output (rewards < threshold) per time point
             prob_bad_output = np.array([(t.float().cpu().numpy() < threshold).mean() for t in heldout_reward_list])
-            exp_data.append((reward_means, return_means, f_q_means, prob_bad_output))
+            
+            # Handle target_samples_logprob_list (can be list of floats or None)
+            if target_samples_logprob_list is not None:
+                target_samples_logprob = np.array(target_samples_logprob_list) if not isinstance(target_samples_logprob_list, np.ndarray) else target_samples_logprob_list
+            else:
+                target_samples_logprob = None
+            
+            exp_data.append((reward_means, return_means, f_q_means, prob_bad_output, target_samples_logprob))
         loaded_data.append(exp_data)
 
     return loaded_data
@@ -463,7 +479,7 @@ def load_heldout_over_time_files(load_prefixes_to_use, load_dir="./info", map_lo
 
 def plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7, load_dir="./info", threshold=-5):
     """
-    Load heldout_over_time_* files and plot reward mean, return mean, f_q mean, and probability of bad output over time.
+    Load heldout_over_time_* files and plot reward mean, return mean, f_q mean, probability of bad output, and target samples log probability over time.
     """
     loaded_data = load_heldout_over_time_files(load_prefixes_to_use, load_dir=load_dir, threshold=threshold)
 
@@ -488,6 +504,21 @@ def plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_ran
     plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
                           index_to_use=3, plot_name="heldout_prob_bad_output",
                           ylabel=f"Probability of bad output (reward < {threshold})", load_prefixes_to_use=load_prefixes_to_use)
+    # Plot target samples log probability over time (if available)
+    # Check if any experiment has target_samples_logprob data
+    has_target_logprob = False
+    for exp_data in loaded_data:
+        for seed_data in exp_data:
+            if len(seed_data) >= 5 and seed_data[4] is not None:
+                has_target_logprob = True
+                break
+        if has_target_logprob:
+            break
+    
+    if has_target_logprob:
+        plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
+                              index_to_use=4, plot_name="heldout_target_samples_logprob",
+                              ylabel=r"Log probability of target samples (logsumexp)", load_prefixes_to_use=load_prefixes_to_use)
 
 
 def load_f_q_g_q_files_over_time(load_prefixes_to_use, load_dir="./info", map_location='cpu'):
@@ -1353,13 +1384,12 @@ figname_modifier = "len20_drinkwater_02_04_b-20_1e-5_kl_div_approx"
 
 
 load_prefixes_to_use = [
-# for x in $(ls /scratch/zhaostep/OpenRLHF/info/repulsedis/ | grep heldout | grep he20 | grep _s1); do echo make_list\(\"$x\", 1,10\)\,; done
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/repulsedis/ | grep heldout | grep he20 | grep _s1 | grep bl1e-05); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl1e-05_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl1e-05_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
 make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl1e-05_ppq_tb5_s1", 1,10),
-make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl3e-05_ppq_tb5_s1", 1,10),
-make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl3e-05_ppq_tb5_s1", 1,10),
-make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-06_bl3e-05_ppq_tb5_s1", 1,10),
-
 ]
+threshold = -5
 figname_modifier = "len20_repulse_dis_02_04_b-20"
 
 
@@ -1383,7 +1413,7 @@ if use_heldout_over_time:
     # Plot heldout reward/return/f_q means over time (from heldout_over_time_* files)
     print("\nPlotting heldout and f_q over time...")
 
-    plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
+    plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize, threshold=threshold)
 elif use_f_q_g_q:
     # Plot approximate KL divergences from f_q/g_q files
     print("\nPlotting approximate KL divergences from f_q/g_q files...")

@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, compute_actor_log_probs_for_sequences
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -654,6 +654,7 @@ def train(args):
     heldout_reward_over_time_list = []
     heldout_return_over_time_list = []
     f_q_over_time_list = []
+    target_samples_logprob_over_time_list = []
 
 
     # Initial point (before fit loop): heldout eval + f_q when each_fit_step + single-prompt + harmlessness
@@ -696,6 +697,7 @@ def train(args):
             iwae_lbs_list,
             iwae_ubs_list,
             f_q_over_time_list,
+            target_samples_logprob_over_time_list,
         )
 
     # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
@@ -1041,7 +1043,10 @@ def train(args):
     if len(heldout_reward_over_time_list) > 0:
         f_q_mean_list = [t.mean().item() for t in f_q_over_time_list]
         save_str = f"{args.save_info_path}/heldout_over_time_{info_name_str}"
-        torch.save((heldout_reward_over_time_list, heldout_return_over_time_list, f_q_mean_list), save_str)
+        if len(target_samples_logprob_over_time_list) > 0:
+            torch.save((heldout_reward_over_time_list, heldout_return_over_time_list, f_q_mean_list, target_samples_logprob_over_time_list), save_str)
+        else:
+            torch.save((heldout_reward_over_time_list, heldout_return_over_time_list, f_q_mean_list), save_str)
         strategy.print(f"Saved heldout/f_q over time to {save_str}")
 
     # Calculate KL divergence one more time after training loop to get 51st value
@@ -2311,6 +2316,86 @@ def _heldout_one_batch_make_experience(experience_maker, generate_kwargs, prompt
     return experience.info["reward"], experience.info["return"]
 
 
+def compute_target_samples_logprob(base_actor, tokenizer, prompt_text, true_target_samples, strategy, batch_size=32):
+    """
+    Compute total log probability of target samples under the base actor.
+    
+    This function constructs full sequences (prompt + target) and uses the common
+    compute_actor_log_probs_for_sequences utility to compute log probabilities.
+    
+    Args:
+        base_actor: The base actor model
+        tokenizer: Tokenizer
+        prompt_text: Prompt text string
+        true_target_samples: Tensor of shape (num_samples, seq_len) containing target token sequences
+        strategy: Strategy object for printing
+        batch_size: Batch size for processing samples
+    
+    Returns:
+        Total log probability (logsumexp of all sample log probabilities)
+    """
+    if true_target_samples is None:
+        return None
+    
+    base_actor.eval()
+    device = next(base_actor.parameters()).device
+    
+    # Tokenize prompt
+    prompt_tokens = tokenizer.encode(prompt_text, add_special_tokens=False)
+    if tokenizer.bos_token_id is not None:
+        prompt_tokens = [tokenizer.bos_token_id] + prompt_tokens
+    
+    prompt_tensor = torch.tensor([prompt_tokens], dtype=torch.long).to(device)
+    
+    # Get token IDs for attention mask creation (if available)
+    eos_token_id = getattr(tokenizer, 'eos_token_id', None)
+    pad_token_id = getattr(tokenizer, 'pad_token_id', None)
+    
+    # Process samples in batches
+    num_samples = true_target_samples.shape[0]
+    all_log_probs = []
+    
+    with torch.no_grad():
+        for i in range(0, num_samples, batch_size):
+            batch_samples = true_target_samples[i:i+batch_size].to(device)
+            batch_size_actual = batch_samples.shape[0]
+            
+            # Concatenate prompt with each target sample
+            # Repeat prompt for each sample in batch
+            prompt_batch = prompt_tensor.repeat(batch_size_actual, 1)
+            
+            # Concatenate prompt + target samples
+            full_sequences = torch.cat([prompt_batch, batch_samples], dim=1)
+            
+            # Get num_actions (length of target sequence)
+            num_actions = batch_samples.shape[1]
+            
+            # Compute log probabilities using the common utility function
+            try:
+                seq_log_probs, _ = compute_actor_log_probs_for_sequences(
+                    base_actor,
+                    full_sequences,
+                    num_actions,
+                    attention_mask=None,  # Let the function create it
+                    eos_token_id=eos_token_id,
+                    pad_token_id=pad_token_id,
+                    shared_actorcritic=False  # base_actor is not ActorCritic
+                )
+                all_log_probs.append(seq_log_probs)
+            except Exception as e:
+                strategy.print(f"Warning: Error computing log prob for batch {i}: {e}")
+                # Use -inf for failed samples
+                all_log_probs.append(torch.full((batch_size_actual,), float('-inf'), device=device))
+    
+    # Concatenate all log probabilities
+    all_log_probs = torch.cat(all_log_probs)
+    
+    # Compute logsumexp to get total log probability
+    total_log_prob = torch.logsumexp(all_log_probs, dim=0)
+    
+    return total_log_prob.item()
+
+
 def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                  critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
                                  strategy, tokenizer, true_target_samples, vf_coef,
@@ -2320,12 +2405,14 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
                                  prompt_text=None,
                                  n_heldout_samples=None,
                                  experience_maker=None,
-                                 generate_kwargs=None):
+                                 generate_kwargs=None,
+                                 target_samples_logprob_over_time_list=None):
     """
     Heldout evaluation: sample from actor_to_test on prompts and record reward/return.
     mode: "end" = full eval and save to file (current behaviour); "each_fit_step" = one batch, append full tensors to over-time lists.
     For mode "each_fit_step", single-prompt only: pass prompt_text and n_heldout_samples (or use args.n_heldout_samples_per_fit_step).
     If experience_maker and generate_kwargs are provided, use them instead of creating a new trainer.
+    If args.load_target_samples_name is set, also computes and tracks log probability of target samples under base actor.
     """
     n_heldout = n_heldout_samples if n_heldout_samples is not None else getattr(args, "n_heldout_samples_per_fit_step", 100)
     if experience_maker is None or generate_kwargs is None:
@@ -2350,6 +2437,14 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         reward, return_ = _heldout_one_batch_make_experience(experience_maker, generate_kwargs, expanded_prompts, samples_per_prompt=1)
         heldout_reward_over_time_list.append(reward.cpu())
         heldout_return_over_time_list.append(return_.cpu())
+        
+        # Compute log probability of target samples if available
+        if getattr(args, "load_target_samples_name", None) is not None and true_target_samples is not None:
+            if target_samples_logprob_over_time_list is None:
+                raise ValueError("target_samples_logprob_over_time_list required when load_target_samples_name is set and mode='each_fit_step'")
+            target_logprob = compute_target_samples_logprob(actor_to_test, tokenizer, prompt_text, true_target_samples, strategy)
+            target_samples_logprob_over_time_list.append(target_logprob)
+        
         return
 
     # mode == "end"
@@ -2413,8 +2508,32 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         strategy.print(
             f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
 
+    # Compute log probability of target samples if available
+    target_samples_logprob = None
+    if getattr(args, "load_target_samples_name", None) is not None and true_target_samples is not None:
+        # For "end" mode, we need to get the prompt text
+        if getattr(args, "new_custom_single_prompt", False):
+            eval_prompt_text = prompt_text if prompt_text is not None else get_custom_prompt_with_chat_template(
+                tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
+            )
+        else:
+            # For multi-prompt case, use the first prompt from the dataset
+            # This is a simplification - ideally we'd compute for all prompts
+            strategy.print("Warning: Computing target samples logprob for multi-prompt case using first prompt")
+            pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+            eval_prompt_text = prompts_dataset[0] if len(prompts_dataset) > 0 else None
+            if eval_prompt_text is None:
+                strategy.print("Warning: Could not get prompt text for target samples logprob computation")
+        
+        if eval_prompt_text is not None:
+            target_samples_logprob = compute_target_samples_logprob(actor_to_test, tokenizer, eval_prompt_text, true_target_samples, strategy)
+            strategy.print(f"Target samples total log probability: {target_samples_logprob}")
+
     save_str = f"{args.save_info_path}/info_eval_{info_name_str}"
-    torch.save((rewards, returns, kls, entropy), save_str)
+    if target_samples_logprob is not None:
+        torch.save((rewards, returns, kls, entropy, target_samples_logprob), save_str)
+    else:
+        torch.save((rewards, returns, kls, entropy), save_str)
 
 
 def _run_per_fit_step_heldout_and_f_q(
@@ -2443,6 +2562,7 @@ def _run_per_fit_step_heldout_and_f_q(
     iwae_lbs_list,
     iwae_ubs_list,
     f_q_over_time_list,
+    target_samples_logprob_over_time_list,
 ):
     """Run heldout evaluation (each_fit_step mode) and f_q tracking; append to over-time lists."""
     do_evaluate_heldout_sampling(
@@ -2456,6 +2576,7 @@ def _run_per_fit_step_heldout_and_f_q(
         n_heldout_samples=getattr(args, "n_heldout_samples_per_fit_step", 100),
         experience_maker=harmlessness_trainer.base_experience_maker,
         generate_kwargs=harmlessness_trainer.generate_kwargs,
+        target_samples_logprob_over_time_list=target_samples_logprob_over_time_list,
     )
     if getattr(args, "f_q_g_q_eval", False):
         f_q_g_q_evaluation(
