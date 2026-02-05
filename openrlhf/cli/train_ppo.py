@@ -862,6 +862,7 @@ def train(args):
                     iwae_lbs_list,
                     iwae_ubs_list,
                     f_q_over_time_list,
+                    target_samples_logprob_over_time_list,
                 )
 
             # Save f_q/g_q/iwae stuff separately (only if f_q_g_q_eval was done and lists are not empty).
