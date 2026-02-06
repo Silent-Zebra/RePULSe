@@ -1,7 +1,7 @@
 import math
 import os.path
 from abc import ABC
-from typing import Any, Callable, Dict, List, NoReturn, Optional, Union, Set
+from typing import Any, Callable, Dict, List, Optional, Union, Set
 from openrlhf.models.loss import get_positive_weights_detached, get_normalized_positive_weights_detached
 
 import ray
@@ -762,7 +762,7 @@ class CombinedHarmlessnessTrainer(ABC):
         for epoch in range(self.max_epochs):
             if self.separate_neg_samples:
                 if neg_sample_only:
-                    pbar = tqdm[NoReturn](
+                    pbar = tqdm(
                         dataloader_neg,
                         desc=f"Train epoch (neg only) [{epoch + 1}/{self.max_epochs}]",
                         disable=not self.strategy.is_rank_0(),
