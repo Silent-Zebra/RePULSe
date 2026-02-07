@@ -920,8 +920,8 @@ class CoinFlipNetwork(nn.Module):
             intrinsic_reward = 1.0 / torch.sqrt(sqrt_arg)
 
         intrinsic_reward *= bonus_alpha
-        
-        return intrinsic_reward
+
+        return intrinsic_reward.detach()
     
     def _update_running_stats(
         self, 

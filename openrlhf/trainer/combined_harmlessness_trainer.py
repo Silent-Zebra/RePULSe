@@ -658,6 +658,7 @@ class CombinedHarmlessnessTrainer(ABC):
             if self.train_coin_flip_before:
                 if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
                     self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
+                    torch.cuda.empty_cache()
 
             # Pass pre-generated sequences to make_experience to avoid duplicate generation
             # Exploration bonus is calculated inside make_experience
@@ -678,7 +679,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 # This ensures pseudocounts are correctly initialized near 1 for new states
                 if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
                     self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
-                
+                    torch.cuda.empty_cache()
+
             self.sampling_replay_buffer_neg.append(experience_neg_sampling)
 
         # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],

@@ -976,10 +976,13 @@ class BaseExperienceMaker(ABC):
             # Update priorities if prioritization is enabled
             if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.use_prioritization:
                 # Compute one_over_counts = (1/d) * ||f(s)||^2 for sampled batch
+                # Use detached predictions to avoid extending the computation graph
                 # Ensure all tensors are on the same device as final_predictions
                 device = final_predictions.device
-                norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
-                one_over_counts = norm_squared / coin_flip_dim  # (1/d) * ||f(s)||^2
+                with torch.no_grad():
+                    detached_predictions = final_predictions.detach()
+                    norm_squared = (detached_predictions ** 2).sum(dim=-1)  # (B,)
+                    one_over_counts = norm_squared / coin_flip_dim  # (1/d) * ||f(s)||^2
                 
                 if self.coin_flip_first_online and update_step == 0 and sampled_indices is None:
                     # First update step with coin_flip_first_online: update priorities for newly added samples
@@ -1220,18 +1223,18 @@ class BaseExperienceMaker(ABC):
 
 
         info = {
-            "kl": masked_mean(kl, action_mask, dim=-1),
-            "reward": r,
-            "reward_no_bonus": r_no_bonus,
-            "return": rewards.sum(dim=-1),
-            "return2": returns.sum(dim=-1),
-            "response_length": action_mask.float().sum(dim=-1),
-            "total_length": attention_mask.float().sum(dim=-1),
-            "f_q": f_q,
-            "entropy": -log_q,
-            "untransformed_reward": untransformed_reward,
-            "untransformed_ret": untransformed_reward - self.kl_ctl.value * masked_sum(kl, action_mask, dim=-1), # includes KL but uses untransformed reward
-            "exploration_bonus": exploration_bonus  # Shape (B,) or None if not enabled
+            "kl": masked_mean(kl, action_mask, dim=-1).detach(),
+            "reward": r.detach(),
+            "reward_no_bonus": r_no_bonus.detach() if r_no_bonus is not None else None,
+            "return": rewards.sum(dim=-1).detach(),
+            "return2": returns.sum(dim=-1).detach(),
+            "response_length": action_mask.float().sum(dim=-1).detach(),
+            "total_length": attention_mask.float().sum(dim=-1).detach(),
+            "f_q": f_q.detach(),
+            "entropy": (-log_q).detach(),
+            "untransformed_reward": untransformed_reward.detach(),
+            "untransformed_ret": (untransformed_reward - self.kl_ctl.value * masked_sum(kl, action_mask, dim=-1)).detach(), # includes KL but uses untransformed reward
+            "exploration_bonus": exploration_bonus.detach() if exploration_bonus is not None else None  # Shape (B,) or None if not enabled
         }
         # reset model state
         self.actor.train()
