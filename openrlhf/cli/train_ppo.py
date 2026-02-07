@@ -663,11 +663,16 @@ def train(args):
         and getattr(args, "new_custom_single_prompt", False)
         and args.do_harmlessness_training
     )
+    _per_fit_step_f_q_eval = (
+        getattr(args, "f_q_g_q_eval", False)
+        and getattr(args, "new_custom_single_prompt", False)
+        and args.do_harmlessness_training
+    )
     if getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step":
         if not args.new_custom_single_prompt:
             raise NotImplementedError("evaluate_heldout_sampling 'each_fit_step' requires --new_custom_single_prompt")
 
-    if _per_fit_step_heldout:
+    if _per_fit_step_heldout or _per_fit_step_f_q_eval:
         prompt_text_heldout = get_custom_prompt_with_chat_template(
             tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
         )
@@ -835,7 +840,7 @@ def train(args):
                     iwae_ubs_list = None
 
             # Per-fit-step heldout + f_q (after each fit step)
-            if _per_fit_step_heldout and args.do_harmlessness_training:
+            if (_per_fit_step_heldout or _per_fit_step_f_q_eval) and args.do_harmlessness_training:
                 _run_per_fit_step_heldout_and_f_q(
                     prompt_text_heldout,
                     harmlessness_trainer,
@@ -2566,19 +2571,20 @@ def _run_per_fit_step_heldout_and_f_q(
     target_samples_logprob_over_time_list,
 ):
     """Run heldout evaluation (each_fit_step mode) and f_q tracking; append to over-time lists."""
-    do_evaluate_heldout_sampling(
-        base_actor_optim, base_actor_scheduler, base_actor, args, critic, critic_optim,
-        critic_scheduler, ema_model, info_name_str, static_initial_model, neg_data, reward_model,
-        strategy, tokenizer, true_target_samples, vf_coef,
-        mode="each_fit_step",
-        heldout_reward_over_time_list=heldout_reward_over_time_list,
-        heldout_return_over_time_list=heldout_return_over_time_list,
-        prompt_text=prompt_text_heldout,
-        n_heldout_samples=getattr(args, "n_heldout_samples_per_fit_step", 100),
-        experience_maker=harmlessness_trainer.base_experience_maker,
-        generate_kwargs=harmlessness_trainer.generate_kwargs,
-        target_samples_logprob_over_time_list=target_samples_logprob_over_time_list,
-    )
+    if getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step":
+        do_evaluate_heldout_sampling(
+            base_actor_optim, base_actor_scheduler, base_actor, args, critic, critic_optim,
+            critic_scheduler, ema_model, info_name_str, static_initial_model, neg_data, reward_model,
+            strategy, tokenizer, true_target_samples, vf_coef,
+            mode="each_fit_step",
+            heldout_reward_over_time_list=heldout_reward_over_time_list,
+            heldout_return_over_time_list=heldout_return_over_time_list,
+            prompt_text=prompt_text_heldout,
+            n_heldout_samples=getattr(args, "n_heldout_samples_per_fit_step", 100),
+            experience_maker=harmlessness_trainer.base_experience_maker,
+            generate_kwargs=harmlessness_trainer.generate_kwargs,
+            target_samples_logprob_over_time_list=target_samples_logprob_over_time_list,
+        )
     if getattr(args, "f_q_g_q_eval", False):
         f_q_g_q_evaluation(
             harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
