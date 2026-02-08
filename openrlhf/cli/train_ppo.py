@@ -2378,6 +2378,9 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                     total_collected += n_to_take
                     total_accepted_all += n_to_take
                     made_progress = True
+                strategy.print(f"  Pass {pass_num}, prompt {prompt_idx + 1}/{n_prompts}: "
+                               f"{len(seqs)}/{n_gen} accepted this batch, "
+                               f"{total_collected}/{total_target} total")
 
             if pass_num % 10 == 0:
                 strategy.print(f"  Pass {pass_num}: {total_collected}/{total_target} total accepted, "

@@ -46,6 +46,8 @@ While I have no strict conventions regarding style, I think it is very important
 
 I prefer noisy failures over silent failures. I would rather things throw exceptions than just try to proceed under unexpected circumstances. Also, related to this, if there is an assumption involved in the code (e.g., taking n'th element of list assuming there is exactly n elements in the list), make this explicit, using assert statements to check that the assumption holds.
 
+Ask before removing print statements. Sometimes I like to have metrics available throughout the run to help with debugging and/or just getting a better idea of what's going on throughout the training run.
+
 ## Key Files
 
 - `openrlhf/cli/train_ppo.py` — PPO training entry point
