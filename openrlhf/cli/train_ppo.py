@@ -2343,58 +2343,64 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             total_generated_all += total_generated
             total_accepted_all += total_accepted
     else:
-        # Multi-prompt mode: round-robin collection across prompts
-        # true_target_sample_amount is the TOTAL across all prompts
+        # Multi-prompt mode: per-prompt collection
+        # For each prompt, keep generating batches until at least one sample is accepted
+        # or the per-prompt generation limit is hit, then move to the next prompt.
+        # true_target_sample_amount is the TOTAL across all prompts.
         total_target = args.true_target_sample_amount
         n_prompts = len(prompts)
-        strategy.print(f"\nMulti-prompt round-robin: collecting {total_target} total samples across {n_prompts} prompts")
+        strategy.print(f"\nMulti-prompt rejection sampling: collecting {total_target} total samples across {n_prompts} prompts")
 
         accepted_by_prompt = [[] for _ in range(n_prompts)]
         rewards_by_prompt = [[] for _ in range(n_prompts)]
         generated_per_prompt = [0] * n_prompts
-        skipped_prompts = set()
         total_collected = 0
-        pass_num = 0
 
+        # May need multiple passes through prompts if first pass doesn't collect enough
+        pass_num = 0
         while total_collected < total_target:
             pass_num += 1
-            made_progress = False
+            made_progress_this_pass = False
             for prompt_idx, prompt in enumerate(prompts):
                 if total_collected >= total_target:
                     break
-                if prompt_idx in skipped_prompts:
-                    continue
-                # Check early stopping for this prompt
+                # Check per-prompt generation limit
                 if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
-                    strategy.print(f"  Skipping prompt {prompt_idx + 1}: reached max_gen_per_prompt_rejection={max_gen_per_prompt} "
-                                   f"with {len(accepted_by_prompt[prompt_idx])} accepted samples")
-                    skipped_prompts.add(prompt_idx)
                     continue
-                seqs, rews, n_gen = _rejection_sample_one_prompt_batch(prompt, device)
-                generated_per_prompt[prompt_idx] += n_gen
-                total_generated_all += n_gen
-                # Take at most 1 sample per prompt per pass (round-robin fairness)
-                # But if the batch yielded multiple, take all to avoid wasting accepted samples
-                n_to_take = min(len(seqs), total_target - total_collected)
-                if n_to_take > 0:
-                    accepted_by_prompt[prompt_idx].extend(seqs[:n_to_take])
-                    rewards_by_prompt[prompt_idx].extend(rews[:n_to_take])
-                    total_collected += n_to_take
-                    total_accepted_all += n_to_take
-                    made_progress = True
-                strategy.print(f"  Pass {pass_num}, prompt {prompt_idx + 1}/{n_prompts}: "
-                               f"{len(seqs)}/{n_gen} accepted this batch, "
-                               f"{total_collected}/{total_target} total")
 
-            if pass_num % 10 == 0:
-                strategy.print(f"  Pass {pass_num}: {total_collected}/{total_target} total accepted, "
-                               f"{total_generated_all} total generated, {len(skipped_prompts)} prompts skipped")
+                # Keep generating for this prompt until acceptance or limit
+                iteration = 0
+                got_acceptance = False
+                while not got_acceptance:
+                    if total_collected >= total_target:
+                        break
+                    if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
+                        print(f"  Prompt {prompt_idx + 1}/{n_prompts}: reached per-prompt limit "
+                              f"({max_gen_per_prompt}) with {len(accepted_by_prompt[prompt_idx])} accepted", flush=True)
+                        break
 
-            # Safety: if all prompts are skipped and we haven't reached total, break
-            if len(skipped_prompts) == n_prompts and total_collected < total_target:
-                strategy.print(f"  Warning: All prompts skipped/exhausted. Collected {total_collected}/{total_target} samples.")
-                break
-            if not made_progress and len(skipped_prompts) == n_prompts:
+                    iteration += 1
+                    seqs, rews, n_gen = _rejection_sample_one_prompt_batch(prompt, device)
+                    generated_per_prompt[prompt_idx] += n_gen
+                    total_generated_all += n_gen
+
+                    n_to_take = min(len(seqs), total_target - total_collected)
+                    if n_to_take > 0:
+                        accepted_by_prompt[prompt_idx].extend(seqs[:n_to_take])
+                        rewards_by_prompt[prompt_idx].extend(rews[:n_to_take])
+                        total_collected += n_to_take
+                        total_accepted_all += n_to_take
+                        made_progress_this_pass = True
+                        got_acceptance = True
+
+                    print(f"  Pass {pass_num}, prompt {prompt_idx + 1}/{n_prompts}, iter {iteration}: "
+                          f"{len(seqs)}/{n_gen} accepted this batch, "
+                          f"{len(accepted_by_prompt[prompt_idx])} this prompt, "
+                          f"{total_collected}/{total_target} total", flush=True)
+
+            if not made_progress_this_pass:
+                strategy.print(f"  Warning: No samples accepted in pass {pass_num} across all prompts. "
+                               f"Collected {total_collected}/{total_target} total. Stopping.")
                 break
 
         # Store results
