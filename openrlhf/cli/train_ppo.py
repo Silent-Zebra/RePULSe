@@ -2271,10 +2271,14 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
         )
         return {k: v.to(device) for k, v in batch.items()}
     
+    # Batch size for rejection sampling
+    rejection_batch_size = args.batch_size_rejection_sample if args.batch_size_rejection_sample is not None else args.duplicate_rollout_batch_by
+    strategy.print(f"Rejection sampling batch size: {rejection_batch_size}")
+
     # Helper: run one rejection sampling batch for a single prompt
     def _rejection_sample_one_prompt_batch(prompt, device):
         """Generate one batch from base_actor for a prompt and return (accepted_seqs_list, accepted_rews_list, n_generated)."""
-        prompt_batch = tile_prompts(prompt, args.duplicate_rollout_batch_by)
+        prompt_batch = tile_prompts(prompt, rejection_batch_size)
         inputs = tokenize_fn(prompt_batch, args.prompt_max_len, device=device)
         with torch.no_grad():
             sequences, attention_mask, action_mask = base_actor.generate(**inputs, **generate_kwargs)
@@ -3315,6 +3319,7 @@ if __name__ == "__main__":
     parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true target samples. Saves samples to file. Requires --rm_type rlhf and either --reward_clamp or --reward_cap to be set.")
     parser.add_argument("--true_target_sample_amount", type=int, default=1000, help="Number of accepted samples to collect via rejection sampling. For single-prompt: per prompt. For multi-prompt: total across all prompts.")
     parser.add_argument("--max_gen_per_prompt_rejection", type=int, default=None, help="Max samples to generate per prompt during rejection sampling before giving up (default: no limit)")
+    parser.add_argument("--batch_size_rejection_sample", type=int, default=None, help="Batch size (number of sequences generated per iteration) during rejection sampling. Defaults to duplicate_rollout_batch_by if not set.")
     parser.add_argument("--save_info_path", type=str, default="./info")
     parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for f_q_g_q_eval)")
     parser.add_argument("--n_seeds_f_q", type=int, default=1, help="Number of seeds to use for f_q")
