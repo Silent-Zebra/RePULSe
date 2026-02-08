@@ -2400,7 +2400,8 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                         got_acceptance = True
 
                     print(f"  Pass {pass_num}, prompt {prompt_idx + 1}/{n_prompts}, iter {iteration}: "
-                          f"{len(seqs)}/{n_gen} accepted this batch, "
+                          f"{len(seqs)} would have been accepted, "
+                          f"{len(seqs[:n_to_take])}/{n_gen} actually accepted this batch, "
                           f"{len(accepted_by_prompt[prompt_idx])} this prompt, "
                           f"{total_collected}/{total_target} total", flush=True)
 
