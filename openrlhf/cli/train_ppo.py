@@ -2343,10 +2343,10 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             total_generated_all += total_generated
             total_accepted_all += total_accepted
     else:
-        # Multi-prompt mode: per-prompt collection
-        # For each prompt, keep generating batches until at least one sample is accepted
+        # Multi-prompt mode: at most 1 accepted sample per prompt.
+        # For each prompt, keep generating batches until one sample is accepted
         # or the per-prompt generation limit is hit, then move to the next prompt.
-        # true_target_sample_amount is the TOTAL across all prompts.
+        # true_target_sample_amount is the TOTAL across all prompts (capped by n_prompts when max 1 per prompt).
         total_target = args.true_target_sample_amount
         n_prompts = len(prompts)
         strategy.print(f"\nMulti-prompt rejection sampling: collecting {total_target} total samples across {n_prompts} prompts")
@@ -2356,7 +2356,8 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
         generated_per_prompt = [0] * n_prompts
         total_collected = 0
 
-        # May need multiple passes through prompts if first pass doesn't collect enough
+        # Multi-prompt: accept at most 1 sample per prompt.
+        max_accepted_per_prompt = 1
         pass_num = 0
         while total_collected < total_target:
             pass_num += 1
@@ -2364,6 +2365,9 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             for prompt_idx, prompt in enumerate(prompts):
                 if total_collected >= total_target:
                     break
+                # Skip prompts that already have their one accepted sample
+                if len(accepted_by_prompt[prompt_idx]) >= max_accepted_per_prompt:
+                    continue
                 # Check per-prompt generation limit
                 if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
                     continue
@@ -2384,7 +2388,9 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                     generated_per_prompt[prompt_idx] += n_gen
                     total_generated_all += n_gen
 
-                    n_to_take = min(len(seqs), total_target - total_collected)
+                    # Take at most 1 sample per prompt (and at most what's left to reach total_target)
+                    n_can_take_this_prompt = max_accepted_per_prompt - len(accepted_by_prompt[prompt_idx])
+                    n_to_take = min(len(seqs), n_can_take_this_prompt, total_target - total_collected)
                     if n_to_take > 0:
                         accepted_by_prompt[prompt_idx].extend(seqs[:n_to_take])
                         rewards_by_prompt[prompt_idx].extend(rews[:n_to_take])
