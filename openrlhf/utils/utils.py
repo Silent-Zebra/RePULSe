@@ -550,6 +550,16 @@ def log_sequence_for_negatives(start, end, steps):
     return (sign * seq).tolist()
 
 
+def left_pad_sequences(tensor, target_seq_len, pad_value):
+    """Left-pad a 2D tensor (batch, seq_len) to target_seq_len along dim=1."""
+    assert tensor.dim() == 2, f"Expected 2D tensor, got {tensor.dim()}D"
+    if tensor.shape[1] >= target_seq_len:
+        return tensor
+    pad_size = target_seq_len - tensor.shape[1]
+    padding = torch.full((tensor.shape[0], pad_size), pad_value, dtype=tensor.dtype, device=tensor.device)
+    return torch.cat([padding, tensor], dim=1)
+
+
 def compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad_token_id):
     """
     Compute action_mask from sequences following the pattern in actor.py's process_sequences.
@@ -693,6 +703,71 @@ def f_q_estimate(trainer, experience_maker, args, prompt):
     return f_qs, attention_mask, num_actions, sequences, log_p, log_phi, log_q, action_mask
 
 
+def f_q_estimate_batched(trainer, experience_maker, args, prompts):
+    """
+    Batched f_q estimation for multiple prompts. Tiles all P prompts to get P*N
+    prompt strings, generates all at once, computes f_q for the batch.
+
+    Args:
+        trainer: Trainer instance
+        experience_maker: Experience maker instance
+        args: Training arguments
+        prompts: List of P prompt strings
+
+    Returns:
+        dict with keys:
+            "f_qs_per_prompt": list of P tensors, each shape (N,)
+            "num_actions": int
+            "q_seqs_per_prompt": list of P tensors, each shape (N, seq_len)
+            "log_p_per_prompt": list of P tensors, each shape (N,)
+            "log_phi_per_prompt": list of P tensors, each shape (N,)
+            "log_q_per_prompt": list of P tensors, each shape (N,)
+            "common_seq_len": int (seq_len of generated sequences)
+    """
+    P = len(prompts)
+    N = args.n_samples_for_f_q
+
+    experience_maker.set_all_eval()
+    batch_prompts = tile_prompts(prompts, N)  # P*N prompts
+
+    with torch.no_grad():
+        if trainer.shared_actorcritic:
+            action_log_probs, action_mask, attention_mask, num_actions, sequences, value = \
+                experience_maker.generate_seqs_and_get_logprobs(batch_prompts, **trainer.generate_kwargs)
+        else:
+            action_log_probs, action_mask, attention_mask, num_actions, sequences = \
+                experience_maker.generate_seqs_and_get_logprobs(batch_prompts, **trainer.generate_kwargs)
+
+        action_log_probs = action_log_probs.float() * action_mask
+        log_q = action_log_probs.sum(dim=-1)  # (P*N,)
+
+        log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
+            trainer, experience_maker, args, action_log_probs, attention_mask, action_mask,
+            num_actions, sequences, return_extra_info=True, force_no_exploration_bonus=True
+        )
+
+        f_qs = log_tilde_sigma - log_q  # (P*N,)
+
+    experience_maker.set_all_policies_train()
+
+    # Reshape to per-prompt: (P*N,) -> list of P tensors each (N,)
+    f_qs_per_prompt = list(f_qs.reshape(P, N))
+    log_p_per_prompt = list(log_p.reshape(P, N))
+    log_phi_per_prompt = list(log_phi.reshape(P, N))
+    log_q_per_prompt = list(log_q.reshape(P, N))
+    q_seqs_per_prompt = list(sequences.reshape(P, N, -1))
+
+    return {
+        "f_qs_per_prompt": f_qs_per_prompt,
+        "num_actions": num_actions,
+        "q_seqs_per_prompt": q_seqs_per_prompt,
+        "log_p_per_prompt": log_p_per_prompt,
+        "log_phi_per_prompt": log_phi_per_prompt,
+        "log_q_per_prompt": log_q_per_prompt,
+        "common_seq_len": sequences.shape[1],
+    }
+
+
 def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_actions, attention_mask, condition_twist_on_tokens=None):
     """
     Calculate g_q estimate: log(sigma) - log(q) for true sigma samples.
@@ -715,7 +790,7 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
         # Use common utility function to compute log_q and action_log_probs (avoid double computation)
         eos_token_id = trainer.generate_kwargs["eos_token_id"]
         pad_token_id = trainer.generate_kwargs["pad_token_id"]
-        log_q, action_log_probs = compute_actor_log_probs_for_sequences(
+        _, action_log_probs = compute_actor_log_probs_for_sequences(
             experience_maker.actor,
             sequences,
             num_actions,
@@ -724,10 +799,14 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
             pad_token_id=pad_token_id,
             shared_actorcritic=trainer.shared_actorcritic
         )
-        
+
         # Compute action_mask from sequences respecting EOS and pad tokens
         action_mask = compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad_token_id)
-        
+
+        # Apply action_mask to log_q (matching f_q_estimate behavior)
+        action_log_probs = action_log_probs.float() * action_mask
+        log_q = action_log_probs.sum(dim=-1)
+
         # Use the action_log_probs returned from compute_actor_log_probs_for_sequences
         log_tilde_sigma = eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs,
                                 attention_mask, action_mask,
@@ -737,6 +816,58 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
     experience_maker.set_all_policies_train()
 
     return log_tilde_sigma - log_q
+
+
+def g_q_estimate_batched(trainer, experience_maker, args, target_samples_by_prompt, num_actions):
+    """
+    Batched g_q estimation across multiple prompts' target samples.
+    Left-pads all target samples to a common seq_len, then processes
+    through g_q_estimate in chunks.
+
+    Args:
+        trainer: Trainer instance
+        experience_maker: Experience maker instance
+        args: Training arguments
+        target_samples_by_prompt: list of tensors, each shape (K_p, seq_len_p)
+        num_actions: int (= generate_max_len)
+
+    Returns:
+        g_qs_per_prompt: list of tensors, each shape (K_p,)
+    """
+    eos_token_id = trainer.generate_kwargs["eos_token_id"]
+    pad_token_id = trainer.generate_kwargs["pad_token_id"]
+
+    # Find common seq_len and left-pad all target samples
+    max_seq_len = max(t.shape[1] for t in target_samples_by_prompt)
+    padded_samples = []
+    prompt_sizes = []
+    for t in target_samples_by_prompt:
+        padded = left_pad_sequences(t, max_seq_len, pad_token_id)
+        padded_samples.append(padded)
+        prompt_sizes.append(t.shape[0])
+
+    # Stack into one batch: (sum(K_p), max_seq_len)
+    all_samples = torch.cat(padded_samples, dim=0)
+
+    # Process in chunks of n_samples_for_f_q (same chunking as current per-prompt code)
+    chunk_size = args.n_samples_for_f_q
+    all_g_qs = []
+    for start in range(0, all_samples.shape[0], chunk_size):
+        chunk = all_samples[start:start + chunk_size]
+        if chunk.shape[0] == 0:
+            continue
+        attention_mask_chunk = (
+            chunk.ne(eos_token_id) & chunk.ne(pad_token_id)
+        ).to(dtype=torch.long)
+        g_qs_chunk = g_q_estimate(trainer, experience_maker, args, chunk,
+                                  num_actions, attention_mask_chunk)
+        all_g_qs.append(g_qs_chunk)
+
+    all_g_qs = torch.cat(all_g_qs, dim=0)  # (sum(K_p),)
+
+    # Split back to per-prompt
+    g_qs_per_prompt = list(torch.split(all_g_qs, prompt_sizes))
+    return g_qs_per_prompt
 
 
 def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_estimates_list,
@@ -864,6 +995,160 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
     f_q_estimates_list.append(total_f_qs.cpu())
 
 
+def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
+                                true_target_samples_by_prompt=None):
+    """
+    Batched evaluation of f_q, g_q, IWAE bounds across multiple prompts.
+
+    Processes all prompts in prompt_texts in one batch (caller handles chunking
+    via n_prompts_f_q). Loops over n_seeds_f_q seeds.
+
+    Args:
+        trainer: Trainer instance
+        experience_maker: Experience maker instance
+        args: Training arguments
+        prompt_texts: List of P prompt strings
+        true_target_samples_by_prompt: List of P tensors or Nones (one per prompt)
+
+    Returns:
+        dict with same format as f_q_g_q_evaluation_multi_prompt
+    """
+    P = len(prompt_texts)
+    N = args.n_samples_for_f_q
+    n_seeds = trainer.n_seeds_f_q
+    pad_token_id = trainer.generate_kwargs["pad_token_id"]
+
+    # Per-prompt accumulators
+    all_f_qs_per_prompt = [[] for _ in range(P)]  # list of lists (across seeds)
+    g_qs_per_prompt = [None] * P
+    iwae_lbs_per_prompt = [torch.zeros(n_seeds) for _ in range(P)]
+    iwae_ubs_per_prompt = [None] * P
+
+    # Initialize IWAE UB accumulators for prompts with target samples
+    for p in range(P):
+        has_target = (
+            true_target_samples_by_prompt is not None
+            and p < len(true_target_samples_by_prompt)
+            and true_target_samples_by_prompt[p] is not None
+            and true_target_samples_by_prompt[p].numel() > 0
+        )
+        if has_target:
+            iwae_ubs_per_prompt[p] = torch.zeros(n_seeds)
+
+    for seed_i in range(n_seeds):
+        # --- f_q: batched generation ---
+        f_q_result = f_q_estimate_batched(trainer, experience_maker, args, prompt_texts)
+        f_qs_pp = f_q_result["f_qs_per_prompt"]       # P tensors, each (N,)
+        q_seqs_pp = f_q_result["q_seqs_per_prompt"]    # P tensors, each (N, seq_len)
+        num_actions = f_q_result["num_actions"]
+        common_seq_len = f_q_result["common_seq_len"]
+
+        for p in range(P):
+            all_f_qs_per_prompt[p].append(f_qs_pp[p])
+            # IWAE LB per prompt per seed
+            iwae_lbs_per_prompt[p][seed_i] = (
+                torch.logsumexp(f_qs_pp[p], dim=0) - math.log(N)
+            ).item()
+
+        print(f"[batched] Seed {seed_i}: mean f_q per prompt = {[f.mean().item() for f in f_qs_pp]}")
+
+        # --- g_q: only on seed 0, only for prompts with target samples ---
+        if seed_i == 0 and true_target_samples_by_prompt is not None:
+            prompts_with_targets = []
+            for p in range(P):
+                has_target = (
+                    p < len(true_target_samples_by_prompt)
+                    and true_target_samples_by_prompt[p] is not None
+                    and true_target_samples_by_prompt[p].numel() > 0
+                )
+                if has_target:
+                    prompts_with_targets.append((p, true_target_samples_by_prompt[p]))
+            if prompts_with_targets:
+                indices, target_tensors = zip(*prompts_with_targets)
+                g_qs_list = g_q_estimate_batched(
+                    trainer, experience_maker, args, list(target_tensors), num_actions)
+                for idx, g_qs in zip(indices, g_qs_list):
+                    g_qs_per_prompt[idx] = g_qs.cpu()
+                    print(f"[batched] g_q prompt {idx}: mean = {g_qs.mean().item()}")
+
+        # --- IWAE UB: for prompts with target samples ---
+        if true_target_samples_by_prompt is not None:
+            for p in range(P):
+                has_target = (
+                    true_target_samples_by_prompt is not None
+                    and p < len(true_target_samples_by_prompt)
+                    and true_target_samples_by_prompt[p] is not None
+                    and true_target_samples_by_prompt[p].numel() > 0
+                )
+                if not has_target:
+                    continue
+                ts = true_target_samples_by_prompt[p]
+                if seed_i >= ts.shape[0]:
+                    continue
+
+                q_seqs_p = q_seqs_pp[p]  # (N, common_seq_len)
+                mixture = q_seqs_p.detach().clone()
+                # Left-pad the seed_i-th target sample to match common_seq_len
+                target_sample_i = ts[seed_i].unsqueeze(0)  # (1, ts_seq_len)
+                padded_target = left_pad_sequences(target_sample_i, common_seq_len, pad_token_id)
+                mixture[seed_i] = padded_target.squeeze(0)
+
+                eos_token_id = trainer.generate_kwargs["eos_token_id"]
+                attention_mask_mix = (
+                    mixture.ne(eos_token_id) & mixture.ne(pad_token_id)
+                ).to(dtype=torch.long)
+
+                iwae_ub_weights = g_q_estimate(
+                    trainer, experience_maker, args, mixture,
+                    num_actions, attention_mask_mix)
+
+                iwae_upper_bound_estimate = (
+                    torch.logsumexp(iwae_ub_weights, dim=0) - math.log(N)
+                ).item()
+                iwae_ubs_per_prompt[p][seed_i] = iwae_upper_bound_estimate
+                print(f"[batched] IWAE UB prompt {p}, seed {seed_i}: {iwae_upper_bound_estimate}")
+
+    # Concatenate f_qs across seeds per prompt
+    f_q_by_prompt = []
+    for p in range(P):
+        f_q_by_prompt.append(torch.cat(all_f_qs_per_prompt[p]).cpu())
+
+    # Build return dict (same format as f_q_g_q_evaluation_multi_prompt)
+    g_q_by_prompt = g_qs_per_prompt
+    iwae_lbs_by_prompt = iwae_lbs_per_prompt
+    iwae_ubs_by_prompt = iwae_ubs_per_prompt
+
+    # Aggregate across prompts
+    f_q_valid = [x for x in f_q_by_prompt if x is not None]
+    f_q_agg = torch.cat(f_q_valid) if f_q_valid else None
+
+    g_q_valid = [x for x in g_q_by_prompt if x is not None]
+    g_q_agg = torch.cat(g_q_valid) if g_q_valid else None
+
+    iwae_lbs_valid = [x for x in iwae_lbs_by_prompt if x is not None]
+    iwae_lbs_agg = torch.stack(iwae_lbs_valid) if iwae_lbs_valid else None
+
+    iwae_ubs_valid = [x for x in iwae_ubs_by_prompt if x is not None]
+    iwae_ubs_agg = torch.stack(iwae_ubs_valid) if iwae_ubs_valid else None
+
+    print(f"[batched] f_q_agg shape: {f_q_agg.shape if f_q_agg is not None else None}")
+    if g_q_agg is not None:
+        print(f"[batched] g_q_agg shape: {g_q_agg.shape}")
+    print(f"[batched] IWAE LBs: {iwae_lbs_agg}")
+    print(f"[batched] IWAE UBs: {iwae_ubs_agg}")
+
+    return {
+        "f_q_by_prompt": f_q_by_prompt,
+        "g_q_by_prompt": g_q_by_prompt,
+        "iwae_lbs_by_prompt": iwae_lbs_by_prompt,
+        "iwae_ubs_by_prompt": iwae_ubs_by_prompt,
+        "f_q_agg": f_q_agg,
+        "g_q_agg": g_q_agg,
+        "iwae_lbs_agg": iwae_lbs_agg,
+        "iwae_ubs_agg": iwae_ubs_agg,
+    }
+
+
 def load_target_samples(path, device, strategy):
     """
     Load target samples from a file, handling both v1 (list) and v2 (dict) formats.
@@ -930,6 +1215,68 @@ def f_q_g_q_evaluation_multi_prompt(trainer, experience_maker, args,
             "iwae_lbs_agg": concatenated iwae_lbs across prompts with target samples, or None
             "iwae_ubs_agg": concatenated iwae_ubs across prompts with target samples, or None
     """
+    n_prompts_f_q = getattr(args, 'n_prompts_f_q', None)
+
+    if n_prompts_f_q is not None:
+        # Batched path: chunk prompts into groups of n_prompts_f_q
+        print(f"[multi_prompt] Using batched path with n_prompts_f_q={n_prompts_f_q}")
+        all_chunk_results = []
+        for start in range(0, len(prompt_texts), n_prompts_f_q):
+            end = min(start + n_prompts_f_q, len(prompt_texts))
+            chunk_prompts = prompt_texts[start:end]
+            chunk_targets = (true_target_samples_by_prompt[start:end]
+                            if true_target_samples_by_prompt is not None else None)
+            result = f_q_g_q_evaluation_batched(
+                trainer, experience_maker, args, chunk_prompts, chunk_targets)
+            all_chunk_results.append(result)
+        return _merge_batched_results(all_chunk_results)
+    else:
+        # Existing per-prompt for-loop (unchanged)
+        return _f_q_g_q_evaluation_multi_prompt_unbatched(
+            trainer, experience_maker, args, prompt_texts, true_target_samples_by_prompt)
+
+
+def _merge_batched_results(chunk_results):
+    """Merge results from multiple batched evaluation chunks into a single result dict."""
+    f_q_by_prompt = []
+    g_q_by_prompt = []
+    iwae_lbs_by_prompt = []
+    iwae_ubs_by_prompt = []
+
+    for result in chunk_results:
+        f_q_by_prompt.extend(result["f_q_by_prompt"])
+        g_q_by_prompt.extend(result["g_q_by_prompt"])
+        iwae_lbs_by_prompt.extend(result["iwae_lbs_by_prompt"])
+        iwae_ubs_by_prompt.extend(result["iwae_ubs_by_prompt"])
+
+    # Re-aggregate across all prompts
+    f_q_valid = [x for x in f_q_by_prompt if x is not None]
+    f_q_agg = torch.cat(f_q_valid) if f_q_valid else None
+
+    g_q_valid = [x for x in g_q_by_prompt if x is not None]
+    g_q_agg = torch.cat(g_q_valid) if g_q_valid else None
+
+    iwae_lbs_valid = [x for x in iwae_lbs_by_prompt if x is not None]
+    iwae_lbs_agg = torch.stack(iwae_lbs_valid) if iwae_lbs_valid else None
+
+    iwae_ubs_valid = [x for x in iwae_ubs_by_prompt if x is not None]
+    iwae_ubs_agg = torch.stack(iwae_ubs_valid) if iwae_ubs_valid else None
+
+    return {
+        "f_q_by_prompt": f_q_by_prompt,
+        "g_q_by_prompt": g_q_by_prompt,
+        "iwae_lbs_by_prompt": iwae_lbs_by_prompt,
+        "iwae_ubs_by_prompt": iwae_ubs_by_prompt,
+        "f_q_agg": f_q_agg,
+        "g_q_agg": g_q_agg,
+        "iwae_lbs_agg": iwae_lbs_agg,
+        "iwae_ubs_agg": iwae_ubs_agg,
+    }
+
+
+def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
+                                                prompt_texts, true_target_samples_by_prompt=None):
+    """Original per-prompt for-loop implementation of f_q_g_q_evaluation_multi_prompt."""
     f_q_by_prompt = []
     g_q_by_prompt = []
     iwae_lbs_by_prompt = []
