@@ -93,7 +93,6 @@ class CombinedHarmlessnessTrainer(ABC):
         reward_clamp: Optional[float] = None,
         reward_cap: Optional[float] = None,
         target_dist_beta: float = 1,
-        n_seeds_f_q: int = 1,
         rm_type: str = '',
         bc_coef: float = 0,
         bc_steps: int = -1,
@@ -223,8 +222,6 @@ class CombinedHarmlessnessTrainer(ABC):
         self.bc_steps = bc_steps
 
         self.model_eval = model_eval
-
-        self.n_seeds_f_q = n_seeds_f_q
 
         # Mixtral 8x7b
         self.aux_loss = self.args.aux_loss_coef > 1e-8

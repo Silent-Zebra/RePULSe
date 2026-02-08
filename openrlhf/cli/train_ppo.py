@@ -534,7 +534,6 @@ def train(args):
             threshold=args.threshold,
             reward_clamp=args.reward_clamp,
             reward_cap=args.reward_cap,
-            n_seeds_f_q=args.n_seeds_f_q,
             rm_type=args.rm_type,
             bc_coef=args.bc_coef,
             bc_steps=args.bc_steps,
@@ -3041,7 +3040,6 @@ def get_base_ppo_trainer(actor, actor_optim, actor_scheduler, args, base_actor, 
         threshold=args.threshold,
         reward_clamp=args.reward_clamp,
         reward_cap=args.reward_cap,
-        n_seeds_f_q=args.n_seeds_f_q,
         rm_type=args.rm_type,
         bc_coef=args.bc_coef,
         bc_steps=args.bc_steps,
@@ -3334,10 +3332,9 @@ if __name__ == "__main__":
     parser.add_argument("--max_gen_per_prompt_rejection", type=int, default=None, help="Max samples to generate per prompt during rejection sampling before giving up (default: no limit)")
     parser.add_argument("--batch_size_rejection_sample", type=int, default=None, help="Batch size (number of sequences generated per iteration) during rejection sampling. Defaults to duplicate_rollout_batch_by if not set.")
     parser.add_argument("--save_info_path", type=str, default="./info")
-    parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for f_q_g_q_eval)")
-    parser.add_argument("--n_seeds_f_q", type=int, default=1, help="Number of seeds to use for f_q")
+    parser.add_argument("--n_samples_for_f_q_g_q", type=int, default=500, help="Number of samples to use for f_q/g_q evaluation (only for f_q_g_q_eval)")
     parser.add_argument("--n_eval_prompts_for_f_q", type=int, default=None, help="Number of prompts to subsample for f_q/g_q eval (default: all prompts)")
-    parser.add_argument("--n_prompts_f_q", type=int, default=None, help="Number of prompts to batch together for f_q/g_q eval in multi-prompt mode. If not set, uses per-prompt for-loop (current behavior).")
+    parser.add_argument("--n_prompts_f_q_g_q", type=int, default=None, help="Number of prompts to batch together for f_q/g_q eval in multi-prompt mode. If not set, uses per-prompt for-loop (current behavior).")
 
 
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss outer loop) per episode")

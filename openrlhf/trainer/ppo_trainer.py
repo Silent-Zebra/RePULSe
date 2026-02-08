@@ -107,7 +107,6 @@ class BasePPOTrainer(ABC):
         reward_clamp: Optional[float] = None,
         reward_cap: Optional[float] = None,
         target_dist_beta: float = 1,
-        n_seeds_f_q: int = 1,
         rm_type: str = '',
         bc_coef: float = 0,
         bc_steps: int = -1,
@@ -213,8 +212,6 @@ class BasePPOTrainer(ABC):
         self.true_target_samples = true_target_samples
 
         self.model_eval = model_eval
-
-        self.n_seeds_f_q = n_seeds_f_q
 
         # Mixtral 8x7b
         self.aux_loss = self.args.aux_loss_coef > 1e-8
@@ -466,39 +463,32 @@ class BasePPOTrainer(ABC):
 
         raise NotImplementedError # TODO this needs to be checked; make sure that the correct f_q/metrics are being calculated
 
-        for i in range(self.n_seeds_f_q):
-            f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = f_q_estimate(
-                self, self.experience_maker, args, rand_prompts)
+        f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = f_q_estimate(
+            self, self.experience_maker, args, rand_prompts)
 
-            output = self.tokenizer.batch_decode(
-                q_seqs,
-                skip_special_tokens=True)
-            print("seqs")
-            print(output)
-            print("seqs2")
-            self.strategy.print(output[0])
+        output = self.tokenizer.batch_decode(
+            q_seqs,
+            skip_special_tokens=True)
+        print("seqs")
+        print(output)
+        print("seqs2")
+        self.strategy.print(output[0])
 
-            kl_vals = log_q - log_p # No action mask here; that needs to be dealt with elsewhere
-            # log_q and log_p here have already been summed over the time dimension, so this is just simply reduce
+        kl_vals = log_q - log_p # No action mask here; that needs to be dealt with elsewhere
+        # log_q and log_p here have already been summed over the time dimension, so this is just simply reduce
 
-            rewards = log_phi / args.target_dist_beta
+        rewards = log_phi / args.target_dist_beta
 
-            entropy = - log_q
+        entropy = - log_q
 
-            print(kl_vals.shape)
-            print(rewards.shape)
-            print(entropy.shape)
+        print(kl_vals.shape)
+        print(rewards.shape)
+        print(entropy.shape)
 
-            if total_f_qs is None:
-                total_f_qs = f_qs
-                total_rewards = rewards
-                total_kl_vals = kl_vals
-                total_entropy = entropy
-            else:
-                total_f_qs = torch.cat((total_f_qs, f_qs), axis=0)
-                total_rewards = torch.cat((total_rewards, rewards), axis=0)
-                total_kl_vals = torch.cat((total_kl_vals, kl_vals), axis=0)
-                total_entropy = torch.cat((total_entropy, entropy), axis=0)
+        total_f_qs = f_qs
+        total_rewards = rewards
+        total_kl_vals = kl_vals
+        total_entropy = entropy
 
         print(f"Avg F_q: {total_f_qs.mean()}")
         print(f"Avg Rew: {total_rewards.mean()}")
