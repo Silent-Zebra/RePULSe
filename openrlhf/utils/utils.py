@@ -862,3 +862,134 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
         g_q_estimates_list.append(
             total_g_qs.cpu())  # Only one G_q estimate (over all the target samples)
     f_q_estimates_list.append(total_f_qs.cpu())
+
+
+def load_target_samples(path, device, strategy):
+    """
+    Load target samples from a file, handling both v1 (list) and v2 (dict) formats.
+
+    Returns:
+        (samples_by_prompt, prompt_texts_or_none):
+            samples_by_prompt: list of tensors, one per prompt (each shape [n_samples, seq_len])
+            prompt_texts_or_none: list of prompt strings (v2) or None (v1)
+    """
+    raw = torch.load(path, map_location="cpu")
+
+    if isinstance(raw, dict) and raw.get("version", 1) >= 2:
+        # v2 format
+        prompt_texts = raw["prompt_texts"]
+        samples_by_prompt_raw = raw["samples_by_prompt"]
+        samples_by_prompt = []
+        for samples_list in samples_by_prompt_raw:
+            if len(samples_list) > 0:
+                t = torch.tensor(samples_list, dtype=torch.int64).to(device)
+            else:
+                t = torch.zeros((0,), dtype=torch.int64).to(device)
+            samples_by_prompt.append(t)
+        strategy.print(f"Loaded v2 target samples: {len(samples_by_prompt)} prompts, "
+                       f"samples per prompt: {[s.shape[0] for s in samples_by_prompt]}")
+        return samples_by_prompt, prompt_texts
+    else:
+        # v1 format: list of lists (one element = one prompt's samples)
+        # The old format stores as a list where index 0 is the first (and usually only) prompt's samples
+        if isinstance(raw, list) and len(raw) > 0:
+            samples_by_prompt = []
+            for prompt_samples in raw:
+                t = torch.tensor(prompt_samples, dtype=torch.int64).to(device)
+                samples_by_prompt.append(t)
+            strategy.print(f"Loaded v1 target samples: {len(samples_by_prompt)} prompt(s), "
+                           f"samples per prompt: {[s.shape[0] for s in samples_by_prompt]}")
+            return samples_by_prompt, None
+        else:
+            raise ValueError(f"Unexpected target samples format: {type(raw)}")
+
+
+def f_q_g_q_evaluation_multi_prompt(trainer, experience_maker, args,
+                                     prompt_texts, true_target_samples_by_prompt=None):
+    """
+    Multi-prompt wrapper around f_q_g_q_evaluation. Loops over prompts, calls
+    existing f_q_g_q_evaluation per-prompt, and collects per-prompt + aggregated results.
+
+    Args:
+        trainer: Trainer instance
+        experience_maker: Experience maker instance
+        args: Training arguments
+        prompt_texts: List of prompt strings to evaluate
+        true_target_samples_by_prompt: List of tensors (one per prompt) or None.
+            If provided, must be same length as prompt_texts. Entries can be None for prompts
+            without target samples (g_q/IWAE will be skipped for those).
+
+    Returns:
+        dict with keys:
+            "f_q_by_prompt": list of tensors (one per prompt)
+            "g_q_by_prompt": list of tensors or Nones (one per prompt)
+            "iwae_lbs_by_prompt": list of tensors or Nones (one per prompt)
+            "iwae_ubs_by_prompt": list of tensors or Nones (one per prompt)
+            "f_q_agg": concatenated f_q across all prompts
+            "g_q_agg": concatenated g_q across prompts with target samples, or None
+            "iwae_lbs_agg": concatenated iwae_lbs across prompts with target samples, or None
+            "iwae_ubs_agg": concatenated iwae_ubs across prompts with target samples, or None
+    """
+    f_q_by_prompt = []
+    g_q_by_prompt = []
+    iwae_lbs_by_prompt = []
+    iwae_ubs_by_prompt = []
+
+    for i, prompt_text in enumerate(prompt_texts):
+        has_target_samples = (
+            true_target_samples_by_prompt is not None
+            and i < len(true_target_samples_by_prompt)
+            and true_target_samples_by_prompt[i] is not None
+            and true_target_samples_by_prompt[i].numel() > 0
+        )
+        target_samples_for_prompt = true_target_samples_by_prompt[i] if has_target_samples else None
+
+        # Use per-prompt lists to collect results from f_q_g_q_evaluation
+        f_q_list_prompt = []
+        g_q_list_prompt = []
+        iwae_lbs_list_prompt = []
+        iwae_ubs_list_prompt = []
+
+        if has_target_samples:
+            f_q_g_q_evaluation(
+                trainer, experience_maker, args,
+                f_q_list_prompt, g_q_list_prompt,
+                iwae_lbs_list_prompt, iwae_ubs_list_prompt,
+                prompt_text, target_samples_for_prompt,
+            )
+        else:
+            # f_q only (no g_q/IWAE without target samples)
+            f_qs, *_ = f_q_estimate(trainer, experience_maker, args, prompt_text)
+            f_q_list_prompt.append(f_qs.cpu())
+
+        # f_q_g_q_evaluation appends exactly one entry per call (internally loops over
+        # n_seeds_f_q and concatenates before appending). Same for the f_q_estimate path above.
+        assert len(f_q_list_prompt) == 1, f"Expected exactly 1 f_q entry per prompt, got {len(f_q_list_prompt)}"
+        f_q_by_prompt.append(f_q_list_prompt[0])
+        g_q_by_prompt.append(g_q_list_prompt[0] if g_q_list_prompt else None)
+        iwae_lbs_by_prompt.append(iwae_lbs_list_prompt[0] if iwae_lbs_list_prompt else None)
+        iwae_ubs_by_prompt.append(iwae_ubs_list_prompt[0] if iwae_ubs_list_prompt else None)
+
+    # Aggregate across prompts
+    f_q_valid = [x for x in f_q_by_prompt if x is not None]
+    f_q_agg = torch.cat(f_q_valid) if f_q_valid else None
+
+    g_q_valid = [x for x in g_q_by_prompt if x is not None]
+    g_q_agg = torch.cat(g_q_valid) if g_q_valid else None
+
+    iwae_lbs_valid = [x for x in iwae_lbs_by_prompt if x is not None]
+    iwae_lbs_agg = torch.stack(iwae_lbs_valid) if iwae_lbs_valid else None
+
+    iwae_ubs_valid = [x for x in iwae_ubs_by_prompt if x is not None]
+    iwae_ubs_agg = torch.stack(iwae_ubs_valid) if iwae_ubs_valid else None
+
+    return {
+        "f_q_by_prompt": f_q_by_prompt,
+        "g_q_by_prompt": g_q_by_prompt,
+        "iwae_lbs_by_prompt": iwae_lbs_by_prompt,
+        "iwae_ubs_by_prompt": iwae_ubs_by_prompt,
+        "f_q_agg": f_q_agg,
+        "g_q_agg": g_q_agg,
+        "iwae_lbs_agg": iwae_lbs_agg,
+        "iwae_ubs_agg": iwae_ubs_agg,
+    }

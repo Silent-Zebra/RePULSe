@@ -97,7 +97,6 @@ class CombinedHarmlessnessTrainer(ABC):
         rm_type: str = '',
         bc_coef: float = 0,
         bc_steps: int = -1,
-        true_target_samples = None, # would otherwise be torch.Tensor
         base_actor_loss_type: str = 'reinforce',
         base_critic_loss_type: str = 'mse',
         sampling_actor_loss_type: str = 'ctl',
@@ -222,8 +221,6 @@ class CombinedHarmlessnessTrainer(ABC):
         self.bc_coef = bc_coef
 
         self.bc_steps = bc_steps
-
-        self.true_target_samples = true_target_samples
 
         self.model_eval = model_eval
 
@@ -475,7 +472,6 @@ class CombinedHarmlessnessTrainer(ABC):
         pretrain_dataloader,
         consumed_samples=0,
         num_update_steps_per_episodes=1,
-        true_target_samples=None,
         is_first_fit_step=False,
         rewards_list=None,
         kl_vals_list=None,

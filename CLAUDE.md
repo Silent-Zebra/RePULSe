@@ -44,6 +44,8 @@ Please avoid duplicate code as much as possible. Any time there exists code in t
 
 While I have no strict conventions regarding style, I think it is very important to maintain correctness. Please flag anything that seems like it might be unintended behavior. Otherwise, follow the structure/setup of existing methods and function calls, as they are usually set up that way for a reason (but again, if anything seems fishy, please point it out, it might be a bug).
 
+I prefer noisy failures over silent failures. I would rather things throw exceptions than just try to proceed under unexpected circumstances. Also, related to this, if there is an assumption involved in the code (e.g., taking n'th element of list assuming there is exactly n elements in the list), make this explicit, using assert statements to check that the assumption holds.
+
 ## Key Files
 
 - `openrlhf/cli/train_ppo.py` — PPO training entry point

@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, compute_actor_log_probs_for_sequences
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -433,19 +433,21 @@ def train(args):
         vf_coef = args.critic_learning_rate / args.actor_learning_rate
 
     true_target_samples = None
+    true_target_samples_by_prompt = None
+    prompt_texts_from_target_samples = None
     if args.load_target_samples_name is not None:
-
         strategy.print("Loading true target samples")
-
-        true_target_samples_by_prompt_and_by_token = torch.load(f"{args.load_target_samples_name}")
-        true_target_samples = \
-            true_target_samples_by_prompt_and_by_token[
-                0]
-        true_target_samples = torch.tensor(
-            true_target_samples,
-            dtype=torch.int64)
-
-        true_target_samples = true_target_samples.to(next(actor.parameters()).device)
+        device = next(actor.parameters()).device
+        true_target_samples_by_prompt, prompt_texts_from_target_samples = load_target_samples(
+            args.load_target_samples_name, device, strategy
+        )
+        # For backward compat with single-prompt: true_target_samples = first prompt's samples
+        if args.new_custom_single_prompt:
+            true_target_samples = true_target_samples_by_prompt[0]
+        else:
+            # Multi-prompt: set true_target_samples to first prompt's samples for backward compat
+            # (used by trainers, do_evaluate_heldout_sampling, etc.)
+            true_target_samples = true_target_samples_by_prompt[0] if len(true_target_samples_by_prompt) > 0 else None
 
     # Early exit for rejection sampling mode
     if args.rejection_sample_true_target_only:
@@ -536,7 +538,6 @@ def train(args):
             rm_type=args.rm_type,
             bc_coef=args.bc_coef,
             bc_steps=args.bc_steps,
-            true_target_samples=true_target_samples,
             sampling_actor_loss_type=args.actor_loss_type,
             sampling_critic_loss_type=args.critic_loss_type,
             base_actor_loss_type=args.harmlessness_training_loss_type,
@@ -655,29 +656,74 @@ def train(args):
     heldout_return_over_time_list = []
     f_q_over_time_list = []
     target_samples_logprob_over_time_list = []
+    # Per-prompt tracking lists for multi-prompt f_q/g_q eval
+    # Fixed set (stable tracking over time)
+    f_q_by_prompt_list_fixed = []
+    g_q_by_prompt_list_fixed = []
+    iwae_lbs_by_prompt_list_fixed = []
+    iwae_ubs_by_prompt_list_fixed = []
+    # Random set (coverage)
+    f_q_by_prompt_list_random = []
+    prompt_texts_random_per_timepoint = []
 
-
-    # Initial point (before fit loop): heldout eval + f_q when each_fit_step + single-prompt + harmlessness
+    # Initial point (before fit loop): heldout eval + f_q when each_fit_step + harmlessness
     _per_fit_step_heldout = (
         getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step"
-        and getattr(args, "new_custom_single_prompt", False)
         and args.do_harmlessness_training
     )
     _per_fit_step_f_q_eval = (
         getattr(args, "f_q_g_q_eval", False)
-        and getattr(args, "new_custom_single_prompt", False)
         and args.do_harmlessness_training
     )
-    if getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step":
-        if not args.new_custom_single_prompt:
-            raise NotImplementedError("evaluate_heldout_sampling 'each_fit_step' requires --new_custom_single_prompt")
+
+    # Build eval prompt sets (Set A: fixed, Set B: random)
+    eval_prompts_fixed = None
+    eval_target_samples_fixed = None  # list of tensors or None (only for prompts with target samples)
+    eval_prompts_random_source = None  # full prompt list to subsample from for Set B
+    n_eval_prompts = getattr(args, "n_eval_prompts_for_f_q", None)
+
+    if _per_fit_step_f_q_eval or _per_fit_step_heldout:
+        if args.new_custom_single_prompt:
+            # Single-prompt mode: just use the custom prompt (backward compat)
+            prompt_text_heldout = get_custom_prompt_with_chat_template(
+                tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
+            )
+            eval_prompts_fixed = [prompt_text_heldout]
+            eval_target_samples_fixed = [true_target_samples] if true_target_samples is not None else None
+            # No random set for single-prompt
+            eval_prompts_random_source = None
+        else:
+            # Multi-prompt mode: build eval prompt sets
+            # Set A: Fixed prompts for stable tracking
+            if prompt_texts_from_target_samples is not None:
+                # Use target sample prompts (they have g_q data)
+                eval_prompts_fixed = list(prompt_texts_from_target_samples)
+                eval_target_samples_fixed = list(true_target_samples_by_prompt) if true_target_samples_by_prompt is not None else None
+            else:
+                # Use prompts from dataset
+                _, eval_prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+                all_eval_prompts = [eval_prompts_dataset[i] for i in range(len(eval_prompts_dataset))]
+                if n_eval_prompts is not None:
+                    eval_prompts_fixed = all_eval_prompts[:n_eval_prompts]
+                else:
+                    eval_prompts_fixed = all_eval_prompts
+                eval_target_samples_fixed = None  # No target samples
+
+            # Set B: Random prompts for coverage
+            _, random_prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+            all_random_prompts = [random_prompts_dataset[i] for i in range(len(random_prompts_dataset))]
+            # Set B is only meaningful when it differs from Set A
+            if n_eval_prompts is not None and len(all_random_prompts) > n_eval_prompts:
+                eval_prompts_random_source = all_random_prompts
+            else:
+                eval_prompts_random_source = None  # Skip Set B (same as Set A)
+
+            strategy.print(f"Eval prompt sets: Fixed={len(eval_prompts_fixed)} prompts"
+                           + (f", Random source={len(eval_prompts_random_source)} prompts" if eval_prompts_random_source else ", No random set"))
 
     if _per_fit_step_heldout or _per_fit_step_f_q_eval:
-        prompt_text_heldout = get_custom_prompt_with_chat_template(
-            tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
-        )
         _run_per_fit_step_heldout_and_f_q(
-            prompt_text_heldout,
+            eval_prompts_fixed,
             harmlessness_trainer,
             args,
             base_actor_optim,
@@ -693,7 +739,6 @@ def train(args):
             reward_model,
             strategy,
             tokenizer,
-            true_target_samples,
             vf_coef,
             heldout_reward_over_time_list,
             heldout_return_over_time_list,
@@ -703,6 +748,15 @@ def train(args):
             iwae_ubs_list,
             f_q_over_time_list,
             target_samples_logprob_over_time_list,
+            eval_target_samples_fixed=eval_target_samples_fixed,
+            f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
+            g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
+            iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
+            iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
+            eval_prompts_random_source=eval_prompts_random_source,
+            n_eval_prompts=n_eval_prompts,
+            f_q_by_prompt_list_random=f_q_by_prompt_list_random,
+            prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
         )
 
     # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
@@ -790,7 +844,7 @@ def train(args):
             if args.harmlessness_training_num_episodes > 0:
                 estimates_list = harmlessness_trainer.fit(
                     args, prompts_dataloader, pretrain_dataloader, consumed_samples,
-                    num_update_steps_per_episodes, true_target_samples,
+                    num_update_steps_per_episodes,
                     is_first_fit_step=(fit_step == 0),
                     rewards_list=rewards_list,
                     kl_vals_list=kl_vals_list,
@@ -842,7 +896,7 @@ def train(args):
             # Per-fit-step heldout + f_q (after each fit step)
             if (_per_fit_step_heldout or _per_fit_step_f_q_eval) and args.do_harmlessness_training:
                 _run_per_fit_step_heldout_and_f_q(
-                    prompt_text_heldout,
+                    eval_prompts_fixed,
                     harmlessness_trainer,
                     args,
                     base_actor_optim,
@@ -858,7 +912,6 @@ def train(args):
                     reward_model,
                     strategy,
                     tokenizer,
-                    true_target_samples,
                     vf_coef,
                     heldout_reward_over_time_list,
                     heldout_return_over_time_list,
@@ -868,6 +921,15 @@ def train(args):
                     iwae_ubs_list,
                     f_q_over_time_list,
                     target_samples_logprob_over_time_list,
+                    eval_target_samples_fixed=eval_target_samples_fixed,
+                    f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
+                    g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
+                    iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
+                    iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
+                    eval_prompts_random_source=eval_prompts_random_source,
+                    n_eval_prompts=n_eval_prompts,
+                    f_q_by_prompt_list_random=f_q_by_prompt_list_random,
+                    prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
                 )
 
             # Save f_q/g_q/iwae stuff separately (only if f_q_g_q_eval was done and lists are not empty).
@@ -883,10 +945,31 @@ def train(args):
                 print(g_q_estimates_list)
                 print("SAVING F_Q/G_Q/IWAE RESULTS", flush=True)
 
-                target_to_save = (
-                    f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
-                )
                 save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
+                if args.new_custom_single_prompt:
+                    # v1 tuple format (backward compat)
+                    target_to_save = (
+                        f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
+                    )
+                else:
+                    # v2 dict format with per-prompt breakdowns
+                    target_to_save = {
+                        "version": 2,
+                        "prompt_texts_fixed": eval_prompts_fixed,
+                        "prompt_texts_random_per_timepoint": prompt_texts_random_per_timepoint,
+                        # Fixed set (per-prompt):
+                        "f_q_by_prompt_fixed": f_q_by_prompt_list_fixed,
+                        "g_q_by_prompt_fixed": g_q_by_prompt_list_fixed,
+                        "iwae_lbs_by_prompt_fixed": iwae_lbs_by_prompt_list_fixed,
+                        "iwae_ubs_by_prompt_fixed": iwae_ubs_by_prompt_list_fixed,
+                        # Random set (per-prompt):
+                        "f_q_by_prompt_random": f_q_by_prompt_list_random,
+                        # Aggregated (backward compat):
+                        "f_q_estimates_list": f_q_estimates_list,
+                        "g_q_estimates_list": g_q_estimates_list,
+                        "iwae_lbs_list": iwae_lbs_list,
+                        "iwae_ubs_list": iwae_ubs_list,
+                    }
                 torch.save(target_to_save, save_str)
 
             # Save the base metrics separately (always saved if not empty)
@@ -1194,10 +1277,21 @@ def train(args):
                 # trainer is created in the else branch above
                 experience_maker = trainer.experience_maker
                 generate_kwargs = trainer.generate_kwargs
+            # Build eval prompts for logprob: use target sample prompts if available,
+            # else custom_prompt for single-prompt, else None (skip logprob)
+            end_eval_prompts_for_logprob = None
+            if prompt_texts_from_target_samples is not None:
+                end_eval_prompts_for_logprob = list(prompt_texts_from_target_samples)
+            elif args.new_custom_single_prompt and true_target_samples_by_prompt is not None:
+                end_eval_prompts_for_logprob = [get_custom_prompt_with_chat_template(
+                    tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
+                )]
             do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                          critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
-                                         strategy, tokenizer, true_target_samples, vf_coef, mode="end",
-                                         experience_maker=experience_maker, generate_kwargs=generate_kwargs)
+                                         strategy, tokenizer, vf_coef, mode="end",
+                                         experience_maker=experience_maker, generate_kwargs=generate_kwargs,
+                                         true_target_samples_by_prompt=true_target_samples_by_prompt,
+                                         eval_prompts_for_logprob=end_eval_prompts_for_logprob)
 
         if args.evaluate_on_neg_data:
             strategy.print("DOING evaluate_on_neg_data")
@@ -2177,131 +2271,166 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
         )
         return {k: v.to(device) for k, v in batch.items()}
     
-    # Process each prompt
+    # Helper: run one rejection sampling batch for a single prompt
+    def _rejection_sample_one_prompt_batch(prompt, device):
+        """Generate one batch from base_actor for a prompt and return (accepted_seqs_list, accepted_rews_list, n_generated)."""
+        prompt_batch = tile_prompts(prompt, args.duplicate_rollout_batch_by)
+        inputs = tokenize_fn(prompt_batch, args.prompt_max_len, device=device)
+        with torch.no_grad():
+            sequences, attention_mask, action_mask = base_actor.generate(**inputs, **generate_kwargs)
+            rewards = reward_model(sequences, attention_mask)
+            rewards = rewards.squeeze(-1) if rewards.dim() > 1 else rewards
+        if args.reward_clamp is not None:
+            clamped_rewards = rewards.clamp(min=-args.reward_clamp, max=args.reward_clamp)
+        else:
+            clamped_rewards = rewards.clamp(max=args.reward_cap)
+        log_phi = args.target_dist_beta * clamped_rewards
+        log_ratio = log_phi - log_M
+        accept_prob = torch.exp(log_ratio).clamp(min=0.0, max=1.0)
+        u = torch.rand_like(accept_prob)
+        accept_mask = u < accept_prob
+        accepted_seqs = [seq.cpu().tolist() for seq in sequences[accept_mask]]
+        accepted_rews = [rew.cpu().item() for rew in clamped_rewards[accept_mask]]
+        return accepted_seqs, accepted_rews, sequences.shape[0]
+
+    # Process prompts
     total_generated_all = 0
     total_accepted_all = 0
-    
-    for prompt_idx, prompt in enumerate(prompts):
-        strategy.print(f"\nProcessing prompt {prompt_idx + 1}/{len(prompts)}")
-        accepted_samples = []
-        accepted_rewards = []  # clamped reward for each accepted sample
-        total_generated = 0
-        total_accepted = 0
-        iteration = 0
-        
-        # Continue sampling until we have enough accepted samples
-        while len(accepted_samples) < args.true_target_sample_amount:
-            iteration += 1
-            
-            # Generate batch of samples from base actor
-            # Use tile_prompts (as in make_experience / generate_seqs_and_get_all_data) to repeat
-            # the prompt rollout_batch_size times for batched generation
-            prompt_batch = tile_prompts(prompt, args.duplicate_rollout_batch_by)
-            
-            # Tokenize prompts
-            inputs = tokenize_fn(prompt_batch, args.prompt_max_len, device=device)
-            
-            # Generate sequences
-            with torch.no_grad():
-                sequences, attention_mask, action_mask = base_actor.generate(
-                    **inputs,
-                    **generate_kwargs
-                )
-            
-            # Compute rewards
-            with torch.no_grad():
-                rewards = reward_model(sequences, attention_mask)
-                rewards = rewards.squeeze(-1) if rewards.dim() > 1 else rewards  # Ensure shape (batch_size,)
-            
-            # Clamp/cap rewards
-            if args.reward_clamp is not None:
-                clamped_rewards = rewards.clamp(min=-args.reward_clamp, max=args.reward_clamp)
-            else:
-                clamped_rewards = rewards.clamp(max=args.reward_cap)
-            
-            # Compute log_phi = beta * clamped_r (in log space)
-            log_phi = args.target_dist_beta * clamped_rewards
-            
-            # Compute acceptance probabilities in log space to avoid overflow
-            # accept_prob = e^(beta * clamped_r) / e^(log_M) = e^(log_phi - log_M)
-            log_ratio = log_phi - log_M
-            accept_prob = torch.exp(log_ratio)
-            accept_prob = torch.clamp(accept_prob, min=0.0, max=1.0)
-            
-            # Perform rejection sampling
-            u = torch.rand_like(accept_prob)
-            accept_mask = u < accept_prob
-            
-            # Extract accepted sequences and their clamped rewards
-            accepted_sequences = sequences[accept_mask]
-            accepted_clamped_rewards_batch = clamped_rewards[accept_mask]
-            
-            # Convert to CPU and store
-            for seq, rew in zip(accepted_sequences, accepted_clamped_rewards_batch):
-                accepted_samples.append(seq.cpu().tolist())
-                accepted_rewards.append(rew.cpu().item())
-            
-            # Update counters
-            batch_size_actual = sequences.shape[0]
-            total_generated += batch_size_actual
-            total_accepted += accept_mask.sum().item()
-            
-            # Print progress periodically
-            if iteration % 10 == 0 or len(accepted_samples) >= args.true_target_sample_amount:
-                acceptance_rate = total_accepted / total_generated if total_generated > 0 else 0.0
-                log_phi_mean = log_phi.mean().item()
-                log_phi_min = log_phi.min().item()
-                log_phi_max = log_phi.max().item()
-                clamped_r_mean = clamped_rewards.mean().item()
-                clamped_r_min = clamped_rewards.min().item()
-                clamped_r_max = clamped_rewards.max().item()
-                log_ratio_mean = log_ratio.mean().item()
-                accept_prob_mean = accept_prob.mean().item()
-                strategy.print(f"  Iteration {iteration}: {len(accepted_samples)}/{args.true_target_sample_amount} accepted, "
-                             f"{total_generated} generated, acceptance rate: {acceptance_rate:.4f}")
-                strategy.print(f"    clamped_r: mean={clamped_r_mean:.4f}, min={clamped_r_min:.4f}, max={clamped_r_max:.4f}")
-                strategy.print(f"    log_phi (beta * clamped_r): mean={log_phi_mean:.4f}, min={log_phi_min:.4f}, max={log_phi_max:.4f}")
-                strategy.print(f"    log_M={log_M:.4f}, log_ratio (log_phi - log_M): mean={log_ratio_mean:.4f}")
-                strategy.print(f"    accept_prob: mean={accept_prob_mean:.6f}, beta={args.target_dist_beta}, clamp/cap={clamp_val}")
-        
-        # Truncate to exact target amount
-        accepted_samples = accepted_samples[:args.true_target_sample_amount]
-        accepted_rewards = accepted_rewards[:args.true_target_sample_amount]
-        
-        # Print decoded text and clamped reward for each accepted sample
-        strategy.print(f"\n--- Accepted samples for prompt {prompt_idx + 1} (decoded text and clamped reward) ---")
-        for i, (tokens, rew) in enumerate(zip(accepted_samples, accepted_rewards)):
-            text = tokenizer.decode(tokens, skip_special_tokens=True)
-            strategy.print(f"[{i + 1}] reward (clamped) = {rew:.4f}")
-            strategy.print(f"    text: {text}")
-        strategy.print("---")
-        
-        # Store for this prompt
-        target_samples_by_prompt.append(accepted_samples)
-        
-        # Print statistics for this prompt
-        final_acceptance_rate = total_accepted / total_generated if total_generated > 0 else 0.0
-        strategy.print(f"Prompt {prompt_idx + 1} complete: {len(accepted_samples)} samples accepted "
-                      f"from {total_generated} generated (acceptance rate: {final_acceptance_rate:.4f})")
-        
-        total_generated_all += total_generated
-        total_accepted_all += total_accepted
-    
-    # Format output (matching loading format)
-    true_target_samples_by_prompt_and_by_token = target_samples_by_prompt
-    
+    max_gen_per_prompt = getattr(args, "max_gen_per_prompt_rejection", None)
+
+    if args.new_custom_single_prompt:
+        # Single-prompt mode: collect true_target_sample_amount for the single prompt (unchanged behavior)
+        for prompt_idx, prompt in enumerate(prompts):
+            strategy.print(f"\nProcessing prompt {prompt_idx + 1}/{len(prompts)}")
+            accepted_samples = []
+            accepted_rewards = []
+            total_generated = 0
+            total_accepted = 0
+            iteration = 0
+
+            while len(accepted_samples) < args.true_target_sample_amount:
+                iteration += 1
+                if max_gen_per_prompt is not None and total_generated >= max_gen_per_prompt:
+                    strategy.print(f"  Warning: Reached max_gen_per_prompt_rejection={max_gen_per_prompt} "
+                                   f"with only {len(accepted_samples)}/{args.true_target_sample_amount} accepted. Stopping this prompt.")
+                    break
+                seqs, rews, n_gen = _rejection_sample_one_prompt_batch(prompt, device)
+                accepted_samples.extend(seqs)
+                accepted_rewards.extend(rews)
+                total_generated += n_gen
+                total_accepted += len(seqs)
+                if iteration % 10 == 0 or len(accepted_samples) >= args.true_target_sample_amount:
+                    rate = total_accepted / total_generated if total_generated > 0 else 0.0
+                    strategy.print(f"  Iteration {iteration}: {len(accepted_samples)}/{args.true_target_sample_amount} accepted, "
+                                   f"{total_generated} generated, acceptance rate: {rate:.4f}")
+
+            accepted_samples = accepted_samples[:args.true_target_sample_amount]
+            accepted_rewards = accepted_rewards[:args.true_target_sample_amount]
+            strategy.print(f"\n--- Accepted samples for prompt {prompt_idx + 1} (decoded text and clamped reward) ---")
+            for i, (tokens, rew) in enumerate(zip(accepted_samples, accepted_rewards)):
+                text = tokenizer.decode(tokens, skip_special_tokens=True)
+                strategy.print(f"[{i + 1}] reward (clamped) = {rew:.4f}")
+                strategy.print(f"    text: {text}")
+            strategy.print("---")
+            target_samples_by_prompt.append(accepted_samples)
+            final_rate = total_accepted / total_generated if total_generated > 0 else 0.0
+            strategy.print(f"Prompt {prompt_idx + 1} complete: {len(accepted_samples)} samples accepted "
+                           f"from {total_generated} generated (acceptance rate: {final_rate:.4f})")
+            total_generated_all += total_generated
+            total_accepted_all += total_accepted
+    else:
+        # Multi-prompt mode: round-robin collection across prompts
+        # true_target_sample_amount is the TOTAL across all prompts
+        total_target = args.true_target_sample_amount
+        n_prompts = len(prompts)
+        strategy.print(f"\nMulti-prompt round-robin: collecting {total_target} total samples across {n_prompts} prompts")
+
+        accepted_by_prompt = [[] for _ in range(n_prompts)]
+        rewards_by_prompt = [[] for _ in range(n_prompts)]
+        generated_per_prompt = [0] * n_prompts
+        skipped_prompts = set()
+        total_collected = 0
+        pass_num = 0
+
+        while total_collected < total_target:
+            pass_num += 1
+            made_progress = False
+            for prompt_idx, prompt in enumerate(prompts):
+                if total_collected >= total_target:
+                    break
+                if prompt_idx in skipped_prompts:
+                    continue
+                # Check early stopping for this prompt
+                if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
+                    strategy.print(f"  Skipping prompt {prompt_idx + 1}: reached max_gen_per_prompt_rejection={max_gen_per_prompt} "
+                                   f"with {len(accepted_by_prompt[prompt_idx])} accepted samples")
+                    skipped_prompts.add(prompt_idx)
+                    continue
+                seqs, rews, n_gen = _rejection_sample_one_prompt_batch(prompt, device)
+                generated_per_prompt[prompt_idx] += n_gen
+                total_generated_all += n_gen
+                # Take at most 1 sample per prompt per pass (round-robin fairness)
+                # But if the batch yielded multiple, take all to avoid wasting accepted samples
+                n_to_take = min(len(seqs), total_target - total_collected)
+                if n_to_take > 0:
+                    accepted_by_prompt[prompt_idx].extend(seqs[:n_to_take])
+                    rewards_by_prompt[prompt_idx].extend(rews[:n_to_take])
+                    total_collected += n_to_take
+                    total_accepted_all += n_to_take
+                    made_progress = True
+
+            if pass_num % 10 == 0:
+                strategy.print(f"  Pass {pass_num}: {total_collected}/{total_target} total accepted, "
+                               f"{total_generated_all} total generated, {len(skipped_prompts)} prompts skipped")
+
+            # Safety: if all prompts are skipped and we haven't reached total, break
+            if len(skipped_prompts) == n_prompts and total_collected < total_target:
+                strategy.print(f"  Warning: All prompts skipped/exhausted. Collected {total_collected}/{total_target} samples.")
+                break
+            if not made_progress and len(skipped_prompts) == n_prompts:
+                break
+
+        # Store results
+        for prompt_idx in range(n_prompts):
+            target_samples_by_prompt.append(accepted_by_prompt[prompt_idx])
+            n_accepted = len(accepted_by_prompt[prompt_idx])
+            strategy.print(f"Prompt {prompt_idx + 1}: {n_accepted} samples accepted "
+                           f"from {generated_per_prompt[prompt_idx]} generated")
+            # Print decoded text for each accepted sample
+            if n_accepted > 0:
+                strategy.print(f"--- Accepted samples for prompt {prompt_idx + 1} ---")
+                for i, (tokens, rew) in enumerate(zip(accepted_by_prompt[prompt_idx], rewards_by_prompt[prompt_idx])):
+                    text = tokenizer.decode(tokens, skip_special_tokens=True)
+                    strategy.print(f"[{i + 1}] reward (clamped) = {rew:.4f}")
+                    strategy.print(f"    text: {text}")
+                strategy.print("---")
+
     # Save on rank 0 only
     if strategy.is_rank_0():
-        torch.save(true_target_samples_by_prompt_and_by_token, filename)
+        if args.new_custom_single_prompt:
+            # v1 format for single-prompt (backward compat)
+            torch.save(target_samples_by_prompt, filename)
+        else:
+            # v2 format for multi-prompt
+            save_data = {
+                "version": 2,
+                "prompt_texts": prompts,
+                "samples_by_prompt": target_samples_by_prompt,
+            }
+            torch.save(save_data, filename)
         strategy.print(f"\nSaved target samples to: {filename}")
-    
+
     # Print final statistics
     overall_acceptance_rate = total_accepted_all / total_generated_all if total_generated_all > 0 else 0.0
     strategy.print(f"\nFinal statistics:")
     strategy.print(f"  Total samples generated: {total_generated_all}")
     strategy.print(f"  Total samples accepted: {total_accepted_all}")
     strategy.print(f"  Overall acceptance rate: {overall_acceptance_rate:.7f}")
-    strategy.print(f"  Samples per prompt: {args.true_target_sample_amount}")
+    if args.new_custom_single_prompt:
+        strategy.print(f"  Samples per prompt: {args.true_target_sample_amount}")
+    else:
+        strategy.print(f"  Total target: {args.true_target_sample_amount}")
+        strategy.print(f"  Samples by prompt: {[len(s) for s in target_samples_by_prompt]}")
 
 
 def _heldout_one_batch_make_experience(experience_maker, generate_kwargs, prompts_batch, samples_per_prompt, return_entropy_kl=False):
@@ -2402,9 +2531,36 @@ def compute_target_samples_logprob(base_actor, tokenizer, prompt_text, true_targ
     return total_log_prob.item()
 
 
+def _compute_multi_prompt_target_logprob(actor, tokenizer, strategy, args,
+                                          true_target_samples_by_prompt, eval_prompts_for_logprob):
+    """Compute mean target samples logprob across prompts. Returns scalar or None."""
+    if getattr(args, "load_target_samples_name", None) is None:
+        return None
+    if true_target_samples_by_prompt is None or eval_prompts_for_logprob is None:
+        return None
+    if len(eval_prompts_for_logprob) != len(true_target_samples_by_prompt):
+        strategy.print(
+            f"Warning: prompt count ({len(eval_prompts_for_logprob)}) != target samples count "
+            f"({len(true_target_samples_by_prompt)}), skipping target samples logprob"
+        )
+        return None
+
+    per_prompt_logprobs = []
+    for prompt_text_lp, samples_lp in zip(eval_prompts_for_logprob, true_target_samples_by_prompt):
+        if samples_lp is not None and samples_lp.numel() > 0:
+            lp = compute_target_samples_logprob(actor, tokenizer, prompt_text_lp, samples_lp, strategy)
+            if lp is not None:
+                per_prompt_logprobs.append(lp)
+    if not per_prompt_logprobs:
+        return None
+    mean_logprob = sum(per_prompt_logprobs) / len(per_prompt_logprobs)
+    strategy.print(f"Target samples mean logprob across {len(per_prompt_logprobs)} prompts: {mean_logprob}")
+    return mean_logprob
+
+
 def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, args, critic, critic_optim,
                                  critic_scheduler, ema_model, info_name_str, initial_model, neg_data, reward_model,
-                                 strategy, tokenizer, true_target_samples, vf_coef,
+                                 strategy, tokenizer, vf_coef,
                                  mode="end",
                                  heldout_reward_over_time_list=None,
                                  heldout_return_over_time_list=None,
@@ -2412,27 +2568,23 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
                                  n_heldout_samples=None,
                                  experience_maker=None,
                                  generate_kwargs=None,
-                                 target_samples_logprob_over_time_list=None):
+                                 target_samples_logprob_over_time_list=None,
+                                 true_target_samples_by_prompt=None,
+                                 eval_prompts_for_logprob=None):
     """
     Heldout evaluation: sample from actor_to_test on prompts and record reward/return.
     mode: "end" = full eval and save to file (current behaviour); "each_fit_step" = one batch, append full tensors to over-time lists.
     For mode "each_fit_step", single-prompt only: pass prompt_text and n_heldout_samples (or use args.n_heldout_samples_per_fit_step).
     If experience_maker and generate_kwargs are provided, use them instead of creating a new trainer.
-    If args.load_target_samples_name is set, also computes and tracks log probability of target samples under base actor.
+    If args.load_target_samples_name is set and true_target_samples_by_prompt + eval_prompts_for_logprob are provided,
+    computes and tracks log probability of target samples under the actor (per-prompt, then averaged).
     """
     n_heldout = n_heldout_samples if n_heldout_samples is not None else getattr(args, "n_heldout_samples_per_fit_step", 100)
     if experience_maker is None or generate_kwargs is None:
-        raise NotImplementedError("Not tested, might do weird stuff")
-        trainer = get_base_ppo_trainer(actor_to_test, actor_optim, actor_scheduler, args, initial_model, critic,
-                                       critic_optim,
-                                       critic_scheduler, ema_model, neg_data, reward_model, strategy, tokenizer,
-                                       true_target_samples, vf_coef)
-        experience_maker = trainer.experience_maker
-        generate_kwargs = trainer.generate_kwargs
+        raise NotImplementedError("experience_maker and generate_kwargs must be provided")
 
     if mode == "each_fit_step":
-        assert args.new_custom_single_prompt # otherwise not yet tested
-        # Single-prompt only: one batch, append full tensors to over-time lists
+        # one batch, append full tensors to over-time lists
         if heldout_reward_over_time_list is None or heldout_return_over_time_list is None:
             raise ValueError("heldout_reward_over_time_list and heldout_return_over_time_list required when mode='each_fit_step'")
         if prompt_text is None:
@@ -2444,13 +2596,16 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         heldout_reward_over_time_list.append(reward.cpu())
         heldout_return_over_time_list.append(return_.cpu())
         
-        # Compute log probability of target samples if available
-        if getattr(args, "load_target_samples_name", None) is not None and true_target_samples is not None:
+        # Compute log probability of target samples if available (per-prompt, then averaged)
+        target_logprob = _compute_multi_prompt_target_logprob(
+            actor_to_test, tokenizer, strategy, args,
+            true_target_samples_by_prompt, eval_prompts_for_logprob,
+        )
+        if target_logprob is not None:
             if target_samples_logprob_over_time_list is None:
                 raise ValueError("target_samples_logprob_over_time_list required when load_target_samples_name is set and mode='each_fit_step'")
-            target_logprob = compute_target_samples_logprob(actor_to_test, tokenizer, prompt_text, true_target_samples, strategy)
             target_samples_logprob_over_time_list.append(target_logprob)
-        
+
         return
 
     # mode == "end"
@@ -2514,26 +2669,11 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         strategy.print(
             f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
 
-    # Compute log probability of target samples if available
-    target_samples_logprob = None
-    if getattr(args, "load_target_samples_name", None) is not None and true_target_samples is not None:
-        # For "end" mode, we need to get the prompt text
-        if getattr(args, "new_custom_single_prompt", False):
-            eval_prompt_text = prompt_text if prompt_text is not None else get_custom_prompt_with_chat_template(
-                tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
-            )
-        else:
-            # For multi-prompt case, use the first prompt from the dataset
-            # This is a simplification - ideally we'd compute for all prompts
-            strategy.print("Warning: Computing target samples logprob for multi-prompt case using first prompt")
-            pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
-            eval_prompt_text = prompts_dataset[0] if len(prompts_dataset) > 0 else None
-            if eval_prompt_text is None:
-                strategy.print("Warning: Could not get prompt text for target samples logprob computation")
-        
-        if eval_prompt_text is not None:
-            target_samples_logprob = compute_target_samples_logprob(actor_to_test, tokenizer, eval_prompt_text, true_target_samples, strategy)
-            strategy.print(f"Target samples total log probability: {target_samples_logprob}")
+    # Compute log probability of target samples if available (per-prompt, then averaged)
+    target_samples_logprob = _compute_multi_prompt_target_logprob(
+        actor_to_test, tokenizer, strategy, args,
+        true_target_samples_by_prompt, eval_prompts_for_logprob,
+    )
 
     save_str = f"{args.save_info_path}/info_eval_{info_name_str}"
     if target_samples_logprob is not None:
@@ -2543,7 +2683,7 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
 
 
 def _run_per_fit_step_heldout_and_f_q(
-    prompt_text_heldout,
+    eval_prompts_fixed,
     harmlessness_trainer,
     args,
     base_actor_optim,
@@ -2559,7 +2699,6 @@ def _run_per_fit_step_heldout_and_f_q(
     reward_model,
     strategy,
     tokenizer,
-    true_target_samples,
     vf_coef,
     heldout_reward_over_time_list,
     heldout_return_over_time_list,
@@ -2569,34 +2708,99 @@ def _run_per_fit_step_heldout_and_f_q(
     iwae_ubs_list,
     f_q_over_time_list,
     target_samples_logprob_over_time_list,
+    # Multi-prompt kwargs
+    eval_target_samples_fixed=None,
+    f_q_by_prompt_list_fixed=None,
+    g_q_by_prompt_list_fixed=None,
+    iwae_lbs_by_prompt_list_fixed=None,
+    iwae_ubs_by_prompt_list_fixed=None,
+    eval_prompts_random_source=None,
+    n_eval_prompts=None,
+    f_q_by_prompt_list_random=None,
+    prompt_texts_random_per_timepoint=None,
 ):
-    """Run heldout evaluation (each_fit_step mode) and f_q tracking; append to over-time lists."""
+    """Run heldout evaluation (each_fit_step mode) and f_q tracking; append to over-time lists.
+
+    eval_prompts_fixed: list of prompt strings (even for single-prompt mode, wrapped in a list).
+    """
+    import random
+
+    is_single_prompt = args.new_custom_single_prompt
+
     if getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step":
+        # For heldout sampling, use the first prompt for now (multi-prompt heldout looping is future work)
+        prompt_text_for_heldout = eval_prompts_fixed[0] if eval_prompts_fixed else None
         do_evaluate_heldout_sampling(
             base_actor_optim, base_actor_scheduler, base_actor, args, critic, critic_optim,
             critic_scheduler, ema_model, info_name_str, static_initial_model, neg_data, reward_model,
-            strategy, tokenizer, true_target_samples, vf_coef,
+            strategy, tokenizer, vf_coef,
             mode="each_fit_step",
             heldout_reward_over_time_list=heldout_reward_over_time_list,
             heldout_return_over_time_list=heldout_return_over_time_list,
-            prompt_text=prompt_text_heldout,
+            prompt_text=prompt_text_for_heldout,
             n_heldout_samples=getattr(args, "n_heldout_samples_per_fit_step", 100),
             experience_maker=harmlessness_trainer.base_experience_maker,
             generate_kwargs=harmlessness_trainer.generate_kwargs,
             target_samples_logprob_over_time_list=target_samples_logprob_over_time_list,
+            true_target_samples_by_prompt=eval_target_samples_fixed,
+            eval_prompts_for_logprob=eval_prompts_fixed,
         )
+
     if getattr(args, "f_q_g_q_eval", False):
-        f_q_g_q_evaluation(
-            harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list,
-            prompt_text_heldout, true_target_samples,
-        )
-        f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
+        if is_single_prompt:
+            # Single-prompt: use original f_q_g_q_evaluation (backward compat)
+            single_prompt_target = eval_target_samples_fixed[0] if eval_target_samples_fixed else None
+            f_q_g_q_evaluation(
+                harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+                f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list,
+                eval_prompts_fixed[0], single_prompt_target,
+            )
+            f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
+        else:
+            # Multi-prompt: Set A (fixed prompts)
+            result_fixed = f_q_g_q_evaluation_multi_prompt(
+                harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+                eval_prompts_fixed, eval_target_samples_fixed,
+            )
+            # Append per-prompt results
+            if f_q_by_prompt_list_fixed is not None:
+                f_q_by_prompt_list_fixed.append(result_fixed["f_q_by_prompt"])
+            if g_q_by_prompt_list_fixed is not None:
+                g_q_by_prompt_list_fixed.append(result_fixed["g_q_by_prompt"])
+            if iwae_lbs_by_prompt_list_fixed is not None:
+                iwae_lbs_by_prompt_list_fixed.append(result_fixed["iwae_lbs_by_prompt"])
+            if iwae_ubs_by_prompt_list_fixed is not None:
+                iwae_ubs_by_prompt_list_fixed.append(result_fixed["iwae_ubs_by_prompt"])
+            # Append aggregated results (backward compat lists)
+            if result_fixed["f_q_agg"] is not None:
+                f_q_estimates_list.append(result_fixed["f_q_agg"])
+                f_q_over_time_list.append(result_fixed["f_q_agg"])
+            if result_fixed["g_q_agg"] is not None:
+                g_q_estimates_list.append(result_fixed["g_q_agg"])
+            if result_fixed["iwae_lbs_agg"] is not None:
+                iwae_lbs_list.append(result_fixed["iwae_lbs_agg"])
+            if result_fixed["iwae_ubs_agg"] is not None:
+                iwae_ubs_list.append(result_fixed["iwae_ubs_agg"])
+
+            # Set B (random prompts) - f_q only, no g_q/IWAE
+            if eval_prompts_random_source is not None and f_q_by_prompt_list_random is not None:
+                n = n_eval_prompts if n_eval_prompts is not None else len(eval_prompts_random_source)
+                random_prompts = random.sample(eval_prompts_random_source, min(n, len(eval_prompts_random_source)))
+                if prompt_texts_random_per_timepoint is not None:
+                    prompt_texts_random_per_timepoint.append(random_prompts)
+                result_random = f_q_g_q_evaluation_multi_prompt(
+                    harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+                    random_prompts, None,  # No target samples for random set
+                )
+                f_q_by_prompt_list_random.append(result_random["f_q_by_prompt"])
     else:
-        f_qs, *_ = f_q_estimate(
-            harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args, prompt_text_heldout
-        )
-        f_q_over_time_list.append(f_qs.cpu())
+        # No f_q_g_q_eval, just do f_q_estimate on the first prompt
+        prompt_for_f_q = eval_prompts_fixed[0] if eval_prompts_fixed else None
+        if prompt_for_f_q is not None:
+            f_qs, *_ = f_q_estimate(
+                harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args, prompt_for_f_q
+            )
+            f_q_over_time_list.append(f_qs.cpu())
 
 
 def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy):
@@ -3106,16 +3310,18 @@ if __name__ == "__main__":
 
     parser.add_argument("--load_target_samples_name", type=str, default=None, help="Path to load target samples from. If None, target samples are not loaded.")
     parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true target samples. Saves samples to file. Requires --rm_type rlhf and either --reward_clamp or --reward_cap to be set.")
-    parser.add_argument("--true_target_sample_amount", type=int, default=1000, help="Number of accepted samples to collect via rejection sampling (continues sampling until this many are accepted)")
+    parser.add_argument("--true_target_sample_amount", type=int, default=1000, help="Number of accepted samples to collect via rejection sampling. For single-prompt: per prompt. For multi-prompt: total across all prompts.")
+    parser.add_argument("--max_gen_per_prompt_rejection", type=int, default=None, help="Max samples to generate per prompt during rejection sampling before giving up (default: no limit)")
     parser.add_argument("--save_info_path", type=str, default="./info")
     parser.add_argument("--n_samples_for_f_q", type=int, default=500, help="Number of samples to use for f_q (only for f_q_g_q_eval)")
     parser.add_argument("--n_seeds_f_q", type=int, default=1, help="Number of seeds to use for f_q")
+    parser.add_argument("--n_eval_prompts_for_f_q", type=int, default=None, help="Number of prompts to subsample for f_q/g_q eval (default: all prompts)")
 
 
     parser.add_argument("--update_steps_per_episode", type=int, default=1, help="Number of gradient updates (PPO loss outer loop) per episode")
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
     parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
-    parser.add_argument("--f_q_g_q_eval", action="store_true", default=False, help="Enable f_q/g_q/IWAE evaluation (requires --new_custom_single_prompt)")
+    parser.add_argument("--f_q_g_q_eval", action="store_true", default=False, help="Enable f_q/g_q/IWAE evaluation (supports both single-prompt and multi-prompt modes)")
     parser.add_argument("--test_info_every", type=int, default=1, help="Test info (e.g., F_q) after this many number of gradient updates")
 
     parser.add_argument(
@@ -3300,7 +3506,8 @@ if __name__ == "__main__":
         assert args.target_dist_beta is not None
 
     if args.fit_steps != 1:
-        assert args.new_custom_single_prompt # otherwise not yet tested
+        if not args.new_custom_single_prompt:
+            print("[Warning] fit_steps != 1 without --new_custom_single_prompt: multi-prompt fit steps support is new; verify results carefully")
 
     assert args.n_samples_per_prompt == 1 # Others may have weird behaviour with prompt dataset
 
