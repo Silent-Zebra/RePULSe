@@ -468,7 +468,9 @@ def train(args):
                 raise ValueError("Cannot use --rejection_sample_true_target_only with --only_evaluate_on_neg_data when not using --new_custom_single_prompt")
             # Get prompts dataset
             pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
-            prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
+            prompts_dataloader = strategy.setup_dataloader(
+                prompts_dataset, args.micro_rollout_batch_size, True, True, drop_last=False
+            )
         else:
             # For custom prompt, we'll handle it in the function
             strategy.print(f"Using custom prompt: {args.custom_prompt}")
@@ -2343,43 +2345,66 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             total_accepted_all += total_accepted
     else:
         # Multi-prompt mode: at most 1 accepted sample per prompt.
-        # For each prompt, keep generating batches until one sample is accepted
-        # or the per-prompt generation limit is hit, then move to the next prompt.
-        # true_target_sample_amount is the TOTAL across all prompts (capped by n_prompts when max 1 per prompt).
+        # Pass 1: iterate through all prompts, spending at most first_pass_limit generations per prompt.
+        # Subsequent passes: revisit prompts that don't have a sample yet, generating up to the
+        # overall max_gen_per_prompt limit.
+        # Stops when: enough total samples collected, OR all prompts have a sample,
+        # OR all remaining prompts have exhausted max_gen_per_prompt.
         total_target = args.true_target_sample_amount
         n_prompts = len(prompts)
-        strategy.print(f"\nMulti-prompt rejection sampling: collecting {total_target} total samples across {n_prompts} prompts")
+
+        first_pass_limit = getattr(args, "max_gen_per_prompt_rejection_first_pass", None)
+        if first_pass_limit is None:
+            first_pass_limit = max_gen_per_prompt  # Could still be None (no limit)
+        strategy.print(f"\nMulti-prompt rejection sampling: collecting {total_target} total samples "
+                       f"across {n_prompts} prompts")
+        strategy.print(f"  first_pass_limit={first_pass_limit}, max_gen_per_prompt={max_gen_per_prompt}")
 
         accepted_by_prompt = [[] for _ in range(n_prompts)]
         rewards_by_prompt = [[] for _ in range(n_prompts)]
         generated_per_prompt = [0] * n_prompts
         total_collected = 0
 
-        # Multi-prompt: accept at most 1 sample per prompt.
         max_accepted_per_prompt = 1
         pass_num = 0
         while total_collected < total_target:
             pass_num += 1
             made_progress_this_pass = False
+            prompts_skipped_done = 0
+            prompts_skipped_limit = 0
+
             for prompt_idx, prompt in enumerate(prompts):
                 if total_collected >= total_target:
                     break
                 # Skip prompts that already have their one accepted sample
                 if len(accepted_by_prompt[prompt_idx]) >= max_accepted_per_prompt:
+                    prompts_skipped_done += 1
                     continue
-                # Check per-prompt generation limit
+                # Skip prompts that have hit the overall generation limit
                 if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
+                    prompts_skipped_limit += 1
                     continue
 
-                # Keep generating for this prompt until acceptance or limit
-                iteration = 0
+                # Determine per-prompt budget for this pass
+                gen_at_pass_start = generated_per_prompt[prompt_idx]
+                if pass_num == 1 and first_pass_limit is not None:
+                    pass_budget = first_pass_limit
+                else:
+                    # Subsequent passes: no per-pass limit, just the overall limit
+                    pass_budget = None
+
                 got_acceptance = False
+                iteration = 0
                 while not got_acceptance:
                     if total_collected >= total_target:
                         break
+                    # Check overall per-prompt limit
                     if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
-                        print(f"  Prompt {prompt_idx + 1}/{n_prompts}: reached per-prompt limit "
+                        print(f"  Prompt {prompt_idx + 1}/{n_prompts}: reached overall limit "
                               f"({max_gen_per_prompt}) with {len(accepted_by_prompt[prompt_idx])} accepted", flush=True)
+                        break
+                    # Check per-pass budget (first pass uses first_pass_limit)
+                    if pass_budget is not None and (generated_per_prompt[prompt_idx] - gen_at_pass_start) >= pass_budget:
                         break
 
                     iteration += 1
@@ -2399,13 +2424,17 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                         got_acceptance = True
 
                     print(f"  Pass {pass_num}, prompt {prompt_idx + 1}/{n_prompts}, iter {iteration}: "
-                          f"{len(seqs)} would have been accepted, "
-                          f"{len(seqs[:n_to_take])}/{n_gen} actually accepted this batch, "
+                          f"{len(seqs)} accepted in batch ({n_gen} generated), "
+                          f"took {n_to_take}, "
                           f"{len(accepted_by_prompt[prompt_idx])} this prompt, "
-                          f"{total_collected}/{total_target} total", flush=True)
+                          f"{total_collected}/{total_target} total, "
+                          f"{generated_per_prompt[prompt_idx]} generated this prompt", flush=True)
+
+            strategy.print(f"  Pass {pass_num} complete: {total_collected}/{total_target} collected, "
+                           f"{prompts_skipped_done} prompts done, {prompts_skipped_limit} prompts at gen limit")
 
             if not made_progress_this_pass:
-                strategy.print(f"  Warning: No samples accepted in pass {pass_num} across all prompts. "
+                strategy.print(f"  No progress in pass {pass_num}. "
                                f"Collected {total_collected}/{total_target} total. Stopping.")
                 break
 
@@ -3330,6 +3359,7 @@ if __name__ == "__main__":
     parser.add_argument("--rejection_sample_true_target_only", action="store_true", help="If set, skip normal training and only perform rejection sampling to generate true target samples. Saves samples to file. Requires --rm_type rlhf and either --reward_clamp or --reward_cap to be set.")
     parser.add_argument("--true_target_sample_amount", type=int, default=1000, help="Number of accepted samples to collect via rejection sampling. For single-prompt: per prompt. For multi-prompt: total across all prompts.")
     parser.add_argument("--max_gen_per_prompt_rejection", type=int, default=None, help="Max samples to generate per prompt during rejection sampling before giving up (default: no limit)")
+    parser.add_argument("--max_gen_per_prompt_rejection_first_pass", type=int, default=None, help="Max samples to generate per prompt in the first pass through the dataset during multi-prompt rejection sampling. If not set, defaults to max_gen_per_prompt_rejection. Use a smaller value to quickly scan all prompts before spending more budget on harder ones.")
     parser.add_argument("--batch_size_rejection_sample", type=int, default=None, help="Batch size (number of sequences generated per iteration) during rejection sampling. Defaults to duplicate_rollout_batch_by if not set.")
     parser.add_argument("--save_info_path", type=str, default="./info")
     parser.add_argument("--n_samples_for_f_q_g_q", type=int, default=500, help="Number of samples to use for f_q/g_q evaluation (only for f_q_g_q_eval)")
