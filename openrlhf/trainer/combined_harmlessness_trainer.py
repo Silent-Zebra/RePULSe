@@ -297,11 +297,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 frozen_prior_network=coin_flip_frozen_prior_network,
             )
             
-            # Set adjust_reward attribute based on train_coin_flip_before
-            # When training before, we need to correct for the +1 pseudocount from the fixed random prior
-            self.coin_flip_network.adjust_reward = train_coin_flip_before
-            self.coin_flip_network.adjust_reward = False # for now, just disable this. TODO fix/check later
-            
             # Keep network in eval mode always - only the head is trained, base model is frozen
             # This ensures consistent outputs (no dropout/stochasticity from base model)
             self.coin_flip_network.eval()

@@ -83,12 +83,16 @@ class CoinFlipNetwork(nn.Module):
         except (ImportError, AttributeError):
             pass
         
-        # CRITICAL: Always create a static frozen copy for random prior head
-        # This ensures the random prior is always fixed, regardless of architecture
-        self.frozen_prior_model = copy.deepcopy(unwrapped_model)
-        # Freeze the frozen prior model completely
-        for param in self.frozen_prior_model.parameters():
-            param.requires_grad = False
+        # Create frozen_prior_model only for learning architectures, where the backbone
+        # model changes during training and we need a separate frozen copy for the random
+        # prior head. For static architectures, base_model is already frozen and serves
+        # the same role. For separate_nn, frozen_prior_network is used instead.
+        if coin_flip_architecture in LEARNING_ARCHITECTURES:
+            self.frozen_prior_model = copy.deepcopy(unwrapped_model)
+            for param in self.frozen_prior_model.parameters():
+                param.requires_grad = False
+        else:
+            self.frozen_prior_model = None
         
         # Determine architecture type and set up models accordingly
         if coin_flip_architecture == "separate_nn":
@@ -285,7 +289,6 @@ class CoinFlipNetwork(nn.Module):
             
             # Create random prior head: frozen linear layer with same architecture
             # This ensures new states have ~1 pseudocount at initialization
-            # The random prior head always uses frozen_prior_model (created above)
             self.random_prior_head = nn.Linear(hidden_size, coin_flip_dim, bias=False)
             self.random_prior_head = self.random_prior_head.to(device=base_model_device, dtype=head_dtype)
             nn.init.normal_(self.random_prior_head.weight, mean=0.0, std=frozen_prior_init_std)
@@ -802,27 +805,12 @@ class CoinFlipNetwork(nn.Module):
                     input_ids, attention_mask
                 )
                 outputs = None
-            
-            # For random prior, always use frozen_prior_model (even for static architecture)
-            # Extract embeddings from frozen_prior_model
-            frozen_prior_outputs = self._forward_through_model(
-                self.frozen_prior_model, input_ids, attention_mask, apply_no_grad=True
-            )
-            frozen_prior_hidden_states = self._extract_hidden_states_from_outputs(frozen_prior_outputs)
-            
-            # Ensure on same device as coin_flip_head
-            coin_flip_head_device = next(self.coin_flip_head.parameters()).device
-            if frozen_prior_hidden_states.device != coin_flip_head_device:
-                frozen_prior_hidden_states = frozen_prior_hidden_states.to(coin_flip_head_device)
-            
-            random_prior_final_hidden_states = self._extract_final_hidden_states(
-                frozen_prior_hidden_states, attention_mask
-            )
-            
-            # Use helper method to get all components at once
-            # Pass separate embeddings for random prior
+
+            # For static architectures, base_model is frozen, so its embeddings are identical
+            # to what frozen_prior_model would produce. Use the same embeddings for both heads
+            # to be consistent with _predict_from_embeddings() (used during training).
             combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final = \
-                self._get_linear_head_components(final_hidden_states, random_prior_final_hidden_states)
+                self._get_linear_head_components(final_hidden_states)
         elif self.coin_flip_architecture in LEARNING_ARCHITECTURES:
             # Learning architectures: use learning backbone components
             # _get_learning_backbone_components already applies torch.no_grad() internally
@@ -906,19 +894,6 @@ class CoinFlipNetwork(nn.Module):
         if self.normalization_momentum is not None:
             intrinsic_reward = self._normalize_bonus(intrinsic_reward)
         
-        # Apply correction when adjust_reward is True (train_coin_flip_before mode)
-        # This corrects from 1/sqrt(n+1) to 1/sqrt(n) by removing the +1 pseudocount
-        # from the fixed random prior
-        if getattr(self, 'adjust_reward', False):
-            raise NotImplementedError("Need to check this first")
-            # Correction: invert, square, subtract 1, square root, invert again
-            # This transforms 1/sqrt(n+1) to 1/sqrt(n)
-            # Add small epsilon to avoid numerical issues when intrinsic_reward is very small
-            inv_squared = (1.0 / (intrinsic_reward + 1e-8)) ** 2
-            # Clamp to ensure we don't take sqrt of negative values
-            sqrt_arg = torch.clamp(inv_squared - 1.0, min=1e-8)
-            intrinsic_reward = 1.0 / torch.sqrt(sqrt_arg)
-
         intrinsic_reward *= bonus_alpha
 
         return intrinsic_reward.detach()

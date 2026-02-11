@@ -961,11 +961,12 @@ class BaseExperienceMaker(ABC):
                 sampled_indices = None
             
             # Forward pass through coin flip network to get combined predictions
-            if self.coin_flip_architecture == "separate_nn":
+            if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                 # Use _predict() which does full forward pass from inputs
+                # This handles separate_nn and learning architectures (which store tokens, not embeddings)
                 final_predictions = self.coin_flip_network._predict(sampled_input_ids, sampled_attention_mask)  # (B, d)
             else:
-                # Use _predict_from_embeddings() for static architecture
+                # Use _predict_from_embeddings() for static architecture (which stores embeddings)
                 final_predictions = self.coin_flip_network._predict_from_embeddings(sampled_embeddings)  # (B, d)
             
             # Compute MSE loss: L(x, c) = ||f_combined(x_final) - c||^2
