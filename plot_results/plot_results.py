@@ -521,22 +521,42 @@ def plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_ran
                               ylabel=r"Log probability of target samples (logsumexp)", load_prefixes_to_use=load_prefixes_to_use)
 
 
+def _extract_f_q_g_q_from_loaded(data, path=""):
+    """Extract (f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list) from loaded data.
+
+    Handles both v1 (tuple/list of 4) and v2 (dict with 'version': 2) formats.
+    Returns the tuple, or None if format is unrecognized.
+    """
+    if isinstance(data, dict) and data.get("version", 1) >= 2:
+        # v2 dict format: extract aggregated lists
+        f_q = data.get("f_q_estimates_list", [])
+        g_q = data.get("g_q_estimates_list", [])
+        iwae_lbs = data.get("iwae_lbs_list", [])
+        iwae_ubs = data.get("iwae_ubs_list", [])
+        return (f_q, g_q, iwae_lbs, iwae_ubs)
+    elif isinstance(data, (tuple, list)) and len(data) >= 4:
+        return data[:4]
+    else:
+        print(f"Warning: Unrecognized format for {path}, got {type(data)}. Skipping.")
+        return None
+
+
 def load_f_q_g_q_files_over_time(load_prefixes_to_use, load_dir="./info", map_location='cpu'):
     """
     Load f_q/g_q/IWAE bound files and extract time-series data.
-    
+
     Args:
         load_prefixes_to_use: List of lists of filenames; inner list = one experiment,
                               each filename = one seed (full basename, e.g. f_q_g_q_iwae_bounds_OpenRLHF_..._s1)
         load_dir: Directory to load files from
         map_location: Device to load tensors to (default 'cpu')
-    
+
     Returns:
         List of lists, where each inner list contains loaded data tuples per seed.
         Each tuple is (f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
     """
     loaded_data = []
-    
+
     for prefix_list in load_prefixes_to_use:
         exp_data = []
         for fn in prefix_list:
@@ -546,13 +566,13 @@ def load_f_q_g_q_files_over_time(load_prefixes_to_use, load_dir="./info", map_lo
             except Exception as e:
                 print(f"Warning: Failed to load {path}: {e}")
                 continue
-            if not isinstance(data, (tuple, list)) or len(data) < 4:
-                print(f"Warning: Expected 4-tuple for {path}, got {type(data)}. Skipping.")
+            extracted = _extract_f_q_g_q_from_loaded(data, path)
+            if extracted is None:
                 continue
-            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = data[:4]
+            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = extracted
             exp_data.append((f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list))
         loaded_data.append(exp_data)
-    
+
     return loaded_data
 
 
@@ -651,6 +671,452 @@ def plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, 
                           ylabel=r"KL(q|$\sigma$) = KL(proposal|target)",
                           file_type_suffix="", load_prefixes_to_use=load_prefixes_to_use)
 
+
+def _truncate_and_stack(arrays):
+    """Stack 1D arrays, truncating all to the shortest length."""
+    min_len = min(len(a) for a in arrays)
+    return np.stack([a[:min_len] for a in arrays])
+
+
+def _truncate_and_stack_2d(matrices):
+    """Stack 2D arrays, truncating all to the shortest second dimension."""
+    min_cols = min(m.shape[1] for m in matrices)
+    return np.stack([m[:, :min_cols] for m in matrices])
+
+
+def _sanitize_for_filename(text, max_len=50):
+    """Sanitize a string for use in filenames."""
+    import re as _re
+    sanitized = _re.sub(r'[^\w\s-]', '', text)
+    sanitized = _re.sub(r'\s+', '_', sanitized)
+    return sanitized[:max_len]
+
+
+def _load_v2_f_q_g_q_files(load_prefixes_to_use, load_dir="./info"):
+    """Load v2 format f_q/g_q files. Returns list of experiments, each is list of v2 dicts."""
+    all_v2_data = []
+    for prefix_list in load_prefixes_to_use:
+        exp_data = []
+        for fn in prefix_list:
+            path = os.path.join(load_dir, fn)
+            try:
+                data = torch.load(path, map_location='cpu')
+            except Exception as e:
+                print(f"Warning: Failed to load {path}: {e}")
+                continue
+            if not (isinstance(data, dict) and data.get("version", 1) >= 2):
+                print(f"Warning: {fn} is not v2 format, skipping for multiprompt plotting")
+                continue
+            exp_data.append(data)
+        all_v2_data.append(exp_data)
+    return all_v2_data
+
+
+def _get_prompts_with_targets(target_samples_path):
+    """Load target samples file and return set of prompt texts that have at least 1 target sample."""
+    raw = torch.load(target_samples_path, map_location='cpu')
+    if isinstance(raw, dict) and raw.get("version", 1) >= 2:
+        prompt_texts = raw["prompt_texts"]
+        samples_by_prompt = raw["samples_by_prompt"]
+        prompts_with_targets = set()
+        for prompt_text, samples in zip(prompt_texts, samples_by_prompt):
+            if len(samples) > 0:
+                prompts_with_targets.add(prompt_text)
+        print(f"Target samples: {len(prompts_with_targets)}/{len(prompt_texts)} prompts have target samples")
+        return prompts_with_targets
+    else:
+        raise ValueError("Target samples must be v2 format for multiprompt plotting")
+
+
+def _compute_global_per_prompt_log_Z(all_v2_data, prompts_with_targets):
+    """
+    Compute per-prompt log Z from IWAE bounds pooled across ALL experiments, seeds, and timesteps.
+
+    Takes the max LB and min UB across all experiments/seeds/timesteps for each prompt,
+    giving the tightest bounds and thus the best midpoint estimate. This ensures a single
+    fixed log Z per prompt that is consistent across experiments.
+
+    Returns dict: prompt_index -> log_Z_p (float), only for prompts in prompts_with_targets
+    that have non-None IWAE bounds in at least one experiment.
+    """
+    # Collect all IWAE bounds per prompt across all experiments and seeds
+    all_lbs_by_prompt = {}  # prompt_index -> list of all LB values
+    all_ubs_by_prompt = {}  # prompt_index -> list of all UB values
+    prompt_texts = None
+
+    for exp_data in all_v2_data:
+        for v2_data in exp_data:
+            if prompt_texts is None:
+                prompt_texts = v2_data["prompt_texts_fixed"]
+            iwae_lbs_by_prompt = v2_data.get("iwae_lbs_by_prompt_fixed", [])
+            iwae_ubs_by_prompt = v2_data.get("iwae_ubs_by_prompt_fixed", [])
+            T = len(iwae_lbs_by_prompt)
+
+            for p in range(len(prompt_texts)):
+                for t in range(T):
+                    if p < len(iwae_lbs_by_prompt[t]) and iwae_lbs_by_prompt[t][p] is not None:
+                        all_lbs_by_prompt.setdefault(p, []).append(iwae_lbs_by_prompt[t][p])
+                    if t < len(iwae_ubs_by_prompt) and p < len(iwae_ubs_by_prompt[t]) and iwae_ubs_by_prompt[t][p] is not None:
+                        all_ubs_by_prompt.setdefault(p, []).append(iwae_ubs_by_prompt[t][p])
+
+    if prompt_texts is None:
+        return {}
+
+    log_Z_by_prompt = {}
+    for p in range(len(prompt_texts)):
+        if prompt_texts[p] not in prompts_with_targets:
+            continue
+
+        lbs = all_lbs_by_prompt.get(p, [])
+        ubs = all_ubs_by_prompt.get(p, [])
+
+        if not lbs or not ubs:
+            continue
+
+        max_lb = max(lbs)
+        min_ub = min(ubs)
+        log_Z_p = (max_lb + min_ub) / 2.0
+        log_Z_by_prompt[p] = log_Z_p
+
+
+    return log_Z_by_prompt
+
+
+def _compute_per_prompt_kl_over_time(v2_data, log_Z_by_prompt):
+    """
+    Compute per-prompt KL divergences over time.
+
+    Returns:
+        dict: prompt_index -> (kl_q_sigma_array, kl_sigma_q_array) where arrays have shape (T,).
+              Entries are NaN where data is unavailable.
+    """
+    f_q_by_prompt = v2_data.get("f_q_by_prompt_fixed", [])
+    g_q_by_prompt = v2_data.get("g_q_by_prompt_fixed", [])
+
+    T = len(f_q_by_prompt)
+    result = {}
+
+    for p, log_Z_p in log_Z_by_prompt.items():
+        kl_q_sigma = np.full(T, np.nan)
+        kl_sigma_q = np.full(T, np.nan)
+
+        for t in range(T):
+            if p < len(f_q_by_prompt[t]) and f_q_by_prompt[t][p] is not None:
+                f_q_p_t = to_scalar(f_q_by_prompt[t][p])
+                kl_q_sigma[t] = log_Z_p - f_q_p_t
+
+            if (t < len(g_q_by_prompt) and p < len(g_q_by_prompt[t])
+                    and g_q_by_prompt[t][p] is not None):
+                g_q_p_t = to_scalar(g_q_by_prompt[t][p])
+                kl_sigma_q[t] = g_q_p_t - log_Z_p
+
+        result[p] = (kl_q_sigma, kl_sigma_q)
+
+    return result
+
+
+def _compute_random_f_q_over_time(v2_data):
+    """
+    Compute average f_q over time for the random prompt set.
+
+    Returns:
+        np.array of shape (T_random,) with mean f_q per timestep, or None if no data.
+    """
+    f_q_by_prompt_random = v2_data.get("f_q_by_prompt_random", [])
+    if not f_q_by_prompt_random:
+        return None
+
+    avg_f_q = []
+    for t in range(len(f_q_by_prompt_random)):
+        per_prompt_means = [to_scalar(x) for x in f_q_by_prompt_random[t] if x is not None]
+        if per_prompt_means:
+            avg_f_q.append(np.mean(per_prompt_means))
+        else:
+            avg_f_q.append(np.nan)
+    return np.array(avg_f_q)
+
+
+def _extract_x_range(load_prefixes_to_use, n_timesteps):
+    """Extract x_range from prefixes using the same pattern as plot_results_over_time."""
+    import re as _re
+    samples_per_timestep = 5000  # Default fallback
+    first_prefix = None
+    for prefix_list in load_prefixes_to_use:
+        if len(prefix_list) > 0:
+            first_prefix = prefix_list[0]
+            break
+    if first_prefix is not None:
+        hepi_match = _re.search(r'_he(\d+)', first_prefix) or _re.search(r'_hepi(\d+)', first_prefix)
+        tbs_match = _re.search(r'_tbs(\d+)', first_prefix) or _re.search(r'_tb(\d+)', first_prefix)
+        harmlessness_training_num_episodes = int(hepi_match.group(1)) if hepi_match else None
+        batch_size = int(tbs_match.group(1)) if tbs_match else None
+        if harmlessness_training_num_episodes is not None and batch_size is not None:
+            samples_per_timestep = harmlessness_training_num_episodes * batch_size
+            print(f"Auto-detected samples per timestep: {harmlessness_training_num_episodes} * {batch_size} = {samples_per_timestep}")
+    return np.arange(n_timesteps) * samples_per_timestep
+
+
+def plot_f_q_g_q_kl_divergences_multiprompt(
+    load_prefixes_to_use, labels, figname_modifier,
+    target_samples_path,
+    x_range=None, fontsize=7, load_dir="./info"
+):
+    """
+    Plot per-prompt and summary KL divergence metrics from multiprompt v2 f_q/g_q data.
+
+    Generates:
+    1. Per-prompt KL plots (two per prompt) in subfolder figs/<figname_modifier>/
+    2. Summary plots: mean KL across prompts per seed, with CI over seeds
+    3. Average f_q plot for random prompt set
+    """
+    # Load v2 files
+    all_v2_data = _load_v2_f_q_g_q_files(load_prefixes_to_use, load_dir)
+
+    has_data = any(len(exp_data) > 0 for exp_data in all_v2_data)
+    if not has_data:
+        print("Warning: No v2 f_q/g_q data found, skipping multiprompt KL plots")
+        return
+
+    # Load target samples to identify prompts with actual target samples
+    prompts_with_targets = _get_prompts_with_targets(target_samples_path)
+
+    # Create output subfolder for per-prompt plots
+    per_prompt_dir = os.path.join("figs", figname_modifier)
+    os.makedirs(per_prompt_dir, exist_ok=True)
+    print(f"Per-prompt plots will be saved to: {per_prompt_dir}/")
+
+    # Compute global per-prompt log Z from IWAE bounds pooled across ALL experiments/seeds/timesteps
+    print("\nComputing global per-prompt log Z from all experiments...")
+    global_log_Z = _compute_global_per_prompt_log_Z(all_v2_data, prompts_with_targets)
+    print(f"Computed log Z for {len(global_log_Z)} prompts")
+
+    # For each experiment/seed, compute per-prompt KL using the shared global log Z
+    # Structure: all_kl_data[exp_i][seed_j] = {prompt_idx: (kl_q_sigma, kl_sigma_q)}
+    all_kl_data = []
+    all_random_fq = []  # all_random_fq[exp_i][seed_j] = np.array or None
+    # Grab prompt_texts from first available v2 data (same across seeds for fixed set)
+    prompt_texts = None
+
+    for exp_i, exp_data in enumerate(all_v2_data):
+        exp_kl = []
+        exp_random_fq = []
+        for seed_j, v2_data in enumerate(exp_data):
+            if prompt_texts is None:
+                prompt_texts = v2_data["prompt_texts_fixed"]
+
+            kl_by_prompt = _compute_per_prompt_kl_over_time(v2_data, global_log_Z)
+            random_fq = _compute_random_f_q_over_time(v2_data)
+
+            exp_kl.append(kl_by_prompt)
+            exp_random_fq.append(random_fq)
+
+            print(f"Exp {exp_i} seed {seed_j}: {len(kl_by_prompt)} prompts with KL, "
+                  f"random f_q timesteps: {len(random_fq) if random_fq is not None else 0}")
+
+        all_kl_data.append(exp_kl)
+        all_random_fq.append(exp_random_fq)
+
+    if prompt_texts is None:
+        print("Warning: No prompt texts found, skipping multiprompt plots")
+        return
+
+    # Determine common prompt indices (present across all seeds of first experiment)
+    # Use first experiment's first seed as reference
+    ref_kl = all_kl_data[0][0] if all_kl_data[0] else {}
+    common_prompt_indices = sorted(ref_kl.keys())
+    T = len(next(iter(ref_kl.values()))[0]) if ref_kl else 0
+
+    if T == 0:
+        print("Warning: No timesteps found, skipping multiprompt plots")
+        return
+
+    if x_range is None:
+        x_range = _extract_x_range(load_prefixes_to_use, T)
+
+    # ---- 1. Per-prompt plots (subfolder) ----
+    print(f"\nGenerating per-prompt KL plots for {len(common_prompt_indices)} prompts...")
+    for p in common_prompt_indices:
+        prompt_text = prompt_texts[p]
+        sanitized = _sanitize_for_filename(prompt_text)
+
+        for kl_idx, (kl_name, kl_ylabel) in enumerate([
+            ("kl_q_sigma", r"KL(q|$\sigma_p$)"),
+            ("kl_sigma_q", r"KL($\sigma_p$|q)"),
+        ]):
+            fig, ax = plt.subplots()
+            for exp_i in range(len(all_kl_data)):
+                # Collect this prompt's KL across seeds for this experiment
+                seed_trajectories = []
+                for seed_j in range(len(all_kl_data[exp_i])):
+                    kl_by_prompt = all_kl_data[exp_i][seed_j]
+                    if p in kl_by_prompt:
+                        traj = kl_by_prompt[p][kl_idx]
+                        if not np.all(np.isnan(traj)):
+                            seed_trajectories.append(traj)
+                if not seed_trajectories:
+                    continue
+                np_results = _truncate_and_stack(seed_trajectories)
+                x_range_adj = x_range[:np_results.shape[1]] if len(x_range) > np_results.shape[1] else x_range
+                plot_with_conf_bounds(ax, np_results, x_range_adj, label=labels[exp_i],
+                                      color=color_list_for_fqs[exp_i],
+                                      linestyle=linestyle_list[exp_i])
+
+            ax.set_xlabel("Number of Samples", fontsize=fontsize)
+            ax.set_ylabel(kl_ylabel, fontsize=fontsize)
+            ax.set_title(f"Prompt {p}: {prompt_text[:80]}", fontsize=max(fontsize - 1, 5))
+            ax.tick_params(axis='both', labelsize=fontsize)
+            plt.legend(fontsize=fontsize)
+            plt.tight_layout()
+            figname = os.path.join(per_prompt_dir, f"prompt_{p:03d}_{sanitized}_{kl_name}.pdf")
+            plt.savefig(figname)
+            plt.clf()
+            plt.close(fig)
+
+    # ---- 2. Summary plots (mean KL across prompts per seed, CI over seeds) ----
+    print("\nGenerating summary KL plots...")
+    for kl_idx, (kl_name, kl_ylabel) in enumerate([
+        ("kl_q_sigma", r"KL(q|$\sigma$) mean over prompts"),
+        ("kl_sigma_q", r"KL($\sigma$|q) mean over prompts"),
+    ]):
+        # Build results_list compatible with plot_results_over_time:
+        # results_list[exp_i] = list of seeds, each seed is a tuple where index kl_idx gives array (T,)
+        summary_results_list = []
+        for exp_i in range(len(all_kl_data)):
+            seed_means = []
+            for seed_j in range(len(all_kl_data[exp_i])):
+                kl_by_prompt = all_kl_data[exp_i][seed_j]
+                # Collect KL arrays for all prompts, compute mean across prompts per timestep
+                per_prompt_arrays = []
+                for p in common_prompt_indices:
+                    if p in kl_by_prompt:
+                        traj = kl_by_prompt[p][kl_idx]
+                        per_prompt_arrays.append(traj)
+                if per_prompt_arrays:
+                    # nanmean to handle prompts with partial g_q data
+                    stacked = _truncate_and_stack(per_prompt_arrays)  # (n_prompts, T)
+                    mean_traj = np.nanmean(stacked, axis=0)  # (T,)
+                    seed_means.append(mean_traj)
+            summary_results_list.append(seed_means)
+
+        fig, ax = plt.subplots()
+        for exp_i in range(len(summary_results_list)):
+            if not summary_results_list[exp_i]:
+                continue
+            np_results = _truncate_and_stack(summary_results_list[exp_i])  # (n_seeds, T)
+            x_range_adj = x_range[:np_results.shape[1]] if len(x_range) > np_results.shape[1] else x_range
+            plot_with_conf_bounds(ax, np_results, x_range_adj, label=labels[exp_i],
+                                  color=color_list_for_fqs[exp_i],
+                                  linestyle=linestyle_list[exp_i])
+
+        ax.set_xlabel("Number of Samples", fontsize=fontsize)
+        ax.set_ylabel(kl_ylabel, fontsize=fontsize)
+        ax.tick_params(axis='both', labelsize=fontsize)
+        plt.legend(fontsize=fontsize)
+        plt.tight_layout()
+        figname = os.path.join(per_prompt_dir, f"summary_{kl_name}.pdf")
+        plt.savefig(figname)
+        plt.clf()
+        plt.close(fig)
+
+    # ---- 3. Random f_q average plot ----
+    print("\nGenerating random f_q plot...")
+    has_random = any(
+        any(rfq is not None for rfq in exp_random_fq)
+        for exp_random_fq in all_random_fq
+    )
+    if has_random:
+        fig, ax = plt.subplots()
+        for exp_i in range(len(all_random_fq)):
+            seed_trajectories = [rfq for rfq in all_random_fq[exp_i] if rfq is not None]
+            if not seed_trajectories:
+                continue
+            # Pad to same length (different seeds may have different T_random)
+            max_T = max(len(t) for t in seed_trajectories)
+            padded = np.full((len(seed_trajectories), max_T), np.nan)
+            for j, traj in enumerate(seed_trajectories):
+                padded[j, :len(traj)] = traj
+            x_range_random = _extract_x_range(load_prefixes_to_use, max_T)
+            plot_with_conf_bounds(ax, padded, x_range_random, label=labels[exp_i],
+                                  color=color_list_for_fqs[exp_i],
+                                  linestyle=linestyle_list[exp_i])
+
+        ax.set_xlabel("Number of Samples", fontsize=fontsize)
+        ax.set_ylabel(r"$f_q$ (random prompts, mean)", fontsize=fontsize)
+        ax.tick_params(axis='both', labelsize=fontsize)
+        plt.legend(fontsize=fontsize)
+        plt.tight_layout()
+        figname = os.path.join(per_prompt_dir, f"random_f_q.pdf")
+        plt.savefig(figname)
+        plt.clf()
+        plt.close(fig)
+    else:
+        print("No random f_q data found, skipping random f_q plot")
+
+    # ---- 4. Heatmaps (prompts x time, one per KL direction per experiment) ----
+    print("\nGenerating KL heatmaps...")
+    for kl_idx, (kl_name, kl_label) in enumerate([
+        ("kl_q_sigma", r"KL(q||$\sigma_p$)"),
+        ("kl_sigma_q", r"KL($\sigma_p$||q)"),
+    ]):
+        for exp_i in range(len(all_kl_data)):
+            # Average across seeds for this experiment
+            seed_matrices = []
+            for seed_j in range(len(all_kl_data[exp_i])):
+                kl_by_prompt = all_kl_data[exp_i][seed_j]
+                rows = []
+                for p in common_prompt_indices:
+                    if p in kl_by_prompt:
+                        rows.append(kl_by_prompt[p][kl_idx])
+                    else:
+                        rows.append(np.full(T, np.nan))
+                seed_matrices.append(_truncate_and_stack(rows))  # (n_prompts, T)
+            if not seed_matrices:
+                continue
+            # Mean across seeds: (n_prompts, T)
+            heatmap_data = np.nanmean(_truncate_and_stack_2d(seed_matrices), axis=0)
+
+            # Sort prompts by starting KL (first timestep, ascending) for visual clarity
+            starting_kl_per_prompt = heatmap_data[:, 0]
+            sort_order = np.argsort(starting_kl_per_prompt)
+            heatmap_sorted = heatmap_data[sort_order]
+            sorted_indices = [common_prompt_indices[i] for i in sort_order]
+
+            n_prompts = heatmap_sorted.shape[0]
+            fig_height = max(4, n_prompts * 0.08)
+            fig, ax = plt.subplots(figsize=(8, fig_height))
+            im = ax.imshow(heatmap_sorted, aspect='auto', origin='lower',
+                           extent=[x_range[0], x_range[min(T - 1, len(x_range) - 1)],
+                                   -0.5, n_prompts - 0.5])
+            cbar = fig.colorbar(im, ax=ax)
+            cbar.set_label(kl_label, fontsize=fontsize)
+            cbar.ax.tick_params(labelsize=fontsize)
+
+            ax.set_xlabel("Number of Samples", fontsize=fontsize)
+            ax.set_ylabel("Prompt (sorted by mean KL)", fontsize=fontsize)
+            ax.tick_params(axis='both', labelsize=fontsize)
+
+            # Label every Nth prompt on y-axis to avoid clutter
+            label_every = max(1, n_prompts // 20)
+            ytick_positions = list(range(0, n_prompts, label_every))
+            ytick_labels = [f"{sorted_indices[i]}" for i in ytick_positions]
+            ax.set_yticks(ytick_positions)
+            ax.set_yticklabels(ytick_labels, fontsize=max(fontsize - 2, 4))
+
+            if len(all_kl_data) > 1:
+                ax.set_title(f"{labels[exp_i]}", fontsize=fontsize)
+
+            plt.tight_layout()
+            suffix = f"_exp{exp_i}" if len(all_kl_data) > 1 else ""
+            figname = os.path.join(per_prompt_dir, f"heatmap_{kl_name}{suffix}.pdf")
+            plt.savefig(figname)
+            plt.clf()
+            plt.close(fig)
+
+    print(f"\nDone. All plots saved to {per_prompt_dir}/")
+
+
+# Default: no target samples path (set in specific block to enable multiprompt plotting)
+target_samples_path = None
 
 # Comment out/select as needed
 figname_modifier = "toyrlhf_kl10_10_18_final"
@@ -1390,8 +1856,84 @@ make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_h
 make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl1e-05_ppq_tb5_s1", 1,10),
 ]
 threshold = -5
-figname_modifier = "len20_repulse_dis_02_04_b-20"
+figname_modifier = "len20_repulse_dis_02_05_b-20"
 
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/repulsedis2/ | grep heldout | grep he20 | grep _s1 | grep bl1e-05); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl1e-05_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+# make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl1e-05_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1,10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl1e-05_ppq_tb5_s1", 1,10),
+# make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_fs2_scc_al1e-05_bl1e-05_ppq_tb5_s1", 1,10),
+]
+threshold = -5
+figname_modifier = "len20_repulse_dis_02_05_b-20_nobonusintargetforp"
+
+
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/noitdis/ | grep he20 | grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_T_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-06_bl0.0_ppq_tb5_s2", 1,10),
+]
+threshold = -5
+# figname_modifier = "len20_noit_dis_02_05_b-20_v2"
+figname_modifier = "len20_noit_dis_02_05_b-20_v3"
+
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/multitesttoy/ | grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he5_fs20_scc_al1e-05_bl0.0_ppq_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he5_fs20_scc_al3e-05_bl0.0_ppq_tb200_s2", 1,10),
+
+# for x in $(ls info/multitesttoy/ | grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1,10\)\,; done
+
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_tb200_s2", 1,15),
+
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,15),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf15.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf7.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf5.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al0.0001_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al0.0001_bl0.0_ppq_cf20.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al0.0001_bl0.0_ppq_tb200_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al1e-05_bl0.0_ppq_cf20.0_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al1e-05_bl0.0_ppq_tb200_s2", 1,10),
+
+]
+threshold = -5
+# figname_modifier = "len20_dis_02_08_b-20_multiprompt"
+figname_modifier = "len20_toymultiprompt_02_10_b-20_lr3e-05_v6"
+target_samples_path = "info/target_samples_Sm13In_remodev3lav2_rlhf_l20_b-20.0_rc6.0_miprAL_tsa18.pt"
+
+
+load_prefixes_to_use = [
+# for x in $(ls info/ifat/ | grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1,10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_tb5_s2", 1,10),
+
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_I_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+]
+
+figname_modifier = "len20_ifat_02_10_b-20_lr3e-05"
+target_samples_path = None
+# target_samples_path = "info/target_samples_Sm13In_remodev3lav2_rlhf_l20_b-20.0_rc6.0_I_tsa20.pt"
+
+# load_prefixes_to_use = [
+# # for x in $(ls info/ustupid/ | grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_Y_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_tb5_s2", 1,10),
+#
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc6.0_Sm13In_remodev3lav2_Y_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1,10),
+#
+# ]
+# figname_modifier = "len20_ustupid_02_10_b-20_lr3e-05"
+# target_samples_path = None
 
 labels = generate_labels_from_prefixes(load_prefixes_to_use)
 
@@ -1415,10 +1957,17 @@ if use_heldout_over_time:
 
     plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize, threshold=threshold)
 elif use_f_q_g_q:
-    # Plot approximate KL divergences from f_q/g_q files
-    print("\nPlotting approximate KL divergences from f_q/g_q files...")
-    # x_range will be computed dynamically from data (can pass custom x_range if needed)
-    plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
+    if target_samples_path is not None:
+        # Multiprompt v2 path: per-prompt KL plots + summary + random f_q
+        print("\nPlotting multiprompt per-prompt KL divergences from v2 f_q/g_q files...")
+        plot_f_q_g_q_kl_divergences_multiprompt(
+            load_prefixes_to_use, labels, figname_modifier,
+            target_samples_path=target_samples_path,
+            x_range=None, fontsize=fontsize)
+    else:
+        # Aggregated path (original): single global log Z
+        print("\nPlotting approximate KL divergences from f_q/g_q files...")
+        plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
 else:
     # Process both base and sampling file types
     for file_type_suffix in ["base", "sampling"]:

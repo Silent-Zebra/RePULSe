@@ -760,6 +760,57 @@ def train(args):
             prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
         )
 
+    # Mid-fit-step f_q/g_q evaluation callback (multi-prompt only)
+    mid_fit_callback = None
+    f_q_eval_interval = getattr(args, "f_q_g_q_eval_interval", None)
+    if (f_q_eval_interval is not None
+        and _per_fit_step_f_q_eval
+        and not args.new_custom_single_prompt):
+        _prompts_since_last_eval = [0]  # mutable for closure
+
+        def mid_fit_callback(n_new_prompts):
+            _prompts_since_last_eval[0] += n_new_prompts
+            if _prompts_since_last_eval[0] >= f_q_eval_interval:
+                strategy.print(f"[mid-fit eval] {_prompts_since_last_eval[0]} prompts "
+                               f"(>= {f_q_eval_interval}), running f_q/g_q evaluation...")
+                _run_per_fit_step_heldout_and_f_q(
+                    eval_prompts_fixed,
+                    harmlessness_trainer,
+                    args,
+                    base_actor_optim,
+                    base_actor_scheduler,
+                    base_actor,
+                    critic,
+                    critic_optim,
+                    critic_scheduler,
+                    ema_model,
+                    info_name_str,
+                    static_initial_model,
+                    neg_data,
+                    reward_model,
+                    strategy,
+                    tokenizer,
+                    vf_coef,
+                    heldout_reward_over_time_list,
+                    heldout_return_over_time_list,
+                    f_q_estimates_list,
+                    g_q_estimates_list,
+                    iwae_lbs_list,
+                    iwae_ubs_list,
+                    f_q_over_time_list,
+                    target_samples_logprob_over_time_list,
+                    eval_target_samples_fixed=eval_target_samples_fixed,
+                    f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
+                    g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
+                    iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
+                    iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
+                    eval_prompts_random_source=eval_prompts_random_source,
+                    n_eval_prompts=n_eval_prompts,
+                    f_q_by_prompt_list_random=f_q_by_prompt_list_random,
+                    prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
+                )
+                _prompts_since_last_eval[0] = 0
+
     # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
     for fit_step in range(args.fit_steps):
         prompt = args.custom_prompt  # Define prompt for analytic calculations
@@ -854,6 +905,7 @@ def train(args):
                     rewards_list_sampling=rewards_list_sampling,
                     untrans_ret_list_sampling=untrans_ret_list_sampling,
                     bonus_vals_list_sampling=bonus_vals_list_sampling,
+                    mid_fit_callback=mid_fit_callback,
                 )
         else:
             if args.num_episodes > 0:
@@ -3371,6 +3423,10 @@ if __name__ == "__main__":
     parser.add_argument("--exp_num_twist_updates", action="store_true", help="Use an exponentially increasing power of twist updates (base 2) instead of a set number of twist updates per epoch")
     parser.add_argument("--no_test_info", action="store_true", help="don't do the f_q_g_q stuff")
     parser.add_argument("--f_q_g_q_eval", action="store_true", default=False, help="Enable f_q/g_q/IWAE evaluation (supports both single-prompt and multi-prompt modes)")
+    parser.add_argument("--f_q_g_q_eval_interval", type=int, default=None,
+        help="In multi-prompt mode, evaluate f_q/g_q every N unique prompts processed "
+             "during training (mid-fit-step). Requires --f_q_g_q_eval. If None, only "
+             "evaluates between fit steps.")
     parser.add_argument("--test_info_every", type=int, default=1, help="Test info (e.g., F_q) after this many number of gradient updates")
 
     parser.add_argument(

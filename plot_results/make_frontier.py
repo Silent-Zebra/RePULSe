@@ -441,10 +441,17 @@ def load_f_q_g_q_iwae_and_compute_approx_kl(load_dir, f_q_load_prefixes_to_use, 
             except Exception as e:
                 print(f"Warning: Failed to load {path}: {e}")
                 continue
-            if not isinstance(data, (tuple, list)) or len(data) < 4:
-                print(f"Warning: Expected 4-tuple for {path}, got {type(data)}. Skipping.")
+            # Handle both v1 (tuple/list) and v2 (dict) formats
+            if isinstance(data, dict) and data.get("version", 1) >= 2:
+                f_q_estimates_list = data.get("f_q_estimates_list", [])
+                g_q_estimates_list = data.get("g_q_estimates_list", [])
+                iwae_lbs_list = data.get("iwae_lbs_list", [])
+                iwae_ubs_list = data.get("iwae_ubs_list", [])
+            elif isinstance(data, (tuple, list)) and len(data) >= 4:
+                f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = data[:4]
+            else:
+                print(f"Warning: Unrecognized format for {path}, got {type(data)}. Skipping.")
                 continue
-            f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = data[:4]
             exp_data.append((f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list))
         cached.append(exp_data)
 

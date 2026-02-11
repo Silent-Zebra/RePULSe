@@ -477,6 +477,7 @@ class CombinedHarmlessnessTrainer(ABC):
         rewards_list_sampling=None,
         untrans_ret_list_sampling=None,
         bonus_vals_list_sampling=None,
+        mid_fit_callback=None,
     ) -> (List, List, List, List):
 
         # Extract prompt_text for new_custom_single_prompt case
@@ -614,6 +615,9 @@ class CombinedHarmlessnessTrainer(ABC):
                 self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
                                                    untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only,
                                                    rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling, bonus_vals_list_sampling=bonus_vals_list_sampling)
+
+                if mid_fit_callback is not None:
+                    mid_fit_callback(len(rand_prompts))
 
         # train_ppo now owns f_q/g_q evaluation: calls f_q_g_q_evaluation at initial and after each fit step
         return estimates_list
