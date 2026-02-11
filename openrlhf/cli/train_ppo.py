@@ -700,6 +700,13 @@ def train(args):
                 # Use target sample prompts (they have g_q data)
                 eval_prompts_fixed = list(prompt_texts_from_target_samples)
                 eval_target_samples_fixed = list(true_target_samples_by_prompt) if true_target_samples_by_prompt is not None else None
+                # After load_target_samples filtering, all entries should have samples
+                if eval_target_samples_fixed is not None:
+                    for i, t in enumerate(eval_target_samples_fixed):
+                        assert t is not None and t.numel() > 0, (
+                            f"eval_target_samples_fixed[{i}] is empty — "
+                            f"load_target_samples should have filtered these out"
+                        )
             else:
                 # Use prompts from dataset
                 _, eval_prompts_dataset = get_prompts_data(args, strategy, tokenizer)
@@ -2511,11 +2518,18 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             # v1 format for single-prompt (backward compat)
             torch.save(target_samples_by_prompt, filename)
         else:
-            # v2 format for multi-prompt
+            # v2 format for multi-prompt: filter out prompts with 0 accepted samples
+            filtered_prompts = []
+            filtered_samples = []
+            for prompt_text, samples in zip(prompts, target_samples_by_prompt):
+                if len(samples) > 0:
+                    filtered_prompts.append(prompt_text)
+                    filtered_samples.append(samples)
+            strategy.print(f"Saving {len(filtered_prompts)}/{len(prompts)} prompts with >=1 target sample")
             save_data = {
                 "version": 2,
-                "prompt_texts": prompts,
-                "samples_by_prompt": target_samples_by_prompt,
+                "prompt_texts": filtered_prompts,
+                "samples_by_prompt": filtered_samples,
             }
             torch.save(save_data, filename)
         strategy.print(f"\nSaved target samples to: {filename}")

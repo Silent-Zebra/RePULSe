@@ -849,8 +849,9 @@ def g_q_estimate_batched(trainer, experience_maker, args, target_samples_by_prom
     # Stack into one batch: (sum(K_p), max_seq_len)
     all_samples = torch.cat(padded_samples, dim=0)
 
-    # Process in chunks of n_samples_for_f_q_g_q (same chunking as current per-prompt code)
-    chunk_size = args.n_samples_for_f_q_g_q
+    # Process in chunks of n_samples_for_f_q_g_q * n_prompts_f_q_g_q (matching f_q/IWAE UB batch budget)
+    n_prompts_f_q_g_q = getattr(args, 'n_prompts_f_q_g_q', 1)
+    chunk_size = args.n_samples_for_f_q_g_q * n_prompts_f_q_g_q
     all_g_qs = []
     for start in range(0, all_samples.shape[0], chunk_size):
         chunk = all_samples[start:start + chunk_size]
@@ -1108,15 +1109,19 @@ def load_target_samples(path, device, strategy):
         prompt_texts = raw["prompt_texts"]
         samples_by_prompt_raw = raw["samples_by_prompt"]
         samples_by_prompt = []
-        for samples_list in samples_by_prompt_raw:
+        filtered_prompt_texts = []
+        for prompt_text, samples_list in zip(prompt_texts, samples_by_prompt_raw):
             if len(samples_list) > 0:
                 t = torch.tensor(samples_list, dtype=torch.int64).to(device)
-            else:
-                t = torch.zeros((0,), dtype=torch.int64).to(device)
-            samples_by_prompt.append(t)
+                samples_by_prompt.append(t)
+                filtered_prompt_texts.append(prompt_text)
+            # else: skip entirely (don't add empty entries)
+        n_skipped = len(prompt_texts) - len(filtered_prompt_texts)
+        if n_skipped > 0:
+            strategy.print(f"Filtered out {n_skipped} prompts with 0 target samples")
         strategy.print(f"Loaded v2 target samples: {len(samples_by_prompt)} prompts, "
                        f"samples per prompt: {[s.shape[0] for s in samples_by_prompt]}")
-        return samples_by_prompt, prompt_texts
+        return samples_by_prompt, filtered_prompt_texts
     else:
         # v1 format: list of lists (one element = one prompt's samples)
         # The old format stores as a list where index 0 is the first (and usually only) prompt's samples
