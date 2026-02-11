@@ -266,7 +266,8 @@ class CombinedHarmlessnessTrainer(ABC):
             coin_flip_linear_bias = getattr(strategy.args, 'coin_flip_linear_bias', False)
             base_actor_lr = getattr(strategy.args, 'base_actor_learning_rate', None)
             coin_flip_architecture = getattr(strategy.args, 'coin_flip_architecture', 'linear_head_on_static_initial_base')
-            
+            warmup_steps = getattr(strategy.args, 'coin_flip_warmup_steps', 0)
+
             # Determine which model to use as base_model for CoinFlipNetwork initialization
             # For learning architectures, we pass the appropriate model (base_actor or sampling_actor)
             # The network will store it as backbone_model
@@ -285,8 +286,8 @@ class CombinedHarmlessnessTrainer(ABC):
             # Initialize coin flip network
             # If pre-initialized networks are provided (for separate_nn mode), use them
             self.coin_flip_network = CoinFlipNetwork(
-                coin_flip_base_model, 
-                coin_flip_dim=coin_flip_dim, 
+                coin_flip_base_model,
+                coin_flip_dim=coin_flip_dim,
                 normalization_momentum=normalization_momentum,
                 head_init_std=head_init_std,
                 frozen_prior_init_std=frozen_prior_init_std,
@@ -295,6 +296,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 coin_flip_architecture=coin_flip_architecture,
                 trainable_network=coin_flip_trainable_network,
                 frozen_prior_network=coin_flip_frozen_prior_network,
+                warmup_steps=warmup_steps,
             )
             
             # Keep network in eval mode always - only the head is trained, base model is frozen

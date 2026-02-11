@@ -40,10 +40,12 @@ class CoinFlipNetwork(nn.Module):
         coin_flip_linear_bias: If True, adds bias to the linear head for the trainable coin flip network (default: False)
         base_actor_learning_rate: Learning rate of the base actor. If provided and != 0, raises
             NotImplementedError as the random prior structure should be reviewed when base_model is trainable (default: None)
-        coin_flip_architecture: Architecture type: "linear_head_on_static_initial_base" (linear head on frozen base copy), 
-            "linear_head_on_learning_base" (linear head on live base_actor), "linear_head_on_learning_proposal" 
-            (linear head on live sampling_actor), or "separate_nn" (separate trainable and frozen networks) 
+        coin_flip_architecture: Architecture type: "linear_head_on_static_initial_base" (linear head on frozen base copy),
+            "linear_head_on_learning_base" (linear head on live base_actor), "linear_head_on_learning_proposal"
+            (linear head on live sampling_actor), or "separate_nn" (separate trainable and frozen networks)
             (default: "linear_head_on_static_initial_base")
+        warmup_steps: Number of calls to compute_intrinsic_reward before returning non-zero bonuses.
+            During warmup, Welford stats are still updated but bonus is returned as 0. (default: 0)
     """
     
     def __init__(
@@ -58,6 +60,7 @@ class CoinFlipNetwork(nn.Module):
         coin_flip_architecture: str = "linear_head_on_static_initial_base",
         trainable_network: Optional[nn.Module] = None,
         frozen_prior_network: Optional[nn.Module] = None,
+        warmup_steps: int = 0,
     ):
         super().__init__()
         self.coin_flip_dim = coin_flip_dim
@@ -339,6 +342,21 @@ class CoinFlipNetwork(nn.Module):
         self.register_buffer('prior_running_mean', torch.zeros(coin_flip_dim, device=base_model_device))
         self.register_buffer('prior_running_var', torch.zeros(coin_flip_dim, device=base_model_device))
         self.register_buffer('prior_num_updates', torch.zeros(1, dtype=torch.long, device=base_model_device))
+
+        # Warmup: return bonus = 0 for the first warmup_steps calls to compute_intrinsic_reward,
+        # while still updating Welford stats so they stabilize before bonuses are used.
+        #
+        # Why returning 0 during warmup is fine:
+        # The target distribution for CTL is sigma(x) ∝ p(x) * e^{beta * reward(x) + bonus(x)}.
+        # With SIS, the importance weights w_i = sigma(x_i)/q(x_i) are self-normalized:
+        # w̃_i = w_i / sum_j w_j. If bonus(x) = c for all x (any constant, whether 0 or 1),
+        # the e^c factor cancels in normalization. So a constant bonus has no effect on CTL
+        # learning — only relative differences between samples matter. This means:
+        # (1) returning bonus = 0 during warmup is equivalent to returning bonus = 1 everywhere,
+        # (2) after warmup, when bonuses become non-constant, the transition is seamless because
+        #     the pre-warmup constant bonus was already having no effect on the target distribution.
+        self.warmup_steps = warmup_steps
+        self.register_buffer('warmup_counter', torch.zeros(1, dtype=torch.long, device=base_model_device))
     
     def _get_device(self):
         """Get the device of the model, prioritizing GPU/cuda."""
@@ -531,48 +549,52 @@ class CoinFlipNetwork(nn.Module):
         self,
         final_hidden_states: torch.Tensor,
         random_prior_final_hidden_states: Optional[torch.Tensor] = None,
+        update_prior_stats: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Get all components from linear_head forward pass.
-        
+
         This helper method centralizes the linear_head forward pass logic to avoid duplication
         between _predict_from_embeddings() and forward().
-        
+
         For static architectures, both heads use the same final_hidden_states.
         For learning architectures, random_prior_final_hidden_states should be provided separately.
-        
+
         Args:
             final_hidden_states: Final hidden states for trainable head, shape (batch_size, hidden_size)
             random_prior_final_hidden_states: Final hidden states for random prior head, shape (batch_size, hidden_size).
                 If None, uses final_hidden_states (for static architectures).
-            
+            update_prior_stats: If True, update Welford running statistics for the random prior
+                normalization. Should be True for new states (bonus computation) and False for
+                replayed states (training). Defaults to True.
+
         Returns:
             Tuple of (combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final)
             All have shape (batch_size, coin_flip_dim)
         """
         # Apply coin flip head (trainable) only to final states
         coin_flip_predictions = self.coin_flip_head(final_hidden_states)  # (batch_size, coin_flip_dim)
-        
+
         # Apply random prior head (frozen) to final states, ensuring ~1 pseudocount at initialization
         # For static architectures, use same embeddings; for learning, use separate frozen prior embeddings
         if random_prior_final_hidden_states is None:
             random_prior_final_hidden_states = final_hidden_states
-        
+
         random_prior_final = self.random_prior_head(random_prior_final_hidden_states)  # (batch_size, coin_flip_dim)
-        
+
         # Normalize random prior outputs dimension-wise to have mean 0, std 1
         # This ensures sqrt((1/d) * ||normalized_prior||^2) has expectation 1
-        # Statistics are computed only on final states using Welford's algorithm
         normalized_random_prior_final = self._normalize_with_welford_per_dim(
             random_prior_final,
             self.prior_running_mean,
             self.prior_running_var,
-            self.prior_num_updates
+            self.prior_num_updates,
+            update_stats=update_prior_stats,
         )  # (batch_size, coin_flip_dim)
-        
+
         # Combine main predictions with normalized random prior predictions
         combined_predictions = coin_flip_predictions + normalized_random_prior_final  # (batch_size, coin_flip_dim)
-        
+
         return combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final
     
     def _predict_from_embeddings(
@@ -581,97 +603,110 @@ class CoinFlipNetwork(nn.Module):
     ) -> torch.Tensor:
         """
         Compute combined predictions from final hidden states.
-        
+
         This method takes already-extracted final hidden states and applies the coin flip head,
         random prior head, and normalization to produce combined predictions. This is used
-        for training on embeddings from the replay buffer, ensuring consistency with the
-        forward method.
-        
+        for training on embeddings from the replay buffer.
+
+        Does NOT update Welford stats (training path — stats should only be updated on new states).
+
         Args:
             final_hidden_states: Final hidden states, shape (batch_size, hidden_size)
-            
+
         Returns:
             Combined predictions, shape (batch_size, coin_flip_dim)
         """
         # Use helper method to get all components, return only combined predictions
-        combined_predictions, _, _, _ = self._get_linear_head_components(final_hidden_states)
+        # update_prior_stats=False: training path, don't update Welford stats
+        combined_predictions, _, _, _ = self._get_linear_head_components(
+            final_hidden_states, update_prior_stats=False
+        )
         return combined_predictions
     
     def _get_separate_nn_components(
         self,
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
+        update_prior_stats: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Get all components from separate_nn forward pass.
-        
+
         This helper method centralizes the separate_nn forward pass logic to avoid duplication
         between _predict() and forward(). Uses extracted helper methods.
-        
+
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
-            
+            update_prior_stats: If True, update Welford running statistics for the frozen prior
+                normalization. Should be True for new states (bonus computation) and False for
+                replayed states (training). Defaults to True.
+
         Returns:
             Tuple of (combined_predictions, trainable_predictions, frozen_predictions, normalized_frozen_predictions)
             All have shape (batch_size, coin_flip_dim)
         """
         # Compute position_ids using helper method
         position_ids = self._compute_position_ids(attention_mask)
-        
+
         # Forward through trainable network (no no_grad for separate_nn - it's trainable end-to-end)
         trainable_outputs = self._forward_through_model(
             self.trainable_network, input_ids, attention_mask, position_ids, apply_no_grad=False
         )
-        
+
         # Forward through frozen prior network (with no_grad)
         frozen_outputs = self._forward_through_model(
             self.frozen_prior_network, input_ids, attention_mask, position_ids, apply_no_grad=True
         )
-        
+
         # Extract hidden states using helper method
         trainable_hidden_states = self._extract_hidden_states_from_outputs(trainable_outputs)
         frozen_hidden_states = self._extract_hidden_states_from_outputs(frozen_outputs)
-        
+
         # Extract final token hidden states using helper method
         trainable_final = self._extract_final_hidden_states(trainable_hidden_states, attention_mask)
         frozen_final = self._extract_final_hidden_states(frozen_hidden_states, attention_mask)
-        
+
         # Apply coin flip heads
         trainable_predictions = self.trainable_network.coin_flip_head(trainable_final)
         frozen_predictions = self.frozen_prior_network.coin_flip_head(frozen_final)
-        
+
         # Normalize frozen prior outputs using Welford's algorithm
         normalized_frozen = self._normalize_with_welford_per_dim(
             frozen_predictions,
             self.prior_running_mean,
             self.prior_running_var,
-            self.prior_num_updates
+            self.prior_num_updates,
+            update_stats=update_prior_stats,
         )
-        
+
         # Combine predictions
         combined_predictions = trainable_predictions + normalized_frozen
-        
+
         return combined_predictions, trainable_predictions, frozen_predictions, normalized_frozen
     
     def _get_learning_backbone_components(
         self,
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
+        update_prior_stats: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Get all components from learning backbone forward pass.
-        
+
         This method handles learning architectures where the trainable head uses a live backbone model
         and the random prior head uses the frozen_prior_model.
-        
+
         Always applies torch.no_grad() to backbone model to prevent gradients from flowing through it
         (only coin_flip_head should receive gradients).
-        
+
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
-            
+            update_prior_stats: If True, update Welford running statistics for the random prior
+                normalization. Should be True for new states (bonus computation) and False for
+                replayed states (training). Defaults to True.
+
         Returns:
             Tuple of (combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final)
             All have shape (batch_size, coin_flip_dim)
@@ -713,39 +748,42 @@ class CoinFlipNetwork(nn.Module):
         
         # Normalize random prior outputs dimension-wise to have mean 0, std 1
         # This ensures sqrt((1/d) * ||normalized_prior||^2) has expectation 1
-        # Statistics are computed only on final states using Welford's algorithm
         normalized_random_prior_final = self._normalize_with_welford_per_dim(
             random_prior_final,
             self.prior_running_mean,
             self.prior_running_var,
-            self.prior_num_updates
+            self.prior_num_updates,
+            update_stats=update_prior_stats,
         )  # (batch_size, coin_flip_dim)
-        
+
         # Combine main predictions with normalized random prior predictions
         combined_predictions = coin_flip_predictions + normalized_random_prior_final  # (batch_size, coin_flip_dim)
-        
+
         return combined_predictions, coin_flip_predictions, random_prior_final, normalized_random_prior_final
-    
+
     def _predict(
         self,
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
-        Compute combined predictions from inputs.
-        
+        Compute combined predictions from inputs (training path).
+
+        Does NOT update Welford stats — stats should only be updated on new states
+        during bonus computation (via forward()), not on replayed/training states.
+
         This method handles all architectures:
         - For "linear_head_on_static_initial_base": extracts embeddings and calls _predict_from_embeddings()
         - For "linear_head_on_learning_base" or "linear_head_on_learning_proposal": uses learning backbone
         - For "separate_nn": calls _get_separate_nn_components() and returns combined predictions
-        
+
         For non-separate_nn architectures, applies torch.no_grad() to prevent gradients
         from flowing through the backbone/base model.
-        
+
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
-            
+
         Returns:
             Combined predictions, shape (batch_size, coin_flip_dim)
         """
@@ -757,17 +795,21 @@ class CoinFlipNetwork(nn.Module):
         elif self.coin_flip_architecture in LEARNING_ARCHITECTURES:
             # Use helper method to get all components, return only combined predictions
             # _get_learning_backbone_components already applies torch.no_grad() internally
+            # update_prior_stats=False: training path, don't update Welford stats
             combined_predictions, _, _, _ = self._get_learning_backbone_components(
-                input_ids, attention_mask
+                input_ids, attention_mask, update_prior_stats=False
             )
             return combined_predictions
         elif self.coin_flip_architecture == "separate_nn":
             # Use helper method to get all components, return only combined predictions
-            combined_predictions, _, _, _ = self._get_separate_nn_components(input_ids, attention_mask)
+            # update_prior_stats=False: training path, don't update Welford stats
+            combined_predictions, _, _, _ = self._get_separate_nn_components(
+                input_ids, attention_mask, update_prior_stats=False
+            )
             return combined_predictions
         else:
             raise ValueError(f"Unknown coin flip architecture: {self.coin_flip_architecture}")
-    
+
     def forward(
         self,
         input_ids: torch.LongTensor,
@@ -882,18 +924,29 @@ class CoinFlipNetwork(nn.Module):
         """
         # Get coin flip predictions (already for final states only)
         # forward() already applies torch.no_grad() internally for non-separate_nn architectures
+        # This also updates Welford stats for the random prior normalization
         final_predictions = self.forward(sequences, attention_mask)  # (B, d)
-        
+
+        # Increment warmup counter (counts number of calls, i.e., batches of sequences seen)
+        self.warmup_counter.data += 1
+
+        # During warmup, return 0 bonus. The Welford stats are still being updated above
+        # (via forward()), so they stabilize before bonuses are actually used.
+        if self.warmup_counter.item() <= self.warmup_steps:
+            batch_size = sequences.shape[0]
+            print(f"[Coin Flip Warmup] Step {self.warmup_counter.item()}/{self.warmup_steps}, returning bonus = 0")
+            return torch.zeros(batch_size, device=sequences.device)
+
         # Compute ||f_φ(x)||^2 for final token: sum over coin_flip_dim dimension
         norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
-        
+
         # Compute intrinsic reward: sqrt((1/d) * ||f_φ(x)||^2)
         intrinsic_reward = torch.sqrt(norm_squared / self.coin_flip_dim)
-        
+
         # Normalize the exploration bonus using running mean and variance (if enabled)
         if self.normalization_momentum is not None:
             intrinsic_reward = self._normalize_bonus(intrinsic_reward)
-        
+
         intrinsic_reward *= bonus_alpha
 
         return intrinsic_reward.detach()
@@ -992,95 +1045,109 @@ class CoinFlipNetwork(nn.Module):
         values: torch.Tensor,
         running_mean: torch.Tensor,
         running_var: torch.Tensor,
-        num_updates: torch.Tensor
+        num_updates: torch.Tensor,
+        update_stats: bool = True,
     ) -> torch.Tensor:
         """
-        Update running statistics using Welford's online algorithm and normalize values per dimension.
-        
-        This uses Welford's algorithm (same as CFN implementation) which computes true running
-        statistics rather than exponential moving average. This is better for the fixed prior network.
-        
-        The CFN code processes one sample at a time. For batches, we process each sample sequentially
-        (vectorized) to maintain the same update formula.
-        
+        Normalize values per dimension, optionally updating running statistics using Welford's
+        online algorithm.
+
+        When update_stats=True, incorporates the current batch into the running statistics
+        before normalizing (so batch T is normalized using stats from batches 1,...,T).
+        When update_stats=False, normalizes using existing stats without modifying them.
+
+        Stats should only be updated on genuinely new states (during bonus computation),
+        not on replayed states (during training), to avoid double-counting.
+
         Args:
             values: Values to normalize, shape (batch_size, num_dims)
             running_mean: Buffer storing running mean per dimension, shape (num_dims,)
             running_var: Buffer storing running variance per dimension, shape (num_dims,)
-            num_updates: Buffer storing number of updates (will be incremented by batch_size)
-            
+            num_updates: Buffer storing number of updates (will be incremented by batch_size if update_stats=True)
+            update_stats: If True, update running statistics with the current batch before normalizing.
+                If False, only normalize using existing statistics. Defaults to True.
+
         Returns:
             Normalized values with mean ~0, std ~1 per dimension, shape (batch_size, num_dims)
         """
-        batch_size = values.shape[0]
-        
-        # Process each sample in the batch sequentially (vectorized where possible)
-        # This matches the CFN implementation which processes one sample at a time
-        for i in range(batch_size):
-            value = values[i]  # (num_dims,)
-            effective_iter = num_updates.item() + 1  # +1 because we're about to update, and start at 0
+        if update_stats:
+            batch_size = values.shape[0]
 
-            # Ok so let's define n as the number of updates we've done so far
-            # n starts at 0 and increments by 1 each time we update
-            
-            # Welford's algorithm
-            # First let's update the mean:
-            # mean_new = (mean_old * n + value) / (n+1)
-            # = (mean_old * n + mean_old + value - mean_old) / (n+1)
-            # With delta := value - mean_old
-            delta = value - running_mean
-            # mean_new = (mean_old * (n+1) + delta) / (n+1)
-            # = mean_old + delta / (n+1)
-            running_mean.data = running_mean + delta / effective_iter
-            # So if the code we uses divides by effective_iter, then effective_iter = n+1 by necessity; incrementing must be done first
-            
-            # Now to update the variance:
-            squared_delta = delta ** 2
-            # Variance = sum of squared deviations from the mean / (number of samples) (no correction for bias here, since we're correcting the same set of samples)
-            # running_var * n = sum of squared deviations from previous mean
-            # Let the sum of squared deviations from the previous mean be M^2_n
-            # and let the sum of squared deviations from the new mean be M^2_{n+1} 
-            # and let x_i denote the i-th value
-            # M^2_{n+1} = sum_{i=1}^{n+1} (x_i - mean_new)^2 = sum_{i=1}^{n} (x_i - mean_new)^2 + (x_{n+1} - mean_new)^2
-            # Then since x_i - mean_new = (x_i - mean_old) + (mean_old - mean_new)
-            # squaring and summing both sides, the cross term will disappear since sum of (x_i - mean_old) is 0
-            # Then we get that sum_{i=1}^{n} (x_i - mean_new)^2 = sum_{i=1}^{n} (x_i - mean_old)^2 + sum_{i=1}^{n} (mean_old - mean_new)^2
-            # = M^2_n + n * (mean_old - mean_new)^2
-            # So M^2_{n+1} = M^2_n + n * (mean_old - mean_new)^2 + (x_{n+1} - mean_new)^2
-            # Now recall that delta = x_{n+1} - mean_old, and mean_new = mean_old + delta / (n+1)
-            # So mean_old - mean_new = - delta / (n+1)
-            # Also note that delta = x_{n+1} - mean_old = x_{n+1} - mean_old + mean_new - mean_new
-            # So x_{n+1} - mean_new = delta + mean_old - mean_new 
-            # = delta - (delta / (n+1)) = ((n+1) - 1) * delta / (n+1)
-            # So M^2_{n+1} = M^2_n + n * (- delta / (n+1))^2 + (((n+1) - 1) * delta / (n+1))^2
-            # = M^2_n + n * (- delta / (n+1))^2 + (n * delta / (n+1))^2
-            # = M^2_n + delta^2 (n + n^2) / (n+1)^2
-            # = M^2_n + delta^2 n(n+1) / (n+1)^2
-            # = M^2_n + delta^2 n / (n+1)
-            # Then since effective_iter = n+1, we get that:
-            # M^2_{n+1} = M^2_n + delta^2 * (effective_iter - 1) / effective_iter
-            # Finally, to get the new variance, we need
-            # variance = M^2_{n+1} / (n+1)
-            # = M^2_{n+1} / effective_iter
+            # Process each sample in the batch sequentially through Welford's algorithm.
+            # After processing all samples, the running stats reflect batches 1,...,T
+            # (including the current batch T).
+            for i in range(batch_size):
+                value = values[i]  # (num_dims,)
 
-            # Then add the new squared deviation to get the new sum of squared deviations
-            # From the derivation: M^2_{n+1} = M^2_n + delta^2 * (effective_iter - 1) / effective_iter
-            # where n = effective_iter - 1, so M^2_n = running_var * n = running_var * (effective_iter - 1)
-            # Then variance_new = M^2_{n+1} / effective_iter
-            n = effective_iter - 1
-            
-            # M^2_n = running_var * n (sum of squared deviations from previous mean)
-            M_squared_n = running_var * n
-            # M^2_{n+1} = M^2_n + delta^2 * n / effective_iter
-            M_squared_new = M_squared_n + squared_delta * n / effective_iter
-            # variance_new = M^2_{n+1} / effective_iter
-            running_var.data = M_squared_new / effective_iter
-            # Note: variance should indeed be 0 when n=0 (first update), so no need to handle separate cases
-            
-            # Increment update counter
-            num_updates.data += 1
-        
-        # Normalize all values using the final updated statistics
+                # Define n as the number of updates we've done so far.
+                # n starts at 0 and increments by 1 each time we update.
+                # effective_iter = n + 1 (the count after incorporating this sample).
+                effective_iter = num_updates.item() + 1
+
+                # Welford's algorithm
+                # First let's update the mean:
+                # mean_new = (mean_old * n + value) / (n+1)
+                # = (mean_old * n + mean_old + value - mean_old) / (n+1)
+                # With delta := value - mean_old
+                delta = value - running_mean
+                # mean_new = (mean_old * (n+1) + delta) / (n+1)
+                # = mean_old + delta / (n+1)
+                running_mean.data = running_mean + delta / effective_iter
+                # So if the code divides by effective_iter, then effective_iter = n+1 by necessity;
+                # incrementing must be done first
+
+                # Now to update the variance:
+                squared_delta = delta ** 2
+                # Variance = sum of squared deviations from the mean / (number of samples)
+                # (no correction for bias here, since we're correcting the same set of samples)
+                # running_var * n = sum of squared deviations from previous mean
+                # Let the sum of squared deviations from the previous mean be M^2_n
+                # and let the sum of squared deviations from the new mean be M^2_{n+1}
+                # and let x_i denote the i-th value
+                # M^2_{n+1} = sum_{i=1}^{n+1} (x_i - mean_new)^2
+                #           = sum_{i=1}^{n} (x_i - mean_new)^2 + (x_{n+1} - mean_new)^2
+                # Then since x_i - mean_new = (x_i - mean_old) + (mean_old - mean_new)
+                # squaring and summing both sides, the cross term will disappear since
+                # sum of (x_i - mean_old) is 0
+                # Then we get that:
+                # sum_{i=1}^{n} (x_i - mean_new)^2 = sum_{i=1}^{n} (x_i - mean_old)^2
+                #                                   + sum_{i=1}^{n} (mean_old - mean_new)^2
+                # = M^2_n + n * (mean_old - mean_new)^2
+                # So M^2_{n+1} = M^2_n + n * (mean_old - mean_new)^2 + (x_{n+1} - mean_new)^2
+                # Now recall that delta = x_{n+1} - mean_old, and mean_new = mean_old + delta / (n+1)
+                # So mean_old - mean_new = - delta / (n+1)
+                # Also note that delta = x_{n+1} - mean_old = x_{n+1} - mean_old + mean_new - mean_new
+                # So x_{n+1} - mean_new = delta + mean_old - mean_new
+                # = delta - (delta / (n+1)) = ((n+1) - 1) * delta / (n+1)
+                # So M^2_{n+1} = M^2_n + n * (- delta / (n+1))^2 + (((n+1) - 1) * delta / (n+1))^2
+                # = M^2_n + n * (- delta / (n+1))^2 + (n * delta / (n+1))^2
+                # = M^2_n + delta^2 (n + n^2) / (n+1)^2
+                # = M^2_n + delta^2 n(n+1) / (n+1)^2
+                # = M^2_n + delta^2 n / (n+1)
+                # Then since effective_iter = n+1, we get that:
+                # M^2_{n+1} = M^2_n + delta^2 * (effective_iter - 1) / effective_iter
+                # Finally, to get the new variance, we need
+                # variance = M^2_{n+1} / (n+1)
+                # = M^2_{n+1} / effective_iter
+
+                # From the derivation: M^2_{n+1} = M^2_n + delta^2 * (effective_iter - 1) / effective_iter
+                # where n = effective_iter - 1, so M^2_n = running_var * n = running_var * (effective_iter - 1)
+                # Then variance_new = M^2_{n+1} / effective_iter
+                n = effective_iter - 1
+
+                # M^2_n = running_var * n (sum of squared deviations from previous mean)
+                M_squared_n = running_var * n
+                # M^2_{n+1} = M^2_n + delta^2 * n / effective_iter
+                M_squared_new = M_squared_n + squared_delta * n / effective_iter
+                # variance_new = M^2_{n+1} / effective_iter
+                running_var.data = M_squared_new / effective_iter
+                # Note: variance should indeed be 0 when n=0 (first update),
+                # so no need to handle separate cases
+
+                # Increment update counter
+                num_updates.data += 1
+
+        # Normalize all values using the (possibly updated) running statistics
         # Add small epsilon to avoid division by zero
         normalized = (values - running_mean.unsqueeze(0)) / (torch.sqrt(running_var.unsqueeze(0)) + 1e-8)
         return normalized

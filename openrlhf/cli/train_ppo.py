@@ -3495,10 +3495,11 @@ if __name__ == "__main__":
     parser.add_argument("--train_coin_flip_before", action="store_true", default=False, help="Train coin flip network before computing exploration bonus")
     parser.add_argument("--coin_flip_first_online", action="store_true", default=False, help="For the first update step only, use the sequences that were just generated instead of randomly sampling from the replay buffer. After this step, continue sampling uniformly at random from the replay buffer.")
     parser.add_argument("--coin_flip_use_prioritization", action="store_true", default=False, help="Enable prioritized sampling for coin flip network replay buffer. Uses combination of inverse count estimate and number of times sampled.")
-    parser.add_argument("--coin_flip_architecture", type=str, default="linear_head_on_static_initial_base", 
-                        choices=["linear_head_on_static_initial_base", "linear_head_on_learning_base", 
-                                "linear_head_on_learning_proposal", "separate_nn"], 
+    parser.add_argument("--coin_flip_architecture", type=str, default="linear_head_on_static_initial_base",
+                        choices=["linear_head_on_static_initial_base", "linear_head_on_learning_base",
+                                "linear_head_on_learning_proposal", "separate_nn"],
                         help="Architecture for coin flip network: 'linear_head_on_static_initial_base' (linear head on frozen base model copy), 'linear_head_on_learning_base' (linear head on live base_actor), 'linear_head_on_learning_proposal' (linear head on live sampling_actor), or 'separate_nn' (separate trainable and frozen networks)")
+    parser.add_argument("--coin_flip_warmup_steps", type=int, default=0, help="Number of calls to compute_intrinsic_reward (i.e., batches of generated sequences) before returning non-zero bonuses. During warmup, Welford normalization stats accumulate but bonus is 0. (default: 0, no warmup)")
 
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, --harmlessness_training_num_episodes for the number of outer loop steps, and --harmlessness_training_episodes_per_loop for the number of harmlessness training steps in each loop iteration. So total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes * harmlessness_training_episodes_per_loop base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")
