@@ -724,6 +724,16 @@ class CombinedHarmlessnessTrainer(ABC):
                 exploration_bonus = experience_neg_sampling.info["exploration_bonus"]
                 if exploration_bonus is not None:
                     bonus_vals_list_sampling.append(exploration_bonus.mean().item())
+                    # Diagnostic: within-prompt vs. across-prompt bonus variance
+                    samples_per_prompt = args.duplicate_rollout_batch_by
+                    num_prompts = exploration_bonus.shape[0] // samples_per_prompt
+                    if num_prompts > 1 and samples_per_prompt > 1:
+                        per_prompt_bonus = exploration_bonus.view(num_prompts, samples_per_prompt)
+                        within_prompt_std = per_prompt_bonus.std(dim=1).mean().item()
+                        across_prompt_std = per_prompt_bonus.mean(dim=1).std().item()
+                        print(f"[Bonus Diagnostic] within-prompt std: {within_prompt_std:.6f}, "
+                              f"across-prompt std: {across_prompt_std:.6f}, "
+                              f"ratio (within/across): {within_prompt_std / (across_prompt_std + 1e-8):.4f}")
                 else:
                     bonus_vals_list_sampling.append(0.0)  # No bonus when not enabled
 
