@@ -360,6 +360,9 @@ def get_info_name_str(args):
                 exploration_bonus_str += "_fo"
             if coin_flip_use_prioritization:
                 exploration_bonus_str += "_pr"
+            coin_flip_warmup_steps = getattr(args, 'coin_flip_warmup_steps', 0)
+            if coin_flip_warmup_steps > 0:
+                exploration_bonus_str += f"_wu{coin_flip_warmup_steps}"
 
     # Shorten parameterization
     param_short = args.parameterization

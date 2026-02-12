@@ -49,7 +49,7 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
     custom_prompt = prompt_data = parameterization = adam_beta2 = rm_type = dup_rollout = pretrain = reward_pretrain = init_head_from_base = ""
     sd_divider = harmloss = harmlossreinbaseline = hlrbval = ""
     save_negdata_threshold = threshold = alpha = only_eval_neg = use_base_as_proposal = ""
-    exploration_bonus_sa = exploration_bonus_ba = bonus_alpha = coin_flip_dim = coin_flip_lr = coin_flip_norm_momentum = coin_flip_update_steps = coin_flip_head_init_std = frozen_prior_init_std = coin_flip_linear_bias = coin_flip_architecture = analytic_batch = train_coin_flip_before = coin_flip_first_online =     coin_flip_use_prioritization = reward_clamp = rejection_sample_true_target_only = ""
+    exploration_bonus_sa = exploration_bonus_ba = bonus_alpha = coin_flip_dim = coin_flip_lr = coin_flip_norm_momentum = coin_flip_update_steps = coin_flip_head_init_std = frozen_prior_init_std = coin_flip_linear_bias = coin_flip_architecture = analytic_batch = train_coin_flip_before = coin_flip_first_online =     coin_flip_use_prioritization = coin_flip_warmup_steps = reward_clamp = rejection_sample_true_target_only = ""
     
     # Scan through all matches in the string
     for(i=1; i<=NF; i++) {
@@ -191,6 +191,7 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
         if($i == "--train_coin_flip_before") train_coin_flip_before = "_before"
         if($i == "--coin_flip_first_online") coin_flip_first_online = "_firstonline"
         if($i == "--coin_flip_use_prioritization") coin_flip_use_prioritization = "_pri"
+        if($i == "--coin_flip_warmup_steps" && $(i+1)+0 > 0) coin_flip_warmup_steps = "_wu"$(i+1)
         if($i == "--reward_clamp" && $(i+1) != "") reward_clamp = "_rc"$(i+1)
         if($i == "--rejection_sample_true_target_only") rejection_sample_true_target_only = "_exacttarget"
     }
@@ -206,19 +207,19 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
     print micro_train "|" train "|" micro_rollout "|" rollout "|" max_epochs "|" epi_str "|" \
           gen_max_len "|" actor_lr "|" critic_lr "|" baseactor_lr "|" target_beta "|" save_negdata_threshold "|" threshold "|" lr_sched "|" \
           actor_loss "|" custom_prompt "|" parameterization "|" adam_beta2 "|" rm_type "|" dup_rollout "|" pretrain "|" \
-          reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" kl "|" only_eval_neg "|" use_base_as_proposal "|" rta "|" rtb "|" startb "|" starta "|" sepb "|" uniw "|" exploration_bonus_sa "|" exploration_bonus_ba "|" bonus_alpha "|" coin_flip_dim "|" coin_flip_lr "|" coin_flip_norm_momentum "|" coin_flip_update_steps "|" coin_flip_head_init_std "|" frozen_prior_init_std "|" coin_flip_linear_bias "|"           coin_flip_architecture "|" analytic_batch "|" train_coin_flip_before "|" coin_flip_first_online "|" coin_flip_use_prioritization "|" reward_clamp "|" rejection_sample_true_target_only \
+          reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" kl "|" only_eval_neg "|" use_base_as_proposal "|" rta "|" rtb "|" startb "|" starta "|" sepb "|" uniw "|" exploration_bonus_sa "|" exploration_bonus_ba "|" bonus_alpha "|" coin_flip_dim "|" coin_flip_lr "|" coin_flip_norm_momentum "|" coin_flip_update_steps "|" coin_flip_head_init_std "|" frozen_prior_init_std "|" coin_flip_linear_bias "|"           coin_flip_architecture "|" analytic_batch "|" train_coin_flip_before "|" coin_flip_first_online "|" coin_flip_use_prioritization "|" coin_flip_warmup_steps "|" reward_clamp "|" rejection_sample_true_target_only \
 }')
 
 # Read using the special delimiter
 IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS EPI_STR GEN_MAX_LEN \
     ACTOR_LR CRITIC_LR BASEACTOR_LR TARGET_BETA SAVE_NEGDATA_THRESH THRESH LR_SCHED ACTOR_LOSS CUSTOM_PROMPT PARAMETERIZATION ADAM_BETA2 RM_TYPE DUP_ROLLOUT PRETRAIN REWARD_PRETRAIN PROMPT_DATA \
-    INITHEADBASE SD_DIVIDER HARMLOSS HARMLOSSREINBASELINE HLRBVAL ALPHA KL ONLY_EVAL_NEG BASE_PROP RTA RTB STARTB STARTA SEPB UNIW EXPLORATION_BONUS_SA EXPLORATION_BONUS_BA BONUS_ALPHA COIN_FLIP_DIM COIN_FLIP_LR COIN_FLIP_NORM_MOMENTUM COIN_FLIP_UPDATE_STEPS COIN_FLIP_HEAD_INIT_STD FROZEN_PRIOR_INIT_STD COIN_FLIP_LINEAR_BIAS COIN_FLIP_ARCHITECTURE ANALYTIC_BATCH TRAIN_COIN_FLIP_BEFORE COIN_FLIP_FIRST_ONLINE COIN_FLIP_USE_PRIORITIZATION REWARD_CLAMP EXACTTARGET <<< "$PARAMS"
+    INITHEADBASE SD_DIVIDER HARMLOSS HARMLOSSREINBASELINE HLRBVAL ALPHA KL ONLY_EVAL_NEG BASE_PROP RTA RTB STARTB STARTA SEPB UNIW EXPLORATION_BONUS_SA EXPLORATION_BONUS_BA BONUS_ALPHA COIN_FLIP_DIM COIN_FLIP_LR COIN_FLIP_NORM_MOMENTUM COIN_FLIP_UPDATE_STEPS COIN_FLIP_HEAD_INIT_STD FROZEN_PRIOR_INIT_STD COIN_FLIP_LINEAR_BIAS COIN_FLIP_ARCHITECTURE ANALYTIC_BATCH TRAIN_COIN_FLIP_BEFORE COIN_FLIP_FIRST_ONLINE COIN_FLIP_USE_PRIORITIZATION COIN_FLIP_WARMUP_STEPS REWARD_CLAMP EXACTTARGET <<< "$PARAMS"
 
 # Get current date in required format
 CURRENT_DATE=$(date +%Y-%m-%d-%H-%M)
 
 # Generate output filename using dcs pattern (shortened)
-PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${BASE_PROP}${EXACTTARGET}${THRESH}${STARTB}${TARGET_BETA}${SEPB}${UNIW}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_b${MICRO_TRAIN}_${TRAIN}${ANALYTIC_BATCH}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_epo${MAX_EPOCHS}${EPI_STR}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${STARTA}${ALPHA}${RTA}${RTB}${BASEACTOR_LR}_${ACTOR_LOSS}${ACTOR_LR}${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}${EXPLORATION_BONUS_SA}${EXPLORATION_BONUS_BA}${BONUS_ALPHA}${COIN_FLIP_DIM}${COIN_FLIP_LR}${COIN_FLIP_NORM_MOMENTUM}${COIN_FLIP_UPDATE_STEPS}${COIN_FLIP_HEAD_INIT_STD}${FROZEN_PRIOR_INIT_STD}${COIN_FLIP_LINEAR_BIAS}${COIN_FLIP_ARCHITECTURE}${TRAIN_COIN_FLIP_BEFORE}${COIN_FLIP_FIRST_ONLINE}${COIN_FLIP_USE_PRIORITIZATION}${REWARD_CLAMP}"
+PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${BASE_PROP}${EXACTTARGET}${THRESH}${STARTB}${TARGET_BETA}${SEPB}${UNIW}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_b${MICRO_TRAIN}_${TRAIN}${ANALYTIC_BATCH}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_epo${MAX_EPOCHS}${EPI_STR}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${STARTA}${ALPHA}${RTA}${RTB}${BASEACTOR_LR}_${ACTOR_LOSS}${ACTOR_LR}${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}${EXPLORATION_BONUS_SA}${EXPLORATION_BONUS_BA}${BONUS_ALPHA}${COIN_FLIP_DIM}${COIN_FLIP_LR}${COIN_FLIP_NORM_MOMENTUM}${COIN_FLIP_UPDATE_STEPS}${COIN_FLIP_HEAD_INIT_STD}${FROZEN_PRIOR_INIT_STD}${COIN_FLIP_LINEAR_BIAS}${COIN_FLIP_ARCHITECTURE}${TRAIN_COIN_FLIP_BEFORE}${COIN_FLIP_FIRST_ONLINE}${COIN_FLIP_USE_PRIORITIZATION}${COIN_FLIP_WARMUP_STEPS}${REWARD_CLAMP}"
 SBATCH_FILE="sbatch_${PATTERN}"
 OUTPUT_FILE="result_${PATTERN}_s1.txt"
 
