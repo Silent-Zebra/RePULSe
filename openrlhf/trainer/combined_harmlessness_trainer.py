@@ -718,6 +718,28 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.separate_neg_samples and experience_neg_sampling is not None and rewards_list_sampling is not None and untrans_ret_list_sampling is not None:
             rewards_list_sampling.append(experience_neg_sampling.info["reward"].mean().item())
             untrans_ret_list_sampling.append(experience_neg_sampling.info["untransformed_reward"].mean().item())
+            # Diagnostic: within-prompt reward std (untransformed, i.e. raw RM output)
+            samples_per_prompt = args.duplicate_rollout_batch_by
+            untrans_rew = experience_neg_sampling.info["untransformed_reward"]
+            num_prompts_rew = untrans_rew.shape[0] // samples_per_prompt
+            if num_prompts_rew > 1 and samples_per_prompt > 1:
+                per_prompt_rew = untrans_rew.view(num_prompts_rew, samples_per_prompt)
+                # Per-prompt reward std (distribution over prompts)
+                per_prompt_rew_stds = per_prompt_rew.std(dim=1)  # (num_prompts,)
+                # Max-to-second-max gap in β·r (the quantity driving softmax concentration)
+                # Sort rewards per prompt; with β < 0, lowest reward gets highest β·r
+                sorted_rew, _ = per_prompt_rew.sort(dim=1)  # ascending
+                # Gap between 2nd-lowest and lowest reward (= gap between max and 2nd-max β·r)
+                rew_gaps = sorted_rew[:, 1] - sorted_rew[:, 0]  # (num_prompts,)
+                beta_r_gaps = abs(self.target_dist_beta) * rew_gaps  # (num_prompts,)
+                gap_over_std_mean = rew_gaps.mean().item() / (per_prompt_rew_stds.mean().item() + 1e-8)
+                def _stats(t):
+                    return (f"mean={t.mean().item():.4f}, med={t.median().item():.4f}, "
+                            f"min={t.min().item():.4f}, max={t.max().item():.4f}")
+                print(f"[Reward Diagnostic] within-prompt reward std: {_stats(per_prompt_rew_stds)}")
+                print(f"[Reward Diagnostic] max-to-2nd reward gap: {_stats(rew_gaps)} "
+                      f"(ratio to std: {gap_over_std_mean:.4f}, normal theory: ~0.67)")
+                print(f"[Reward Diagnostic] |beta|*gap: {_stats(beta_r_gaps)}")
             # Extract exploration bonus if available (only for sampling actor for now)
             # TODO: Add support for base_actor bonus tracking
             if bonus_vals_list_sampling is not None and "exploration_bonus" in experience_neg_sampling.info:
@@ -729,11 +751,20 @@ class CombinedHarmlessnessTrainer(ABC):
                     num_prompts = exploration_bonus.shape[0] // samples_per_prompt
                     if num_prompts > 1 and samples_per_prompt > 1:
                         per_prompt_bonus = exploration_bonus.view(num_prompts, samples_per_prompt)
-                        within_prompt_std = per_prompt_bonus.std(dim=1).mean().item()
+                        # Per-prompt bonus stats (distributions over prompts)
+                        bonus_stds = per_prompt_bonus.std(dim=1)  # (num_prompts,)
                         across_prompt_std = per_prompt_bonus.mean(dim=1).std().item()
-                        print(f"[Bonus Diagnostic] within-prompt std: {within_prompt_std:.6f}, "
-                              f"across-prompt std: {across_prompt_std:.6f}, "
-                              f"ratio (within/across): {within_prompt_std / (across_prompt_std + 1e-8):.4f}")
+                        bonus_ranges = per_prompt_bonus.max(dim=1).values - per_prompt_bonus.min(dim=1).values  # (num_prompts,)
+                        bonus_alpha = getattr(args, 'bonus_alpha', 1.0)
+                        delta_raws = bonus_ranges / bonus_alpha if bonus_alpha > 0 else bonus_ranges * float('inf')
+                        def _stats(t):
+                            return (f"mean={t.mean().item():.4f}, med={t.median().item():.4f}, "
+                                    f"min={t.min().item():.4f}, max={t.max().item():.4f}")
+                        print(f"[Bonus Diagnostic] within-prompt std: {_stats(bonus_stds)}")
+                        print(f"[Bonus Diagnostic] across-prompt std: {across_prompt_std:.6f}, "
+                              f"ratio (within/across): {bonus_stds.mean().item() / (across_prompt_std + 1e-8):.4f}")
+                        print(f"[Bonus Diagnostic] within-prompt range: {_stats(bonus_ranges)}")
+                        print(f"[Bonus Diagnostic] delta_raw (range/alpha): {_stats(delta_raws)}")
                 else:
                     bonus_vals_list_sampling.append(0.0)  # No bonus when not enabled
 

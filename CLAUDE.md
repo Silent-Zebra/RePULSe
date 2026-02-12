@@ -48,6 +48,8 @@ I prefer noisy failures over silent failures. I would rather things throw except
 
 Ask before removing print statements. Sometimes I like to have metrics available throughout the run to help with debugging and/or just getting a better idea of what's going on throughout the training run.
 
+Please also do not remove comments involving math. They are there for explanatory purposes.
+
 ## Key Files
 
 - `openrlhf/cli/train_ppo.py` — PPO training entry point
