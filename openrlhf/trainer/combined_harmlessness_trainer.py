@@ -731,7 +731,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 sorted_rew, _ = per_prompt_rew.sort(dim=1)  # ascending
                 # Gap between 2nd-lowest and lowest reward (= gap between max and 2nd-max β·r)
                 rew_gaps = sorted_rew[:, 1] - sorted_rew[:, 0]  # (num_prompts,)
-                beta_r_gaps = abs(self.target_dist_beta) * rew_gaps  # (num_prompts,)
+                beta_r_gaps = abs(args.target_dist_beta) * rew_gaps  # (num_prompts,)
                 gap_over_std_mean = rew_gaps.mean().item() / (per_prompt_rew_stds.mean().item() + 1e-8)
                 def _stats(t):
                     return (f"mean={t.mean().item():.4f}, med={t.median().item():.4f}, "
