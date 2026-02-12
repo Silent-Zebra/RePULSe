@@ -1261,6 +1261,14 @@ class BaseExperienceMaker(ABC):
         self, sequences, attention_mask, class_num=0, multiply_by_beta=False,
         force_no_exploration_bonus=False,
     ):
+        # Fail early for unsupported exploration bonus + indicator combinations
+        # (before any side effects like Welford stats updates)
+        if self.exploration_bonus and not force_no_exploration_bonus:
+            if self.reward_pretrain == "indicator_bad_token":
+                raise NotImplementedError("Exploration bonus is not yet supported for reward_pretrain='indicator_bad_token'")
+            if self.rm_type == "indicator_below_threshold":
+                raise NotImplementedError("Exploration bonus is not yet supported for rm_type='indicator_below_threshold'")
+
         # rewards
         if self.reward_pretrain == "indicator_bad_token":
             # Hard-coded reward function: -1 if output contains any bad token, otherwise 0

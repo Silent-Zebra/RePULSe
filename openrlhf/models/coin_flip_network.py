@@ -923,9 +923,12 @@ class CoinFlipNetwork(nn.Module):
             Intrinsic rewards per sequence, shape (batch_size,)
         """
         # Get coin flip predictions (already for final states only)
-        # forward() already applies torch.no_grad() internally for non-separate_nn architectures
-        # This also updates Welford stats for the random prior normalization
-        final_predictions = self.forward(sequences, attention_mask)  # (B, d)
+        # Use torch.no_grad() since we only need the value, not gradients — the result is
+        # .detach()'ed anyway. Without this, the separate_nn architecture would build a full
+        # computation graph through the trainable network that is immediately discarded.
+        # This also updates Welford stats for the random prior normalization.
+        with torch.no_grad():
+            final_predictions = self.forward(sequences, attention_mask)  # (B, d)
 
         # Increment warmup counter (counts number of calls, i.e., batches of sequences seen)
         self.warmup_counter.data += 1

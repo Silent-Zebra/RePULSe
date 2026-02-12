@@ -247,7 +247,7 @@ class CombinedHarmlessnessTrainer(ABC):
 
         # Check exploration bonus flags
         exploration_bonus_base_actor = getattr(strategy.args, 'exploration_bonus_base_actor', None)
-        exploration_bonus_sampling_actor = getattr(strategy.args, 'exploration_bonus_sampling_actor', 'coin_flip')
+        exploration_bonus_sampling_actor = getattr(strategy.args, 'exploration_bonus_sampling_actor', None)
         
         # Raise NotImplementedError for base_actor exploration bonus
         if exploration_bonus_base_actor is not None:
@@ -306,11 +306,8 @@ class CombinedHarmlessnessTrainer(ABC):
             # Create optimizer and scheduler (defaulting to sampling_actor's)
             coin_flip_lr = getattr(strategy.args, 'coin_flip_lr', None)
             if coin_flip_lr is None:
-                # Use same LR as sampling_actor
-                if hasattr(sampling_actor_scheduler, 'get_last_lr') and len(sampling_actor_scheduler.get_last_lr()) > 0:
-                    coin_flip_lr = sampling_actor_scheduler.get_last_lr()[0]
-                else:
-                    coin_flip_lr = getattr(strategy.args, 'actor_learning_rate', 1e-5)
+                # Default to same LR as actor (avoid get_last_lr() which warns before first step)
+                coin_flip_lr = getattr(strategy.args, 'actor_learning_rate', 1e-5)
             
             # Use strategy's create_optimizer method (same as sampling_actor)
             # Extract optimizer parameters from args (same as sampling_actor uses)
