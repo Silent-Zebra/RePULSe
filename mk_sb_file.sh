@@ -287,7 +287,7 @@ EOL
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=4
 #SBATCH --cpus-per-task=4
-#SBATCH --exclude=kn003
+#SBATCH --exclude=kn001
 cd ~
 export PATH=\$HOME/.local/bin/:\$PATH
 cd ~/projects/aip-rgrosse/zhaostep/OpenRLHF
@@ -314,6 +314,7 @@ EOL
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=1
+#SBATCH --exclude=kn001
 cd ~
 export PATH=\$HOME/.local/bin/:\$PATH
 cd ~/projects/aip-rgrosse/zhaostep/OpenRLHF
