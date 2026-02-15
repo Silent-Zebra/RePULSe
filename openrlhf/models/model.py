@@ -454,7 +454,7 @@ def _get_reward_model_custom(
                 assert return_output == False
                 # print("--FORWARD CALL--")
                 # print(input_ids.device)
-                text = self.tokenizer_base.batch_decode(input_ids)
+                text = self.tokenizer_base.batch_decode(input_ids, skip_special_tokens=True)
                 print("text questions and answers (combined):")
                 print(text)
 
