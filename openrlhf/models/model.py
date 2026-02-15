@@ -400,8 +400,8 @@ def _get_reward_model_custom(
                     # print("RM TOKENS")
                     # print(tokens, flush=True)
 
-                    input_ids = tokens["input_ids"].to(device)
-                    attention_mask = tokens["attention_mask"].to(device)
+                    input_ids = tokens["input_ids"][:, :self.rm_max_len].to(device)
+                    attention_mask = tokens["attention_mask"][:, :self.rm_max_len].to(device)
 
 
                     with torch.no_grad():
@@ -462,8 +462,8 @@ def _get_reward_model_custom(
                 # print(tokens)
                 # print(tokens['input_ids'].device)
                 # print(tokens['attention_mask'].device)
-                r = self.rm(input_ids=tokens['input_ids'].to(input_ids.device),
-                      attention_mask=tokens['attention_mask'].to(input_ids.device)).logits.squeeze()
+                r = self.rm(input_ids=tokens['input_ids'][:, :self.rm_max_len].to(input_ids.device),
+                      attention_mask=tokens['attention_mask'][:, :self.rm_max_len].to(input_ids.device)).logits.squeeze()
                 # print(rew)
                 # print("--MEAN OF REWARDS--")
                 # print(rew.mean())
