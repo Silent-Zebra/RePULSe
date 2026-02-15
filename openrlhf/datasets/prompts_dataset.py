@@ -11,6 +11,18 @@ def preprocess_data(data, input_template=None, input_key="input", label_key=None
         prompt = apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
     else:
         prompt = data[input_key]
+        # Handle chat-formatted data (list of dicts) even without apply_chat_template
+        if isinstance(prompt, list):
+            try:
+                assert all(isinstance(msg, dict) and "content" in msg for msg in prompt), \
+                    f"Expected list of dicts with 'content' key, got: {prompt}"
+                prompt = " ".join(msg["content"] for msg in prompt)
+            except Exception as e:
+                raise ValueError(
+                    f"Prompt is a list but not in expected chat format (list of dicts with 'content' key). "
+                    f"Either pass --apply_chat_template or use a dataset with string prompts. "
+                    f"Raw value: {prompt}"
+                ) from e
         if input_template:
             prompt = input_template.format(prompt)
 
