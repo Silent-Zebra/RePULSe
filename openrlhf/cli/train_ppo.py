@@ -436,6 +436,17 @@ def train(args):
     true_target_samples_by_prompt = None
     prompt_texts_from_target_samples = None
     if args.load_target_samples_name is not None:
+        # Validate that reward_clamp in filename matches the current --reward_clamp arg
+        import re as _re
+        _rc_match = _re.search(r'_rc([\d.]+)', args.load_target_samples_name)
+        if _rc_match and args.reward_clamp is not None:
+            _rc_in_filename = float(_rc_match.group(1))
+            if _rc_in_filename != float(args.reward_clamp):
+                raise ValueError(
+                    f"Mismatch between reward_clamp in target samples filename "
+                    f"(rc={_rc_in_filename}) and --reward_clamp={args.reward_clamp}. "
+                    f"File: {args.load_target_samples_name}"
+                )
         strategy.print("Loading true target samples")
         device = next(actor.parameters()).device
         true_target_samples_by_prompt, prompt_texts_from_target_samples = load_target_samples(
