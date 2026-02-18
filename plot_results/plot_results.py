@@ -17,6 +17,7 @@ import scipy.stats as stats
 import torch
 
 from plot_utils import make_list, do_load_prefixes, generate_labels_from_prefixes, to_scalar, compute_global_logZ_from_iwae_bounds, compute_approx_kl_from_f_q_g_q
+from make_frontier import make_frontier_exact_kl_bootstrap
 
 # Color and linestyle lists (defined early for use in plotting functions)
 color_list_for_variances = ['xkcd:light blue', 'xkcd:light green', 'xkcd:light orange', 'xkcd:light red',
@@ -30,6 +31,26 @@ color_list_for_fqs = [
 ] * 5
 
 linestyle_list = ['solid', 'dashed', 'dotted', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))] * 5
+marker_list_default = ["D", "x", "^", "o", "P", "v", "s", "p", "h", "*", "d", "8"] * 5
+
+MARKER_NO_BONUS = "x"
+MARKER_CFN = "P"
+
+
+def _build_frontier_marker_list(load_prefixes_to_use):
+    """Build a marker list distinguishing CFN experiments from no-bonus experiments.
+
+    Detects CFN by checking for '_cf' followed by a digit in the first prefix of each experiment.
+    """
+    import re
+    markers = []
+    for prefix_list in load_prefixes_to_use:
+        first_prefix = prefix_list[0] if prefix_list else ""
+        if re.search(r'_cf\d', first_prefix):
+            markers.append(MARKER_CFN)
+        else:
+            markers.append(MARKER_NO_BONUS)
+    return markers
 
 
 def plot_with_conf_bounds(ax, record, x_range, label, **kwargs):
@@ -621,10 +642,10 @@ def compute_approx_kl_over_time(loaded_data, global_logZ):
     return results_list
 
 
-def plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7, load_dir="./info"):
+def plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7, load_dir="./info", n_frontiers=1, frontier_legendfontsize=None):
     """
     Plot approximate KL divergence metrics over time from f_q/g_q/IWAE bound files.
-    
+
     Args:
         load_prefixes_to_use: List of lists of prefixes for f_q_g_q files
         labels: List of labels for each series
@@ -632,16 +653,17 @@ def plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, 
         x_range: X-axis range
         fontsize: Font size
         load_dir: Directory to load files from
+        n_frontiers: Number of frontier plots to generate at evenly-spaced training checkpoints
     """
     # Load f_q/g_q files
     loaded_data = load_f_q_g_q_files_over_time(load_prefixes_to_use, load_dir=load_dir)
-    
+
     # Check if we have any data
     has_data = any(len(exp_data) > 0 for exp_data in loaded_data)
     if not has_data:
         print(f"Warning: No f_q/g_q data found, skipping KL plots")
         return
-    
+
     # Compute global log Z
     try:
         global_logZ = compute_global_logZ_from_iwae_bounds(loaded_data)
@@ -649,27 +671,75 @@ def plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, 
     except ValueError as e:
         print(f"Warning: Failed to compute global log Z: {e}, skipping KL plots")
         return
-    
+
     # Compute KL estimates over time
+    # kl_results_list[exp_i] = list of (kl_sigma_q_array, kl_q_sigma_array) per seed
     kl_results_list = compute_approx_kl_over_time(loaded_data, global_logZ)
-    
+
     # Check if we have any results
     has_results = any(len(row) > 0 for row in kl_results_list)
     if not has_results:
         print(f"Warning: No KL results computed, skipping KL plots")
         return
-    
+
     # Plot KL(sigma|q) = KL(target|proposal) from index 0
     plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
-                          index_to_use=0, plot_name="kl_sigma_q", 
+                          index_to_use=0, plot_name="kl_sigma_q",
                           ylabel=r"KL($\sigma$|q) = KL(target|proposal)",
                           file_type_suffix="", load_prefixes_to_use=load_prefixes_to_use)
-    
+
     # Plot KL(q|sigma) = KL(proposal|target) from index 1
     plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
-                          index_to_use=1, plot_name="kl_q_sigma", 
+                          index_to_use=1, plot_name="kl_q_sigma",
                           ylabel=r"KL(q|$\sigma$) = KL(proposal|target)",
                           file_type_suffix="", load_prefixes_to_use=load_prefixes_to_use)
+
+    # Frontier plots at training checkpoints
+    if n_frontiers > 0:
+        print(f"\nGenerating {n_frontiers} frontier plot(s) (aggregated path)...")
+        frontier_marker_list = _build_frontier_marker_list(load_prefixes_to_use)
+        effective_frontier_legendfontsize = frontier_legendfontsize if frontier_legendfontsize is not None else fontsize
+
+        # Determine max trajectory length across all experiments and seeds
+        # Each element is (kl_sigma_q_array, kl_q_sigma_array) with shape (T,)
+        max_T = 0
+        for exp_data in kl_results_list:
+            for kl_sigma_q_arr, kl_q_sigma_arr in exp_data:
+                max_T = max(max_T, len(kl_sigma_q_arr), len(kl_q_sigma_arr))
+
+        if max_T > 0:
+            frontier_indices = [round((max_T - 1) * i / n_frontiers)
+                                for i in range(1, n_frontiers + 1)]
+            # Deduplicate while preserving order
+            seen = set()
+            unique_frontier_indices = []
+            for idx in frontier_indices:
+                if idx not in seen:
+                    seen.add(idx)
+                    unique_frontier_indices.append(idx)
+            frontier_indices = unique_frontier_indices
+
+            for t_idx in frontier_indices:
+                frontier_results = []  # frontier_results[exp_i] = list of (kl_sigma_q, kl_q_sigma) per seed
+                for exp_data in kl_results_list:
+                    seed_data = []
+                    for kl_sigma_q_arr, kl_q_sigma_arr in exp_data:
+                        if t_idx >= len(kl_sigma_q_arr) or t_idx >= len(kl_q_sigma_arr):
+                            continue  # seed hasn't reached this timestep
+                        # make_frontier_exact_kl_bootstrap expects t[0] = kl_sigma_q, t[1] = kl_q_sigma
+                        seed_data.append((np.array([kl_sigma_q_arr[t_idx]]), np.array([kl_q_sigma_arr[t_idx]])))
+                    frontier_results.append(seed_data)
+
+                make_frontier_exact_kl_bootstrap(
+                    xlabel=r"KL($\sigma$|q)", ylabel=r"KL(q|$\sigma$)",
+                    figname=f"{figname_modifier}_frontier_kl_t{t_idx}.pdf",
+                    labels=labels, results_list=frontier_results,
+                    color_list=color_list_for_fqs, marker_list=frontier_marker_list,
+                    aggregate_seeds=True, fontsize=fontsize,
+                    legendfontsize=effective_frontier_legendfontsize,
+                )
+        else:
+            print("Warning: max_T=0, skipping frontier plots")
 
 
 def _truncate_and_stack(arrays, context=""):
@@ -948,6 +1018,8 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
     x_range=None, fontsize=7, load_dir="./info",
     individual_prompt_plots=True,
     random_f_q_ylim_low=None,
+    n_frontiers=1,
+    frontier_legendfontsize=None,
 ):
     """
     Plot per-prompt and summary KL divergence metrics from multiprompt v2 f_q/g_q data.
@@ -1065,13 +1137,16 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
 
     # ---- 2. Summary plots (mean KL across prompts per seed, CI over seeds) ----
     print("\nGenerating summary KL plots...")
-    for kl_idx, (kl_name, kl_ylabel) in enumerate([
+
+    # Pre-compute summary trajectories for both KL directions:
+    # all_summary_kl[kl_idx][exp_i] = list of mean_traj arrays (one per seed)
+    kl_names_and_ylabels = [
         ("kl_q_sigma", r"KL(q|$\sigma$) mean over prompts"),
         ("kl_sigma_q", r"KL($\sigma$|q) mean over prompts"),
-    ]):
-        # Build results_list compatible with plot_results_over_time:
-        # results_list[exp_i] = list of seeds, each seed is a tuple where index kl_idx gives array (T,)
-        summary_results_list = []
+    ]
+    all_summary_kl = [[] for _ in range(len(kl_names_and_ylabels))]
+
+    for kl_idx, (kl_name, _) in enumerate(kl_names_and_ylabels):
         for exp_i in range(len(all_kl_data)):
             seed_means = []
             for seed_j in range(len(all_kl_data[exp_i])):
@@ -1087,13 +1162,15 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
                     stacked = _truncate_and_stack(per_prompt_arrays, context=f"prompts in seed {seed_j}, {kl_name}")  # (n_prompts, T)
                     mean_traj = np.nanmean(stacked, axis=0)  # (T,)
                     seed_means.append(mean_traj)
-            summary_results_list.append(seed_means)
+            all_summary_kl[kl_idx].append(seed_means)
 
+    # Plot summary time series (same as before, using stored trajectories)
+    for kl_idx, (kl_name, kl_ylabel) in enumerate(kl_names_and_ylabels):
         fig, ax = plt.subplots()
-        for exp_i in range(len(summary_results_list)):
-            if not summary_results_list[exp_i]:
+        for exp_i in range(len(all_summary_kl[kl_idx])):
+            if not all_summary_kl[kl_idx][exp_i]:
                 continue
-            np_results = _truncate_and_stack(summary_results_list[exp_i], context=f"seeds for summary {kl_name}, series '{labels[exp_i]}'")  # (n_seeds, T)
+            np_results = _truncate_and_stack(all_summary_kl[kl_idx][exp_i], context=f"seeds for summary {kl_name}, series '{labels[exp_i]}'")  # (n_seeds, T)
             x_range_adj = x_range[:np_results.shape[1]] if len(x_range) > np_results.shape[1] else x_range
             plot_with_conf_bounds(ax, np_results, x_range_adj, label=labels[exp_i],
                                   color=color_list_for_fqs[exp_i],
@@ -1108,6 +1185,62 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
         plt.savefig(figname)
         plt.clf()
         plt.close(fig)
+
+    # ---- 2b. Frontier plots at training checkpoints ----
+    if n_frontiers > 0:
+        print(f"\nGenerating {n_frontiers} frontier plot(s)...")
+        frontier_marker_list = _build_frontier_marker_list(load_prefixes_to_use)
+        effective_frontier_legendfontsize = frontier_legendfontsize if frontier_legendfontsize is not None else fontsize
+
+        # Determine max trajectory length across all experiments and seeds
+        max_T = 0
+        for kl_idx in range(2):
+            for exp_i in range(len(all_summary_kl[kl_idx])):
+                for traj in all_summary_kl[kl_idx][exp_i]:
+                    max_T = max(max_T, len(traj))
+
+        if max_T > 0:
+            frontier_indices = [round((max_T - 1) * i / n_frontiers)
+                                for i in range(1, n_frontiers + 1)]
+            # Deduplicate while preserving order
+            seen = set()
+            unique_frontier_indices = []
+            for idx in frontier_indices:
+                if idx not in seen:
+                    seen.add(idx)
+                    unique_frontier_indices.append(idx)
+            frontier_indices = unique_frontier_indices
+
+            for t_idx in frontier_indices:
+                frontier_results = []  # frontier_results[exp_i] = list of (kl_sigma_q, kl_q_sigma) per seed
+                n_exp = len(all_summary_kl[0])
+                for exp_i in range(n_exp):
+                    seed_data = []
+                    n_seeds = len(all_summary_kl[0][exp_i])
+                    for seed_j in range(n_seeds):
+                        # all_summary_kl[0] = kl_q_sigma, all_summary_kl[1] = kl_sigma_q
+                        kl_q_sigma_traj = all_summary_kl[0][exp_i][seed_j] if seed_j < len(all_summary_kl[0][exp_i]) else None
+                        kl_sigma_q_traj = all_summary_kl[1][exp_i][seed_j] if seed_j < len(all_summary_kl[1][exp_i]) else None
+                        if kl_q_sigma_traj is None or kl_sigma_q_traj is None:
+                            continue
+                        if t_idx >= len(kl_q_sigma_traj) or t_idx >= len(kl_sigma_q_traj):
+                            continue  # seed hasn't reached this timestep, skip it
+                        kl_q_sigma_val = kl_q_sigma_traj[t_idx]
+                        kl_sigma_q_val = kl_sigma_q_traj[t_idx]
+                        # make_frontier_exact_kl_bootstrap expects t[0] = kl_sigma_q, t[1] = kl_q_sigma
+                        seed_data.append((np.array([kl_sigma_q_val]), np.array([kl_q_sigma_val])))
+                    frontier_results.append(seed_data)
+
+                make_frontier_exact_kl_bootstrap(
+                    xlabel=r"KL($\sigma$|q)", ylabel=r"KL(q|$\sigma$)",
+                    figname=os.path.join(per_prompt_dir, f"frontier_kl_t{t_idx}.pdf"),
+                    labels=labels, results_list=frontier_results,
+                    color_list=color_list_for_fqs, marker_list=frontier_marker_list,
+                    aggregate_seeds=True, fontsize=fontsize,
+                    legendfontsize=effective_frontier_legendfontsize,
+                )
+        else:
+            print("Warning: max_T=0, skipping frontier plots")
 
     # ---- 3. Random f_q average plot ----
     print("\nGenerating random f_q plot...")
@@ -2284,28 +2417,29 @@ random_f_q_ylim_low = 150
 
 load_prefixes_to_use = [
 # for x in $(ls info/noitmultitesttoy/ | grep f_q | grep _s2 | grep rc10 ); do echo make_list\(\"$x\", 1,10\)\,; done
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl0.0_ppq_tb200_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-06_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-06_bl0.0_ppq_tb200_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl0.0_ppq_tb200_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl0.0_ppq_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-06_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-06_bl0.0_ppq_tb200_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-07_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-07_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-07_bl0.0_ppq_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-07_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-07_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-07_bl0.0_ppq_tb200_s2", 1,10),
 
 ]
 threshold = -5
-figname_modifier = "len20_noit_multitoy_02_18_b-20"
+figname_modifier = "len20_noit_multitoy_02_18_b-20_v3"
 target_samples_path = "info/target_samples_Sm13_To_rlhf_l20_b-20.0_rc10.0_miprAL_tsa34.pt"
 individual_prompt_plots = False
 random_f_q_ylim_low = 150
+n_frontiers = 4
 
 
 
@@ -2316,8 +2450,8 @@ make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-05_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-05_bl0.0_ppq_tb250_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-06_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1,10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-06_bl0.0_ppq_tb250_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-06_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-06_bl0.0_ppq_tb250_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-05_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-05_bl0.0_ppq_tb250_s2", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-06_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1,10),
@@ -2325,13 +2459,17 @@ make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13_To_20misi1_l20_kl0.0_b-
 
 ]
 threshold = -5
-figname_modifier = "len20_noit_multi_02_18_b-20"
+figname_modifier = "len20_noit_multi_02_18_b-20_v2"
 target_samples_path = "info/target_samples_Sm13_To_rlhf_l20_b-20.0_rc10.0_20misi1_tsa100.pt"
 individual_prompt_plots = False
 random_f_q_ylim_low = 150
+n_frontiers = 4
+
 
 
 random_f_q_ylim_low = random_f_q_ylim_low if 'random_f_q_ylim_low' in vars() else None
+n_frontiers = n_frontiers if 'n_frontiers' in vars() else 1
+frontier_legendfontsize = frontier_legendfontsize if 'frontier_legendfontsize' in vars() else None
 labels = generate_labels_from_prefixes(load_prefixes_to_use)
 
 
@@ -2362,11 +2500,13 @@ elif use_f_q_g_q:
             target_samples_path=target_samples_path,
             x_range=None, fontsize=fontsize,
             individual_prompt_plots=individual_prompt_plots,
-            random_f_q_ylim_low=random_f_q_ylim_low)
+            random_f_q_ylim_low=random_f_q_ylim_low,
+            n_frontiers=n_frontiers,
+            frontier_legendfontsize=frontier_legendfontsize)
     else:
         # Aggregated path (original): single global log Z
         print("\nPlotting approximate KL divergences from f_q/g_q files...")
-        plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
+        plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize, n_frontiers=n_frontiers, frontier_legendfontsize=frontier_legendfontsize)
 else:
     # Process both base and sampling file types
     for file_type_suffix in ["base", "sampling"]:

@@ -156,10 +156,10 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             if al_match:
                 label_parts.append(f"{al_match.group(1)} LR (q)")
 
-            # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
-            epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
-            if epi_match:
-                label_parts.append(f"ep={epi_match.group(1)}")
+            # # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
+            # epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
+            # if epi_match:
+            #     label_parts.append(f"ep={epi_match.group(1)}")
 
             # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
             tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
@@ -175,10 +175,10 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             if al_match:
                 label_parts.append(f"{al_match.group(1)} LR (q)")
 
-            # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
-            epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
-            if epi_match:
-                label_parts.append(f"ep={epi_match.group(1)}")
+            # # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
+            # epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
+            # if epi_match:
+            #     label_parts.append(f"ep={epi_match.group(1)}")
 
             # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
             tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
