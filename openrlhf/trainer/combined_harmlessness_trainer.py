@@ -534,9 +534,9 @@ class CombinedHarmlessnessTrainer(ABC):
         if rewards_list is None:
             rewards_list = []
         if kl_vals_list is None:
-            kl_vals_list = []
+            kl_vals_list = []  # NOTE: Currently never populated; placeholder for future KL-to-prior tracking
         if entropy_list is None:
-            entropy_list = []
+            entropy_list = []  # NOTE: Currently never populated; placeholder for future entropy tracking
         if untrans_ret_list is None:
             untrans_ret_list = []
         if rewards_list_sampling is None:
@@ -826,7 +826,7 @@ class CombinedHarmlessnessTrainer(ABC):
                                                   pbar, status_list, neg_sampling_train_only=True)
                 else:
                     # do combined train of p and q
-                    # assert len(dataloader) == len(dataloader_neg)
+                    assert len(dataloader) == len(dataloader_neg)
                     pbar = tqdm(
                         zip(dataloader, dataloader_neg),  # Zip both dataloaders
                         desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
@@ -837,6 +837,15 @@ class CombinedHarmlessnessTrainer(ABC):
                         self.train_on_experiences(custom_prompt, device, experience, experience_neg_sampling, global_steps,
                                                   pbar, status_list)
             else:
+                # When separate_neg_samples=False (e.g. base_actor_loss_type="reinforce" or
+                # use_base_as_proposal=True), p and q samples come from the same dataloader.
+                # neg_sample_only=True means we have no base dataloader, so there's nothing to iterate.
+                if neg_sample_only:
+                    raise ValueError(
+                        "neg_sample_only=True is incompatible with separate_neg_samples=False: "
+                        "no base dataloader was created, but the non-separate path requires one. "
+                        "This can happen with base_actor_loss_type='reinforce' and base_actor_learning_rate=0."
+                    )
                 pbar = tqdm(
                     dataloader,
                     desc=f"Train epoch [{epoch + 1}/{self.max_epochs}]",
@@ -884,9 +893,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 "bkl": status["base_kl"],
                 "bact_lr": status["base_actor_lr"],
             }
-
-            if "base_policy_loss" in status:
-                short_status["bpg"] = status["base_policy_loss"]
 
         if "sampling_reward" in status:
             sampling_short_status = {
@@ -1225,6 +1231,12 @@ class CombinedHarmlessnessTrainer(ABC):
             print("NORMALIZED POSITIVE WEIGHTS")
             print(normalized_w_t_approx_sigma_samples)
 
+            # Zero out IS weights for samples that don't satisfy the indicator function,
+            # consistent with the neg_training path above. Without this, all samples get
+            # equal weights even if none satisfy the indicator, causing undesired gradient updates.
+            if self.rm_type == "indicator_below_threshold":
+                normalized_w_t_approx_sigma_samples = normalized_w_t_approx_sigma_samples * (torch.exp(final_reward_neg) > INDICATOR_REWARD_EPS * 2)
+
             actor_loss = self.base_actor_loss_fn(
                 action_log_probs,
                 action_log_probs_neg,
@@ -1429,7 +1441,11 @@ class CombinedHarmlessnessTrainer(ABC):
         # return critic_loss
 
 
-    def save_logs_and_checkpoints(self, args, global_step, step_bar, logs_dict={}, client_states={}):
+    def save_logs_and_checkpoints(self, args, global_step, step_bar, logs_dict=None, client_states=None):
+        if logs_dict is None:
+            logs_dict = {}
+        if client_states is None:
+            client_states = {}
         if global_step % args.logging_steps == 0:
             # wandb
             if self._wandb is not None and self.strategy.is_rank_0():
@@ -1499,8 +1515,7 @@ class CombinedHarmlessnessTrainer(ABC):
             )
 
         elif args.parameterization in ["modulation_linear_head", "modulation_nn_head"]:
-            save_path = os.path.join(args.ckpt_path, f"{save_str}_actor")
-
+            save_path = os.path.join(args.ckpt_path, f"{save_str}_actor_step{tag}")
             torch.save(self.sampling_actor.modulation_head.state_dict(), save_path)
 
 

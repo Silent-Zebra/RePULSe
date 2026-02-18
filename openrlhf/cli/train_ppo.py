@@ -102,7 +102,7 @@ def train(args):
             use_flash_attention_2=args.flash_attn,
             bf16=args.bf16,
             load_in_4bit=args.load_in_4bit,
-            ds_config=strategy.get_ds_eval_config(offload=False),
+            ds_config=strategy.get_ds_train_config(is_actor=True),
         )
         critic = None
 
@@ -322,7 +322,7 @@ def train(args):
             lora_alpha=args.lora_alpha,
             target_modules=args.target_modules,
             lora_dropout=args.lora_dropout,
-            ds_config=strategy.get_ds_train_config(is_actor=True),
+            ds_config=strategy.get_ds_eval_config(offload=False),
         )
         # Freeze the frozen prior network
         for param in coin_flip_frozen_prior_network.parameters():
@@ -416,6 +416,12 @@ def train(args):
     os.makedirs(args.save_info_path, exist_ok=True)
 
 
+    # Check incompatible flags before the only_evaluate_on_neg_data early exit,
+    # since that path would exit before reaching the rejection_sample_true_target_only block.
+    if args.only_evaluate_on_neg_data and getattr(args, 'rejection_sample_true_target_only', False):
+        if not args.new_custom_single_prompt:
+            raise ValueError("Cannot use --rejection_sample_true_target_only with --only_evaluate_on_neg_data when not using --new_custom_single_prompt")
+
     if args.only_evaluate_on_neg_data:
 
         _ = do_load_checkpoints(args, actor, critic, strategy)
@@ -442,9 +448,15 @@ def train(args):
         # Validate that reward_clamp in filename matches the current --reward_clamp arg
         import re as _re
         _rc_match = _re.search(r'_rc([\d.]+)', args.load_target_samples_name)
-        if _rc_match and args.reward_clamp is not None:
+        if _rc_match:
             _rc_in_filename = float(_rc_match.group(1))
-            if _rc_in_filename != float(args.reward_clamp):
+            if args.reward_clamp is None:
+                raise ValueError(
+                    f"Target samples filename contains rc={_rc_in_filename} but "
+                    f"--reward_clamp is not set. This likely indicates mismatched settings. "
+                    f"File: {args.load_target_samples_name}"
+                )
+            elif _rc_in_filename != float(args.reward_clamp):
                 raise ValueError(
                     f"Mismatch between reward_clamp in target samples filename "
                     f"(rc={_rc_in_filename}) and --reward_clamp={args.reward_clamp}. "
@@ -478,9 +490,9 @@ def train(args):
         # Ensure we have prompts_dataloader set up (if not using custom prompt)
         prompts_dataloader = None
         if not args.new_custom_single_prompt:
-            if args.only_evaluate_on_neg_data:
-                raise ValueError("Cannot use --rejection_sample_true_target_only with --only_evaluate_on_neg_data when not using --new_custom_single_prompt")
             # Get prompts dataset
+            # NOTE: This re-calls get_prompts_data (already called at line 243), but this is a
+            # one-off rejection sampling path that exits immediately after, so the redundancy is minor.
             pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
             prompts_dataloader = strategy.setup_dataloader(
                 prompts_dataset, args.micro_rollout_batch_size, True, True, drop_last=False
@@ -643,6 +655,7 @@ def train(args):
             tokenizer=tokenizer,
             prompt_text=prompt,
             batch_size=args.analytic_batch_size,
+            actor_model=base_actor,
         )
         strategy.print(f"Precomputed toxicity scores shape: {precomputed_toxicity_scores.shape}")
         strategy.print(f"Toxicity scores range: [{precomputed_toxicity_scores.min().item():.4f}, {precomputed_toxicity_scores.max().item():.4f}]")
@@ -1169,13 +1182,13 @@ def train(args):
                     max_sigma_exceeds_list.append(max_sigma_exceeds)
 
         if not args.neg_sample_only:
-            if rewards_list is not None:
+            if rewards_list is not None and len(rewards_list) > 0:
                 rewards_tensor = torch.tensor(rewards_list)
                 if fit_step == 0:
                     rew_over_time_list_base.append(rewards_tensor[0].item()) # Get value at start of training
                 rew_over_time_list_base.append(rewards_tensor[-1].item())
 
-            if untrans_ret_list is not None:
+            if untrans_ret_list is not None and len(untrans_ret_list) > 0:
                 untrans_ret_tensor = torch.tensor(untrans_ret_list)
                 if fit_step == 0:
                     untrans_ret_over_time_list_base.append(untrans_ret_tensor[0].item()) # Get value at start of training
@@ -1315,7 +1328,9 @@ def train(args):
     else:
         actor_to_test = actor
         initial_model = base_actor
-    if (args.evaluate_heldout_sampling is not None and args.evaluate_heldout_sampling in ("end", "each_fit_step")) or args.evaluate_on_neg_data:
+    # Only enter this block for "end" mode or evaluate_on_neg_data. "each_fit_step" evaluation
+    # was already handled during the training loop and doesn't need post-training setup.
+    if (args.evaluate_heldout_sampling is not None and args.evaluate_heldout_sampling == "end") or args.evaluate_on_neg_data:
         args.rm_type = "rlhf"
         args.target_dist_beta = 1
         args.reward_transform = None
@@ -1325,13 +1340,13 @@ def train(args):
             is_rlhf=True,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
-        if args.evaluate_heldout_sampling == "each_fit_step" and not args.new_custom_single_prompt:
-            assert args.heldout_prompt_data is not None
-            assert args.heldout_input_key is not None
         args.no_critic = True
         critic, critic_optim, critic_scheduler = None, None, None
         actor_optim, actor_scheduler = None, None
         args.parameterization = "policy"
+        # NOTE: Mutating args.prompt_data etc. so that downstream functions (e.g. get_prompts_data,
+        # do_evaluate_heldout_sampling) load heldout data instead of training data. This is fragile:
+        # any code after this point that calls get_prompts_data(args, ...) will get heldout data.
         args.prompt_data = args.heldout_prompt_data
         args.prompt_split = args.heldout_prompt_split
         args.input_key = args.heldout_input_key
@@ -1400,30 +1415,19 @@ def do_analytic_kl_calc(
     Returns:
         metrics_dict: Dictionary containing metrics from the calculation
     """
-    if args.do_harmlessness_training:
-        # For harmlessness training, actor is the sampling_actor (q) and base_actor is p
-        kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
-            model_p_for_target=base_actor.model,
-            model_q=actor.model,
-            tokenizer=tokenizer,
-            prompt_text=prompt,
-            target_dist_beta=args.target_dist_beta,
-            precomputed_toxicity_scores=precomputed_toxicity_scores,
-            total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
-            total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
-        )
-    else:
-        # For non-harmlessness training, just use the standard actor
-        kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
-            model_p_for_target=base_actor.model,
-            model_q=actor.model,
-            tokenizer=tokenizer,
-            prompt_text=prompt,
-            target_dist_beta=args.target_dist_beta,
-            precomputed_toxicity_scores=precomputed_toxicity_scores,
-            total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
-            total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
-        )
+    # For harmlessness training, actor is the sampling_actor (q) and base_actor is p.
+    # For non-harmlessness training, actor is the standard actor and base_actor is p.
+    # Both paths use the same arguments.
+    kl_sigma_q, kl_q_sigma, metrics_dict = calculate_analytic_kl_toxicity_single_token(
+        model_p_for_target=base_actor.model,
+        model_q=actor.model,
+        tokenizer=tokenizer,
+        prompt_text=prompt,
+        target_dist_beta=args.target_dist_beta,
+        precomputed_toxicity_scores=precomputed_toxicity_scores,
+        total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
+        total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
+    )
     metrics_list_analytic.append(metrics_dict)
     return metrics_dict
 
@@ -1545,7 +1549,11 @@ def _compute_bad_word_sequence_log_probs(
             )
 
             # Get log probabilities for all tokens at t=1, conditioned on (prompt + good_word_j)
-            log_probs_t1 = get_next_token_log_probs(model, batch_inputs_t1)  # Shape: (current_batch_size, n_vocab)
+            # Note: we inline the forward + log_softmax instead of using get_next_token_log_probs,
+            # because that utility squeezes the batch dim when batch_size==1, which would break
+            # the 2D indexing below when the last chunk has exactly 1 element.
+            outputs_t1 = model(batch_inputs_t1)
+            log_probs_t1 = F.log_softmax(outputs_t1.logits[:, -1, :], dim=-1)  # Shape: (current_batch_size, n_vocab)
 
             # Select log probabilities of bad words at t=1
             log_probs_bad_at_t1 = log_probs_t1[:, bad_word_indices_tensor]  # Shape: (current_batch_size, n_bad_words)
@@ -1701,8 +1709,8 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     generate_max_len: int,
     total_kl_sigma_q_list: List[float],
     total_kl_q_sigma_epsq_p_list: List[float],
-    precomputed_p: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None,
-    precomputed_q: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None,
+    precomputed_p: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]] = None,
+    precomputed_q: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]] = None,
 ) -> Tuple[float, float]:
     """
     Calculates the analytic KL divergence in both directions between target distributions and q(x), the proposal distribution,
@@ -1797,6 +1805,12 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
         - max_sigma_exceeds: tuple (log_diff, t0_token, t1_token, log_q_val, log_sigma_val) for smallest log(q(x)) - log(sigma_p(x)) (i.e., largest log(sigma_p(x)) - log(q(x)))
     """
 
+    # This function's body hardcodes Case 1 + Case 2 structure assuming 2 output tokens.
+    assert generate_max_len == 2, (
+        f"calculate_analytic_kl_indicator_bad_words_both_directions only supports generate_max_len=2, "
+        f"got {generate_max_len}"
+    )
+
     # Use precomputed values if available, otherwise compute them
     if precomputed_p is not None:
         prompt_ids_p, bad_word_indices_tensor, good_word_indices, log_probs_p_t0, log_probs_p_case2 = precomputed_p
@@ -1828,9 +1842,10 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     log_probs_p_bad_t0 = extract_log_probs_at_position_based_on_token_indices(
         outputs_case1_p, position=-2, token_indices=bad_word_indices_tensor
     )
-    log_probs_p_t1_case1 = get_next_token_log_probs(model_p_for_target, batch_inputs_case1_p)
+    # Reuse outputs from the forward pass above to get next-token (t=1) log probs
+    log_probs_p_t1_case1 = F.log_softmax(outputs_case1_p.logits[:, -1, :], dim=-1)  # Shape: [n_bad_words, n_vocab]
     log_probs_p_case1 = log_probs_p_bad_t0.unsqueeze(1) + log_probs_p_t1_case1  # Shape: [n_bad_words, n_vocab]
-    
+
     # For model q: compute sequences with bad word at t=0, any word at t=1
     batch_prompts_case1_q = prompt_ids_q.repeat(n_bad_words, 1)
     batch_inputs_case1_q = torch.cat(
@@ -1840,7 +1855,8 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     log_probs_q_bad_t0 = extract_log_probs_at_position_based_on_token_indices(
         outputs_case1_q, position=-2, token_indices=bad_word_indices_tensor
     )
-    log_probs_q_t1_case1 = get_next_token_log_probs(model_q, batch_inputs_case1_q)
+    # Reuse outputs from the forward pass above to get next-token (t=1) log probs
+    log_probs_q_t1_case1 = F.log_softmax(outputs_case1_q.logits[:, -1, :], dim=-1)  # Shape: [n_bad_words, n_vocab]
     log_probs_q_case1 = log_probs_q_bad_t0.unsqueeze(1) + log_probs_q_t1_case1  # Shape: [n_bad_words, n_vocab]
 
     # Calculate log normalizing constant: log Z = log sum_x ~sigma_p(x)
@@ -1854,14 +1870,15 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     log_probs_sigma_p_case2 = log_probs_p_case2 - log_Z  # Shape: (n_good_words, n_bad_words)
     
     # For Case 1: We need log probabilities at t=0 only for each bad word
-    # log_probs_p_t0 and log_probs_q_t0 are already the conditional probabilities at t=0
     # For sigma_p at t=0, we need to normalize: log sigma_p(bad_word at t=0) = log p(bad_word at t=0) - log_Z_t0
     # where log_Z_t0 = logsumexp over all bad words at t=0 of p(bad_word at t=0)
     # Actually wait, sigma_p is normalized over all sequences with bad words, not just t=0
     # So log sigma_p(bad_word at t=0) = logsumexp over t=1 of log sigma_p(bad_word at t=0, t1)
     # = logsumexp(log_probs_sigma_p_case1[bad_idx, :])
     log_probs_sigma_p_t0 = torch.logsumexp(log_probs_sigma_p_case1, dim=1)  # Shape: (n_bad_words,) - marginal over t=1
-    log_probs_q_t0 = torch.logsumexp(log_probs_q_case1, dim=1)  # Shape: (n_bad_words,) - marginal over t=1
+    # Note: this shadows the full-vocab log_probs_q_t0 from _compute_bad_word_sequence_log_probs above,
+    # replacing it with the bad-word-marginal (shape (n_bad_words,)). The original is not used further.
+    log_probs_q_t0_marginal = torch.logsumexp(log_probs_q_case1, dim=1)  # Shape: (n_bad_words,) - marginal over t=1
 
     # Calculate normalized probabilities: sigma_p(x) = exp(log sigma_p(x)) (needed for KL)
     probs_sigma_p_case1 = torch.exp(log_probs_sigma_p_case1)
@@ -1893,7 +1910,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
         token_id = bad_word_id.item()
         # Case 1: log difference for this bad word at t=0 only (marginal probability over t=1)
         # This gives us log(q(bad_word appears at t=0)) - log(sigma_p(bad_word appears at t=0))
-        diff_by_bad_word_case1[token_id] = (log_probs_q_t0[bad_idx] - log_probs_sigma_p_t0[bad_idx]).item()
+        diff_by_bad_word_case1[token_id] = (log_probs_q_t0_marginal[bad_idx] - log_probs_sigma_p_t0[bad_idx]).item()
         
         # Case 2: sum log differences for this bad word at t=1 (over all good words at t=0)
         # This gives us sum over good_words of [log(q(good_word at t=0, bad_word at t=1)) - log(sigma_p(good_word at t=0, bad_word at t=1))]
@@ -2039,32 +2056,42 @@ def precompute_toxicity_scores_for_all_tokens(
     tokenizer: AutoTokenizer,
     prompt_text: str,
     batch_size: int,
+    actor_model=None,
 ) -> torch.Tensor:
     """
     Precompute toxicity scores for all n_vocab tokens by creating sequences with each token
     at position t=0 and passing them through the reward model.
-    
+
     Args:
         reward_model: The reward model to use for scoring
         tokenizer: Tokenizer for the model
         prompt_text: The prompt text
         batch_size: Batch size for processing
-        
+        actor_model: Actor model (used to determine vocab size from model.config.vocab_size
+            for consistency with calculate_analytic_kl_toxicity_single_token). If None,
+            falls back to tokenizer.vocab_size.
+
     Returns:
         Tensor of shape (n_vocab,) containing toxicity scores for each token
     """
     device = torch.cuda.current_device() if torch.cuda.is_available() else torch.device("cpu")
     if isinstance(device, int):
         device = torch.device(f"cuda:{device}")
-    
+
     reward_model.eval()
-    
+
     # Tokenize prompt
     inputs = tokenizer(prompt_text, return_tensors="pt")
     prompt_ids = inputs["input_ids"].to(device)
     prompt_len = prompt_ids.shape[1]
-    
-    n_vocab = tokenizer.vocab_size
+
+    # Use model.config.vocab_size for consistency with calculate_analytic_kl_toxicity_single_token,
+    # which uses model_p_for_target.config.vocab_size. tokenizer.vocab_size can differ
+    # (e.g., padded embedding tables, added special tokens).
+    if actor_model is not None:
+        n_vocab = actor_model.model.config.vocab_size
+    else:
+        n_vocab = tokenizer.vocab_size
     all_token_ids = torch.arange(n_vocab, device=device)
 
     # Initialize tensor to store scores
@@ -2092,8 +2119,6 @@ def precompute_toxicity_scores_for_all_tokens(
             # Scores should be shape (batch_size,), extract the score for the last token
             if scores.dim() > 1:
                 scores = scores[:, -1] if scores.shape[1] > 1 else scores.squeeze(-1)
-            else:
-                scores = scores
             # Ensure scores are on the correct device
             scores = scores.to(device)
         
@@ -2614,21 +2639,16 @@ def compute_target_samples_logprob(base_actor, tokenizer, prompt_text, true_targ
             num_actions = batch_samples.shape[1]
             
             # Compute log probabilities using the common utility function
-            try:
-                seq_log_probs, _ = compute_actor_log_probs_for_sequences(
-                    base_actor,
-                    full_sequences,
-                    num_actions,
-                    attention_mask=None,  # Let the function create it
-                    eos_token_id=eos_token_id,
-                    pad_token_id=pad_token_id,
-                    shared_actorcritic=False  # base_actor is not ActorCritic
-                )
-                all_log_probs.append(seq_log_probs)
-            except Exception as e:
-                strategy.print(f"Warning: Error computing log prob for batch {i}: {e}")
-                # Use -inf for failed samples
-                all_log_probs.append(torch.full((batch_size_actual,), float('-inf'), device=device))
+            seq_log_probs, _ = compute_actor_log_probs_for_sequences(
+                base_actor,
+                full_sequences,
+                num_actions,
+                attention_mask=None,  # Let the function create it
+                eos_token_id=eos_token_id,
+                pad_token_id=pad_token_id,
+                shared_actorcritic=False  # base_actor is not ActorCritic
+            )
+            all_log_probs.append(seq_log_probs)
     
     # Concatenate all log probabilities
     all_log_probs = torch.cat(all_log_probs)
@@ -2881,8 +2901,8 @@ def _run_per_fit_step_heldout_and_f_q(
                 iwae_ubs_by_prompt_list_fixed.append(result_fixed["iwae_ubs_by_prompt"])
             # Append aggregated results (backward compat lists)
             if result_fixed["f_q_agg"] is not None:
-                f_q_estimates_list.append(result_fixed["f_q_agg"])
-                f_q_over_time_list.append(result_fixed["f_q_agg"])
+                f_q_estimates_list.append(result_fixed["f_q_agg"].cpu())
+                f_q_over_time_list.append(result_fixed["f_q_agg"].cpu())
             if result_fixed["g_q_agg"] is not None:
                 g_q_estimates_list.append(result_fixed["g_q_agg"])
             if result_fixed["iwae_lbs_agg"] is not None:
@@ -2937,6 +2957,14 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
         return re.sub(r'^(<\|im_end\|>)+', '', s)
 
     from functools import partial
+    # strip_question_chat_template_fn is None when --apply_chat_template is not set;
+    # partial(None, ...) would give a confusing TypeError, so fail early with a clear message.
+    if strip_question_chat_template_fn is None:
+        raise ValueError(
+            "strip_question_chat_template_fn is None (--apply_chat_template not set?), "
+            "but it is required for do_evaluate_on_neg_data."
+        )
+    strip_question_chat_template_fn_for_neg_data = partial(strip_question_chat_template_fn, additional_split=True)
     for i in range(len(neg_data) // args.train_batch_size + 1):
         if (i + 1) % 10 == 0:
             strategy.print(f"BATCH {i + 1}")
@@ -2946,8 +2974,6 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
             continue
 
         cleaned_batch = list(map(strip_leading_im_end, batch))
-
-        strip_question_chat_template_fn_for_neg_data = partial(strip_question_chat_template_fn, additional_split=True)
 
         qa_list = list(map(strip_question_chat_template_fn_for_neg_data, cleaned_batch))
         text_question, text_answer = map(list, zip(*qa_list))
@@ -3249,7 +3275,7 @@ if __name__ == "__main__":
     parser.add_argument("--eval_steps", type=int, default=-1)
     parser.add_argument("--ckpt_path", type=str, default="./ckpt/checkpoints_ppo", help="For loading, include the full path name including all the info_name_str (AND NOW INCLUDING '_actor'). For saving, the info_name_str and '_actor' will be auto-genereated, just include only the folder path")
     parser.add_argument("--max_ckpt_num", type=int, default=3)
-    parser.add_argument("--max_ckpt_mem", type=int, default=1e8)
+    parser.add_argument("--max_ckpt_mem", type=int, default=100000000)
     parser.add_argument("--load_checkpoint", action="store_true", default=False)
 
     # PPO

@@ -459,8 +459,8 @@ class Experience:
         self.sequences = self.sequences.to(device)
         self.action_log_probs = self.action_log_probs.to(device)
         self.base_action_log_probs = to(self.base_action_log_probs, device)
-        self.values = self.values.to(device)
-        self.returns = self.returns.to(device)
+        self.values = to(self.values, device)
+        self.returns = to(self.returns, device)
         if self.advantages is not None:
             self.advantages = self.advantages.to(device)
         if self.attention_mask is not None:
@@ -1228,6 +1228,24 @@ class BaseExperienceMaker(ABC):
         log_q = (action_log_probs.float() * action_mask).sum(dim=-1)
         log_phi = r
         if not self.multiply_by_beta: # If didn't already multiply by beta, need to do it for log_phi
+            # Known issue: For the PPO path with negative beta and exploration bonus, the f_q
+            # computation is incorrect. r includes the bonus (scaled by |beta|), so:
+            #   log_phi = r * beta = (-final_reward + |beta|*bonus) * beta
+            #           = -beta*final_reward + |beta|*beta*bonus
+            #           = |beta|*final_reward - beta^2*bonus     (for negative beta)
+            # The first term has the WRONG sign (should be beta*final_reward = -|beta|*final_reward),
+            # and the bonus gets double-scaled by beta. This is because the PPO path negates the
+            # reward in r (r = -final_reward for negative beta), and then multiplying by negative
+            # beta negates it again, cancelling out.
+            # For the twist path (multiply_by_beta=True), r = beta*final_reward + |beta|*bonus,
+            # which is already log_phi, so this branch is not entered and the issue doesn't apply.
+            if self.exploration_bonus is not None and self.target_dist_beta < 0:
+                raise NotImplementedError(
+                    "Exploration bonus with PPO formulation (multiply_by_beta=False) and negative "
+                    "target_dist_beta is not supported: the f_q computation produces incorrect "
+                    "log_phi due to double-negation of the reward and double-scaling of the bonus. "
+                    "Use the twist formulation (e.g., actor_loss_type='ctl') instead."
+                )
             log_phi = r * self.target_dist_beta # Otherwise log phi will be wrong. Log phi needs to have beta in it. In the PPO formulation, yes, the reward should not be modified, KL should be (although you could also keep KL penalty coef at 1 and just do beta times reward), but for the calculation of the target/potential you need this beta. Assumes of course that we have potential of the form of e^{beta r} which in log space is beta r
             # Avoid *=, otherwise that would modify r as well
         log_p = (base_action_log_probs.float() * action_mask).sum(dim=-1)
@@ -1280,6 +1298,10 @@ class BaseExperienceMaker(ABC):
                 raise NotImplementedError("Exploration bonus is not yet supported for reward_pretrain='indicator_bad_token'")
             if self.rm_type == "indicator_below_threshold":
                 raise NotImplementedError("Exploration bonus is not yet supported for rm_type='indicator_below_threshold'")
+            # exp_beta_toxicity_class_logprob also not supported; fail early before any side effects
+            # (e.g. Welford stats updates from coin flip forward pass)
+            if self.rm_type == "exp_beta_toxicity_class_logprob":
+                raise NotImplementedError("Exploration bonus is not yet supported for rm_type='exp_beta_toxicity_class_logprob'")
 
         # rewards
         if self.reward_pretrain == "indicator_bad_token":
@@ -1490,7 +1512,22 @@ class BaseExperienceMaker(ABC):
 
         result_no_bonus = result.clone()
         if exploration_bonus is not None:
-            result = result + exploration_bonus
+            # Scale bonus by |beta| so that:
+            # 1. The bonus magnitude scales with beta (alpha doesn't need to change when beta changes)
+            # 2. The bonus always has a POSITIVE contribution to log_phi regardless of beta's sign.
+            # For the twist path (multiply_by_beta=True): result IS log_phi.
+            #   log_phi = beta * r + |beta| * bonus.
+            #   The target distribution is sigma ~ p0 * exp(log_phi) = p0 * exp(beta*r + |beta|*bonus).
+            #   With negative beta (targeting low-reward/harmful outputs):
+            #     - beta*r term puts more mass on low-reward outputs (correct for targeting harmful)
+            #     - |beta|*bonus term increases log_phi for high-bonus outputs, putting more mass
+            #       on outputs with higher intrinsic reward (i.e., less-visited/novel outputs).
+            #   Using beta (not |beta|) would flip this, making the bonus DECREASE log_phi,
+            #   which would push sigma AWAY from high-bonus outputs — the opposite of exploration.
+            # Note: The PPO path (multiply_by_beta=False) has a pre-existing f_q sign issue
+            #   with negative beta (see NotImplementedError below in make_experience), so the
+            #   interaction of this scaling with the PPO path is not addressed here.
+            result = result + abs(self.target_dist_beta) * exploration_bonus
         return result, untransformed_reward, exploration_bonus, result_no_bonus
 
     def set_all_eval(self):
@@ -1510,6 +1547,10 @@ class BaseExperienceMaker(ABC):
 
 
     def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):
+        # Stay in eval mode for both generation and log prob computation. This ensures
+        # the "old" log probs stored in Experience are from a well-defined, deterministic q
+        # distribution (important for IS correctness with BatchNorm or dropout). Model stats
+        # (e.g. BatchNorm running stats) get updated during the training forward pass instead.
         self.set_all_eval()
 
         inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
@@ -1520,17 +1561,9 @@ class BaseExperienceMaker(ABC):
         num_actions = action_mask.size(1)
 
         if self.shared_actorcritic:
-
-            self.set_all_policies_train()
-
             action_log_probs, values = self.actor(sequences, num_actions, attention_mask)
             return action_log_probs, action_mask, attention_mask, num_actions, sequences, values
         else:
-            self.set_all_policies_train()
-
-            # print(sequences)
-            # print(num_actions)
-            # print(attention_mask)
             print(sequences.shape)
 
             action_log_probs = self.actor(sequences, num_actions, attention_mask)
@@ -1633,6 +1666,10 @@ class RemoteExperienceMaker(BaseExperienceMaker):
 
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], **generate_kwargs) -> Experience:
+        raise NotImplementedError(
+            "RemoteExperienceMaker.make_experience has not been updated for the current Experience "
+            "dataclass fields (missing base_action_log_probs). Check the latest OpenRLHF repo."
+        )
         self.actor.eval()
         device = torch.cuda.current_device()
 
@@ -1695,7 +1732,7 @@ class RemoteExperienceMaker(BaseExperienceMaker):
         base_action_log_probs, value, rewards = ref_values[0], ref_values[1], ref_values[2:]
         base_action_log_probs, value = base_action_log_probs.to(device), value.to(device)
         rewards = [r.to(device) for r in rewards]
-        r = self.reward_fn(rewards) if len(rewards) > 0 else rewards[0]
+        r = self.reward_fn(rewards) if len(rewards) > 1 else rewards[0]
 
         # avoid CUDA OOM when colocate models
         if self.strategy.args.colocate_critic_reward and not self.remote_rm_url:
@@ -1737,6 +1774,7 @@ class RemoteExperienceMaker(BaseExperienceMaker):
         experience = Experience(
             sequences,
             action_log_probs,
+            base_action_log_probs,
             value,
             returns,
             advantage,

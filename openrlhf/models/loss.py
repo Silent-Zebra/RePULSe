@@ -254,7 +254,7 @@ def get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_r
 
     return log_w_t_approx_sigma_samples
 
-def get_normalized_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward, batch_dim=0):
+def get_normalized_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward):
     log_w_t_approx_sigma_samples = get_positive_weights_detached(base_action_log_probs, curr_log_probs, final_reward)
     assert len(log_w_t_approx_sigma_samples.shape) <= 2 # Covers (batch) and (prompts, batch) shapes, but not others
     normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples,
@@ -297,9 +297,10 @@ class CTLLoss(nn.Module):
             raise NotImplementedError
 
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
-        curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
+        curr_log_probs = curr_log_probs * action_mask  # non-in-place since gradient-tracked
         base_action_log_probs *= action_mask
-        values *= action_mask # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
+        values = values * action_mask  # non-in-place since gradient-tracked (values = log_psi, the training target)
+        # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
         # But I'm leaving the above just to be safe
 
         if reduce_mean_per_prompt:
@@ -438,7 +439,8 @@ class SIXOLoss(nn.Module):
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
         curr_log_probs = curr_log_probs * action_mask
         base_action_log_probs *= action_mask
-        values *= action_mask  # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
+        values = values * action_mask  # non-in-place since gradient-tracked (values = log_psi, the training target)
+        # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
         # But I'm leaving the above just to be safe
 
         if reduce_mean_per_prompt:
@@ -471,11 +473,15 @@ class SIXOLoss(nn.Module):
                 negative_samples_term = F.logsigmoid(-values_on_base_samples)
                 # Average across samples within each prompt batch
                 negative_samples_term = negative_samples_term / negative_samples_term.shape[1]
+                # TODO: action_mask below corresponds to q-sampled sequences, but values_on_base_samples
+                # come from base-model-sampled sequences which may have different EOS positions.
+                # If this exact-negative path is ever enabled, a separate action_mask_base parameter
+                # should be added for the negative term.
 
 
             # Compute final loss with negative term
             loss = -(positive_samples_term + negative_samples_term)
-            
+
             # Apply action mask and sum across prompts
             loss = masked_mean(loss, action_mask, dim=-1).mean()
 
@@ -516,9 +522,14 @@ class SIXOLoss(nn.Module):
 
             negative_samples_term = F.logsigmoid(-values_on_base_samples)
 
-            negative_samples_term /= negative_samples_term.shape[0]
+            # Non-in-place to avoid autograd errors (values_on_base_samples is gradient-tracked)
+            negative_samples_term = negative_samples_term / negative_samples_term.shape[0]
             # Alternatively: I can do this to make things the same... now this is consistent with mean on top of mean (which I believe does too much dividing... but oh well.
             # At least this now makes sixoloss and sixoloss using approx p samples based on IS reweighting of q samples, have the same scale
+            # TODO: action_mask below corresponds to q-sampled sequences, but values_on_base_samples
+            # come from base-model-sampled sequences which may have different EOS positions.
+            # If this exact-negative path is ever enabled, a separate action_mask_base parameter
+            # should be added for the negative term.
 
         # This is the first term calculation, but really should do a similar kind of thing here as above
         loss = - (positive_samples_term + negative_samples_term) # see my new derivation; the KL divergence/loss has the negative term
@@ -557,7 +568,8 @@ class DPGLoss(nn.Module):
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
         curr_log_probs = curr_log_probs * action_mask  # non-in-place since gradient-tracked
         base_action_log_probs *= action_mask
-        values *= action_mask # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
+        values = values * action_mask  # non-in-place since gradient-tracked (values = log_psi, the training target)
+        # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
         # But I'm leaving the above just to be safe
 
         if reduce_mean_per_prompt:

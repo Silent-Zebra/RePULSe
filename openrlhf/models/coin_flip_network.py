@@ -63,9 +63,6 @@ class CoinFlipNetwork(nn.Module):
         self.coin_flip_dim = coin_flip_dim
         self.coin_flip_architecture = coin_flip_architecture
         
-        # Store original base_model reference (needed for separate_nn mode to copy Actor)
-        self.original_base_model = base_model
-        
         # Get the base model (unwrap if it's an Actor)
         if hasattr(base_model, 'model'):
             # It's an Actor wrapper
@@ -476,6 +473,10 @@ class CoinFlipNetwork(nn.Module):
         """
         if attention_mask is not None:
             # Find the last valid position for each sequence
+            assert attention_mask.any(dim=1).all(), (
+                "attention_mask has all-zero rows — no valid tokens. "
+                "This would cause _extract_final_hidden_states to return hidden states at invalid positions."
+            )
             eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
             # Use advanced indexing to extract final hidden states: (batch_size, hidden_size)
             batch_size = hidden_states.size(0)
@@ -1147,8 +1148,13 @@ class CoinFlipNetwork(nn.Module):
                 # Increment update counter
                 num_updates.data += 1
 
-        # Normalize all values using the (possibly updated) running statistics
-        # Add small epsilon to avoid division by zero
+        # Normalize all values using the (possibly updated) running statistics.
+        # If no stats have been collected yet (num_updates == 0), skip normalization and return
+        # raw values. This avoids dividing by ~1e-8 (since running_var is 0), which would scale
+        # values by ~1e8 and cause a massive gradient step on the first training iteration
+        # (relevant when train_coin_flip_before=True, where _predict is called before forward).
+        if num_updates.item() == 0:
+            return values
         normalized = (values - running_mean.unsqueeze(0)) / (torch.sqrt(running_var.unsqueeze(0)) + 1e-8)
         return normalized
     
@@ -1256,8 +1262,10 @@ class CoinFlipNetwork(nn.Module):
         pass
     
     
-    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
+    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
         """Enable gradient checkpointing if supported."""
+        if gradient_checkpointing_kwargs is None:
+            gradient_checkpointing_kwargs = {"use_reentrant": False}
         if self.supports_gradient_checkpointing:
             if self.coin_flip_architecture == "separate_nn":
                 if hasattr(self.trainable_network, 'model'):

@@ -699,8 +699,8 @@ def f_q_estimate(trainer, experience_maker, args, prompt):
         action_log_probs = action_log_probs.float() * action_mask # more precision
         log_q = action_log_probs.sum(dim=-1)
 
-        # generate_seqs_and_get_logprobs switches models to train mode internally;
-        # restore eval mode for evaluation computations
+        # generate_seqs_and_get_logprobs stays in eval mode throughout;
+        # this call is redundant but kept for safety
         experience_maker.set_all_eval()
 
         log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
@@ -752,8 +752,8 @@ def f_q_estimate_batched(trainer, experience_maker, args, prompts):
         action_log_probs = action_log_probs.float() * action_mask
         log_q = action_log_probs.sum(dim=-1)  # (P*N,)
 
-        # generate_seqs_and_get_logprobs switches models to train mode internally;
-        # restore eval mode for evaluation computations
+        # generate_seqs_and_get_logprobs stays in eval mode throughout;
+        # this call is redundant but kept for safety
         experience_maker.set_all_eval()
 
         log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
@@ -783,7 +783,7 @@ def f_q_estimate_batched(trainer, experience_maker, args, prompts):
     }
 
 
-def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_actions, attention_mask, condition_twist_on_tokens=None):
+def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_actions, attention_mask):
     """
     Calculate g_q estimate: log(sigma) - log(q) for true sigma samples.
     
@@ -947,6 +947,11 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
     # IWAE Upper Bound: replace first q sample with first target sample
     iwae_ub = None
     if true_target_samples is not None:
+        assert true_target_samples[0].shape[0] <= q_seqs.shape[1], (
+            f"Target sample has length {true_target_samples[0].shape[0]} which exceeds "
+            f"q_seqs sequence length {q_seqs.shape[1]}. "
+            f"Target samples may have been generated with different generate_max_len or prompt_max_len."
+        )
         iwae_mixture_with_one_post = q_seqs.detach().clone()
         iwae_mixture_with_one_post[0] = true_target_samples[0]
         attention_mask_g_q = (
