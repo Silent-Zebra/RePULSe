@@ -321,7 +321,7 @@ class CoinFlipReplayBuffer:
             probs = priorities_tensor / priorities_tensor.sum()
             
             # Sample indices using multinomial
-            indices_tensor = torch.multinomial(probs, num_samples=num_samples, replacement=True)
+            indices_tensor = torch.multinomial(probs, num_samples=num_samples, replacement=False)
             indices = indices_tensor.tolist()
             
             # Debug: Print normalized priorities (probabilities) for sampled items
@@ -596,7 +596,7 @@ class BaseExperienceMaker(ABC):
 
         assert actor_loss_type is not None
 
-        if self.actor_loss_type == "ppo" or actor_loss_type == "reinforce":
+        if self.actor_loss_type == "ppo" or self.actor_loss_type == "reinforce":
             self.multiply_by_beta = False
         else:
             self.multiply_by_beta = True
@@ -637,11 +637,12 @@ class BaseExperienceMaker(ABC):
         else:
             self.coin_flip_replay_buffer = None
         
-        # Initialize state visitation count tensor for t=0 tokens (vocab size = 50257)
+        # Initialize state visitation count tensor for t=0 tokens
         # Only for exact_count type
         if self.exploration_bonus == "exact_count":
+            vocab_size = self.actor.model.config.vocab_size
             # Start with 0 for all tokens (will be incremented to 1 on first visit)
-            self.state_visitation_counts = torch.zeros(50257, dtype=torch.long)
+            self.state_visitation_counts = torch.zeros(vocab_size, dtype=torch.long)
         else:
             self.state_visitation_counts = None
 
@@ -894,13 +895,19 @@ class BaseExperienceMaker(ABC):
             batch_size, coin_flip_dim, device
         )  # (B, d)
         
-        # Step 2: Save data to replay buffer
-        if self.coin_flip_replay_buffer is not None:
+        # Step 2: Save data to replay buffer (skip if first_online with single update step,
+        # since we'll use the current batch directly and never sample from the buffer)
+        skip_buffer = self.coin_flip_first_online and update_steps == 1
+        # Prioritization requires the buffer to be populated, which is incompatible with skip_buffer
+        assert not (skip_buffer and self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.use_prioritization), (
+            "Cannot use prioritized replay buffer with coin_flip_first_online=True and update_steps=1 "
+            "(buffer is skipped, so priorities cannot be updated). Either set update_steps > 1 or disable prioritization."
+        )
+        final_hidden_states = None
+        if self.coin_flip_replay_buffer is not None and not skip_buffer:
             if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                 # Save inputs (input_ids, attention_mask) instead of embeddings
                 self.coin_flip_replay_buffer.add(sequences, coin_flip_targets, attention_mask=attention_mask)
-                # For first_online mode, we'll need sequences and attention_mask later
-                final_hidden_states = None
             else:
                 # Save embeddings (get final hidden states first) - for static architecture
                 # _get_final_hidden_states already applies torch.no_grad() internally
@@ -908,6 +915,11 @@ class BaseExperienceMaker(ABC):
                     sequences, attention_mask
                 )  # (B, hidden_size)
                 self.coin_flip_replay_buffer.add(final_hidden_states, coin_flip_targets)
+        elif skip_buffer and self.coin_flip_architecture not in TOKEN_STORAGE_ARCHITECTURES:
+            # Still need hidden states for the static architecture even when skipping the buffer
+            final_hidden_states = self.coin_flip_network._get_final_hidden_states(
+                sequences, attention_mask
+            )  # (B, hidden_size)
         
         # Step 3: Get replay buffer batch size (defaults to train_batch_size if None)
         if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.size > 0:
@@ -974,8 +986,8 @@ class BaseExperienceMaker(ABC):
             # Average over coin_flip_dim and batch
             loss = ((final_predictions - sampled_coin_flips) ** 2).mean()
             
-            # Update priorities if prioritization is enabled
-            if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.use_prioritization:
+            # Update priorities if prioritization is enabled (skip when buffer was not populated)
+            if self.coin_flip_replay_buffer is not None and self.coin_flip_replay_buffer.use_prioritization and not skip_buffer:
                 # Compute one_over_counts = (1/d) * ||f(s)||^2 for sampled batch
                 # Use detached predictions to avoid extending the computation graph
                 # Ensure all tensors are on the same device as final_predictions
@@ -1494,7 +1506,7 @@ class BaseExperienceMaker(ABC):
         self.actor.train()
         if self.critic is not None:
             self.critic.train()
-        self.initial_model.train()
+        # initial_model is a frozen reference model; keep it in eval mode
 
 
     def generate_seqs_and_get_logprobs(self, prompts, **generate_kwargs):

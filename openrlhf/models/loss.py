@@ -164,7 +164,7 @@ class NegREINFORCELoss(nn.Module):
 
         reinforce_loss = self.reinforce_loss_fn(log_probs, rewards, action_mask)
 
-        log_probs_neg *= normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1)
+        log_probs_neg = log_probs_neg * normalized_w_t_approx_sigma_samples.detach().unsqueeze(-1)
 
         neg_reinforce_loss = self.reinforce_loss_fn_neg(log_probs_neg, rewards_neg, action_mask_neg, other_reward=rewards)
 
@@ -436,7 +436,7 @@ class SIXOLoss(nn.Module):
         # Should investigate how people doing SMC for LLM (maybe Lew et al also) deal with this issue, but that will be for later when doing resampling
 
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
-        # curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
+        curr_log_probs = curr_log_probs * action_mask
         base_action_log_probs *= action_mask
         values *= action_mask  # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
         # But I'm leaving the above just to be safe
@@ -445,17 +445,10 @@ class SIXOLoss(nn.Module):
             # This version is for batching over different prompts
             # Use vmap to compute weights for all prompts at once
             batched_get_weights = torch.func.vmap(get_normalized_positive_weights_detached, in_dims=0)
-            # log_w_t_approx_pi_samples, normalized_w_t_approx_sigma_samples = batched_get_weights(
-            #     base_action_log_probs,
-            #     curr_log_probs,
-            #     final_reward,
-            #     values
-            # )
             normalized_w_t_approx_sigma_samples = batched_get_weights(
                 base_action_log_probs,
                 curr_log_probs,
                 final_reward,
-                # values
             )
 
             # Compute positive term with batched weights
@@ -470,12 +463,12 @@ class SIXOLoss(nn.Module):
                 # Normalize weights per prompt batch
                 normalized_w_t_approx_p_samples = F.softmax(log_w_t_approx_p_samples, dim=1)  # softmax over samples within each prompt
 
-                negative_samples_term = normalized_w_t_approx_p_samples.unsqueeze(-1) * torch.log(1 - F.sigmoid(values))
+                negative_samples_term = normalized_w_t_approx_p_samples.unsqueeze(-1) * F.logsigmoid(-values)
 
 
             else:
                 # For exact negative samples, use provided base samples
-                negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
+                negative_samples_term = F.logsigmoid(-values_on_base_samples)
                 # Average across samples within each prompt batch
                 negative_samples_term = negative_samples_term / negative_samples_term.shape[1]
 
@@ -518,10 +511,10 @@ class SIXOLoss(nn.Module):
                 log_w_t_approx_p_samples,
                 dim=0)  # do softmax along the batch dimension
             negative_samples_term = normalized_w_t_approx_p_samples[:,
-                                    None] * torch.log(1 - F.sigmoid(values))
+                                    None] * F.logsigmoid(-values)
         else: # use exact p samples
 
-            negative_samples_term = torch.log(1 - F.sigmoid(values_on_base_samples))
+            negative_samples_term = F.logsigmoid(-values_on_base_samples)
 
             negative_samples_term /= negative_samples_term.shape[0]
             # Alternatively: I can do this to make things the same... now this is consistent with mean on top of mean (which I believe does too much dividing... but oh well.
@@ -562,7 +555,7 @@ class DPGLoss(nn.Module):
             raise NotImplementedError
 
         # Set log probs of padding tokens to be 0, so that when they are added, they don't affect anything.
-        # curr_log_probs *= action_mask # this one already handled by the replay buffer I believe, so this is redundant
+        curr_log_probs = curr_log_probs * action_mask  # non-in-place since gradient-tracked
         base_action_log_probs *= action_mask
         values *= action_mask # This should also be redundant since the masked mean at the end should take care of the values; values (log_psi) should be 0 after the final masked mean and have 0 gradient there for tokens after EOS
         # But I'm leaving the above just to be safe

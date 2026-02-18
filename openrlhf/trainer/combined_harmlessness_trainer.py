@@ -292,7 +292,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 head_init_std=head_init_std,
                 frozen_prior_init_std=frozen_prior_init_std,
                 coin_flip_linear_bias=coin_flip_linear_bias,
-                base_actor_learning_rate=base_actor_lr,
                 coin_flip_architecture=coin_flip_architecture,
                 trainable_network=coin_flip_trainable_network,
                 frozen_prior_network=coin_flip_frozen_prior_network,
@@ -479,6 +478,14 @@ class CombinedHarmlessnessTrainer(ABC):
             num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
         )
         update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
+        if update_timesteps != 1:
+            raise NotImplementedError(
+                f"update_timesteps={update_timesteps} != 1 is not supported "
+                f"(rollout_batch_size={args.rollout_batch_size}, world_size={self.strategy.world_size}, "
+                f"micro_rollout_batch_size={self.micro_rollout_batch_size}). "
+                f"The steps variable in make_experience_and_do_update is not propagated back to the caller, "
+                f"so training would be silently skipped when update_timesteps > 1."
+            )
 
         print("UPDATE TIMESTEPS")
         print(update_timesteps)
@@ -546,6 +553,9 @@ class CombinedHarmlessnessTrainer(ABC):
 
         assert start_episode < args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop # Otherwise no updates done; this might be ok depending on setup, but for now this would be unexpected behaviour.
 
+        # total_update_steps should match the total number of times self.total_steps is incremented
+        # (once per dataloader batch, across all episodes and fit_steps loops).
+        # If this doesn't match, schedule indexing with self.total_steps will go out of bounds.
         total_update_steps = self.prompts_dataloader.__len__() * args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop * args.fit_steps
 
         beta_schedule = None
@@ -581,10 +591,20 @@ class CombinedHarmlessnessTrainer(ABC):
 
             for rand_prompts in self.prompts_dataloader:
                 if args.anneal_target_dist_beta:
+                    assert self.total_steps < len(beta_schedule), (
+                        f"Schedule index out of bounds: total_steps={self.total_steps} >= "
+                        f"len(beta_schedule)={len(beta_schedule)}. "
+                        f"total_update_steps computation may not match actual iteration count."
+                    )
                     new_beta = beta_schedule[self.total_steps]
                     self.sampling_experience_maker_neg.target_dist_beta = new_beta
                     print(f"Using new beta: {new_beta}")
                 if args.start_alpha is not None:
+                    assert self.total_steps < len(alpha_schedule), (
+                        f"Schedule index out of bounds: total_steps={self.total_steps} >= "
+                        f"len(alpha_schedule)={len(alpha_schedule)}. "
+                        f"total_update_steps computation may not match actual iteration count."
+                    )
                     new_alpha = alpha_schedule[self.total_steps]
                     self.alpha = new_alpha
                     self.base_actor_loss_fn = self.get_base_actor_loss_fn()
@@ -850,7 +870,9 @@ class CombinedHarmlessnessTrainer(ABC):
         for x in ["sampling", "base"]:
             if f"{x}_kl" in status:
                 status[f"{x}_kl"] *= status[f"{x}_response_length"]
-                status = self.strategy.all_reduce(status)
+        status = self.strategy.all_reduce(status)
+        for x in ["sampling", "base"]:
+            if f"{x}_kl" in status:
                 status[f"{x}_kl"] /= status[f"{x}_response_length"]
         if not neg_sampling_train_only:
             short_status = {
@@ -1163,7 +1185,7 @@ class CombinedHarmlessnessTrainer(ABC):
             reward_neg, _ = compute_reward(
                 reward_neg_no_bonus,
                 self.kl_ctl.value,
-                action_log_probs_neg,
+                action_log_probs_neg.detach(),
                 base_action_log_probs_neg,
                 action_mask=experience_neg_sampling.action_mask,
             )
@@ -1279,7 +1301,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 # call actor with return_all_vocab=True
                 log_psi_all_vocab, log_psi = self.get_log_psi_policy_parameterization(self.sampling_actor, base_action_log_probs, experience, experience.action_mask.size(1), self.parameterization, return_type="both", base_action_log_probs_all=base_action_log_probs_all_vocab)
             else:
-                log_psi_all_vocab, log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask,
+                log_psi_all_vocab, log_psi = self.sampling_experience_maker_neg.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask,
                                                       return_only_modulation=True, return_type="both")
 
             # Reshape tensors to group samples by prompt

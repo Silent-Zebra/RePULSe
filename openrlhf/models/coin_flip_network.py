@@ -38,8 +38,6 @@ class CoinFlipNetwork(nn.Module):
         head_init_std: Standard deviation for initializing the coin flip head weights (default: 0.001)
         frozen_prior_init_std: Standard deviation for initializing the frozen prior network weights (default: 0.1)
         coin_flip_linear_bias: If True, adds bias to the linear head for the trainable coin flip network (default: False)
-        base_actor_learning_rate: Learning rate of the base actor. If provided and != 0, raises
-            NotImplementedError as the random prior structure should be reviewed when base_model is trainable (default: None)
         coin_flip_architecture: Architecture type: "linear_head_on_static_initial_base" (linear head on frozen base copy),
             "linear_head_on_learning_base" (linear head on live base_actor), "linear_head_on_learning_proposal"
             (linear head on live sampling_actor), or "separate_nn" (separate trainable and frozen networks)
@@ -56,7 +54,6 @@ class CoinFlipNetwork(nn.Module):
         head_init_std: float = 0.001,
         frozen_prior_init_std: float = 0.1,
         coin_flip_linear_bias: bool = False,
-        base_actor_learning_rate: Optional[float] = None,
         coin_flip_architecture: str = "linear_head_on_static_initial_base",
         trainable_network: Optional[nn.Module] = None,
         frozen_prior_network: Optional[nn.Module] = None,

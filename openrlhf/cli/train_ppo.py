@@ -236,6 +236,9 @@ def train(args):
             args.neg_sample_only = True
         else:
             args.neg_sample_only = False
+    else:
+        # Non-harmlessness training: no sampling actor, always train base actor
+        args.neg_sample_only = False
 
     pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
 
@@ -278,7 +281,7 @@ def train(args):
             base_actor_optim,
             num_warmup_steps=math.ceil(max_steps * 0.03),
             num_training_steps=max_steps,
-            scheduler_specific_kwargs={"min_lr": args.actor_learning_rate * 0.1},
+            scheduler_specific_kwargs={"min_lr": args.base_actor_learning_rate * 0.1},
         )
 
     critic_scheduler = None
@@ -886,13 +889,14 @@ def train(args):
                             total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
                             precomputed_p=precomputed_p,
                             precomputed_q=precomputed_q,
+                            generate_max_len=args.generate_max_len,
                         )
                     diff_by_bad_word_case1_list.append(diff_by_bad_word_case1)
                     diff_by_bad_word_case2_list.append(diff_by_bad_word_case2)
                     diff_by_bad_word_list.append(diff_by_bad_word)
                     max_q_exceeds_list.append(max_q_exceeds)
                     max_sigma_exceeds_list.append(max_sigma_exceeds)
-        
+
         # Analytic calculation for single token with toxicity model
         if args.analytic_calc:
             prompt = args.custom_prompt  # Define prompt for analytic calculations
@@ -1156,6 +1160,7 @@ def train(args):
                             total_kl_q_sigma_epsq_p_list=total_kl_q_sigma_epsq_p_list,
                             precomputed_p=precomputed_p,
                             precomputed_q=precomputed_q,
+                            generate_max_len=args.generate_max_len,
                         )
                     diff_by_bad_word_case1_list.append(diff_by_bad_word_case1)
                     diff_by_bad_word_case2_list.append(diff_by_bad_word_case2)
@@ -1492,6 +1497,8 @@ def _compute_bad_word_sequence_log_probs(
     device = model.device if hasattr(model, 'device') else \
              torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    assert generate_max_len == 1 or generate_max_len == 2
+
     model.eval()
     model.to(device)
 
@@ -1503,7 +1510,7 @@ def _compute_bad_word_sequence_log_probs(
     # Normalize bad word indices to tensor
     bad_word_indices_tensor = normalize_bad_word_indices(bad_word_indices, device)
 
-    n_vocab = 50257
+    n_vocab = model.config.vocab_size
     n_bad_words = len(bad_word_indices_tensor)
 
     # Identify indices of "good" words (all vocab except bad words)
@@ -1571,7 +1578,11 @@ def _calculate_bad_word_log_prob_from_precomputed(
         generate_max_len: Maximum generation length (1 or 2)
     
     Returns:
-        Same as calculate_bad_word_log_prob_pytorch
+        A tuple containing:
+        1. total_log_prob (float): Total log probability of a bad word appearing.
+        2. individual_bad_word_log_probs_t0 (dict): Bad word token ID -> log prob at t=0.
+        3. individual_bad_word_log_probs_t1 (dict): Bad word token ID -> log prob at t=1.
+        4. individual_bad_word_log_probs_combined (dict): Bad word token ID -> combined log prob.
     """
     prompt_ids, bad_word_indices_tensor, good_word_indices, log_probs_t0, log_probs_case2 = precomputed
     
@@ -1676,53 +1687,6 @@ def _calculate_bad_word_log_prob_from_precomputed(
     )
 
 
-@torch.no_grad() # Ensure no gradients are computed during evaluation
-def calculate_bad_word_log_prob_pytorch(
-    model: AutoModelForCausalLM,
-    tokenizer: AutoTokenizer,
-    prompt_text: str,
-    bad_word_indices: Union[List[int], torch.Tensor],
-    batch_size: int,
-) -> Tuple[float, dict, dict, dict]:
-    """
-    Calculates the total log probability of generating a sequence of length 2
-    (after the prompt) that contains at least one "bad word", along with
-    individual bad word log probabilities.
-
-    This is done by summing the probabilities of two disjoint cases:
-    1. P(bad_word at t=0 | prompt)
-    2. P(good_word at t=0, bad_word at t=1 | prompt)
-
-    Args:
-        model: The Hugging Face causal language model (e.g., GPT2LMHeadModel).
-        tokenizer: The corresponding tokenizer.
-        prompt_text: The input prompt string.
-        bad_word_indices: A list or tensor of token IDs considered "bad words".
-        batch_size: Batch size for processing vocabulary in the second case
-                    to manage memory usage.
-
-    Returns:
-        A tuple containing:
-        1. total_log_prob (float): Total log probability of a bad word appearing
-           in the first or second generated token position.
-        2. individual_bad_word_log_probs_t0 (dict): Dictionary mapping bad word
-           token IDs to their log probabilities at t=0 position.
-        3. individual_bad_word_log_probs_t1 (dict): Dictionary mapping bad word
-           token IDs to their log probabilities at t=1 position (summed over
-           good tokens at t=0).
-        4. individual_bad_word_log_probs_combined (dict): Dictionary mapping bad
-           word token IDs to their combined log probabilities (t=0 and t=1 combined).
-        Note: I purposefully didn't include the log probs of bad words at t=1 if there is already a
-        bad word at t=0. Of course you could do that, but I'm doing this because I think this
-        gives better insight into missing/found modes. E.g., if we really care about avoiding
-        any bad output, then if we already found a bad token at t=0, that token will have its prob
-        reduced (by RePULSe), and same for all the bad tokens following it at t=1. We don't need to worry too much
-        about which bad tokens are found at t=1 in this case since they'll all have their probability reduced.
-    """
-
-    # Use shared computation function
-    precomputed = _compute_bad_word_sequence_log_probs(model, tokenizer, prompt_text, bad_word_indices, batch_size)
-    return _calculate_bad_word_log_prob_from_precomputed(precomputed, bad_word_indices)
 
 
 
@@ -1734,6 +1698,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     prompt_text: str,
     bad_word_indices: Union[List[int], torch.Tensor],
     batch_size: int,
+    generate_max_len: int,
     total_kl_sigma_q_list: List[float],
     total_kl_q_sigma_epsq_p_list: List[float],
     precomputed_p: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None,
@@ -1838,7 +1803,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
         device = prompt_ids_p.device
     else:
         prompt_ids_p, bad_word_indices_tensor, good_word_indices, log_probs_p_t0, log_probs_p_case2 = \
-            _compute_bad_word_sequence_log_probs(model_p_for_target, tokenizer, prompt_text, bad_word_indices, batch_size)
+            _compute_bad_word_sequence_log_probs(model_p_for_target, tokenizer, prompt_text, bad_word_indices, batch_size, generate_max_len)
         device = prompt_ids_p.device
 
     if precomputed_q is not None:
@@ -1846,12 +1811,12 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
         assert prompt_ids_q.device == device
     else:
         prompt_ids_q, _, _, log_probs_q_t0, log_probs_q_case2 = \
-            _compute_bad_word_sequence_log_probs(model_q, tokenizer, prompt_text, bad_word_indices, batch_size)
+            _compute_bad_word_sequence_log_probs(model_q, tokenizer, prompt_text, bad_word_indices, batch_size, generate_max_len)
         assert prompt_ids_q.device == device
 
     # Compute log_probs_case1 locally for KL calculations (bad word at t=0, any word at t=1)
     # This is needed for KL divergence but not returned from the shared function
-    n_vocab = 50257
+    n_vocab = model_p_for_target.config.vocab_size
     n_bad_words = len(bad_word_indices_tensor)
     
     # For model p: compute sequences with bad word at t=0, any word at t=1
@@ -1915,7 +1880,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     log_differences_case2 = log_probs_q_case2 - log_probs_sigma_p_case2  # Shape: (n_good_words, n_bad_words)
     
     # Track differences aggregated by bad word and find largest differences
-    n_vocab = 50257
+    n_vocab = model_p_for_target.config.vocab_size
     n_bad_words = len(bad_word_indices_tensor)
     
     # Aggregate log differences by bad word
@@ -2099,9 +2064,9 @@ def precompute_toxicity_scores_for_all_tokens(
     prompt_ids = inputs["input_ids"].to(device)
     prompt_len = prompt_ids.shape[1]
     
-    n_vocab = 50257
+    n_vocab = tokenizer.vocab_size
     all_token_ids = torch.arange(n_vocab, device=device)
-    
+
     # Initialize tensor to store scores
     toxicity_scores = torch.zeros(n_vocab, device=device)
     
@@ -2179,9 +2144,9 @@ def calculate_analytic_kl_toxicity_single_token(
     # Tokenize prompt
     inputs = tokenizer(prompt_text, return_tensors="pt")
     prompt_ids = inputs["input_ids"].to(device)
-    
-    n_vocab = 50257
-    
+
+    n_vocab = model_p_for_target.config.vocab_size
+
     # Get log probabilities for all tokens from prompt (p and q)
     log_probs_p = get_next_token_log_probs(model_p_for_target, prompt_ids)  # Shape: (n_vocab,)
     log_probs_q = get_next_token_log_probs(model_q, prompt_ids)  # Shape: (n_vocab,)
@@ -2269,6 +2234,12 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
         raise NotImplementedError(f"Rejection sampling currently only supports rm_type='rlhf', got '{args.rm_type}'")
     if args.reward_clamp is None and args.reward_cap is None:
         raise ValueError("Either --reward_clamp or --reward_cap must be set when using --rejection_sample_true_target_only")
+    if args.reward_clamp is None:
+        raise NotImplementedError(
+            "Rejection sampling with --reward_cap (one-sided clamping) is not supported because "
+            "acceptance probabilities can exceed 1 when reward_cap is used with negative target_dist_beta "
+            "(rewards below -reward_cap are unbounded). Use --reward_clamp (symmetric clamping) instead."
+        )
     if args.target_dist_beta is None:
         raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
     if args.true_target_sample_amount <= 0:
@@ -2361,7 +2332,19 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             clamped_rewards = rewards.clamp(max=args.reward_cap)
         log_phi = args.target_dist_beta * clamped_rewards
         log_ratio = log_phi - log_M
-        accept_prob = torch.exp(log_ratio).clamp(min=0.0, max=1.0)
+        raw_accept_prob = torch.exp(log_ratio)
+        # Sanity check: acceptance probabilities must be in [0, 1] for valid rejection sampling.
+        # Allow small floating point tolerance for numerical issues.
+        assert (raw_accept_prob >= -1e-6).all(), (
+            f"Rejection sampling acceptance probability is negative (min={raw_accept_prob.min().item():.6f}). "
+            f"This should not happen since exp() is always non-negative."
+        )
+        assert (raw_accept_prob <= 1.0 + 1e-6).all(), (
+            f"Rejection sampling acceptance probability exceeds 1 (max={raw_accept_prob.max().item():.6f}). "
+            f"This indicates log_M is not a valid upper bound on log_phi. "
+            f"Check reward clamping and target_dist_beta settings."
+        )
+        accept_prob = raw_accept_prob.clamp(min=0.0, max=1.0)
         u = torch.rand_like(accept_prob)
         accept_mask = u < accept_prob
         accepted_seqs = [seq.cpu().tolist() for seq in sequences[accept_mask]]
@@ -2942,7 +2925,7 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
             texts,
             return_tensors="pt",
             add_special_tokens=False,
-            max_length=args.prompt_max_len,
+            max_length=args.prompt_max_len + args.generate_max_len,
             padding=True,
             truncation=True,
         )
@@ -2959,6 +2942,8 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
             strategy.print(f"BATCH {i + 1}")
 
         batch = neg_data[i * args.train_batch_size: (i + 1) * args.train_batch_size]
+        if len(batch) == 0:
+            continue
 
         cleaned_batch = list(map(strip_leading_im_end, batch))
 

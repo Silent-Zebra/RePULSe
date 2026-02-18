@@ -185,7 +185,9 @@ def blending_datasets(
         return train_dataset
 
 def convert_token_to_id(token, tokenizer):
-    if isinstance(token, str):
+    if isinstance(token, int):
+        return token
+    elif isinstance(token, str):
         token = tokenizer.encode(token, add_special_tokens=False)
         assert len(token) == 1
         return token[0]
@@ -625,24 +627,26 @@ def compute_actor_log_probs_for_sequences(actor, sequences, num_actions, attenti
         action_log_probs = actor(sequences, num_actions, attention_mask)
     
     action_log_probs = action_log_probs.float()  # More precision
-    
-    # Sum log probabilities for each sequence
-    log_probs_per_seq = action_log_probs.sum(dim=-1)
-    
+
+    # Compute action_mask to zero out log probs for padding tokens after EOS
+    action_mask = compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad_token_id)
+
+    # Sum log probabilities for each sequence (masked)
+    log_probs_per_seq = (action_log_probs * action_mask).sum(dim=-1)
+
     return log_probs_per_seq, action_log_probs
 
 
 @torch.no_grad()
-def eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs, attention_mask, action_mask,
+def eval_log_p_plus_log_phi(trainer, experience_maker, args, attention_mask, action_mask,
                             num_actions, sequences, return_extra_info=False, force_no_exploration_bonus=False):
     """
     Evaluate log(p) + log(phi) for target distribution computation.
-    
+
     Args:
         trainer: Trainer instance (needed for access to methods, but not used directly here)
         experience_maker: Experience maker instance
         args: Training arguments
-        action_log_probs: Action log probabilities
         attention_mask: Attention mask
         action_mask: Action mask
         num_actions: Number of actions
@@ -695,8 +699,12 @@ def f_q_estimate(trainer, experience_maker, args, prompt):
         action_log_probs = action_log_probs.float() * action_mask # more precision
         log_q = action_log_probs.sum(dim=-1)
 
+        # generate_seqs_and_get_logprobs switches models to train mode internally;
+        # restore eval mode for evaluation computations
+        experience_maker.set_all_eval()
+
         log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
-            trainer, experience_maker, args, action_log_probs, attention_mask, action_mask, num_actions, sequences, return_extra_info=True, force_no_exploration_bonus=True
+            trainer, experience_maker, args, attention_mask, action_mask, num_actions, sequences, return_extra_info=True, force_no_exploration_bonus=True
         )
 
         f_qs = log_tilde_sigma - log_q
@@ -744,8 +752,12 @@ def f_q_estimate_batched(trainer, experience_maker, args, prompts):
         action_log_probs = action_log_probs.float() * action_mask
         log_q = action_log_probs.sum(dim=-1)  # (P*N,)
 
+        # generate_seqs_and_get_logprobs switches models to train mode internally;
+        # restore eval mode for evaluation computations
+        experience_maker.set_all_eval()
+
         log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
-            trainer, experience_maker, args, action_log_probs, attention_mask, action_mask,
+            trainer, experience_maker, args, attention_mask, action_mask,
             num_actions, sequences, return_extra_info=True, force_no_exploration_bonus=True
         )
 
@@ -810,8 +822,7 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
         action_log_probs = action_log_probs.float() * action_mask
         log_q = action_log_probs.sum(dim=-1)
 
-        # Use the action_log_probs returned from compute_actor_log_probs_for_sequences
-        log_tilde_sigma = eval_log_p_plus_log_phi(trainer, experience_maker, args, action_log_probs,
+        log_tilde_sigma = eval_log_p_plus_log_phi(trainer, experience_maker, args,
                                 attention_mask, action_mask,
                                 num_actions, sequences, force_no_exploration_bonus=True)
         log_tilde_sigma = log_tilde_sigma.float() # more precision
@@ -960,7 +971,7 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
     print(iwae_lbs_list)
     print(iwae_ubs_list)
     print("Shapes")
-    print(total_g_qs.shape)
+    print(total_g_qs.shape if total_g_qs is not None else None)
     print(f_qs.shape)
 
     if total_g_qs is not None:
@@ -1043,6 +1054,11 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
             ts = true_target_samples_by_prompt[p]
             assert ts.shape[0] > 0, f"Prompt {p} has no target samples for IWAE UB"
             target_sample_0 = ts[0].unsqueeze(0)  # (1, ts_seq_len)
+            assert target_sample_0.shape[1] <= common_seq_len, (
+                f"Target sample for prompt {p} has length {target_sample_0.shape[1]} "
+                f"which exceeds common_seq_len={common_seq_len}. "
+                f"Target samples may have been generated with different generate_max_len or prompt_max_len."
+            )
             padded_target = left_pad_sequences(target_sample_0, common_seq_len, pad_token_id)
             mixture_3d[i, 0, :] = padded_target.squeeze(0)
 
