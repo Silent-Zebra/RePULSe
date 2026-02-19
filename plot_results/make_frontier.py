@@ -258,6 +258,9 @@ def make_frontier_exact_kl_bootstrap(
     n_bootstrap_draws=5000,  # Added parameter for number of bootstrap draws
     compare_to_reference=False,
     ylimlow=None, ylimhigh=None,
+    alpha_list=None,
+    size_list=None,
+    connect_groups=None,
 ):
     """
     Plot KL divergence on two axes (KL(sigma_p || q) vs KL(q || sigma_p)),
@@ -265,6 +268,9 @@ def make_frontier_exact_kl_bootstrap(
 
     results_list should contain tuples of (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
     where kl_sigma_q_list and kl_q_sigma_list are lists of KL values per prompt/evaluation.
+
+    If connect_groups is provided, it should be a list of group IDs (one per series).
+    Series in the same group share a legend entry and are connected by lines.
     """
     plt.clf()
     plt.xlabel(xlabel, fontsize=fontsize)
@@ -272,6 +278,14 @@ def make_frontier_exact_kl_bootstrap(
 
     all_x = []
     all_y = []
+
+    # For connect_groups: find the last series index per group (for legend deduplication)
+    # and track plotted coordinates per group (for connecting lines)
+    if connect_groups is not None:
+        last_in_group = {}
+        for idx in range(len(connect_groups)):
+            last_in_group[connect_groups[idx]] = idx
+        group_plotted_coords = {}  # group_id -> list of (x, y)
 
     for i in range(len(labels)):
 
@@ -292,10 +306,10 @@ def make_frontier_exact_kl_bootstrap(
                 if not isinstance(t, tuple) or len(t) < 2:
                     print(f"Warning: Expected tuple with at least 2 elements for {labels[i]}, seed {t_idx+1}. Got {type(t)}. Skipping.")
                     continue
-                
+
                 kl_sigma_q_list = t[0]  # KL(sigma_p || q)
                 kl_q_sigma_list = t[1]  # KL(q || sigma_p)
-                
+
                 # Convert to numpy arrays if they're lists/tensors
                 if isinstance(kl_sigma_q_list, list):
                     kl_sigma_q_array = np.array(kl_sigma_q_list)
@@ -303,14 +317,14 @@ def make_frontier_exact_kl_bootstrap(
                     kl_sigma_q_array = kl_sigma_q_list.float().cpu().numpy()
                 else:
                     kl_sigma_q_array = np.array([kl_sigma_q_list])
-                
+
                 if isinstance(kl_q_sigma_list, list):
                     kl_q_sigma_array = np.array(kl_q_sigma_list)
                 elif isinstance(kl_q_sigma_list, torch.Tensor):
                     kl_q_sigma_array = kl_q_sigma_list.float().cpu().numpy()
                 else:
                     kl_q_sigma_array = np.array([kl_q_sigma_list])
-                
+
                 # Take the mean across all prompts/evaluations for this seed
                 x_results_per_seed.append(kl_sigma_q_array.mean())
                 y_results_per_seed.append(kl_q_sigma_array.mean())
@@ -334,9 +348,23 @@ def make_frontier_exact_kl_bootstrap(
                 x_values_all_seeds = x_values_all_seeds - reference_x[:x_values_all_seeds.shape[0]]
                 y_values_all_seeds = y_values_all_seeds - reference_y[:y_values_all_seeds.shape[0]]
 
+            point_alpha = alpha_list[i] if alpha_list is not None else 1.0
+
+            # Determine legend label: deduplicate when using connect_groups
+            # (only the last series in each group gets a legend entry, so the legend
+            # marker/color matches the full-opacity point)
+            if connect_groups is not None and i != last_in_group[connect_groups[i]]:
+                use_label = '_nolegend_'
+            else:
+                use_label = labels[i]
+
+            point_size = size_list[i] if size_list is not None else None
+            scatter_kwargs = dict(label=use_label, c=color_list[i], marker=marker_list[i], alpha=point_alpha)
+            if point_size is not None:
+                scatter_kwargs['s'] = point_size
+
             if not aggregate_seeds:
-                plt.scatter(x_values_all_seeds, y_values_all_seeds, label=labels[i], c=color_list[i],
-                            marker=marker_list[i])
+                plt.scatter(x_values_all_seeds, y_values_all_seeds, **scatter_kwargs)
             else:  # aggregate_seeds is True, perform bootstrap
                 n_seeds = x_values_all_seeds.shape[0]
 
@@ -387,8 +415,11 @@ def make_frontier_exact_kl_bootstrap(
                         f"  {labels[i]}: X = {x_observed_mean:.3f} [{x_ci_lower:.3f}, {x_ci_upper:.3f}], Y = {y_observed_mean:.3f} [{y_ci_lower:.3f}, {y_ci_upper:.3f}]")
 
                 # Plot the observed mean
-                plt.scatter(x_observed_mean, y_observed_mean, label=labels[i], c=color_list[i],
-                            marker=marker_list[i])
+                agg_scatter_kwargs = dict(label=use_label, c=color_list[i],
+                                         marker=marker_list[i], alpha=point_alpha, zorder=3)
+                if point_size is not None:
+                    agg_scatter_kwargs['s'] = point_size
+                plt.scatter(x_observed_mean, y_observed_mean, **agg_scatter_kwargs)
 
                 # Plot error bars if they were computed
                 if x_err_bootstrap is not None and y_err_bootstrap is not None:
@@ -399,12 +430,34 @@ def make_frontier_exact_kl_bootstrap(
                         yerr=y_err_bootstrap,
                         fmt='',  # No line connecting points, marker is from scatter
                         ecolor=color_list[i],
-                        alpha=alpha_error,
+                        alpha=alpha_error * point_alpha,
                         capsize=2,
+                        zorder=2,
                     )
 
                 all_x.append(x_observed_mean)
                 all_y.append(y_observed_mean)
+
+                # Track coordinates for connecting lines
+                if connect_groups is not None:
+                    gid = connect_groups[i]
+                    if gid not in group_plotted_coords:
+                        group_plotted_coords[gid] = []
+                    group_plotted_coords[gid].append((x_observed_mean, y_observed_mean))
+
+    # Draw connecting lines between points in the same group
+    if connect_groups is not None:
+        for gid, coords in group_plotted_coords.items():
+            if len(coords) > 1:
+                xs = [c[0] for c in coords]
+                ys = [c[1] for c in coords]
+                # Use the color of the first series in this group
+                group_color = None
+                for idx in range(len(connect_groups)):
+                    if connect_groups[idx] == gid:
+                        group_color = color_list[idx]
+                        break
+                plt.plot(xs, ys, color=group_color, linewidth=1, linestyle='-', alpha=0.5, zorder=1)
 
     if (xlimlow is not None) or (xlimhigh is not None):
         plt.xlim(xlimlow, xlimhigh)
