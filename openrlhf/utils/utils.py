@@ -1311,3 +1311,172 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
         "iwae_lbs_agg": iwae_lbs_agg,
         "iwae_ubs_agg": iwae_ubs_agg,
     }
+
+
+@torch.no_grad()
+def rejection_sample_for_prompt(
+    actor, reward_model, tokenizer, prompt,
+    target_dist_beta, reward_clamp, reward_cap, prompt_max_len,
+    generate_kwargs, batch_size, max_gen,
+    tile_prompts_fn,
+    target_sample_amount=None,
+    rm_type="rlhf",
+    strategy=None,
+):
+    """Rejection sampling from sigma = p * exp(beta * r) for a single prompt.
+
+    The target distribution formulation sigma(x) propto p(x) * exp(beta * r(x)) assumes
+    rm_type="rlhf" (scalar reward model). Other reward types use different formulations.
+
+    Generates sequences from `actor`, computes rewards, and accepts/rejects based on
+    the ratio exp(beta * clamped_reward) / M, where M = exp(|clamp * beta|).
+
+    Stops when either:
+      - `target_sample_amount` accepted samples are collected (if set), OR
+      - `max_gen` total sequences have been generated (if set), OR
+      - both are None (runs forever — at least one should be set).
+
+    Args:
+        actor: The model to sample from (e.g., base_actor).
+        reward_model: Reward model for scoring sequences.
+        tokenizer: Tokenizer for encoding prompts.
+        prompt: A single prompt string.
+        target_dist_beta: Beta parameter for the target distribution.
+        reward_clamp: Symmetric reward clamp value (or None).
+        reward_cap: Upper reward cap value (or None; one of reward_clamp/reward_cap must be set).
+        prompt_max_len: Maximum prompt length for tokenization.
+        generate_kwargs: Dict of generation kwargs (max_new_tokens, eos_token_id, etc.).
+        batch_size: Number of sequences to generate per iteration.
+        max_gen: Maximum total sequences to generate before stopping (None = no limit).
+        tile_prompts_fn: Function to tile a prompt into a batch (e.g., tile_prompts).
+        target_sample_amount: Stop after collecting this many accepted samples (None = no limit).
+        rm_type: Reward model type. Must be "rlhf" — the target distribution formulation
+                 sigma(x) propto p(x) * exp(beta * r(x)) assumes a scalar reward model.
+        strategy: Optional strategy object with .print() method.
+
+    Returns:
+        accepted_seqs: list of token ID lists (may be shorter than target_sample_amount
+                       if max_gen was reached first; may be empty if none accepted)
+        accepted_rewards: list of float rewards (clamped)
+        total_generated: int total sequences generated
+    """
+    assert rm_type == "rlhf", (
+        f"Rejection sampling currently only supports rm_type='rlhf', got '{rm_type}'. "
+        f"The target distribution formulation sigma(x) propto p(x) * exp(beta * r(x)) "
+        f"assumes a scalar reward model."
+    )
+    assert reward_clamp is not None or reward_cap is not None, \
+        "Either reward_clamp or reward_cap must be set for rejection sampling"
+
+    def _print(msg):
+        if strategy is not None:
+            strategy.print(msg)
+        else:
+            print(msg)
+
+    device = next(actor.parameters()).device
+
+    # Compute log_M = |clamp_val * beta|
+    clamp_val = reward_clamp if reward_clamp is not None else reward_cap
+    log_M = abs(clamp_val * target_dist_beta)
+
+    def tokenize_fn(texts, max_length, dev):
+        batch = tokenizer(
+            texts,
+            return_tensors="pt",
+            add_special_tokens=False,
+            max_length=max_length,
+            padding=True,
+            truncation=True,
+        )
+        return {k: v.to(dev) for k, v in batch.items()}
+
+    accepted_seqs = []
+    accepted_rewards = []
+    total_generated = 0
+    iteration = 0
+
+    while True:
+        # Check stopping criteria
+        if target_sample_amount is not None and len(accepted_seqs) >= target_sample_amount:
+            break
+        if max_gen is not None and total_generated >= max_gen:
+            if target_sample_amount is not None:
+                _print(f"  Warning: Reached max_gen={max_gen} with only "
+                       f"{len(accepted_seqs)}/{target_sample_amount} accepted. Stopping.")
+            break
+
+        iteration += 1
+        prompt_batch = tile_prompts_fn(prompt, batch_size)
+        inputs = tokenize_fn(prompt_batch, prompt_max_len, device=device)
+        sequences, attention_mask, action_mask = actor.generate(**inputs, **generate_kwargs)
+        rewards = reward_model(sequences, attention_mask)
+        rewards = rewards.squeeze(-1) if rewards.dim() > 1 else rewards
+
+        if reward_clamp is not None:
+            clamped_rewards = rewards.clamp(min=-reward_clamp, max=reward_clamp)
+        else:
+            clamped_rewards = rewards.clamp(max=reward_cap)
+
+        log_phi = target_dist_beta * clamped_rewards
+        log_ratio = log_phi - log_M
+        raw_accept_prob = torch.exp(log_ratio)
+        # Sanity check: acceptance probabilities must be in [0, 1] for valid rejection sampling.
+        assert (raw_accept_prob >= -1e-6).all(), (
+            f"Rejection sampling acceptance probability is negative (min={raw_accept_prob.min().item():.6f})."
+        )
+        assert (raw_accept_prob <= 1.0 + 1e-6).all(), (
+            f"Rejection sampling acceptance probability exceeds 1 (max={raw_accept_prob.max().item():.6f}). "
+            f"Check reward clamping and target_dist_beta settings."
+        )
+        accept_prob = raw_accept_prob.clamp(min=0.0, max=1.0)
+        u = torch.rand_like(accept_prob)
+        accept_mask = u < accept_prob
+
+        batch_accepted_seqs = [seq.cpu().tolist() for seq in sequences[accept_mask]]
+        batch_accepted_rews = [rew.cpu().item() for rew in clamped_rewards[accept_mask]]
+        accepted_seqs.extend(batch_accepted_seqs)
+        accepted_rewards.extend(batch_accepted_rews)
+        total_generated += sequences.shape[0]
+
+        if iteration % 10 == 0 or (target_sample_amount is not None and len(accepted_seqs) >= target_sample_amount):
+            rate = len(accepted_seqs) / total_generated if total_generated > 0 else 0.0
+            target_str = f"/{target_sample_amount}" if target_sample_amount is not None else ""
+            _print(f"  Rejection sampling iteration {iteration}: {len(accepted_seqs)}{target_str} accepted, "
+                   f"{total_generated} generated, acceptance rate: {rate:.4f}")
+
+    # Truncate to target_sample_amount if we overshot
+    if target_sample_amount is not None:
+        accepted_seqs = accepted_seqs[:target_sample_amount]
+        accepted_rewards = accepted_rewards[:target_sample_amount]
+
+    return accepted_seqs, accepted_rewards, total_generated
+
+
+def discover_trajectory_checkpoints(trajectory_dir):
+    """Discover and sort checkpoint tags in a trajectory directory.
+
+    Looks for subdirectories matching "total_step*" pattern, parses the step
+    numbers, and returns them sorted numerically.
+
+    Args:
+        trajectory_dir: Path to the trajectory directory (e.g., the _harml_actor dir).
+
+    Returns:
+        List of (step_number, tag_name) tuples, sorted by step_number.
+    """
+    assert os.path.isdir(trajectory_dir), f"Trajectory directory not found: {trajectory_dir}"
+
+    checkpoints = []
+    for entry in os.listdir(trajectory_dir):
+        full_path = os.path.join(trajectory_dir, entry)
+        if not os.path.isdir(full_path):
+            continue
+        # Match "total_step<N>" pattern
+        match = re.match(r'^total_step(\d+)$', entry)
+        if match:
+            step_num = int(match.group(1))
+            checkpoints.append((step_num, entry))
+
+    checkpoints.sort(key=lambda x: x[0])
+    return checkpoints

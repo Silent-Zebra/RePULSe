@@ -1,5 +1,5 @@
 import math
-import os.path
+import os
 from abc import ABC
 from typing import Any, Callable, Dict, List, Optional, Union, Set
 from openrlhf.models.loss import get_positive_weights_detached, get_normalized_positive_weights_detached
@@ -558,6 +558,40 @@ class CombinedHarmlessnessTrainer(ABC):
         # If this doesn't match, schedule indexing with self.total_steps will go out of bounds.
         total_update_steps = self.prompts_dataloader.__len__() * args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop * args.fit_steps
 
+        # --- Trajectory recording: metadata save and max_ckpt_num validation ---
+        if getattr(args, 'save_trajectory_metadata', False):
+            if args.save_steps_harmless != float("inf"):
+                n_checkpoints_to_save = total_update_steps // int(args.save_steps_harmless)
+                if not getattr(args, 'no_save_optim', False):
+                    # save_ckpt prunes — max_ckpt_num must be sufficient
+                    assert args.max_ckpt_num >= n_checkpoints_to_save, (
+                        f"max_ckpt_num={args.max_ckpt_num} < expected checkpoints ({n_checkpoints_to_save}). "
+                        f"Old checkpoints will be pruned during trajectory recording. "
+                        f"Set --max_ckpt_num >= {n_checkpoints_to_save}, or use --no_save_optim "
+                        f"(which doesn't prune)."
+                    )
+
+            info_name_str = get_info_name_str(args)
+            metadata = {
+                "version": 1,
+                "custom_prompt": args.custom_prompt if args.new_custom_single_prompt else None,
+                "save_steps_harmless": args.save_steps_harmless,
+                "target_dist_beta": args.target_dist_beta,
+                "reward_clamp": args.reward_clamp,
+                "generate_max_len": args.generate_max_len,
+                "prompt_max_len": args.prompt_max_len,
+                "pretrain": args.pretrain,
+                "reward_pretrain": args.reward_pretrain,
+                "seed": args.seed,
+                "no_save_optim": getattr(args, 'no_save_optim', False),
+                "total_update_steps": total_update_steps,
+            }
+            metadata_path = os.path.join(args.ckpt_path, f"{info_name_str}_trajectory_metadata.pt")
+            torch.save(metadata, metadata_path)
+            print(f"Saved trajectory metadata to {metadata_path}", flush=True)
+            self._trajectory_metadata_path = metadata_path
+            self._trajectory_steps_with_rejection_samples = []
+
         beta_schedule = None
         if args.anneal_target_dist_beta:
             beta_schedule = log_sequence_for_negatives(args.start_target_dist_beta, args.target_dist_beta, total_update_steps)
@@ -576,6 +610,69 @@ class CombinedHarmlessnessTrainer(ABC):
             prompt_text = get_custom_prompt_with_chat_template(
                 self.tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), self.strategy
             )
+
+        # --- Trajectory replay setup ---
+        if getattr(args, 'load_base_actor_trajectory', None):
+            if not args.new_custom_single_prompt:
+                raise NotImplementedError(
+                    "Trajectory replay is currently only supported for single-prompt mode "
+                    "(--new_custom_single_prompt). Multi-prompt support requires: "
+                    "(1) saving/replaying prompt order alongside trajectory, "
+                    "(2) per-prompt rejection samples, "
+                    "(3) per-prompt eval_target_samples_fixed update."
+                )
+
+            from openrlhf.utils.utils import discover_trajectory_checkpoints
+            self._trajectory_dir = args.load_base_actor_trajectory
+            self.trajectory_checkpoints = discover_trajectory_checkpoints(args.load_base_actor_trajectory)
+            assert len(self.trajectory_checkpoints) > 0, \
+                f"No checkpoints found in trajectory directory: {args.load_base_actor_trajectory}"
+            print(f"Found {len(self.trajectory_checkpoints)} trajectory checkpoints: "
+                  f"{[tag for _, tag in self.trajectory_checkpoints]}", flush=True)
+
+            # Determine steps between checkpoint loads
+            if args.trajectory_steps_per_ckpt is not None:
+                self.trajectory_steps_per_ckpt = args.trajectory_steps_per_ckpt
+            else:
+                steps_list = [s for s, _ in self.trajectory_checkpoints]
+                intervals = [steps_list[i+1] - steps_list[i] for i in range(len(steps_list)-1)]
+                assert len(intervals) > 0, (
+                    "Only one trajectory checkpoint found; cannot infer interval. "
+                    "Please specify --trajectory_steps_per_ckpt explicitly."
+                )
+                assert len(set(intervals)) == 1, (
+                    f"Checkpoint intervals are not uniform: {intervals}. "
+                    f"Please specify --trajectory_steps_per_ckpt explicitly."
+                )
+                self.trajectory_steps_per_ckpt = intervals[0]
+            print(f"Trajectory steps per checkpoint: {self.trajectory_steps_per_ckpt}", flush=True)
+
+            self.trajectory_ckpt_index = 0
+
+            # Detect checkpoint format (HF vs DeepSpeed)
+            first_tag = self.trajectory_checkpoints[0][1]
+            first_dir = os.path.join(args.load_base_actor_trajectory, first_tag)
+            self.trajectory_is_hf_format = os.path.exists(os.path.join(first_dir, "config.json"))
+            print(f"Trajectory checkpoint format: {'HuggingFace' if self.trajectory_is_hf_format else 'DeepSpeed'}", flush=True)
+
+            # Load first checkpoint
+            self._load_trajectory_checkpoint(0)
+
+            # Load rejection samples if available
+            self.trajectory_rejection_samples = {}
+            rejection_dir = args.load_base_actor_trajectory.replace("_harml_actor", "_rejection_samples")
+            if os.path.isdir(rejection_dir):
+                for f in sorted(os.listdir(rejection_dir)):
+                    if f.endswith('.pt'):
+                        tag = f.replace('.pt', '')
+                        self.trajectory_rejection_samples[tag] = torch.load(
+                            os.path.join(rejection_dir, f), map_location='cpu'
+                        )
+                print(f"Loaded rejection samples for {len(self.trajectory_rejection_samples)} trajectory steps", flush=True)
+
+            # Set initial rejection samples for evaluation
+            first_tag = self.trajectory_checkpoints[0][1]
+            self.current_trajectory_rejection_samples = self.trajectory_rejection_samples.get(first_tag, None)
 
         for episode in range(start_episode, args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop): # Actually with this current setup is kind of redundant to have these 2 hyperparameters, loops here or in the outer loop, just pick one, doesn't really matter with 1 update each...
             print(f"HARMLESSNESS TRAINING EPISODE {episode}", flush=True)
@@ -613,6 +710,10 @@ class CombinedHarmlessnessTrainer(ABC):
                 if args.new_custom_single_prompt:
                     rand_prompts = [prompt_text]
 
+                # Load next trajectory checkpoint if in replay mode
+                if getattr(args, 'load_base_actor_trajectory', None):
+                    self._maybe_load_next_trajectory_checkpoint()
+
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:
 
@@ -632,6 +733,14 @@ class CombinedHarmlessnessTrainer(ABC):
 
                 if mid_fit_callback is not None:
                     mid_fit_callback(len(rand_prompts))
+
+        # Update trajectory metadata with rejection sample steps (at end of training)
+        if getattr(args, 'save_trajectory_metadata', False) and hasattr(self, '_trajectory_metadata_path'):
+            metadata = torch.load(self._trajectory_metadata_path, map_location='cpu')
+            metadata["steps_with_rejection_samples"] = getattr(self, '_trajectory_steps_with_rejection_samples', [])
+            torch.save(metadata, self._trajectory_metadata_path)
+            print(f"Updated trajectory metadata with {len(metadata['steps_with_rejection_samples'])} "
+                  f"rejection sample steps", flush=True)
 
         # train_ppo now owns f_q/g_q evaluation: calls f_q_g_q_evaluation at initial and after each fit step
         return estimates_list
@@ -1470,6 +1579,8 @@ class CombinedHarmlessnessTrainer(ABC):
             print(f"SAVING CHECKPOINT AT TOTAL POLICY HARMLESSNESS TRAINING STEPs {self.total_steps}", flush=True)
             tag = f"total_step{self.total_steps}"
             self._save_base_checkpoint(args, tag, client_states)
+            if getattr(args, 'rejection_sample_each_save', False):
+                self._attempt_rejection_sampling_at_checkpoint(args, tag)
 
         if self.total_steps > 0 and self.total_steps % args.save_steps == 0:
         # if global_step % args.save_steps == 0:
@@ -1483,21 +1594,161 @@ class CombinedHarmlessnessTrainer(ABC):
 
         info_name_str = get_info_name_str(args)
         save_str = f"{info_name_str}"
-        # save_str = f"PPOepochs{args.max_epochs}{eval_str}_lrschedule{args.lr_scheduler}_{lr_str}_criticloss{args.base_criti_loss_type}_{extra_str}_seed{args.seed}"
 
-        self.strategy.save_ckpt(
-            self.base_actor.model,
-            os.path.join(args.ckpt_path, f"{save_str}_harml_actor"),
-            tag,
-            args.max_ckpt_num,
-            args.max_ckpt_mem,
-            client_states,
-        )
+        save_dir = os.path.join(args.ckpt_path, f"{save_str}_harml_actor")
+
+        if getattr(args, 'no_save_optim', False):
+            # Save HuggingFace-format weights only (no optimizer states) — much smaller.
+            # Note: save_model does NOT prune old checkpoints (unlike save_ckpt).
+            tag_dir = os.path.join(save_dir, tag)
+            self.strategy.save_model(self.base_actor.model, self.tokenizer, tag_dir)
+        else:
+            self.strategy.save_ckpt(
+                self.base_actor.model,
+                save_dir,
+                tag,
+                args.max_ckpt_num,
+                args.max_ckpt_mem,
+                client_states,
+            )
         if self.base_critic is not None:
             self.strategy.save_ckpt(
                 self.base_critic, os.path.join(args.ckpt_path, f"{save_str}_harml_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
             )
 
+    def _attempt_rejection_sampling_at_checkpoint(self, args, step_tag):
+        """Attempt rejection sampling at the current base actor state and save results."""
+        from openrlhf.utils.utils import rejection_sample_for_prompt
+
+        # Single-prompt only for now
+        if not args.new_custom_single_prompt:
+            raise NotImplementedError(
+                "Rejection sampling at checkpoint save is only supported for single-prompt mode. "
+                "TODO: multi-prompt support requires per-prompt rejection sampling."
+            )
+
+        prompt_text = get_custom_prompt_with_chat_template(
+            self.tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), self.strategy
+        )
+
+        generate_kwargs = {
+            "max_new_tokens": args.generate_max_len,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "do_sample": True,
+            "temperature": 1.0,
+        }
+
+        batch_size = args.batch_size_rejection_sample if args.batch_size_rejection_sample is not None else args.duplicate_rollout_batch_by
+        max_gen = getattr(args, 'max_gen_per_prompt_rejection', None)
+
+        self.base_actor.eval()
+        accepted_seqs, accepted_rewards, total_generated = rejection_sample_for_prompt(
+            actor=self.base_actor,
+            reward_model=self.reward_model,
+            tokenizer=self.tokenizer,
+            prompt=prompt_text,
+            target_dist_beta=args.target_dist_beta,
+            reward_clamp=args.reward_clamp,
+            reward_cap=getattr(args, 'reward_cap', None),
+            prompt_max_len=args.prompt_max_len,
+            generate_kwargs=generate_kwargs,
+            batch_size=batch_size,
+            max_gen=max_gen,
+            tile_prompts_fn=tile_prompts,
+            rm_type=args.rm_type,
+            strategy=self.strategy,
+        )
+
+        info_name_str = get_info_name_str(args)
+        rejection_dir = os.path.join(args.ckpt_path, f"{info_name_str}_rejection_samples")
+        os.makedirs(rejection_dir, exist_ok=True)
+
+        total_accepted = len(accepted_seqs)
+        rate = total_accepted / total_generated if total_generated > 0 else 0.0
+        print(f"Rejection sampling at {step_tag}: {total_accepted} accepted from "
+              f"{total_generated} generated (rate: {rate:.4f})", flush=True)
+
+        if total_accepted > 0:
+            save_data = {
+                "accepted_seqs": accepted_seqs,
+                "accepted_rewards": accepted_rewards,
+                "total_generated": total_generated,
+                "total_accepted": total_accepted,
+                "prompt": args.custom_prompt,
+            }
+            save_path = os.path.join(rejection_dir, f"{step_tag}.pt")
+            torch.save(save_data, save_path)
+            print(f"Saved rejection samples to {save_path}", flush=True)
+
+            # Track steps with rejection samples
+            if not hasattr(self, '_trajectory_steps_with_rejection_samples'):
+                self._trajectory_steps_with_rejection_samples = []
+            self._trajectory_steps_with_rejection_samples.append(step_tag)
+        else:
+            print(f"No samples accepted at {step_tag}; skipping save.", flush=True)
+
+    def _load_trajectory_checkpoint(self, index):
+        """Load a trajectory checkpoint by index into the base actor."""
+        step_num, tag = self.trajectory_checkpoints[index]
+        print(f"Loading trajectory checkpoint {index + 1}/{len(self.trajectory_checkpoints)}: "
+              f"tag={tag} at total_steps={self.total_steps}", flush=True)
+
+        ckpt_dir = os.path.join(self._trajectory_dir, tag)
+
+        if self.trajectory_is_hf_format:
+            # Load HuggingFace format (saved with strategy.save_model / --no_save_optim)
+            from safetensors.torch import load_file as safetensors_load_file
+            safetensors_path = os.path.join(ckpt_dir, "model.safetensors")
+            pytorch_bin_path = os.path.join(ckpt_dir, "pytorch_model.bin")
+
+            if os.path.exists(safetensors_path):
+                state_dict = safetensors_load_file(safetensors_path)
+            elif os.path.exists(pytorch_bin_path):
+                state_dict = torch.load(pytorch_bin_path, map_location='cpu')
+            else:
+                raise FileNotFoundError(
+                    f"No model weights found in {ckpt_dir}. "
+                    f"Expected model.safetensors or pytorch_model.bin"
+                )
+
+            # Load into base_actor. The model is wrapped as a DeepSpeed engine (eval mode).
+            # Access the underlying model module.
+            unwrapped = self.strategy._unwrap_model(self.base_actor.model)
+            unwrapped.load_state_dict(state_dict, strict=True)
+            print(f"Loaded HuggingFace checkpoint from {ckpt_dir}", flush=True)
+        else:
+            # Load DeepSpeed format
+            self.strategy.load_ckpt(
+                self.base_actor.model,
+                self._trajectory_dir,
+                tag=tag,
+                load_module_only=True,
+            )
+            print(f"Loaded DeepSpeed checkpoint from {ckpt_dir}", flush=True)
+
+        # Update current rejection samples
+        if hasattr(self, 'trajectory_rejection_samples'):
+            self.current_trajectory_rejection_samples = self.trajectory_rejection_samples.get(tag, None)
+
+    def _maybe_load_next_trajectory_checkpoint(self):
+        """Check if it's time to load the next trajectory checkpoint."""
+        if not hasattr(self, 'trajectory_checkpoints'):
+            return
+
+        next_load_step = (self.trajectory_ckpt_index + 1) * self.trajectory_steps_per_ckpt
+        if self.total_steps >= next_load_step:
+            self.trajectory_ckpt_index += 1
+            if self.trajectory_ckpt_index < len(self.trajectory_checkpoints):
+                self._load_trajectory_checkpoint(self.trajectory_ckpt_index)
+            else:
+                # Trajectory exhausted — raise error
+                raise RuntimeError(
+                    f"Trajectory exhausted at step {self.total_steps}. "
+                    f"The trajectory has {len(self.trajectory_checkpoints)} checkpoints "
+                    f"but training reached step {self.total_steps}. "
+                    f"Reduce training steps or extend the trajectory."
+                )
 
     def _save_proposal_checkpoint(self, args, tag, client_states):
         info_name_str = get_info_name_str(args)

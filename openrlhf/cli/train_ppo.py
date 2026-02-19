@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -223,18 +223,19 @@ def train(args):
         )
 
     if args.do_harmlessness_training:
-        base_actor_optim = strategy.create_optimizer(
-            base_actor, lr=args.base_actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
-        )
-
-        strategy.print("BASE ACTOR OPTIM")
-        strategy.print(base_actor_optim)
-        
         # If base_actor learning rate is 0, only sample from sampling_actor (q)
         if abs(args.base_actor_learning_rate) < 1e-10:
             strategy.print("Base actor learning rate is 0. Setting neg_sample_only=True everywhere (only sampling from q).")
+            strategy.print("Skipping base actor optimizer/scheduler creation to save memory (no optimizer states).")
             args.neg_sample_only = True
+            base_actor_optim = None
+            base_actor_scheduler = None
         else:
+            base_actor_optim = strategy.create_optimizer(
+                base_actor, lr=args.base_actor_learning_rate, betas=args.adam_betas, weight_decay=args.l2
+            )
+            strategy.print("BASE ACTOR OPTIM")
+            strategy.print(base_actor_optim)
             args.neg_sample_only = False
     else:
         # Non-harmlessness training: no sampling actor, always train base actor
@@ -275,7 +276,7 @@ def train(args):
         num_training_steps=max_steps,
         scheduler_specific_kwargs={"min_lr": args.actor_learning_rate * 0.1},
     )
-    if args.do_harmlessness_training:
+    if args.do_harmlessness_training and base_actor_optim is not None:
         base_actor_scheduler = get_scheduler(
             args.lr_scheduler,
             base_actor_optim,
@@ -329,13 +330,17 @@ def train(args):
             param.requires_grad = False
 
     if args.do_harmlessness_training:
-        # Seems like the strategy.prepare handles None gracefully, so no need for the explicit critic check
+        # When base_actor_learning_rate=0, pass base_actor as bare model (not tuple) so it goes
+        # through _ds_init_eval_model instead of _ds_init_train_model, avoiding optimizer state allocation.
+        base_actor_is_eval = (base_actor_optim is None)
+        base_actor_arg = base_actor if base_actor_is_eval else (base_actor, base_actor_optim, base_actor_scheduler)
+
         if critic is not None:
             # prepare models/optimizers...
             prepared = strategy.prepare(
                 (actor, actor_optim, actor_scheduler),
                 (critic, critic_optim, critic_scheduler),
-                (base_actor, base_actor_optim, base_actor_scheduler),
+                base_actor_arg,
                 reward_model,
                 static_initial_model,
                 coin_flip_trainable_network,
@@ -343,19 +348,30 @@ def train(args):
                 is_rlhf=True,
                 gradient_accumulation_steps=args.gradient_accumulation_steps,
             )
-            (
-                (actor, actor_optim, actor_scheduler),
-                (critic, critic_optim, critic_scheduler),
-                (base_actor, base_actor_optim, base_actor_scheduler),
-                reward_model,
-                static_initial_model,
-                coin_flip_trainable_network,
-                coin_flip_frozen_prior_network,
-            ) = prepared
+            if base_actor_is_eval:
+                (
+                    (actor, actor_optim, actor_scheduler),
+                    (critic, critic_optim, critic_scheduler),
+                    base_actor,
+                    reward_model,
+                    static_initial_model,
+                    coin_flip_trainable_network,
+                    coin_flip_frozen_prior_network,
+                ) = prepared
+            else:
+                (
+                    (actor, actor_optim, actor_scheduler),
+                    (critic, critic_optim, critic_scheduler),
+                    (base_actor, base_actor_optim, base_actor_scheduler),
+                    reward_model,
+                    static_initial_model,
+                    coin_flip_trainable_network,
+                    coin_flip_frozen_prior_network,
+                ) = prepared
         else:
             prepared = strategy.prepare(
                 (actor, actor_optim, actor_scheduler),
-                (base_actor, base_actor_optim, base_actor_scheduler),
+                base_actor_arg,
                 reward_model,
                 static_initial_model,
                 coin_flip_trainable_network,
@@ -363,14 +379,24 @@ def train(args):
                 is_rlhf=True,
                 gradient_accumulation_steps=args.gradient_accumulation_steps,
             )
-            (
-                (actor, actor_optim, actor_scheduler),
-                (base_actor, base_actor_optim, base_actor_scheduler),
-                reward_model,
-                static_initial_model,
-                coin_flip_trainable_network,
-                coin_flip_frozen_prior_network,
-            ) = prepared
+            if base_actor_is_eval:
+                (
+                    (actor, actor_optim, actor_scheduler),
+                    base_actor,
+                    reward_model,
+                    static_initial_model,
+                    coin_flip_trainable_network,
+                    coin_flip_frozen_prior_network,
+                ) = prepared
+            else:
+                (
+                    (actor, actor_optim, actor_scheduler),
+                    (base_actor, base_actor_optim, base_actor_scheduler),
+                    reward_model,
+                    static_initial_model,
+                    coin_flip_trainable_network,
+                    coin_flip_frozen_prior_network,
+                ) = prepared
 
     else:
 
@@ -407,8 +433,26 @@ def train(args):
         ema_model = strategy.prepare(ema_model, is_rlhf=True,
                                      gradient_accumulation_steps=args.gradient_accumulation_steps)
 
+    # Trajectory replay validation (before checkpoint loading)
+    if getattr(args, 'load_base_actor_trajectory', None):
+        assert os.path.isdir(args.load_base_actor_trajectory), \
+            f"Trajectory directory not found: {args.load_base_actor_trajectory}"
+        assert abs(getattr(args, 'base_actor_learning_rate', 0)) < 1e-10, (
+            f"--load_base_actor_trajectory requires --base_actor_learning_rate 0, "
+            f"but got {args.base_actor_learning_rate}. The base actor weights are loaded "
+            f"from the trajectory; gradient updates would conflict."
+        )
+        assert args.do_harmlessness_training, \
+            "--load_base_actor_trajectory requires --do_harmlessness_training"
+        strategy.print(f"Trajectory replay mode: loading base actor from {args.load_base_actor_trajectory}")
+        strategy.print("Skipping normal base_actor checkpoint loading (trajectory handles it).")
+
     if args.do_harmlessness_training:
-        consumed_samples = do_load_checkpoints(args, base_actor, None, strategy)
+        # Skip normal checkpoint loading for base_actor when trajectory replay is active
+        if not getattr(args, 'load_base_actor_trajectory', None):
+            consumed_samples = do_load_checkpoints(args, base_actor, None, strategy)
+        else:
+            consumed_samples = 0
     else:
         consumed_samples = do_load_checkpoints(args, actor, critic, strategy)
 
@@ -756,6 +800,16 @@ def train(args):
             strategy.print(f"Eval prompt sets: Fixed={len(eval_prompts_fixed)} prompts"
                            + (f", Random source={len(eval_prompts_random_source)} prompts" if eval_prompts_random_source else ", No random set"))
 
+    # Helper to get eval target samples, updated from trajectory rejection samples if in replay mode
+    def _get_eval_target_for_trajectory():
+        if getattr(args, 'load_base_actor_trajectory', None) and args.do_harmlessness_training:
+            current_rej = getattr(harmlessness_trainer, 'current_trajectory_rejection_samples', None)
+            if current_rej is not None and current_rej.get("accepted_seqs"):
+                seqs_tensor = torch.tensor(current_rej["accepted_seqs"], dtype=torch.long)
+                return [seqs_tensor]
+            return None  # No rejection samples for current checkpoint
+        return eval_target_samples_fixed
+
     if _per_fit_step_heldout or _per_fit_step_f_q_eval:
         _run_per_fit_step_heldout_and_f_q(
             eval_prompts_fixed,
@@ -783,7 +837,7 @@ def train(args):
             iwae_ubs_list,
             f_q_over_time_list,
             target_samples_logprob_over_time_list,
-            eval_target_samples_fixed=eval_target_samples_fixed,
+            eval_target_samples_fixed=_get_eval_target_for_trajectory(),
             f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
             g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
             iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
@@ -833,7 +887,7 @@ def train(args):
                     iwae_ubs_list,
                     f_q_over_time_list,
                     target_samples_logprob_over_time_list,
-                    eval_target_samples_fixed=eval_target_samples_fixed,
+                    eval_target_samples_fixed=_get_eval_target_for_trajectory(),
                     f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
                     g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
                     iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
@@ -1009,7 +1063,7 @@ def train(args):
                     iwae_ubs_list,
                     f_q_over_time_list,
                     target_samples_logprob_over_time_list,
-                    eval_target_samples_fixed=eval_target_samples_fixed,
+                    eval_target_samples_fixed=_get_eval_target_for_trajectory(),
                     f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
                     g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
                     iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
@@ -2382,33 +2436,28 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     max_gen_per_prompt = getattr(args, "max_gen_per_prompt_rejection", None)
 
     if args.new_custom_single_prompt:
-        # Single-prompt mode: collect true_target_sample_amount for the single prompt (unchanged behavior)
+        # Single-prompt mode: collect true_target_sample_amount for each prompt
         for prompt_idx, prompt in enumerate(prompts):
             strategy.print(f"\nProcessing prompt {prompt_idx + 1}/{len(prompts)}")
-            accepted_samples = []
-            accepted_rewards = []
-            total_generated = 0
-            total_accepted = 0
-            iteration = 0
 
-            while len(accepted_samples) < args.true_target_sample_amount:
-                iteration += 1
-                if max_gen_per_prompt is not None and total_generated >= max_gen_per_prompt:
-                    strategy.print(f"  Warning: Reached max_gen_per_prompt_rejection={max_gen_per_prompt} "
-                                   f"with only {len(accepted_samples)}/{args.true_target_sample_amount} accepted. Stopping this prompt.")
-                    break
-                seqs, rews, n_gen = _rejection_sample_one_prompt_batch(prompt, device)
-                accepted_samples.extend(seqs)
-                accepted_rewards.extend(rews)
-                total_generated += n_gen
-                total_accepted += len(seqs)
-                if iteration % 10 == 0 or len(accepted_samples) >= args.true_target_sample_amount:
-                    rate = total_accepted / total_generated if total_generated > 0 else 0.0
-                    strategy.print(f"  Iteration {iteration}: {len(accepted_samples)}/{args.true_target_sample_amount} accepted, "
-                                   f"{total_generated} generated, acceptance rate: {rate:.4f}")
+            accepted_samples, accepted_rewards, total_generated = rejection_sample_for_prompt(
+                actor=base_actor,
+                reward_model=reward_model,
+                tokenizer=tokenizer,
+                prompt=prompt,
+                target_dist_beta=args.target_dist_beta,
+                reward_clamp=args.reward_clamp,
+                reward_cap=args.reward_cap,
+                prompt_max_len=args.prompt_max_len,
+                generate_kwargs=generate_kwargs,
+                batch_size=rejection_batch_size,
+                max_gen=max_gen_per_prompt,
+                tile_prompts_fn=tile_prompts,
+                target_sample_amount=args.true_target_sample_amount,
+                rm_type=args.rm_type,
+                strategy=strategy,
+            )
 
-            accepted_samples = accepted_samples[:args.true_target_sample_amount]
-            accepted_rewards = accepted_rewards[:args.true_target_sample_amount]
             strategy.print(f"\n--- Accepted samples for prompt {prompt_idx + 1} (decoded text and clamped reward) ---")
             for i, (tokens, rew) in enumerate(zip(accepted_samples, accepted_rewards)):
                 text = tokenizer.decode(tokens, skip_special_tokens=True)
@@ -2416,8 +2465,9 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                 strategy.print(f"    text: {text}")
             strategy.print("---")
             target_samples_by_prompt.append(accepted_samples)
+            total_accepted = len(accepted_samples)
             final_rate = total_accepted / total_generated if total_generated > 0 else 0.0
-            strategy.print(f"Prompt {prompt_idx + 1} complete: {len(accepted_samples)} samples accepted "
+            strategy.print(f"Prompt {prompt_idx + 1} complete: {total_accepted} samples accepted "
                            f"from {total_generated} generated (acceptance rate: {final_rate:.4f})")
             total_generated_all += total_generated
             total_accepted_all += total_accepted
@@ -2878,12 +2928,26 @@ def _run_per_fit_step_heldout_and_f_q(
         if is_single_prompt:
             # Single-prompt: use original f_q_g_q_evaluation (backward compat)
             single_prompt_target = eval_target_samples_fixed[0] if eval_target_samples_fixed else None
-            f_q_g_q_evaluation(
-                harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-                f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list,
-                eval_prompts_fixed[0], single_prompt_target,
-            )
-            f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
+            if single_prompt_target is not None:
+                f_q_g_q_evaluation(
+                    harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+                    f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list,
+                    eval_prompts_fixed[0], single_prompt_target,
+                )
+                f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
+            else:
+                # No target samples (e.g., trajectory replay without rejection samples for this step).
+                # Compute f_q only; skip g_q/IWAE (which require target samples).
+                f_qs, *_ = f_q_estimate(
+                    harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg,
+                    args, eval_prompts_fixed[0],
+                )
+                f_q_estimates_list.append(f_qs)
+                f_q_over_time_list.append(f_qs.cpu())
+                # Append None to g_q/IWAE lists for consistent indexing
+                g_q_estimates_list.append(None)
+                iwae_lbs_list.append(None)
+                iwae_ubs_list.append(None)
         else:
             # Multi-prompt: Set A (fixed prompts)
             result_fixed = f_q_g_q_evaluation_multi_prompt(
@@ -3277,6 +3341,20 @@ if __name__ == "__main__":
     parser.add_argument("--max_ckpt_num", type=int, default=3)
     parser.add_argument("--max_ckpt_mem", type=int, default=100000000)
     parser.add_argument("--load_checkpoint", action="store_true", default=False)
+
+    # Trajectory recording & replay (for fixed base actor experiments)
+    parser.add_argument("--save_trajectory_metadata", action="store_true", default=False,
+                        help="Save trajectory metadata alongside base actor checkpoints for later replay")
+    parser.add_argument("--rejection_sample_each_save", action="store_true", default=False,
+                        help="Attempt rejection sampling after each base actor checkpoint save during recording")
+    parser.add_argument("--no_save_optim", action="store_true", default=False,
+                        help="Save only model weights (HuggingFace format, no optimizer states) — much smaller checkpoints")
+    parser.add_argument("--load_base_actor_trajectory", type=str, default=None,
+                        help="Path to saved trajectory directory (the _harml_actor dir) for replay. "
+                             "Requires --base_actor_learning_rate 0.")
+    parser.add_argument("--trajectory_steps_per_ckpt", type=int, default=None,
+                        help="q training steps between loading successive trajectory checkpoints during replay. "
+                             "If None, inferred from checkpoint tag intervals.")
 
     # PPO
     parser.add_argument("--num_episodes", type=int, default=1, help="For PPO, is the number of total times to do updates on the prompt dataset. For harmlessness training, is the number of times to do twist updates per each policy model update")
