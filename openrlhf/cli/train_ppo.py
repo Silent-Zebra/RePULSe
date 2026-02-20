@@ -3117,10 +3117,13 @@ def get_reward_model(args, strategy):
             assert not args.normalize_reward  # Not yet implemented
             base_class = AutoModel._model_mapping[type(config)]
             base_pretrained_class = base_class.__base__
+            if args.apply_chat_template:
+                strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
                 tokenizer_base=tokenizer_base, config=config,
-                rm_max_len=args.rm_max_len
+                rm_max_len=args.rm_max_len,
+                strip_question_chat_template_fn=strip_question_chat_template_fn,
             )
 
         elif args.reward_pretrain in [
@@ -3143,9 +3146,15 @@ def get_reward_model(args, strategy):
             assert not args.normalize_reward  # Not yet implemented
             base_class = AutoModel._model_mapping[type(config)]
             base_pretrained_class = base_class.__base__
-            strip_question_chat_template_fn = None
             if args.apply_chat_template:
                 strip_question_chat_template_fn = get_strip_question_chat_template_fn(args)
+            else:
+                assert args.new_custom_single_prompt, (
+                    "Multi-prompt mode with separatequeryanswer=True reward models (e.g., deberta) "
+                    "requires --apply_chat_template. Without chat template, the code cannot determine "
+                    "how to split decoded text into question and answer."
+                )
+                strip_question_chat_template_fn = get_strip_question_raw_fn(args.custom_prompt, tokenizer_base)
             reward_model = _get_reward_model_custom(
                 base_pretrained_class, rm_name,
                 tokenizer_base=tokenizer_base,
@@ -3270,6 +3279,29 @@ def get_prompts_data(args, strategy, tokenizer):
             pretrain_mode=True,
         )
     return pretrain_dataset, prompts_dataset
+
+
+def get_strip_question_raw_fn(custom_prompt, tokenizer_base):
+    """Create a strip function for non-chat-templated text using the known prompt.
+
+    Canonicalizes the prompt via encode->decode so it matches what batch_decode produces.
+    """
+    prompt_tokens = tokenizer_base.encode(custom_prompt, add_special_tokens=False)
+    canonical_prompt = tokenizer_base.decode(prompt_tokens, skip_special_tokens=True)
+
+    def strip_question_fn(text, additional_split=False):
+        text_stripped = text.strip()
+        if text_stripped.startswith(canonical_prompt):
+            question = canonical_prompt.strip()
+            answer = text_stripped[len(canonical_prompt):].strip()
+            return question, answer
+        raise ValueError(
+            f"Could not find prompt in decoded text.\n"
+            f"Expected prompt: {canonical_prompt[:100]}\n"
+            f"Text starts with: {text_stripped[:200]}"
+        )
+
+    return strip_question_fn
 
 
 def get_strip_question_chat_template_fn(args):

@@ -1380,7 +1380,7 @@ def rejection_sample_for_prompt(
     clamp_val = reward_clamp if reward_clamp is not None else reward_cap
     log_M = abs(clamp_val * target_dist_beta)
 
-    def tokenize_fn(texts, max_length, dev):
+    def tokenize_fn(texts, max_length, device):
         batch = tokenizer(
             texts,
             return_tensors="pt",
@@ -1389,7 +1389,7 @@ def rejection_sample_for_prompt(
             padding=True,
             truncation=True,
         )
-        return {k: v.to(dev) for k, v in batch.items()}
+        return {k: v.to(device) for k, v in batch.items()}
 
     accepted_seqs = []
     accepted_rewards = []

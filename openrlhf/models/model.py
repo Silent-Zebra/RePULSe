@@ -455,6 +455,10 @@ def _get_reward_model_custom(
                 # print("--FORWARD CALL--")
                 # print(input_ids.device)
                 text = self.tokenizer_base.batch_decode(input_ids, skip_special_tokens=True)
+                if strip_question_chat_template_fn is not None:
+                    # Strip chat template artifacts (e.g. "user\n...\nassistant\n") before feeding to RM
+                    qa_list = list(map(strip_question_chat_template_fn, text))
+                    text = [q + " " + a for q, a in qa_list]
                 print("text questions and answers (combined):")
                 print(text)
 
