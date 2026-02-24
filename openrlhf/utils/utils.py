@@ -1314,6 +1314,61 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
 
 
 @torch.no_grad()
+def generate_and_score_batch(actor, reward_model, tokenizer, prompt, batch_size,
+                             prompt_max_len, reward_clamp, reward_cap, generate_kwargs):
+    """Generate a batch of sequences from `actor` and score them with `reward_model`.
+
+    This is the shared generate-then-score primitive used by rejection sampling and
+    reward signal analysis.  It tiles the prompt, tokenizes, generates, scores,
+    and clamps rewards.
+
+    Args:
+        actor: Model to sample from.
+        reward_model: Reward model for scoring sequences.
+        tokenizer: Tokenizer for encoding prompts.
+        prompt: A single prompt string.
+        batch_size: Number of sequences to generate.
+        prompt_max_len: Maximum prompt length for tokenization.
+        reward_clamp: Symmetric reward clamp value (or None).
+        reward_cap: Upper reward cap value (or None). At least one of reward_clamp /
+                    reward_cap should be set if clamping is desired (both None → no clamping).
+        generate_kwargs: Dict of generation kwargs (max_new_tokens, eos_token_id, etc.).
+
+    Returns:
+        sequences: Tensor [batch_size, seq_len] of token IDs (prompt + generation).
+        attention_mask: Tensor [batch_size, seq_len].
+        action_mask: Tensor [batch_size, gen_len].
+        unclamped_rewards: Tensor [batch_size] of raw rewards.
+        clamped_rewards: Tensor [batch_size] of clamped rewards.
+    """
+    device = next(actor.parameters()).device
+
+    prompt_batch = tile_prompts(prompt, batch_size)
+    inputs = tokenizer(
+        prompt_batch,
+        return_tensors="pt",
+        add_special_tokens=False,
+        max_length=prompt_max_len,
+        padding=True,
+        truncation=True,
+    )
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    sequences, attention_mask, action_mask = actor.generate(**inputs, **generate_kwargs)
+    rewards = reward_model(sequences, attention_mask)
+    unclamped_rewards = rewards.squeeze(-1) if rewards.dim() > 1 else rewards
+
+    if reward_clamp is not None:
+        clamped_rewards = unclamped_rewards.clamp(min=-reward_clamp, max=reward_clamp)
+    elif reward_cap is not None:
+        clamped_rewards = unclamped_rewards.clamp(max=reward_cap)
+    else:
+        clamped_rewards = unclamped_rewards.clone()
+
+    return sequences, attention_mask, action_mask, unclamped_rewards, clamped_rewards
+
+
+@torch.no_grad()
 def rejection_sample_for_prompt(
     actor, reward_model, tokenizer, prompt,
     target_dist_beta, reward_clamp, reward_cap, prompt_max_len,
@@ -1374,22 +1429,9 @@ def rejection_sample_for_prompt(
         else:
             print(msg)
 
-    device = next(actor.parameters()).device
-
     # Compute log_M = |clamp_val * beta|
     clamp_val = reward_clamp if reward_clamp is not None else reward_cap
     log_M = abs(clamp_val * target_dist_beta)
-
-    def tokenize_fn(texts, max_length, device):
-        batch = tokenizer(
-            texts,
-            return_tensors="pt",
-            add_special_tokens=False,
-            max_length=max_length,
-            padding=True,
-            truncation=True,
-        )
-        return {k: v.to(device) for k, v in batch.items()}
 
     accepted_seqs = []
     accepted_rewards = []
@@ -1407,16 +1449,11 @@ def rejection_sample_for_prompt(
             break
 
         iteration += 1
-        prompt_batch = tile_prompts_fn(prompt, batch_size)
-        inputs = tokenize_fn(prompt_batch, prompt_max_len, device=device)
-        sequences, attention_mask, action_mask = actor.generate(**inputs, **generate_kwargs)
-        rewards = reward_model(sequences, attention_mask)
-        rewards = rewards.squeeze(-1) if rewards.dim() > 1 else rewards
-
-        if reward_clamp is not None:
-            clamped_rewards = rewards.clamp(min=-reward_clamp, max=reward_clamp)
-        else:
-            clamped_rewards = rewards.clamp(max=reward_cap)
+        sequences, attention_mask, action_mask, unclamped_rewards, clamped_rewards = \
+            generate_and_score_batch(
+                actor, reward_model, tokenizer, prompt, batch_size,
+                prompt_max_len, reward_clamp, reward_cap, generate_kwargs,
+            )
 
         log_phi = target_dist_beta * clamped_rewards
         log_ratio = log_phi - log_M

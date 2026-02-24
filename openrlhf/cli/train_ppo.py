@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, generate_and_score_batch
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -549,6 +549,34 @@ def train(args):
             args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader
         )
         strategy.print("Rejection sampling complete. Exiting.")
+        return
+
+    # Early exit for reward signal analysis mode
+    if args.reward_signal_analysis_only:
+        strategy.print("Running reward signal analysis mode - skipping normal training")
+
+        # Validation
+        if args.rm_type != "rlhf":
+            raise NotImplementedError(f"Reward signal analysis currently only supports rm_type='rlhf', got '{args.rm_type}'")
+        if args.reward_clamp is None and args.reward_cap is None:
+            raise ValueError("Either --reward_clamp or --reward_cap must be set when using --reward_signal_analysis_only")
+        if args.target_dist_beta is None:
+            raise ValueError("--target_dist_beta must be set when using --reward_signal_analysis_only")
+
+        # Ensure we have prompts_dataloader set up (if not using custom prompt)
+        prompts_dataloader = None
+        if not args.new_custom_single_prompt:
+            pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+            prompts_dataloader = strategy.setup_dataloader(
+                prompts_dataset, args.micro_rollout_batch_size, True, True, drop_last=False
+            )
+        else:
+            strategy.print(f"Using custom prompt: {args.custom_prompt}")
+
+        do_reward_signal_analysis(
+            args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader
+        )
+        strategy.print("Reward signal analysis complete. Exiting.")
         return
 
     estimates_list = None
@@ -2300,10 +2328,49 @@ def calculate_analytic_kl_toxicity_single_token(
     return kl_sigma_q, kl_q_sigma, metrics_dict
 
 
+def _extract_prompts_for_sampling(args, tokenizer, strategy, prompts_dataloader):
+    """Extract prompt strings for sampling-based modes (rejection sampling, analysis, etc.).
+
+    Handles both single-prompt (via args.new_custom_single_prompt + args.custom_prompt)
+    and multi-prompt (via prompts_dataloader iteration) modes.
+
+    Args:
+        args: Parsed CLI args.
+        tokenizer: HF tokenizer (used for chat template application).
+        strategy: Strategy object with .print() for logging.
+        prompts_dataloader: DataLoader of prompt strings (used only in multi-prompt mode;
+                            may be None if args.new_custom_single_prompt is True).
+
+    Returns:
+        List of prompt strings.
+    """
+    if args.new_custom_single_prompt:
+        prompt_str = get_custom_prompt_with_chat_template(
+            tokenizer, args.custom_prompt, args.apply_chat_template, strategy
+        )
+        prompts = [prompt_str]
+        strategy.print(
+            f"Using custom prompt (with chat template): {args.custom_prompt}"
+            if args.apply_chat_template
+            else f"Using custom prompt: {args.custom_prompt}"
+        )
+    else:
+        prompts = []
+        for batch in prompts_dataloader:
+            if isinstance(batch, (list, tuple)):
+                prompts.extend(batch)
+            elif isinstance(batch, str):
+                prompts.append(batch)
+            else:
+                prompts.extend([str(p) for p in batch])
+        strategy.print(f"Found {len(prompts)} prompts from dataloader")
+    return prompts
+
+
 def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader):
     """
     Perform rejection sampling to generate true target samples.
-    
+
     Target distribution: target(x) ∝ p(x) * e^(β * r(x))
     Proposal distribution: p(x) (base actor)
     Acceptance probability: e^(β * clamped_r) / M, where M = e^(|clamp * beta|)
@@ -2323,18 +2390,18 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
         raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
     if args.true_target_sample_amount <= 0:
         raise ValueError(f"--true_target_sample_amount must be > 0, got {args.true_target_sample_amount}")
-    
+
     strategy.print("Starting rejection sampling for target samples...")
-    
+
     # Setup
     base_actor.eval()
     reward_model.eval()
     device = next(base_actor.parameters()).device
-    
+
     # Generate filename
     filename = get_target_samples_filename(args)
     strategy.print(f"Will save target samples to: {filename}")
-    
+
     # Calculate rejection bound in log space: log_M = |clamp/cap * beta|
     if args.reward_clamp is not None:
         clamp_val = args.reward_clamp
@@ -2345,28 +2412,9 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     log_M = abs(clamp_beta_product)
     strategy.print(f"Computing rejection bound in log space: log_M = |{clamp_val} * {args.target_dist_beta}| = |{clamp_beta_product}| = {log_M}")
     strategy.print(f"  This corresponds to M = e^({log_M}) = {torch.exp(torch.tensor(log_M, dtype=torch.float32)).item():.4e} (for reference, may be inf)")
-    
+
     # Handle prompts
-    if args.new_custom_single_prompt:
-        # Use custom prompt; apply chat template when reward model expects chat-formatted sequences
-        prompt_str = get_custom_prompt_with_chat_template(
-            tokenizer, args.custom_prompt, args.apply_chat_template, strategy
-        )
-        prompts = [prompt_str]
-        strategy.print(f"Using custom prompt (with chat template): {args.custom_prompt}" if args.apply_chat_template else f"Using custom prompt: {args.custom_prompt}")
-    else:
-        # Extract prompts from dataloader
-        prompts = []
-        for batch in prompts_dataloader:
-            # Dataloader returns batches, which are lists/tuples of prompt strings
-            if isinstance(batch, (list, tuple)):
-                prompts.extend(batch)
-            elif isinstance(batch, str):
-                prompts.append(batch)
-            else:
-                # If it's a tensor or other type, try to convert
-                prompts.extend([str(p) for p in batch])
-        strategy.print(f"Found {len(prompts)} prompts from dataloader")
+    prompts = _extract_prompts_for_sampling(args, tokenizer, strategy, prompts_dataloader)
     
     # Storage for accepted samples per prompt
     target_samples_by_prompt = []
@@ -2380,18 +2428,6 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
         "temperature": 1.0,
     }
     
-    # Tokenize function (similar to experience_maker)
-    def tokenize_fn(texts, max_length, device):
-        batch = tokenizer(
-            texts,
-            return_tensors="pt",
-            add_special_tokens=False,
-            max_length=max_length,
-            padding=True,
-            truncation=True,
-        )
-        return {k: v.to(device) for k, v in batch.items()}
-    
     # Batch size for rejection sampling
     rejection_batch_size = args.batch_size_rejection_sample if args.batch_size_rejection_sample is not None else args.duplicate_rollout_batch_by
     strategy.print(f"Rejection sampling batch size: {rejection_batch_size}")
@@ -2399,16 +2435,12 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     # Helper: run one rejection sampling batch for a single prompt
     def _rejection_sample_one_prompt_batch(prompt, device):
         """Generate one batch from base_actor for a prompt and return (accepted_seqs_list, accepted_rews_list, n_generated)."""
-        prompt_batch = tile_prompts(prompt, rejection_batch_size)
-        inputs = tokenize_fn(prompt_batch, args.prompt_max_len, device=device)
         with torch.no_grad():
-            sequences, attention_mask, action_mask = base_actor.generate(**inputs, **generate_kwargs)
-            rewards = reward_model(sequences, attention_mask)
-            rewards = rewards.squeeze(-1) if rewards.dim() > 1 else rewards
-        if args.reward_clamp is not None:
-            clamped_rewards = rewards.clamp(min=-args.reward_clamp, max=args.reward_clamp)
-        else:
-            clamped_rewards = rewards.clamp(max=args.reward_cap)
+            sequences, attention_mask, action_mask, unclamped_rewards, clamped_rewards = \
+                generate_and_score_batch(
+                    base_actor, reward_model, tokenizer, prompt, rejection_batch_size,
+                    args.prompt_max_len, args.reward_clamp, args.reward_cap, generate_kwargs,
+                )
         log_phi = args.target_dist_beta * clamped_rewards
         log_ratio = log_phi - log_M
         raw_accept_prob = torch.exp(log_ratio)
@@ -2614,6 +2646,276 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     else:
         strategy.print(f"  Total target: {args.true_target_sample_amount}")
         strategy.print(f"  Samples by prompt: {[len(s) for s in target_samples_by_prompt]}")
+
+
+def do_reward_signal_analysis(args, base_actor, reward_model, tokenizer, strategy, prompts_dataloader):
+    """Generate samples from the base model, score them, and compute reward signal metrics.
+
+    This mode characterizes the reward landscape to help diagnose why exploration
+    bonuses help with some reward models but not others.
+
+    Metrics per prompt:
+      - Reward statistics (mean, variance, std, histogram entropy, min, max) for both
+        clamped and unclamped rewards.
+      - ESS (effective sample size) of importance weights w_i = exp(beta * r_clamped_i).
+        Low ESS means a few samples dominate the weights (reward signal is concentrated).
+      - Diversity metrics (distinct-1/2, self-BLEU-2/4) on the top-K highest-sigma samples,
+        measuring how varied the high-density region of the target distribution is.
+
+    Results are saved to ``{save_info_path}/reward_signal_analysis_{info_name_str}.pt``
+    and a summary is printed.
+    """
+    import numpy as np
+    from openrlhf.utils.diversity_metrics import compute_distinct_n, compute_self_bleu
+
+    # --- Setup ---
+    base_actor.eval()
+    reward_model.eval()
+
+    prompts = _extract_prompts_for_sampling(args, tokenizer, strategy, prompts_dataloader)
+    assert len(prompts) > 0, "No prompts found for reward signal analysis"
+
+    generate_kwargs = {
+        "max_new_tokens": args.generate_max_len,
+        "eos_token_id": tokenizer.eos_token_id,
+        "pad_token_id": tokenizer.pad_token_id,
+        "do_sample": True,
+        "temperature": 1.0,
+    }
+
+    batch_size = args.batch_size_rejection_sample if args.batch_size_rejection_sample is not None else args.duplicate_rollout_batch_by
+    num_samples = args.analysis_num_samples
+    top_k_count = args.analysis_top_k_sigma
+    reward_histogram_bins = args.analysis_reward_bins
+    beta = args.target_dist_beta
+
+    strategy.print(f"Reward signal analysis: {num_samples} samples/prompt, "
+                    f"top_k_count={top_k_count}, reward_histogram_bins={reward_histogram_bins}, beta={beta}")
+    strategy.print(f"  Batch size: {batch_size}, prompts: {len(prompts)}")
+
+    per_prompt_results = []
+
+    for prompt_idx, prompt in enumerate(prompts):
+        strategy.print(f"\n=== Prompt {prompt_idx + 1}/{len(prompts)} ===")
+
+        all_sequences = []          # list of 1-D tensors (full sequences including prompt, on CPU)
+        all_unclamped_rewards = []   # list of floats (raw reward model outputs)
+        all_clamped_rewards = []     # list of floats (rewards after symmetric/one-sided clamping)
+        prompt_len = None            # number of prompt tokens (detected from first batch)
+
+        total_generated = 0
+        while total_generated < num_samples:
+            cur_batch = min(batch_size, num_samples - total_generated)
+            with torch.no_grad():
+                sequences, attention_mask, action_mask, unclamped_rewards, clamped_rewards = \
+                    generate_and_score_batch(
+                        base_actor, reward_model, tokenizer, prompt, cur_batch,
+                        args.prompt_max_len, args.reward_clamp, args.reward_cap, generate_kwargs,
+                    )
+
+            # Detect prompt length from the first batch:
+            # sequences has shape [batch, prompt_len + gen_len], action_mask has shape [batch, gen_len]
+            if prompt_len is None:
+                prompt_len = sequences.shape[1] - action_mask.shape[1]
+
+            for i in range(sequences.shape[0]):
+                all_sequences.append(sequences[i].cpu())
+                all_unclamped_rewards.append(unclamped_rewards[i].cpu().item())
+                all_clamped_rewards.append(clamped_rewards[i].cpu().item())
+            total_generated += sequences.shape[0]
+
+            if total_generated % (batch_size * 10) == 0 or total_generated >= num_samples:
+                strategy.print(f"  Generated {total_generated}/{num_samples} samples")
+
+        # Trim to exactly num_samples (last batch may overshoot)
+        all_sequences = all_sequences[:num_samples]
+        all_unclamped_rewards = all_unclamped_rewards[:num_samples]
+        all_clamped_rewards = all_clamped_rewards[:num_samples]
+
+        unclamped_reward_arr = np.array(all_unclamped_rewards, dtype=np.float64)
+        clamped_reward_arr = np.array(all_clamped_rewards, dtype=np.float64)
+
+        # --- Reward statistics ---
+        def _compute_reward_stats(reward_arr, label):
+            """Compute summary statistics for a reward array.
+
+            Returns a dict with keys prefixed by 'reward_{stat}_{label}'.
+            """
+            reward_mean = float(np.mean(reward_arr))
+            reward_variance = float(np.var(reward_arr))
+            reward_std = float(np.std(reward_arr))
+            reward_min = float(np.min(reward_arr))
+            reward_max = float(np.max(reward_arr))
+
+            # Reward distribution entropy via histogram.
+            # Measures how "spread out" the reward distribution is in an information-theoretic sense.
+            # Higher entropy → more uniform/spread-out distribution; lower → more concentrated.
+            bin_counts, _ = np.histogram(reward_arr, bins=reward_histogram_bins)
+            bin_probs = bin_counts / bin_counts.sum()
+            nonzero_probs = bin_probs[bin_probs > 0]
+            reward_distribution_entropy = float(-np.sum(nonzero_probs * np.log(nonzero_probs)))
+
+            return {
+                f"reward_mean_{label}": reward_mean,
+                f"reward_var_{label}": reward_variance,
+                f"reward_std_{label}": reward_std,
+                f"reward_distribution_entropy_{label}": reward_distribution_entropy,
+                f"reward_min_{label}": reward_min,
+                f"reward_max_{label}": reward_max,
+            }
+
+        metrics = {}
+        metrics.update(_compute_reward_stats(unclamped_reward_arr, "unclamped"))
+        metrics.update(_compute_reward_stats(clamped_reward_arr, "clamped"))
+
+        # --- Effective Sample Size (ESS) based on importance weights from clamped rewards ---
+        # In our target distribution sigma(x) ∝ p(x) * exp(beta * r(x)), when we sample
+        # from p(x), the (unnormalized) importance weights are w_i = exp(beta * r_clamped_i).
+        # ESS = 1 / sum(w_normalized_i^2), where w_normalized_i = w_i / sum(w_j).
+        # ESS close to N means weights are roughly uniform (reward signal doesn't concentrate).
+        # ESS close to 1 means one sample dominates (reward signal is very peaked).
+        log_importance_weights = beta * clamped_reward_arr
+        # Shift by max for numerical stability before exponentiating (doesn't affect normalized weights)
+        log_importance_weights_shifted = log_importance_weights - np.max(log_importance_weights)
+        importance_weights = np.exp(log_importance_weights_shifted)
+        normalized_importance_weights = importance_weights / importance_weights.sum()
+        effective_sample_size = float(1.0 / np.sum(normalized_importance_weights ** 2))
+        effective_sample_size_ratio = effective_sample_size / num_samples
+
+        metrics["effective_sample_size"] = effective_sample_size
+        metrics["effective_sample_size_ratio"] = effective_sample_size_ratio
+        metrics["effective_sample_size_N"] = num_samples
+
+        # --- Top-K sigma samples for diversity analysis ---
+        # log_sigma_i = beta * r_clamped_i is proportional to log(sigma(x_i) / p(x_i)).
+        # We pick the samples with the *highest* log_sigma values — these are the samples
+        # that sigma up-weights the most relative to p.
+        # Note: with beta < 0 (typical for harmlessness), highest log_sigma corresponds
+        # to the lowest (most harmful) rewards.
+        log_sigma_scores = beta * clamped_reward_arr
+        # argsort gives ascending order; take the last top_k_count entries for the highest values
+        sorted_indices_ascending = np.argsort(log_sigma_scores)
+        top_k_actual = min(top_k_count, num_samples)
+        top_k_indices = sorted_indices_ascending[-top_k_actual:][::-1]  # descending order
+
+        pad_token_id = tokenizer.pad_token_id
+        eos_token_id = tokenizer.eos_token_id
+
+        def _strip_trailing_special_tokens(token_ids):
+            """Remove trailing pad and eos tokens from a token ID list."""
+            result = list(token_ids)
+            while result and result[-1] in (pad_token_id, eos_token_id):
+                result.pop()
+            return result
+
+        top_k_sigma_samples = []
+        top_k_response_token_lists = []  # just the response portion, for diversity metrics
+        for idx in top_k_indices:
+            full_token_ids = all_sequences[idx].tolist()
+            response_token_ids = _strip_trailing_special_tokens(full_token_ids[prompt_len:])
+            top_k_sigma_samples.append({
+                "token_ids": full_token_ids,
+                "response_token_ids": response_token_ids,
+                "unclamped_reward": all_unclamped_rewards[idx],
+                "clamped_reward": all_clamped_rewards[idx],
+                "log_sigma": float(log_sigma_scores[idx]),
+            })
+            top_k_response_token_lists.append(response_token_ids)
+
+        # Diversity metrics on top-K response token sequences.
+        # distinct-n: fraction of unique n-grams (higher = more lexically diverse).
+        # self-BLEU-n: average BLEU of each sequence against all others
+        #   (higher = more similar/less diverse, lower = more diverse).
+        if len(top_k_response_token_lists) >= 2:
+            metrics["distinct_1"] = compute_distinct_n(top_k_response_token_lists, 1)
+            metrics["distinct_2"] = compute_distinct_n(top_k_response_token_lists, 2)
+            metrics["self_bleu_2"] = compute_self_bleu(top_k_response_token_lists, max_n=2)
+            metrics["self_bleu_4"] = compute_self_bleu(top_k_response_token_lists, max_n=4)
+        else:
+            metrics["distinct_1"] = float("nan")
+            metrics["distinct_2"] = float("nan")
+            metrics["self_bleu_2"] = float("nan")
+            metrics["self_bleu_4"] = float("nan")
+        metrics["top_k_sigma_count"] = top_k_actual
+
+        per_prompt_results.append({
+            "prompt": prompt,
+            "prompt_idx": prompt_idx,
+            "metrics": metrics,
+            "top_k_sigma_samples": top_k_sigma_samples,
+        })
+
+        # Print per-prompt summary
+        strategy.print(f"  Reward (unclamped): mean={metrics['reward_mean_unclamped']:.4f}, "
+                        f"std={metrics['reward_std_unclamped']:.4f}, "
+                        f"entropy={metrics['reward_distribution_entropy_unclamped']:.4f}, "
+                        f"range=[{metrics['reward_min_unclamped']:.4f}, {metrics['reward_max_unclamped']:.4f}]")
+        strategy.print(f"  Reward (clamped):   mean={metrics['reward_mean_clamped']:.4f}, "
+                        f"std={metrics['reward_std_clamped']:.4f}, "
+                        f"entropy={metrics['reward_distribution_entropy_clamped']:.4f}, "
+                        f"range=[{metrics['reward_min_clamped']:.4f}, {metrics['reward_max_clamped']:.4f}]")
+        strategy.print(f"  ESS (effective sample size): {effective_sample_size:.2f} / {num_samples} "
+                        f"= {effective_sample_size_ratio:.4f}")
+        strategy.print(f"  Diversity (top-{top_k_actual} sigma): "
+                        f"distinct-1={metrics['distinct_1']:.4f}, distinct-2={metrics['distinct_2']:.4f}, "
+                        f"self-BLEU-2={metrics['self_bleu_2']:.4f}, self-BLEU-4={metrics['self_bleu_4']:.4f}")
+
+        # Print top-10 sigma samples (decoded text + rewards) for qualitative inspection
+        num_samples_to_show = min(10, top_k_actual)
+        strategy.print(f"\n  Top-{num_samples_to_show} sigma samples (highest log_sigma = beta * r_clamped):")
+        for rank, sample in enumerate(top_k_sigma_samples[:num_samples_to_show]):
+            decoded_text = tokenizer.decode(sample["token_ids"], skip_special_tokens=True)
+            strategy.print(f"    [{rank + 1}] log_sigma={sample['log_sigma']:.4f}, "
+                            f"r_clamped={sample['clamped_reward']:.4f}, "
+                            f"r_unclamped={sample['unclamped_reward']:.4f}")
+            strategy.print(f"         {decoded_text}")
+
+    # --- Aggregated metrics (across prompts) ---
+    aggregated_metrics = {}
+    if len(per_prompt_results) == 1:
+        # Single prompt: aggregated = same as per-prompt
+        aggregated_metrics = dict(per_prompt_results[0]["metrics"])
+    else:
+        # Multiple prompts: compute mean/std/min/max of each metric across prompts
+        all_metric_keys = list(per_prompt_results[0]["metrics"].keys())
+        for key in all_metric_keys:
+            values = [r["metrics"][key] for r in per_prompt_results
+                      if not (isinstance(r["metrics"][key], float) and math.isnan(r["metrics"][key]))]
+            if len(values) == 0:
+                continue
+            values_arr = np.array(values, dtype=np.float64)
+            aggregated_metrics[f"{key}_mean"] = float(np.mean(values_arr))
+            aggregated_metrics[f"{key}_std"] = float(np.std(values_arr))
+            aggregated_metrics[f"{key}_min"] = float(np.min(values_arr))
+            aggregated_metrics[f"{key}_max"] = float(np.max(values_arr))
+
+        strategy.print(f"\n=== Aggregated metrics across {len(per_prompt_results)} prompts ===")
+        for key, val in aggregated_metrics.items():
+            strategy.print(f"  {key}: {val:.6f}")
+
+    # --- Save ---
+    if strategy.is_rank_0():
+        info_name_str = get_info_name_str(args)
+        os.makedirs(args.save_info_path, exist_ok=True)
+        save_path = os.path.join(args.save_info_path, f"reward_signal_analysis_{info_name_str}.pt")
+        save_data = {
+            "version": 1,
+            "args": {
+                "target_dist_beta": args.target_dist_beta,
+                "reward_clamp": args.reward_clamp,
+                "reward_cap": args.reward_cap,
+                "analysis_num_samples": args.analysis_num_samples,
+                "analysis_top_k_sigma": args.analysis_top_k_sigma,
+                "analysis_reward_bins": args.analysis_reward_bins,
+                "generate_max_len": args.generate_max_len,
+                "pretrain": args.pretrain,
+                "reward_pretrain": args.reward_pretrain,
+            },
+            "per_prompt_results": per_prompt_results,
+            "aggregated_metrics": aggregated_metrics,
+        }
+        torch.save(save_data, save_path)
+        strategy.print(f"\nSaved reward signal analysis to: {save_path}")
 
 
 def _heldout_one_batch_make_experience(experience_maker, generate_kwargs, prompts_batch, samples_per_prompt, return_entropy_kl=False):
@@ -3559,6 +3861,15 @@ if __name__ == "__main__":
     parser.add_argument("--max_gen_per_prompt_rejection", type=int, default=None, help="Max samples to generate per prompt during rejection sampling before giving up (default: no limit)")
     parser.add_argument("--max_gen_per_prompt_rejection_first_pass", type=int, default=None, help="Max samples to generate per prompt in the first pass through the dataset during multi-prompt rejection sampling. If not set, defaults to max_gen_per_prompt_rejection. Use a smaller value to quickly scan all prompts before spending more budget on harder ones.")
     parser.add_argument("--batch_size_rejection_sample", type=int, default=None, help="Batch size (number of sequences generated per iteration) during rejection sampling. Defaults to duplicate_rollout_batch_by if not set.")
+    parser.add_argument("--reward_signal_analysis_only", action="store_true", default=False,
+                        help="Early-exit mode: generate samples from the base model, score with reward model, "
+                             "and compute reward signal metrics (stats, ESS, diversity). Exits before training.")
+    parser.add_argument("--analysis_num_samples", type=int, default=1000,
+                        help="Number of samples to generate per prompt for reward signal analysis.")
+    parser.add_argument("--analysis_top_k_sigma", type=int, default=100,
+                        help="Number of top-sigma samples to keep for diversity metrics in reward signal analysis.")
+    parser.add_argument("--analysis_reward_bins", type=int, default=50,
+                        help="Number of histogram bins for reward entropy computation in reward signal analysis.")
     parser.add_argument("--save_info_path", type=str, default="./info")
     parser.add_argument("--n_samples_for_f_q_g_q", type=int, default=500, help="Number of samples to use for f_q/g_q evaluation (only for f_q_g_q_eval)")
     parser.add_argument("--n_eval_prompts_for_f_q", type=int, default=None, help="Number of prompts to subsample for f_q/g_q eval (default: all prompts)")
@@ -3775,5 +4086,8 @@ if __name__ == "__main__":
 
     if args.reward_clamp is not None and args.reward_cap is not None:
         raise ValueError("Only one of --reward_clamp and --reward_cap may be set, not both.")
+
+    if args.reward_signal_analysis_only and args.rejection_sample_true_target_only:
+        raise ValueError("Cannot use both --reward_signal_analysis_only and --rejection_sample_true_target_only")
 
     train(args)
