@@ -398,11 +398,14 @@ class CTLLoss(nn.Module):
                     )
                     print(f"[DEBUG] Mixture mode CTLLoss verification PASSED: "
                           f"loss={loss.item():.6f}, vmap_loss={vmap_loss.item():.6f}")
-                    raise Exception(
-                        f"[DEBUG EXIT] Mixture CTLLoss verification passed. "
-                        f"loss={loss.item()}, vmap_loss={vmap_loss.item()}. "
-                        f"Remove this exception to continue training."
-                    )
+                    # Only raise (exit) when the loss is non-trivial, so we actually test something.
+                    # At iteration 0 with q_best = q_current, log_psi ~ 0 → loss ~ 0 trivially.
+                    if abs(loss.item()) > 1e-6:
+                        raise Exception(
+                            f"[DEBUG EXIT] Mixture CTLLoss verification passed with non-trivial loss. "
+                            f"loss={loss.item()}, vmap_loss={vmap_loss.item()}. "
+                            f"Remove this check to continue training."
+                        )
 
                 return loss
 
