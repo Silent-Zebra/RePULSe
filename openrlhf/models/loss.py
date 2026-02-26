@@ -350,62 +350,11 @@ class CTLLoss(nn.Module):
                 else:
                     loss = masked_mean(-(positive_samples_term - negative_samples_term), action_mask, dim=-1).mean()
 
-                # --- DEBUG: Verify "mixture" mode equivalence with batched_get_weights (vmap path) ---
-                # Only applies to "mixture" mode where mixture_partial_seq_log_probs is used
-                # for the negative term (not q_half/q_independent which use separate neg samples).
-                if mixture_partial_seq_log_probs is not None and neg_values is None:
-                    # Construct synthetic curr_log_probs whose .cumsum(dim=-1) = mixture_partial_seq_log_probs
-                    # and .sum(dim=-1) = mixture_seq_log_probs. This allows reusing batched_get_weights
-                    # which internally computes .sum() and .cumsum() on curr_log_probs.
-                    # The "diff" of a cumsum recovers per-token values; at padding positions (where
-                    # cumsum is constant), the diff is 0, matching the expected masked behavior.
-                    synthetic_curr = torch.zeros_like(mixture_partial_seq_log_probs)
-                    synthetic_curr[:, :, 0] = mixture_partial_seq_log_probs[:, :, 0]
-                    synthetic_curr[:, :, 1:] = (
-                        mixture_partial_seq_log_probs[:, :, 1:] - mixture_partial_seq_log_probs[:, :, :-1]
-                    )
-
-                    # Sanity check the synthetic construction
-                    assert torch.allclose(synthetic_curr.cumsum(dim=-1), mixture_partial_seq_log_probs, atol=1e-5), (
-                        f"synthetic_curr cumsum mismatch: max diff = "
-                        f"{(synthetic_curr.cumsum(dim=-1) - mixture_partial_seq_log_probs).abs().max().item()}"
-                    )
-                    assert torch.allclose(synthetic_curr.sum(dim=-1), mixture_seq_log_probs, atol=1e-5), (
-                        f"synthetic_curr sum mismatch: max diff = "
-                        f"{(synthetic_curr.sum(dim=-1) - mixture_seq_log_probs).abs().max().item()}"
-                    )
-
-                    # Compute via vmap path with synthetic curr_log_probs
-                    batched_get_weights_check = torch.func.vmap(
-                        get_positive_and_negative_weights_detached, in_dims=0)
-                    vmap_log_w_neg, vmap_norm_w_pos = batched_get_weights_check(
-                        base_action_log_probs, synthetic_curr, final_reward, values)
-
-                    vmap_positive = vmap_norm_w_pos.unsqueeze(-1) * values
-                    vmap_norm_w_neg = F.softmax(vmap_log_w_neg, dim=1)
-                    vmap_negative = vmap_norm_w_neg * values
-
-                    if self.no_second_term:
-                        vmap_loss = masked_mean(-vmap_positive, action_mask, dim=-1).mean()
-                    else:
-                        vmap_loss = masked_mean(
-                            -(vmap_positive - vmap_negative), action_mask, dim=-1).mean()
-
-                    tol = 1e-4
-                    assert torch.allclose(loss, vmap_loss, atol=tol, rtol=tol), (
-                        f"Mixture mode loss ({loss.item()}) != vmap loss ({vmap_loss.item()}), "
-                        f"diff = {(loss - vmap_loss).abs().item()}"
-                    )
-                    print(f"[DEBUG] Mixture mode CTLLoss verification PASSED: "
-                          f"loss={loss.item():.6f}, vmap_loss={vmap_loss.item():.6f}")
-                    # Only raise (exit) when the loss is non-trivial, so we actually test something.
-                    # At iteration 0 with q_best = q_current, log_psi ~ 0 → loss ~ 0 trivially.
-                    if abs(loss.item()) > 1e-6:
-                        raise Exception(
-                            f"[DEBUG EXIT] Mixture CTLLoss verification passed with non-trivial loss. "
-                            f"loss={loss.item()}, vmap_loss={vmap_loss.item()}. "
-                            f"Remove this check to continue training."
-                        )
+                # TODO: Consider refactoring the mixture path above to use batched_get_weights (vmap)
+                # instead of manual weight computation. Verified equivalence: construct synthetic
+                # curr_log_probs via diff of mixture_partial_seq_log_probs (so .cumsum() and .sum()
+                # recover the mixture log probs), then pass to batched_get_weights. Tested and
+                # confirmed matching loss values.
 
                 return loss
 
