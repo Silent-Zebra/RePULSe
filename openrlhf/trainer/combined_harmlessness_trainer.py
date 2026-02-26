@@ -198,6 +198,7 @@ class CombinedHarmlessnessTrainer(ABC):
             self.log_w_best = math.log(self.w_best)
             self.best_g_q = float('inf')
             self.mixture_optimization = getattr(self.args, 'mixture_optimization', 'mixture')
+            self.mixture_psi_use_mix = getattr(self.args, 'mixture_psi_use_mix', False)
             self._q_ind_data = None  # populated per step for q_independent mode
 
         self.base_actor_loss_type = base_actor_loss_type
@@ -776,6 +777,47 @@ class CombinedHarmlessnessTrainer(ABC):
         else:
             print(f"[Mixture] No q_best update: current g_q={current_g_q:.4f} >= best g_q={self.best_g_q:.4f}")
 
+    def _pad_generation_outputs(self, sequences, action_log_probs, action_mask, attention_mask,
+                                value, num_actions, target_num_actions):
+        """Right-pad generation outputs so that num_actions matches target_num_actions.
+
+        When two generation passes (e.g. q_current and q_best) produce different
+        sequence lengths due to early EOS stopping, this pads the shorter batch so
+        both can be interleaved into a single tensor.
+        """
+        if num_actions == target_num_actions:
+            return sequences, action_log_probs, action_mask, attention_mask, value
+
+        assert num_actions < target_num_actions, (
+            f"num_actions ({num_actions}) > target ({target_num_actions})")
+        pad_len = target_num_actions - num_actions
+        batch_size = sequences.shape[0]
+        device = sequences.device
+
+        # Sequences: pad with pad_token_id on right
+        seq_pad = torch.full((batch_size, pad_len), self.tokenizer.pad_token_id,
+                             dtype=sequences.dtype, device=device)
+        sequences = torch.cat([sequences, seq_pad], dim=1)
+
+        # Attention mask: pad with 0 on right
+        atmask_pad = torch.zeros((batch_size, pad_len), dtype=attention_mask.dtype, device=device)
+        attention_mask = torch.cat([attention_mask, atmask_pad], dim=1)
+
+        # Action mask: pad with 0 on right
+        amask_pad = torch.zeros((batch_size, pad_len), dtype=action_mask.dtype, device=device)
+        action_mask = torch.cat([action_mask, amask_pad], dim=1)
+
+        # Action log probs: pad with 0 on right (will be recomputed after interleaving anyway)
+        alp_pad = torch.zeros((batch_size, pad_len), dtype=action_log_probs.dtype, device=device)
+        action_log_probs = torch.cat([action_log_probs, alp_pad], dim=1)
+
+        # Value: pad with 0 if not None
+        if value is not None:
+            val_pad = torch.zeros((batch_size, pad_len), dtype=value.dtype, device=device)
+            value = torch.cat([value, val_pad], dim=1)
+
+        return sequences, action_log_probs, action_mask, attention_mask, value
+
     @staticmethod
     def _interleave_by_prompt(tensor_a, tensor_b, n_prompts, n_a, n_b):
         """Interleave two tensors by prompt: reshape to (P, n_per, ...), cat on dim=1, flatten back.
@@ -869,10 +911,15 @@ class CombinedHarmlessnessTrainer(ABC):
                         self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                             expanded_best, **self.generate_kwargs)
 
-                # Validate shapes match
-                assert nact_curr == nact_best, f"num_actions mismatch: {nact_curr} vs {nact_best}"
-                assert seq_curr.shape[1] == seq_best.shape[1], (
-                    f"seq_len mismatch: {seq_curr.shape[1]} vs {seq_best.shape[1]}")
+                # Pad shorter batch to match longer one (different lengths due to early EOS stopping)
+                max_nact = max(nact_curr, nact_best)
+                if nact_curr != nact_best:
+                    print(f"[Mixture] Padding generation outputs: nact_curr={nact_curr}, nact_best={nact_best} -> {max_nact}")
+                seq_curr, alp_curr, amask_curr, atmask_curr, val_curr = \
+                    self._pad_generation_outputs(seq_curr, alp_curr, amask_curr, atmask_curr, val_curr, nact_curr, max_nact)
+                seq_best, alp_best, amask_best, atmask_best, val_best = \
+                    self._pad_generation_outputs(seq_best, alp_best, amask_best, atmask_best, val_best, nact_best, max_nact)
+                num_actions = max_nact
 
                 # Interleave by prompt: [curr_for_prompt0, best_for_prompt0, curr_for_prompt1, ...]
                 sequences = self._interleave_by_prompt(seq_curr, seq_best, n_prompts, self.n_current, self.n_best)
@@ -882,7 +929,6 @@ class CombinedHarmlessnessTrainer(ABC):
                     value = self._interleave_by_prompt(val_curr, val_best, n_prompts, self.n_current, self.n_best)
                 else:
                     value = None
-                num_actions = nact_curr
 
                 # Recompute log probs for ALL merged samples from BOTH models
                 with torch.no_grad():
@@ -1580,6 +1626,42 @@ class CombinedHarmlessnessTrainer(ABC):
 
                 mixture_seq_lp, mixture_partial_seq_lp = self._compute_mixture_log_probs(
                     exper_action_log_probs, q_best_alp, exper_action_mask)
+
+                if self.mixture_psi_use_mix:
+                    # Use q_mix (instead of q_current) for log_psi.
+                    # log_psi_mix_t = log q_mix(s_t | s_{1:t-1}) - log p(s_t | s_{1:t-1})
+                    #
+                    # The gradient through logaddexp w.r.t. q_current's params includes
+                    # the responsibility factor r(x) = w * q_current(x) / q_mix(x),
+                    # which down-weights gradients for samples dominated by q_best.
+                    assert "policy" in self.parameterization, (
+                        "mixture_psi_use_mix requires policy parameterization")
+                    assert self.parameterization == "policy_psi_q_p_s_t", (
+                        f"mixture_psi_use_mix only implemented for policy_psi_q_p_s_t, "
+                        f"got {self.parameterization}")
+
+                    # Recover per-token log q_current WITH gradient.
+                    # log_psi = log_q_current - log_p (per token), so log_q = log_psi + log_p.
+                    # base_action_log_probs is no_grad; gradient flows through log_psi.
+                    log_q_current_with_grad = log_psi + base_action_log_probs  # (P, n, A)
+
+                    # Compute mixture partial-sequence log probs with gradient through q_current.
+                    q_curr_masked_g = log_q_current_with_grad * exper_action_mask
+                    q_best_masked_g = q_best_alp * exper_action_mask  # no grad (frozen)
+                    mixture_partial_g = torch.logaddexp(
+                        self.log_w_current + q_curr_masked_g.cumsum(dim=-1),
+                        self.log_w_best + q_best_masked_g.cumsum(dim=-1),
+                    )  # (P, n, A) with gradient through q_current
+
+                    # Per-token mixture log prob: log q_mix(s_t | s_{1:t-1}) = diff of partial
+                    log_q_mix_token = torch.zeros_like(mixture_partial_g)
+                    log_q_mix_token[:, :, 0] = mixture_partial_g[:, :, 0]
+                    log_q_mix_token[:, :, 1:] = (
+                        mixture_partial_g[:, :, 1:] - mixture_partial_g[:, :, :-1]
+                    )
+
+                    # Replace log_psi with mixture version
+                    log_psi = log_q_mix_token - base_action_log_probs
 
                 if self.mixture_optimization == "mixture":
                     # All n samples, q_mix weights everywhere

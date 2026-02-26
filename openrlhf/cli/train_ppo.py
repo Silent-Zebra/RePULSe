@@ -4075,6 +4075,10 @@ if __name__ == "__main__":
                         help="Optimization mode for mixture proposal: 'mixture' uses q_mix everywhere, "
                              "'q_independent' uses separate q_current samples for the negative term, "
                              "'q_half' reuses q_current samples from mixture for the negative term")
+    parser.add_argument("--mixture_psi_use_mix", action="store_true", default=False,
+                        help="When using mixture proposal, also use q_mix (instead of q_current) for log_psi. "
+                             "log_psi_mix = log q_mix(s_t|...) - log p(s_t|...). Gradient through logaddexp "
+                             "includes responsibility factor r(x) = w*q_current/q_mix.")
 
     args = parser.parse_args()
 
