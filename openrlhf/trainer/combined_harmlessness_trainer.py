@@ -198,6 +198,7 @@ class CombinedHarmlessnessTrainer(ABC):
             self.log_w_best = math.log(self.w_best)
             self.best_g_q = float('inf')
             self.mixture_optimization = getattr(self.args, 'mixture_optimization', 'mixture')
+            self._q_ind_data = None  # populated per step for q_independent mode
 
         self.base_actor_loss_type = base_actor_loss_type
         self.alpha = alpha
@@ -906,20 +907,25 @@ class CombinedHarmlessnessTrainer(ABC):
                     **self.generate_kwargs
                 )
 
-                # Store q_best log probs in experience info for use in get_sampling_actor_loss
-                experience_neg_sampling.info["q_best_action_log_probs"] = q_best_action_log_probs
+                # NOTE: We do NOT store q_best_action_log_probs in experience.info because the
+                # replay buffer's split_experience_batch only supports scalar info values.
+                # Instead, q_best log probs are recomputed in get_sampling_actor_loss via
+                # a forward pass through self.q_best_model (frozen, no_grad).
 
                 # For "q_independent" mode: generate D additional samples from q_current
+                # and store on self (not in experience.info) for the same replay buffer reason.
                 if self.mixture_optimization == "q_independent":
                     print(f"[Mixture q_independent] Generating {D} additional samples from q_current")
                     expanded_ind = tile_prompts(rand_prompts, D)
                     alp_ind, amask_ind, atmask_ind, nact_ind, seq_ind, val_ind = \
                         self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                             expanded_ind, **self.generate_kwargs)
-                    experience_neg_sampling.info["q_ind_sequences"] = seq_ind
-                    experience_neg_sampling.info["q_ind_action_log_probs"] = alp_ind
-                    experience_neg_sampling.info["q_ind_action_mask"] = amask_ind
-                    experience_neg_sampling.info["q_ind_attention_mask"] = atmask_ind
+                    self._q_ind_data = {
+                        "sequences": seq_ind,
+                        "action_log_probs": alp_ind,
+                        "action_mask": amask_ind,
+                        "attention_mask": atmask_ind,
+                    }
 
                 self.sampling_replay_buffer_neg.append(experience_neg_sampling)
 
@@ -1560,9 +1566,16 @@ class CombinedHarmlessnessTrainer(ABC):
 
             # --- Mixture proposal modifications ---
             mixture_kwargs = {}
-            if self.mixture_proposal and "q_best_action_log_probs" in experience.info:
+            if self.mixture_proposal:
                 device = log_psi.device
-                q_best_alp = experience.info["q_best_action_log_probs"].to(device)
+
+                # Recompute q_best log probs on current sequences (frozen model, no_grad).
+                # We recompute here rather than storing in experience.info because the replay
+                # buffer's split_experience_batch only supports scalar info values.
+                with torch.no_grad():
+                    q_best_alp = self.q_best_model(
+                        experience.sequences, experience.action_mask.size(1),
+                        experience.attention_mask)
                 q_best_alp = q_best_alp.view(num_prompts, samples_per_prompt, -1)
 
                 mixture_seq_lp, mixture_partial_seq_lp = self._compute_mixture_log_probs(
@@ -1613,10 +1626,14 @@ class CombinedHarmlessnessTrainer(ABC):
                     mixture_kwargs["mixture_seq_log_probs"] = mixture_seq_lp
                     D = self.args.duplicate_rollout_batch_by
 
-                    ind_sequences = experience.info["q_ind_sequences"].to(device)
-                    ind_action_mask = experience.info["q_ind_action_mask"].to(device)
-                    ind_attention_mask = experience.info["q_ind_attention_mask"].to(device)
-                    ind_action_log_probs = experience.info["q_ind_action_log_probs"].to(device)
+                    # Retrieve independent samples stored on self (not in experience.info,
+                    # since the replay buffer only supports scalar info values).
+                    assert hasattr(self, '_q_ind_data') and self._q_ind_data is not None, (
+                        "q_independent mode requires _q_ind_data; was make_experience_and_do_update called?")
+                    ind_sequences = self._q_ind_data["sequences"].to(device)
+                    ind_action_mask = self._q_ind_data["action_mask"].to(device)
+                    ind_attention_mask = self._q_ind_data["attention_mask"].to(device)
+                    ind_action_log_probs = self._q_ind_data["action_log_probs"].to(device)
 
                     with torch.no_grad():
                         ind_base_alp = self.base_actor(
