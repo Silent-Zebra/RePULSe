@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, generate_and_score_batch
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_mixture, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, generate_and_score_batch
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -297,8 +297,21 @@ def train(args):
 
     # Initialize coin flip networks if needed for separate_nn architecture
     coin_flip_trainable_network = None
+    # Create q_best model for mixture proposal (frozen copy of sampling actor)
+    q_best_model = None
+    if args.do_harmlessness_training and getattr(args, 'mixture_proposal', False):
+        q_best_model = Actor(
+            args.pretrain,
+            use_flash_attention_2=args.flash_attn,
+            bf16=args.bf16,
+            load_in_4bit=args.load_in_4bit,
+            ds_config=strategy.get_ds_eval_config(offload=False),
+        )
+        for param in q_best_model.parameters():
+            param.requires_grad = False
+
     coin_flip_frozen_prior_network = None
-    if (args.do_harmlessness_training and 
+    if (args.do_harmlessness_training and
         getattr(args, 'exploration_bonus_sampling_actor', None) == "coin_flip" and
         getattr(args, 'coin_flip_architecture', 'linear_head_on_static_initial_base') == "separate_nn"):
         # Create trainable network (copy of actor structure)
@@ -345,6 +358,7 @@ def train(args):
                 static_initial_model,
                 coin_flip_trainable_network,
                 coin_flip_frozen_prior_network,
+                q_best_model,
                 is_rlhf=True,
                 gradient_accumulation_steps=args.gradient_accumulation_steps,
             )
@@ -357,6 +371,7 @@ def train(args):
                     static_initial_model,
                     coin_flip_trainable_network,
                     coin_flip_frozen_prior_network,
+                    q_best_model,
                 ) = prepared
             else:
                 (
@@ -367,6 +382,7 @@ def train(args):
                     static_initial_model,
                     coin_flip_trainable_network,
                     coin_flip_frozen_prior_network,
+                    q_best_model,
                 ) = prepared
         else:
             prepared = strategy.prepare(
@@ -376,6 +392,7 @@ def train(args):
                 static_initial_model,
                 coin_flip_trainable_network,
                 coin_flip_frozen_prior_network,
+                q_best_model,
                 is_rlhf=True,
                 gradient_accumulation_steps=args.gradient_accumulation_steps,
             )
@@ -387,6 +404,7 @@ def train(args):
                     static_initial_model,
                     coin_flip_trainable_network,
                     coin_flip_frozen_prior_network,
+                    q_best_model,
                 ) = prepared
             else:
                 (
@@ -396,7 +414,17 @@ def train(args):
                     static_initial_model,
                     coin_flip_trainable_network,
                     coin_flip_frozen_prior_network,
+                    q_best_model,
                 ) = prepared
+
+        # After prepare, copy q_current's state_dict to q_best (they start identical)
+        if q_best_model is not None:
+            import deepspeed
+            # Unwrap DeepSpeed engine if needed
+            q_current_unwrapped = actor.module if hasattr(actor, 'module') else actor
+            q_best_unwrapped = q_best_model.module if hasattr(q_best_model, 'module') else q_best_model
+            q_best_unwrapped.load_state_dict(q_current_unwrapped.state_dict())
+            strategy.print("Initialized q_best_model with q_current's state_dict")
 
     else:
 
@@ -661,6 +689,7 @@ def train(args):
             coin_flip_use_prioritization=args.coin_flip_use_prioritization,
             coin_flip_trainable_network=coin_flip_trainable_network,
             coin_flip_frozen_prior_network=coin_flip_frozen_prior_network,
+            q_best_model=q_best_model,
         )
 
 
@@ -751,6 +780,11 @@ def train(args):
     rewards_list_sampling = []
     untrans_ret_list_sampling = []
     bonus_vals_list_sampling = []
+    # Mixture proposal f_q/g_q eval lists (separate diagnostic tracking for q_mix)
+    f_q_mix_estimates_list = []
+    g_q_mix_estimates_list = []
+    iwae_mix_lbs_list = []
+    iwae_mix_ubs_list = []
     # Per-fit-step heldout and f_q tracking (train_ppo owns these; populated when evaluate_heldout_sampling == "each_fit_step")
     heldout_reward_over_time_list = []
     heldout_return_over_time_list = []
@@ -874,7 +908,16 @@ def train(args):
             n_eval_prompts=n_eval_prompts,
             f_q_by_prompt_list_random=f_q_by_prompt_list_random,
             prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
+            f_q_mix_estimates_list=f_q_mix_estimates_list,
+            g_q_mix_estimates_list=g_q_mix_estimates_list,
+            iwae_mix_lbs_list=iwae_mix_lbs_list,
+            iwae_mix_ubs_list=iwae_mix_ubs_list,
         )
+
+        # Update q_best if mixture proposal is enabled and g_q improved (initial eval)
+        if getattr(args, 'mixture_proposal', False) and g_q_estimates_list and g_q_estimates_list[-1] is not None:
+            current_g_q = g_q_estimates_list[-1].mean().item()
+            harmlessness_trainer.maybe_update_q_best(current_g_q)
 
     # Mid-fit-step f_q/g_q evaluation callback (multi-prompt only)
     mid_fit_callback = None
@@ -924,7 +967,15 @@ def train(args):
                     n_eval_prompts=n_eval_prompts,
                     f_q_by_prompt_list_random=f_q_by_prompt_list_random,
                     prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
+                    f_q_mix_estimates_list=f_q_mix_estimates_list,
+                    g_q_mix_estimates_list=g_q_mix_estimates_list,
+                    iwae_mix_lbs_list=iwae_mix_lbs_list,
+                    iwae_mix_ubs_list=iwae_mix_ubs_list,
                 )
+                # Update q_best if mixture proposal is enabled and g_q improved (mid-fit eval)
+                if getattr(args, 'mixture_proposal', False) and g_q_estimates_list and g_q_estimates_list[-1] is not None:
+                    current_g_q = g_q_estimates_list[-1].mean().item()
+                    harmlessness_trainer.maybe_update_q_best(current_g_q)
                 _prompts_since_last_eval[0] = 0
 
     # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
@@ -1100,7 +1151,16 @@ def train(args):
                     n_eval_prompts=n_eval_prompts,
                     f_q_by_prompt_list_random=f_q_by_prompt_list_random,
                     prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
+                    f_q_mix_estimates_list=f_q_mix_estimates_list,
+                    g_q_mix_estimates_list=g_q_mix_estimates_list,
+                    iwae_mix_lbs_list=iwae_mix_lbs_list,
+                    iwae_mix_ubs_list=iwae_mix_ubs_list,
                 )
+
+                # Update q_best if mixture proposal is enabled and g_q improved
+                if getattr(args, 'mixture_proposal', False) and g_q_estimates_list and g_q_estimates_list[-1] is not None:
+                    current_g_q = g_q_estimates_list[-1].mean().item()
+                    harmlessness_trainer.maybe_update_q_best(current_g_q)
 
             # Save f_q/g_q/iwae stuff separately (only if f_q_g_q_eval was done and lists are not empty).
             # Indexing: f_q_estimates_list[0] = initial (before training), f_q_estimates_list[k+1] = after fit step k.
@@ -1141,6 +1201,16 @@ def train(args):
                         "iwae_ubs_list": iwae_ubs_list,
                     }
                 torch.save(target_to_save, save_str)
+
+                # Save mixture eval results separately (if enabled and non-empty)
+                if getattr(args, 'mixture_proposal', False) and len(f_q_mix_estimates_list) > 0:
+                    mix_save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_mixeval_OpenRLHF_{info_name_str}"
+                    mix_target = (
+                        f_q_mix_estimates_list, g_q_mix_estimates_list,
+                        iwae_mix_lbs_list, iwae_mix_ubs_list
+                    )
+                    torch.save(mix_target, mix_save_str)
+                    strategy.print(f"Saved mixture eval results to {mix_save_str}")
 
             # Save the base metrics separately (always saved if not empty)
             if not args.neg_sample_only: # This stuff records it for p (base actor), so if skipping training p, this stuff will be empty
@@ -3198,6 +3268,11 @@ def _run_per_fit_step_heldout_and_f_q(
     n_eval_prompts=None,
     f_q_by_prompt_list_random=None,
     prompt_texts_random_per_timepoint=None,
+    # Mixture proposal eval kwargs
+    f_q_mix_estimates_list=None,
+    g_q_mix_estimates_list=None,
+    iwae_mix_lbs_list=None,
+    iwae_mix_ubs_list=None,
 ):
     """Run heldout evaluation (each_fit_step mode) and f_q tracking; append to over-time lists.
 
@@ -3237,6 +3312,20 @@ def _run_per_fit_step_heldout_and_f_q(
                     eval_prompts_fixed[0], single_prompt_target,
                 )
                 f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
+
+                # Mixture proposal eval (if enabled)
+                if (getattr(args, 'mixture_proposal', False)
+                        and f_q_mix_estimates_list is not None
+                        and hasattr(harmlessness_trainer, 'q_best_model')
+                        and harmlessness_trainer.q_best_model is not None):
+                    f_q_g_q_evaluation_mixture(
+                        harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+                        f_q_mix_estimates_list, g_q_mix_estimates_list,
+                        iwae_mix_lbs_list, iwae_mix_ubs_list,
+                        eval_prompts_fixed[0], single_prompt_target,
+                        harmlessness_trainer.q_best_model,
+                        harmlessness_trainer.log_w_current, harmlessness_trainer.log_w_best,
+                    )
             else:
                 # No target samples (e.g., trajectory replay without rejection samples for this step).
                 # Compute f_q only; skip g_q/IWAE (which require target samples).
@@ -3978,6 +4067,15 @@ if __name__ == "__main__":
     parser.add_argument("--reinforce_hardcoded_baseline", type=float, default=None, help="Only for --do_harmlessness_training. Value of hardcoded baseline")
     parser.add_argument("--neg_hardcoded_baseline", type=float, default=None, help="Only for --do_harmlessness_training. Value of hardcoded baseline")
 
+    # Mixture proposal distribution
+    parser.add_argument("--mixture_proposal", action="store_true", default=False,
+                        help="Use a mixture proposal q_mix = w*q_current + (1-w)*q_best for CTL training")
+    parser.add_argument("--mixture_optimization", type=str, default="mixture",
+                        choices=["mixture", "q_independent", "q_half"],
+                        help="Optimization mode for mixture proposal: 'mixture' uses q_mix everywhere, "
+                             "'q_independent' uses separate q_current samples for the negative term, "
+                             "'q_half' reuses q_current samples from mixture for the negative term")
+
     args = parser.parse_args()
 
     # Set analytic_batch_size to train_batch_size if not specified
@@ -4043,6 +4141,18 @@ if __name__ == "__main__":
         assert args.generate_max_len == 1, "exploration_bonus_sampling_actor='exact_count' requires generate_max_len == 1"
     if args.exploration_bonus_base_actor == "exact_count":
         assert args.generate_max_len == 1, "exploration_bonus_base_actor='exact_count' requires generate_max_len == 1"
+
+    if args.mixture_proposal:
+        assert args.f_q_g_q_eval, "--mixture_proposal requires --f_q_g_q_eval (for g_q tracking to select q_best)"
+        assert args.load_target_samples_name is not None, "--mixture_proposal requires --load_target_samples_name (for g_q evaluation)"
+        assert abs(getattr(args, 'base_actor_learning_rate', 0)) < 1e-10, (
+            f"--mixture_proposal requires --base_actor_learning_rate 0 (SMC setting), "
+            f"but got {args.base_actor_learning_rate}"
+        )
+        assert args.duplicate_rollout_batch_by >= 2, (
+            f"--mixture_proposal requires --duplicate_rollout_batch_by >= 2 (need at least 1 sample from each component), "
+            f"but got {args.duplicate_rollout_batch_by}"
+        )
 
     if args.advantage_estimator not in ["gae"]:
         raise NotImplementedError # Not tested

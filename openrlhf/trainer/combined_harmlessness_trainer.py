@@ -26,6 +26,7 @@ from openrlhf.utils.utils import (
     inspect_rewards_list,
     log_sequence_for_negatives,
     get_custom_prompt_with_chat_template,
+    swap_actor,
 )
 
 from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveReplayBuffer
@@ -120,6 +121,7 @@ class CombinedHarmlessnessTrainer(ABC):
         coin_flip_first_online: bool = False,
         coin_flip_trainable_network: Optional[Actor] = None,
         coin_flip_frozen_prior_network: Optional[Actor] = None,
+        q_best_model: Optional[Actor] = None,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -182,6 +184,20 @@ class CombinedHarmlessnessTrainer(ABC):
         self.uniform_reweight = uniform_reweight
         self.train_coin_flip_before = train_coin_flip_before
         self.coin_flip_first_online = coin_flip_first_online
+
+        # Mixture proposal state
+        self.q_best_model = q_best_model
+        self.mixture_proposal = q_best_model is not None
+        if self.mixture_proposal:
+            D = self.args.duplicate_rollout_batch_by
+            self.n_current = D // 2
+            self.n_best = D - self.n_current
+            self.w_current = self.n_current / D
+            self.w_best = self.n_best / D
+            self.log_w_current = math.log(self.w_current)
+            self.log_w_best = math.log(self.w_best)
+            self.best_g_q = float('inf')
+            self.mixture_optimization = getattr(self.args, 'mixture_optimization', 'mixture')
 
         self.base_actor_loss_type = base_actor_loss_type
         self.alpha = alpha
@@ -745,6 +761,74 @@ class CombinedHarmlessnessTrainer(ABC):
         # train_ppo now owns f_q/g_q evaluation: calls f_q_g_q_evaluation at initial and after each fit step
         return estimates_list
 
+    def maybe_update_q_best(self, current_g_q: float):
+        """Update q_best model if current q achieves better (lower) g_q."""
+        assert self.mixture_proposal, "maybe_update_q_best called but mixture_proposal is False"
+        if current_g_q < self.best_g_q:
+            old_best = self.best_g_q
+            self.best_g_q = current_g_q
+            # Unwrap DeepSpeed engines if needed
+            q_current_unwrapped = self.sampling_actor.module if hasattr(self.sampling_actor, 'module') else self.sampling_actor
+            q_best_unwrapped = self.q_best_model.module if hasattr(self.q_best_model, 'module') else self.q_best_model
+            q_best_unwrapped.load_state_dict(q_current_unwrapped.state_dict())
+            print(f"[Mixture] Updated q_best: g_q improved from {old_best:.4f} to {current_g_q:.4f}")
+        else:
+            print(f"[Mixture] No q_best update: current g_q={current_g_q:.4f} >= best g_q={self.best_g_q:.4f}")
+
+    @staticmethod
+    def _interleave_by_prompt(tensor_a, tensor_b, n_prompts, n_a, n_b):
+        """Interleave two tensors by prompt: reshape to (P, n_per, ...), cat on dim=1, flatten back.
+
+        Args:
+            tensor_a: (n_prompts * n_a, ...) — e.g. samples from q_current
+            tensor_b: (n_prompts * n_b, ...) — e.g. samples from q_best
+            n_prompts: number of prompts
+            n_a: samples per prompt in tensor_a
+            n_b: samples per prompt in tensor_b
+
+        Returns:
+            (n_prompts * (n_a + n_b), ...) with samples interleaved per prompt:
+            [prompt0_a0..a_{n_a-1}, prompt0_b0..b_{n_b-1}, prompt1_a0..., ...]
+        """
+        extra_dims = tensor_a.shape[1:]
+        a = tensor_a.view(n_prompts, n_a, *extra_dims)
+        b = tensor_b.view(n_prompts, n_b, *extra_dims)
+        merged = torch.cat([a, b], dim=1)  # (P, n_a + n_b, ...)
+        return merged.view(n_prompts * (n_a + n_b), *extra_dims)
+
+    def _compute_mixture_log_probs(self, q_current_alp, q_best_alp, action_mask):
+        """Compute sequence-level and partial-sequence-level mixture log probs.
+
+        All inputs are (P, n, A) shaped (already reshaped by prompt).
+        Mixture: q_mix(x) = w_current * q_current(x) + w_best * q_best(x)
+        In log space: log q_mix = logsumexp(log_w_current + log_q_current, log_w_best + log_q_best)
+
+        Returns:
+            seq_log_probs: (P, n) — sequence-level log q_mix
+            partial_seq_log_probs: (P, n, A) — partial-sequence-level log q_mix(s_{1:t})
+        """
+        # Mask log probs (padding -> 0)
+        q_curr_masked = q_current_alp * action_mask
+        q_best_masked = q_best_alp * action_mask
+
+        # Sequence-level: sum over action dim, then logsumexp over components
+        q_curr_seq = q_curr_masked.sum(dim=-1)  # (P, n)
+        q_best_seq = q_best_masked.sum(dim=-1)  # (P, n)
+        seq_log_probs = torch.logaddexp(
+            self.log_w_current + q_curr_seq,
+            self.log_w_best + q_best_seq
+        )  # (P, n)
+
+        # Partial-sequence-level: cumsum over action dim, then logsumexp
+        q_curr_partial = q_curr_masked.cumsum(dim=-1)  # (P, n, A)
+        q_best_partial = q_best_masked.cumsum(dim=-1)  # (P, n, A)
+        partial_seq_log_probs = torch.logaddexp(
+            self.log_w_current + q_curr_partial,
+            self.log_w_best + q_best_partial
+        )  # (P, n, A)
+
+        return seq_log_probs, partial_seq_log_probs
+
     def make_experience_and_do_update(self, args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
                                       untrans_ret_list, update_timesteps, neg_sample_only=False,
                                       rewards_list_sampling=None, untrans_ret_list_sampling=None, bonus_vals_list_sampling=None):
@@ -765,43 +849,119 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.separate_neg_samples:
             print("Making experience: neg sampling")
 
-            # Generate sequences once (with no_grad since generation doesn't need gradients)
-            expanded_prompts = tile_prompts(rand_prompts, args.duplicate_rollout_batch_by)
-            action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
-                expanded_prompts, **self.generate_kwargs)
+            if self.mixture_proposal:
+                # ---- Mixture proposal: two-pass sampling ----
+                D = args.duplicate_rollout_batch_by
+                n_prompts = len(rand_prompts) if isinstance(rand_prompts, list) else 1
+                print(f"[Mixture] Generating {self.n_current} from q_current + {self.n_best} from q_best per prompt")
 
-            # Update exact_count visits if enabled (before make_experience)
-            if self.sampling_experience_maker_neg.exploration_bonus == "exact_count":
-                track_both = (self.sampling_experience_maker_neg.rm_type == "indicator_below_threshold")
-                self.sampling_experience_maker_neg._update_exact_count_visits(sequences, track_both_positions=track_both)
+                # Pass 1: Generate n_current samples from q_current
+                expanded_current = tile_prompts(rand_prompts, self.n_current)
+                alp_curr, amask_curr, atmask_curr, nact_curr, seq_curr, val_curr = \
+                    self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
+                        expanded_current, **self.generate_kwargs)
 
-            if self.train_coin_flip_before:
-                if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
-                    self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
-                    torch.cuda.empty_cache()
+                # Pass 2: Generate n_best samples from q_best
+                with swap_actor(self.sampling_experience_maker_neg, self.q_best_model):
+                    expanded_best = tile_prompts(rand_prompts, self.n_best)
+                    alp_best, amask_best, atmask_best, nact_best, seq_best, val_best = \
+                        self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
+                            expanded_best, **self.generate_kwargs)
 
-            # Pass pre-generated sequences to make_experience to avoid duplicate generation
-            # Exploration bonus is calculated inside make_experience
-            experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
-                rand_prompts,
-                samples_per_prompt=args.duplicate_rollout_batch_by,
-                sequences=sequences,
-                action_log_probs=action_log_probs,
-                action_mask=action_mask,
-                attention_mask=attention_mask,
-                num_actions=num_actions,
-                value=value,
-                **self.generate_kwargs
-            )
-            
-            if not self.train_coin_flip_before:
-                # Train coin flip network AFTER exploration bonus calculation
-                # This ensures pseudocounts are correctly initialized near 1 for new states
-                if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
-                    self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
-                    torch.cuda.empty_cache()
+                # Validate shapes match
+                assert nact_curr == nact_best, f"num_actions mismatch: {nact_curr} vs {nact_best}"
+                assert seq_curr.shape[1] == seq_best.shape[1], (
+                    f"seq_len mismatch: {seq_curr.shape[1]} vs {seq_best.shape[1]}")
 
-            self.sampling_replay_buffer_neg.append(experience_neg_sampling)
+                # Interleave by prompt: [curr_for_prompt0, best_for_prompt0, curr_for_prompt1, ...]
+                sequences = self._interleave_by_prompt(seq_curr, seq_best, n_prompts, self.n_current, self.n_best)
+                action_mask = self._interleave_by_prompt(amask_curr, amask_best, n_prompts, self.n_current, self.n_best)
+                attention_mask = self._interleave_by_prompt(atmask_curr, atmask_best, n_prompts, self.n_current, self.n_best)
+                if val_curr is not None and val_best is not None:
+                    value = self._interleave_by_prompt(val_curr, val_best, n_prompts, self.n_current, self.n_best)
+                else:
+                    value = None
+                num_actions = nact_curr
+
+                # Recompute log probs for ALL merged samples from BOTH models
+                with torch.no_grad():
+                    q_current_action_log_probs = self.sampling_experience_maker_neg.actor(
+                        sequences, num_actions, attention_mask)
+                    q_best_action_log_probs = self.q_best_model(
+                        sequences, num_actions, attention_mask)
+
+                # Use q_current's log probs as action_log_probs (for gradient tracking in make_experience)
+                action_log_probs = q_current_action_log_probs
+
+                # make_experience with q_current's log probs
+                experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
+                    rand_prompts,
+                    samples_per_prompt=D,
+                    sequences=sequences,
+                    action_log_probs=action_log_probs,
+                    action_mask=action_mask,
+                    attention_mask=attention_mask,
+                    num_actions=num_actions,
+                    value=value,
+                    **self.generate_kwargs
+                )
+
+                # Store q_best log probs in experience info for use in get_sampling_actor_loss
+                experience_neg_sampling.info["q_best_action_log_probs"] = q_best_action_log_probs
+
+                # For "q_independent" mode: generate D additional samples from q_current
+                if self.mixture_optimization == "q_independent":
+                    print(f"[Mixture q_independent] Generating {D} additional samples from q_current")
+                    expanded_ind = tile_prompts(rand_prompts, D)
+                    alp_ind, amask_ind, atmask_ind, nact_ind, seq_ind, val_ind = \
+                        self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
+                            expanded_ind, **self.generate_kwargs)
+                    experience_neg_sampling.info["q_ind_sequences"] = seq_ind
+                    experience_neg_sampling.info["q_ind_action_log_probs"] = alp_ind
+                    experience_neg_sampling.info["q_ind_action_mask"] = amask_ind
+                    experience_neg_sampling.info["q_ind_attention_mask"] = atmask_ind
+
+                self.sampling_replay_buffer_neg.append(experience_neg_sampling)
+
+            else:
+                # ---- Original (non-mixture) path ----
+                # Generate sequences once (with no_grad since generation doesn't need gradients)
+                expanded_prompts = tile_prompts(rand_prompts, args.duplicate_rollout_batch_by)
+                action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
+                    expanded_prompts, **self.generate_kwargs)
+
+                # Update exact_count visits if enabled (before make_experience)
+                if self.sampling_experience_maker_neg.exploration_bonus == "exact_count":
+                    track_both = (self.sampling_experience_maker_neg.rm_type == "indicator_below_threshold")
+                    self.sampling_experience_maker_neg._update_exact_count_visits(sequences, track_both_positions=track_both)
+
+                if self.train_coin_flip_before:
+                    if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
+                        self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
+                        torch.cuda.empty_cache()
+
+                # Pass pre-generated sequences to make_experience to avoid duplicate generation
+                # Exploration bonus is calculated inside make_experience
+                experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
+                    rand_prompts,
+                    samples_per_prompt=args.duplicate_rollout_batch_by,
+                    sequences=sequences,
+                    action_log_probs=action_log_probs,
+                    action_mask=action_mask,
+                    attention_mask=attention_mask,
+                    num_actions=num_actions,
+                    value=value,
+                    **self.generate_kwargs
+                )
+
+                if not self.train_coin_flip_before:
+                    # Train coin flip network AFTER exploration bonus calculation
+                    # This ensures pseudocounts are correctly initialized near 1 for new states
+                    if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
+                        self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
+                        torch.cuda.empty_cache()
+
+                self.sampling_replay_buffer_neg.append(experience_neg_sampling)
 
         # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
         #              profile_memory=True, record_shapes=True) as prof:
@@ -1398,6 +1558,100 @@ class CombinedHarmlessnessTrainer(ABC):
             exper_action_log_probs = experience.action_log_probs.view(num_prompts, samples_per_prompt, -1)
             base_action_log_probs = base_action_log_probs.view(num_prompts, samples_per_prompt, -1)
 
+            # --- Mixture proposal modifications ---
+            mixture_kwargs = {}
+            if self.mixture_proposal and "q_best_action_log_probs" in experience.info:
+                device = log_psi.device
+                q_best_alp = experience.info["q_best_action_log_probs"].to(device)
+                q_best_alp = q_best_alp.view(num_prompts, samples_per_prompt, -1)
+
+                mixture_seq_lp, mixture_partial_seq_lp = self._compute_mixture_log_probs(
+                    exper_action_log_probs, q_best_alp, exper_action_mask)
+
+                if self.mixture_optimization == "mixture":
+                    # All n samples, q_mix weights everywhere
+                    mixture_kwargs["mixture_seq_log_probs"] = mixture_seq_lp
+                    mixture_kwargs["mixture_partial_seq_log_probs"] = mixture_partial_seq_lp
+
+                elif self.mixture_optimization == "q_half":
+                    # Positive: all n samples with mixture weights
+                    # Negative: first n_current samples (from q_current) with q_current's weights
+                    nc = self.n_current
+                    mixture_kwargs["mixture_seq_log_probs"] = mixture_seq_lp
+                    # Note on log_psi: We use q_current (not q_mix) for log_psi.
+                    #
+                    # With policy parameterization, log_psi = log q_theta - log p, where theta are
+                    # q_current's parameters.
+                    #
+                    # Case 1 (what we do): log_psi = log q_theta(x) - log p(x)
+                    #   grad_theta log_psi(x) = grad_theta log q_theta(x)
+                    #   Every sample gets the full gradient signal.
+                    #
+                    # Case 2 (hypothetical): log_psi_mix = log q_mix(x) - log p(x)
+                    #   where q_mix(x) = w * q_theta(x) + (1-w) * q_best(x).
+                    #   grad_theta log q_mix(x) = (w * q_theta(x)) / q_mix(x) * grad_theta log q_theta(x)
+                    #                           = r(x) * grad_theta log q_theta(x)
+                    #   where r(x) = w * q_theta(x) / (w * q_theta(x) + (1-w) * q_best(x)) in [0, 1]
+                    #   is the "responsibility" of q_current for sample x in the mixture.
+                    #
+                    # The problem: r(x) -> 0 when q_best(x) >> q_theta(x). But those are precisely
+                    # the samples where the mixture adds value (regions q_current hasn't learned yet).
+                    # So the gradient for the most informative mixture samples gets suppressed.
+                    #
+                    # Conceptually, psi approximates the optimal twist sigma(x)/p(x), and is separate
+                    # from the proposal distribution. The SIS importance weights already handle the
+                    # "where did this sample come from" correction (dividing by q_mix). Making log_psi
+                    # also encode mixture composition would double-count the proposal correction.
+                    mixture_kwargs["neg_values"] = log_psi[:, :nc, :]
+                    mixture_kwargs["neg_action_mask"] = exper_action_mask[:, :nc, :]
+                    mixture_kwargs["neg_curr_log_probs"] = exper_action_log_probs[:, :nc, :]
+                    mixture_kwargs["neg_base_action_log_probs"] = base_action_log_probs[:, :nc, :]
+
+                elif self.mixture_optimization == "q_independent":
+                    # Positive: all n mixture samples with mixture weights
+                    # Negative: D independently-generated q_current samples
+                    mixture_kwargs["mixture_seq_log_probs"] = mixture_seq_lp
+                    D = self.args.duplicate_rollout_batch_by
+
+                    ind_sequences = experience.info["q_ind_sequences"].to(device)
+                    ind_action_mask = experience.info["q_ind_action_mask"].to(device)
+                    ind_attention_mask = experience.info["q_ind_attention_mask"].to(device)
+                    ind_action_log_probs = experience.info["q_ind_action_log_probs"].to(device)
+
+                    with torch.no_grad():
+                        ind_base_alp = self.base_actor(
+                            ind_sequences, ind_action_mask.size(1), ind_attention_mask)
+
+                    # Forward pass through sampling_actor for log_psi on independent samples.
+                    # get_log_psi_policy_parameterization uses experience.sequences/attention_mask
+                    # for the forward pass; we need ind_sequences instead, so use a temporary object.
+                    class _TempExperience:
+                        pass
+                    temp_exp = _TempExperience()
+                    temp_exp.sequences = ind_sequences
+                    temp_exp.attention_mask = ind_attention_mask
+                    temp_exp.action_mask = ind_action_mask
+
+                    if "policy" in self.parameterization:
+                        ind_log_psi = self.get_log_psi_policy_parameterization(
+                            self.sampling_actor, ind_base_alp, temp_exp, ind_action_mask.size(1),
+                            self.parameterization)
+                    else:
+                        ind_log_psi = self.sampling_actor(
+                            ind_sequences, ind_action_mask.size(1), ind_attention_mask,
+                            return_only_modulation=True)
+
+                    # Reshape to (P, D, A)
+                    ind_log_psi = ind_log_psi.view(num_prompts, D, -1)
+                    ind_action_mask_r = ind_action_mask.view(num_prompts, D, -1)
+                    ind_action_log_probs_r = ind_action_log_probs.view(num_prompts, D, -1)
+                    ind_base_alp_r = ind_base_alp.view(num_prompts, D, -1)
+
+                    mixture_kwargs["neg_values"] = ind_log_psi
+                    mixture_kwargs["neg_action_mask"] = ind_action_mask_r
+                    mixture_kwargs["neg_curr_log_probs"] = ind_action_log_probs_r
+                    mixture_kwargs["neg_base_action_log_probs"] = ind_base_alp_r
+
             # Calculate loss for all groups at once
             sampling_actor_loss = self.sampling_actor_loss_fn(
                 log_psi,  # shape: [num_prompts, samples_per_prompt, num_actions]
@@ -1405,7 +1659,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 exper_action_mask,
                 exper_action_log_probs,
                 base_action_log_probs,
-                # reduce_mean_per_prompt=True
+                **mixture_kwargs,
             )
         elif self.sampling_actor_loss_type in ["dpg"]:
             with torch.no_grad():

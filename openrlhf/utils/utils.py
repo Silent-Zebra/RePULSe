@@ -1,5 +1,6 @@
 import os
 import math
+from contextlib import contextmanager
 from pathlib import Path
 
 from datasets import interleave_datasets, load_dataset, load_from_disk
@@ -366,6 +367,12 @@ def get_info_name_str(args):
             if coin_flip_warmup_steps > 0:
                 exploration_bonus_str += f"_wu{coin_flip_warmup_steps}"
 
+    mixture_str = ""
+    if getattr(args, 'mixture_proposal', False):
+        mix_opt = getattr(args, 'mixture_optimization', 'mixture')
+        mix_short_map = {"mixture": "mx", "q_independent": "qi", "q_half": "qh"}
+        mixture_str = f"_mix{mix_short_map.get(mix_opt, mix_opt)}"
+
     # Shorten parameterization
     param_short = args.parameterization
     param_map = {
@@ -408,7 +415,7 @@ def get_info_name_str(args):
     if scheduler_short in scheduler_map:
         scheduler_short = scheduler_map[scheduler_short]
     
-    info_name_str = f"{rm_type_str}{reward_clamp_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_l{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_b{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{param_short}_{loss_type_short}_ep{args.max_epochs}{epi_str}{fit_steps_str}{eval_str}_sc{scheduler_short}_{lr_str}{critic_loss_str}{adam_betas_str}_{param_short}{init_head_base_str}{sddiv_str}{exploration_bonus_str}_tb{args.train_batch_size}_s{args.seed}"
+    info_name_str = f"{rm_type_str}{reward_clamp_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_l{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_b{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{param_short}_{loss_type_short}_ep{args.max_epochs}{epi_str}{fit_steps_str}{eval_str}_sc{scheduler_short}_{lr_str}{critic_loss_str}{adam_betas_str}_{param_short}{init_head_base_str}{sddiv_str}{exploration_bonus_str}{mixture_str}_tb{args.train_batch_size}_s{args.seed}"
 
     return info_name_str
 
@@ -635,6 +642,77 @@ def compute_actor_log_probs_for_sequences(actor, sequences, num_actions, attenti
     log_probs_per_seq = (action_log_probs * action_mask).sum(dim=-1)
 
     return log_probs_per_seq, action_log_probs
+
+
+@contextmanager
+def swap_actor(experience_maker, replacement_actor):
+    """Context manager to temporarily replace the actor in an experience maker.
+
+    Usage:
+        with swap_actor(experience_maker, q_best_model):
+            # experience_maker.actor is now q_best_model
+            ...generate samples...
+        # experience_maker.actor is restored to the original
+    """
+    original = experience_maker.actor
+    experience_maker.actor = replacement_actor
+    try:
+        yield
+    finally:
+        experience_maker.actor = original
+
+
+@torch.no_grad()
+def compute_mixture_seq_log_prob(q_current_model, q_best_model, sequences, num_actions,
+                                  attention_mask, eos_token_id, pad_token_id,
+                                  log_w_current, log_w_best, shared_actorcritic=False):
+    """Compute mixture sequence-level log prob for given sequences.
+
+    log q_mix(s) = logsumexp(log_w_current + log_q_current(s), log_w_best + log_q_best(s))
+
+    Args:
+        q_current_model: Current proposal model
+        q_best_model: Best historical proposal model
+        sequences: (batch, seq_len) token sequences
+        num_actions: Number of action tokens
+        attention_mask: (batch, seq_len) attention mask
+        eos_token_id: EOS token ID
+        pad_token_id: Pad token ID
+        log_w_current: Log weight for q_current component (scalar)
+        log_w_best: Log weight for q_best component (scalar)
+        shared_actorcritic: Whether q_current is a shared actor-critic model
+
+    Returns:
+        log_q_mix: (batch,) sequence-level mixture log probs
+        action_mask: (batch, num_actions) action mask
+    """
+    _, alp_current = compute_actor_log_probs_for_sequences(
+        q_current_model, sequences, num_actions,
+        attention_mask=attention_mask,
+        eos_token_id=eos_token_id, pad_token_id=pad_token_id,
+        shared_actorcritic=shared_actorcritic
+    )
+    _, alp_best = compute_actor_log_probs_for_sequences(
+        q_best_model, sequences, num_actions,
+        attention_mask=attention_mask,
+        eos_token_id=eos_token_id, pad_token_id=pad_token_id,
+        shared_actorcritic=False  # q_best is always a plain eval model
+    )
+
+    action_mask = compute_action_mask_from_sequences(sequences, num_actions, eos_token_id, pad_token_id)
+
+    alp_current = alp_current.float() * action_mask
+    alp_best = alp_best.float() * action_mask
+
+    log_q_current = alp_current.sum(dim=-1)
+    log_q_best = alp_best.sum(dim=-1)
+
+    log_q_mix = torch.logaddexp(
+        log_w_current + log_q_current,
+        log_w_best + log_q_best
+    )
+
+    return log_q_mix, action_mask
 
 
 @torch.no_grad()
@@ -983,6 +1061,151 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
         g_q_estimates_list.append(
             total_g_qs.cpu())  # Only one G_q estimate (over all the target samples)
     f_q_estimates_list.append(f_qs.cpu())
+
+
+def g_q_estimate_mixture(trainer, experience_maker, args, true_sigma_samples, num_actions,
+                          attention_mask, q_best_model, log_w_current, log_w_best):
+    """
+    Compute g_q for the mixture q_mix = w*q_current + (1-w)*q_best on target samples.
+    g_q_mix = log_sigma - log_q_mix where log_q_mix = logsumexp(log_w_current + log_q_current, log_w_best + log_q_best).
+    """
+    experience_maker.set_all_eval()
+    with torch.no_grad():
+        eos_token_id = trainer.generate_kwargs["eos_token_id"]
+        pad_token_id = trainer.generate_kwargs["pad_token_id"]
+
+        log_q_mix, action_mask = compute_mixture_seq_log_prob(
+            experience_maker.actor, q_best_model, true_sigma_samples, num_actions,
+            attention_mask, eos_token_id, pad_token_id,
+            log_w_current, log_w_best, shared_actorcritic=trainer.shared_actorcritic
+        )
+
+        log_tilde_sigma = eval_log_p_plus_log_phi(
+            trainer, experience_maker, args,
+            attention_mask, action_mask, num_actions, true_sigma_samples,
+            force_no_exploration_bonus=True
+        )
+        log_tilde_sigma = log_tilde_sigma.float()
+
+    experience_maker.set_all_policies_train()
+    return log_tilde_sigma - log_q_mix
+
+
+def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
+                                f_q_mix_list, g_q_mix_list, iwae_mix_lbs_list, iwae_mix_ubs_list,
+                                prompt_text, true_target_samples,
+                                q_best_model, log_w_current, log_w_best):
+    """
+    Evaluate f_q, g_q, IWAE bounds for the mixture q_mix (single prompt, single seed).
+    Generates samples from q_mix (split between q_current and q_best), evaluates metrics.
+    """
+    import math as _math
+
+    experience_maker.set_all_eval()
+    N = args.n_samples_for_f_q_g_q
+    n_eval_current = N // 2
+    n_eval_best = N - n_eval_current
+
+    with torch.no_grad():
+        # Generate from q_current
+        batch_current = tile_prompts(prompt_text, n_eval_current)
+        if trainer.shared_actorcritic:
+            alp_c, amask_c, atmask_c, nact_c, seq_c, _ = experience_maker.generate_seqs_and_get_logprobs(
+                batch_current, **trainer.generate_kwargs)
+        else:
+            alp_c, amask_c, atmask_c, nact_c, seq_c = experience_maker.generate_seqs_and_get_logprobs(
+                batch_current, **trainer.generate_kwargs)
+
+        # Generate from q_best
+        with swap_actor(experience_maker, q_best_model):
+            batch_best = tile_prompts(prompt_text, n_eval_best)
+            if trainer.shared_actorcritic:
+                alp_b, amask_b, atmask_b, nact_b, seq_b, _ = experience_maker.generate_seqs_and_get_logprobs(
+                    batch_best, **trainer.generate_kwargs)
+            else:
+                alp_b, amask_b, atmask_b, nact_b, seq_b = experience_maker.generate_seqs_and_get_logprobs(
+                    batch_best, **trainer.generate_kwargs)
+
+        # Concatenate sequences
+        assert nact_c == nact_b
+        assert seq_c.shape[1] == seq_b.shape[1]
+        all_sequences = torch.cat([seq_c, seq_b], dim=0)  # (N, seq_len)
+        all_action_mask = torch.cat([amask_c, amask_b], dim=0)
+        all_attention_mask = torch.cat([atmask_c, atmask_b], dim=0)
+        num_actions = nact_c
+
+        # Compute mixture log prob from both models for ALL samples
+        eos_token_id = trainer.generate_kwargs["eos_token_id"]
+        pad_token_id = trainer.generate_kwargs["pad_token_id"]
+
+        log_q_mix, _ = compute_mixture_seq_log_prob(
+            experience_maker.actor, q_best_model, all_sequences, num_actions,
+            all_attention_mask, eos_token_id, pad_token_id,
+            log_w_current, log_w_best, shared_actorcritic=trainer.shared_actorcritic
+        )
+
+        log_tilde_sigma = eval_log_p_plus_log_phi(
+            trainer, experience_maker, args,
+            all_attention_mask, all_action_mask, num_actions, all_sequences,
+            force_no_exploration_bonus=True
+        )
+        log_tilde_sigma = log_tilde_sigma.float()
+
+        f_qs_mix = log_tilde_sigma - log_q_mix
+        print(f"[Mixture eval] Avg F_q_mix = {f_qs_mix.mean().item():.4f}")
+
+        # IWAE lower bound for mixture
+        iwae_lb = (torch.logsumexp(f_qs_mix, dim=0) - _math.log(f_qs_mix.shape[0])).item()
+        print(f"[Mixture eval] IWAE LB (mix) = {iwae_lb:.4f}")
+
+    # g_q_mix on target samples
+    total_g_qs_mix = None
+    if true_target_samples is not None:
+        eos_token_id = trainer.generate_kwargs["eos_token_id"]
+        pad_token_id = trainer.generate_kwargs["pad_token_id"]
+        range_val = _math.ceil(true_target_samples.shape[0] / args.n_samples_for_f_q_g_q)
+        for j in range(range_val):
+            samples = true_target_samples[j * N: (j + 1) * N]
+            if samples.shape[0] != 0:
+                attention_mask_g_q = (
+                    samples.ne(eos_token_id) & samples.ne(pad_token_id)
+                ).to(dtype=torch.long)
+                g_qs_mix = g_q_estimate_mixture(
+                    trainer, experience_maker, args, samples, num_actions,
+                    attention_mask_g_q, q_best_model, log_w_current, log_w_best
+                )
+                if total_g_qs_mix is None:
+                    total_g_qs_mix = g_qs_mix
+                else:
+                    total_g_qs_mix = torch.cat((total_g_qs_mix, g_qs_mix), dim=0)
+        if total_g_qs_mix is not None:
+            print(f"[Mixture eval] Avg G_q_mix = {total_g_qs_mix.mean().item():.4f}")
+
+    # IWAE upper bound (replace first q_mix sample with first target sample)
+    iwae_ub = None
+    if true_target_samples is not None:
+        with torch.no_grad():
+            iwae_mix_seqs = all_sequences.detach().clone()
+            assert true_target_samples[0].shape[0] <= iwae_mix_seqs.shape[1]
+            iwae_mix_seqs[0] = true_target_samples[0]
+            attention_mask_ub = (
+                iwae_mix_seqs.ne(eos_token_id) & iwae_mix_seqs.ne(pad_token_id)
+            ).to(dtype=torch.long)
+            iwae_ub_weights = g_q_estimate_mixture(
+                trainer, experience_maker, args, iwae_mix_seqs, num_actions,
+                attention_mask_ub, q_best_model, log_w_current, log_w_best
+            )
+            iwae_ub = (torch.logsumexp(iwae_ub_weights, dim=0) - _math.log(iwae_ub_weights.shape[0])).item()
+            print(f"[Mixture eval] IWAE UB (mix) = {iwae_ub:.4f}")
+
+    # Append to lists
+    f_q_mix_list.append(f_qs_mix.cpu())
+    if total_g_qs_mix is not None:
+        g_q_mix_list.append(total_g_qs_mix.cpu())
+    iwae_mix_lbs_list.append(iwae_lb)
+    iwae_mix_ubs_list.append(iwae_ub)
+
+    experience_maker.set_all_policies_train()
 
 
 def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,

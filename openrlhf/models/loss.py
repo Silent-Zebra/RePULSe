@@ -279,6 +279,12 @@ class CTLLoss(nn.Module):
         action_mask: torch.Tensor,
         curr_log_probs: torch.Tensor,
         base_action_log_probs: torch.Tensor,
+        mixture_seq_log_probs: Optional[torch.Tensor] = None,
+        mixture_partial_seq_log_probs: Optional[torch.Tensor] = None,
+        neg_values: Optional[torch.Tensor] = None,
+        neg_action_mask: Optional[torch.Tensor] = None,
+        neg_curr_log_probs: Optional[torch.Tensor] = None,
+        neg_base_action_log_probs: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         # NOTE: this version of CTLLoss just uses reweighting (e.g. SIS version), no SMC resampling here (yet)
         # Note that if you were to do resampling, we would need to figure out how to deal with varying sequence lengths (when EOS generated)
@@ -304,6 +310,103 @@ class CTLLoss(nn.Module):
         # But I'm leaving the above just to be safe
 
         if reduce_mean_per_prompt:
+            if mixture_seq_log_probs is not None:
+                # --- Mixture proposal path (bypass vmap; compute directly on (P, n) tensors) ---
+
+                # Positive term: SIS weights are p(s)*phi(s) / q_mix(s)
+                # log_w_pos = log_p_seq + log_phi - log_q_mix_seq
+                log_w_pos = (base_action_log_probs * action_mask).sum(dim=-1) + final_reward - mixture_seq_log_probs
+                normalized_w_pos = F.softmax(log_w_pos, dim=1).detach()  # (P, n)
+                positive_samples_term = normalized_w_pos.unsqueeze(-1) * values  # (P, n, A)
+
+                # Negative term
+                if neg_values is not None:
+                    # Mode "q_half" or "q_independent": separate sample set for negative term
+                    neg_curr_log_probs_masked = neg_curr_log_probs * neg_action_mask
+                    neg_base_alp_masked = neg_base_action_log_probs * neg_action_mask
+                    neg_values_masked = neg_values * neg_action_mask
+                    # SIS weights: p(s_{1:t}) * psi_t(s_{1:t}) / q_current(s_{1:t})
+                    log_w_neg = neg_base_alp_masked.cumsum(dim=2) + neg_values_masked - neg_curr_log_probs_masked.cumsum(dim=2)
+                    log_w_neg = log_w_neg.detach()
+                    normalized_w_neg = F.softmax(log_w_neg, dim=1)
+                    negative_samples_term = normalized_w_neg * neg_values_masked
+                elif mixture_partial_seq_log_probs is not None:
+                    # Mode "mixture": same samples, mixture weights for negative term too
+                    # SIS weights: p(s_{1:t}) * psi_t(s_{1:t}) / q_mix(s_{1:t})
+                    log_w_neg = (base_action_log_probs * action_mask).cumsum(dim=2) + values - mixture_partial_seq_log_probs
+                    log_w_neg = log_w_neg.detach()
+                    normalized_w_neg = F.softmax(log_w_neg, dim=1)
+                    negative_samples_term = normalized_w_neg * values
+                else:
+                    negative_samples_term = None
+
+                # Reduce: positive and negative may have different n, so reduce each separately if needed
+                if neg_values is not None and not self.no_second_term:
+                    pos_loss = masked_mean(-positive_samples_term, action_mask, dim=-1).mean()
+                    neg_loss = masked_mean(negative_samples_term, neg_action_mask, dim=-1).mean()
+                    loss = pos_loss + neg_loss
+                elif self.no_second_term:
+                    loss = masked_mean(-positive_samples_term, action_mask, dim=-1).mean()
+                else:
+                    loss = masked_mean(-(positive_samples_term - negative_samples_term), action_mask, dim=-1).mean()
+
+                # --- DEBUG: Verify "mixture" mode equivalence with batched_get_weights (vmap path) ---
+                # Only applies to "mixture" mode where mixture_partial_seq_log_probs is used
+                # for the negative term (not q_half/q_independent which use separate neg samples).
+                if mixture_partial_seq_log_probs is not None and neg_values is None:
+                    # Construct synthetic curr_log_probs whose .cumsum(dim=-1) = mixture_partial_seq_log_probs
+                    # and .sum(dim=-1) = mixture_seq_log_probs. This allows reusing batched_get_weights
+                    # which internally computes .sum() and .cumsum() on curr_log_probs.
+                    # The "diff" of a cumsum recovers per-token values; at padding positions (where
+                    # cumsum is constant), the diff is 0, matching the expected masked behavior.
+                    synthetic_curr = torch.zeros_like(mixture_partial_seq_log_probs)
+                    synthetic_curr[:, :, 0] = mixture_partial_seq_log_probs[:, :, 0]
+                    synthetic_curr[:, :, 1:] = (
+                        mixture_partial_seq_log_probs[:, :, 1:] - mixture_partial_seq_log_probs[:, :, :-1]
+                    )
+
+                    # Sanity check the synthetic construction
+                    assert torch.allclose(synthetic_curr.cumsum(dim=-1), mixture_partial_seq_log_probs, atol=1e-5), (
+                        f"synthetic_curr cumsum mismatch: max diff = "
+                        f"{(synthetic_curr.cumsum(dim=-1) - mixture_partial_seq_log_probs).abs().max().item()}"
+                    )
+                    assert torch.allclose(synthetic_curr.sum(dim=-1), mixture_seq_log_probs, atol=1e-5), (
+                        f"synthetic_curr sum mismatch: max diff = "
+                        f"{(synthetic_curr.sum(dim=-1) - mixture_seq_log_probs).abs().max().item()}"
+                    )
+
+                    # Compute via vmap path with synthetic curr_log_probs
+                    batched_get_weights_check = torch.func.vmap(
+                        get_positive_and_negative_weights_detached, in_dims=0)
+                    vmap_log_w_neg, vmap_norm_w_pos = batched_get_weights_check(
+                        base_action_log_probs, synthetic_curr, final_reward, values)
+
+                    vmap_positive = vmap_norm_w_pos.unsqueeze(-1) * values
+                    vmap_norm_w_neg = F.softmax(vmap_log_w_neg, dim=1)
+                    vmap_negative = vmap_norm_w_neg * values
+
+                    if self.no_second_term:
+                        vmap_loss = masked_mean(-vmap_positive, action_mask, dim=-1).mean()
+                    else:
+                        vmap_loss = masked_mean(
+                            -(vmap_positive - vmap_negative), action_mask, dim=-1).mean()
+
+                    tol = 1e-4
+                    assert torch.allclose(loss, vmap_loss, atol=tol, rtol=tol), (
+                        f"Mixture mode loss ({loss.item()}) != vmap loss ({vmap_loss.item()}), "
+                        f"diff = {(loss - vmap_loss).abs().item()}"
+                    )
+                    print(f"[DEBUG] Mixture mode CTLLoss verification PASSED: "
+                          f"loss={loss.item():.6f}, vmap_loss={vmap_loss.item():.6f}")
+                    raise Exception(
+                        f"[DEBUG EXIT] Mixture CTLLoss verification passed. "
+                        f"loss={loss.item()}, vmap_loss={vmap_loss.item()}. "
+                        f"Remove this exception to continue training."
+                    )
+
+                return loss
+
+            # --- Original (non-mixture) path ---
             # This version is for batching over different prompts
             # Use vmap to compute weights for all prompts at once
             batched_get_weights = torch.func.vmap(get_positive_and_negative_weights_detached, in_dims=0)
