@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_mixture, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, generate_and_score_batch
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_mixture, f_q_g_q_evaluation_mixture_multi_prompt, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, generate_and_score_batch
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -3376,6 +3376,20 @@ def _run_per_fit_step_heldout_and_f_q(
                     random_prompts, None,  # No target samples for random set
                 )
                 f_q_by_prompt_list_random.append(result_random["f_q_by_prompt"])
+
+            # Mixture proposal eval (if enabled) — multi-prompt
+            if (getattr(args, 'mixture_proposal', False)
+                    and f_q_mix_estimates_list is not None
+                    and hasattr(harmlessness_trainer, 'q_best_model')
+                    and harmlessness_trainer.q_best_model is not None):
+                f_q_g_q_evaluation_mixture_multi_prompt(
+                    harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+                    f_q_mix_estimates_list, g_q_mix_estimates_list,
+                    iwae_mix_lbs_list, iwae_mix_ubs_list,
+                    eval_prompts_fixed, eval_target_samples_fixed,
+                    harmlessness_trainer.q_best_model,
+                    harmlessness_trainer.log_w_current, harmlessness_trainer.log_w_best,
+                )
     else:
         # No f_q_g_q_eval, just do f_q_estimate on the first prompt
         prompt_for_f_q = eval_prompts_fixed[0] if eval_prompts_fixed else None

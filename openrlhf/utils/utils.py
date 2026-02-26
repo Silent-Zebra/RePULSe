@@ -1128,17 +1128,30 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
                 alp_b, amask_b, atmask_b, nact_b, seq_b = experience_maker.generate_seqs_and_get_logprobs(
                     batch_best, **trainer.generate_kwargs)
 
+        # Pad shorter batch to match longer one (different lengths due to early EOS stopping)
+        eos_token_id = trainer.generate_kwargs["eos_token_id"]
+        pad_token_id = trainer.generate_kwargs["pad_token_id"]
+        max_nact = max(nact_c, nact_b)
+        if nact_c != nact_b:
+            print(f"[Mixture eval] Padding: nact_c={nact_c}, nact_b={nact_b} -> {max_nact}")
+        if nact_c < max_nact:
+            pad_len = max_nact - nact_c
+            seq_c = torch.nn.functional.pad(seq_c, (0, pad_len), value=pad_token_id)
+            amask_c = torch.nn.functional.pad(amask_c, (0, pad_len), value=0)
+            atmask_c = torch.nn.functional.pad(atmask_c, (0, pad_len), value=0)
+        if nact_b < max_nact:
+            pad_len = max_nact - nact_b
+            seq_b = torch.nn.functional.pad(seq_b, (0, pad_len), value=pad_token_id)
+            amask_b = torch.nn.functional.pad(amask_b, (0, pad_len), value=0)
+            atmask_b = torch.nn.functional.pad(atmask_b, (0, pad_len), value=0)
+        num_actions = max_nact
+
         # Concatenate sequences
-        assert nact_c == nact_b
-        assert seq_c.shape[1] == seq_b.shape[1]
         all_sequences = torch.cat([seq_c, seq_b], dim=0)  # (N, seq_len)
         all_action_mask = torch.cat([amask_c, amask_b], dim=0)
         all_attention_mask = torch.cat([atmask_c, atmask_b], dim=0)
-        num_actions = nact_c
 
         # Compute mixture log prob from both models for ALL samples
-        eos_token_id = trainer.generate_kwargs["eos_token_id"]
-        pad_token_id = trainer.generate_kwargs["pad_token_id"]
 
         log_q_mix, _ = compute_mixture_seq_log_prob(
             experience_maker.actor, q_best_model, all_sequences, num_actions,
@@ -1208,6 +1221,69 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
     iwae_mix_ubs_list.append(iwae_ub)
 
     experience_maker.set_all_policies_train()
+
+
+def f_q_g_q_evaluation_mixture_multi_prompt(
+    trainer, experience_maker, args,
+    f_q_mix_list, g_q_mix_list, iwae_mix_lbs_list, iwae_mix_ubs_list,
+    prompt_texts, true_target_samples_by_prompt,
+    q_best_model, log_w_current, log_w_best):
+    """
+    Multi-prompt wrapper for f_q_g_q_evaluation_mixture. Loops over prompts,
+    calls the single-prompt mixture eval per prompt, then aggregates and appends
+    one entry per timepoint to the accumulator lists.
+    """
+    all_f_qs = []
+    all_g_qs = []
+    all_iwae_lbs = []
+    all_iwae_ubs = []
+
+    for i, prompt_text in enumerate(prompt_texts):
+        has_targets = (
+            true_target_samples_by_prompt is not None
+            and i < len(true_target_samples_by_prompt)
+            and true_target_samples_by_prompt[i] is not None
+            and true_target_samples_by_prompt[i].numel() > 0
+        )
+        target_samples = true_target_samples_by_prompt[i] if has_targets else None
+
+        # Per-prompt temp lists (f_q_g_q_evaluation_mixture appends exactly one entry)
+        f_q_tmp, g_q_tmp, iwae_lb_tmp, iwae_ub_tmp = [], [], [], []
+
+        f_q_g_q_evaluation_mixture(
+            trainer, experience_maker, args,
+            f_q_tmp, g_q_tmp, iwae_lb_tmp, iwae_ub_tmp,
+            prompt_text, target_samples,
+            q_best_model, log_w_current, log_w_best,
+        )
+
+        assert len(f_q_tmp) == 1, f"Expected 1 f_q entry per prompt, got {len(f_q_tmp)}"
+        all_f_qs.append(f_q_tmp[0])
+        all_g_qs.append(g_q_tmp[0] if g_q_tmp else None)
+        all_iwae_lbs.append(iwae_lb_tmp[0] if iwae_lb_tmp else None)
+        all_iwae_ubs.append(iwae_ub_tmp[0] if iwae_ub_tmp else None)
+
+    # Aggregate across prompts: one entry per timepoint
+    f_q_valid = [x for x in all_f_qs if x is not None]
+    f_q_agg = torch.cat(f_q_valid) if f_q_valid else None
+
+    g_q_valid = [x for x in all_g_qs if x is not None]
+    g_q_agg = torch.cat(g_q_valid) if g_q_valid else None
+
+    iwae_lbs_valid = [x for x in all_iwae_lbs if x is not None]
+    iwae_lbs_agg = torch.tensor(iwae_lbs_valid).mean().item() if iwae_lbs_valid else None
+
+    iwae_ubs_valid = [x for x in all_iwae_ubs if x is not None]
+    iwae_ubs_agg = torch.tensor(iwae_ubs_valid).mean().item() if iwae_ubs_valid else None
+
+    if f_q_agg is not None:
+        f_q_mix_list.append(f_q_agg)
+        print(f"[Mixture eval multi-prompt] Aggregated F_q_mix = {f_q_agg.mean().item():.4f} ({len(f_q_valid)} prompts)")
+    if g_q_agg is not None:
+        g_q_mix_list.append(g_q_agg)
+        print(f"[Mixture eval multi-prompt] Aggregated G_q_mix = {g_q_agg.mean().item():.4f} ({len(g_q_valid)} prompts)")
+    iwae_mix_lbs_list.append(iwae_lbs_agg)
+    iwae_mix_ubs_list.append(iwae_ubs_agg)
 
 
 def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
