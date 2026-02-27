@@ -82,6 +82,7 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
             # Abbreviate actor loss type
             loss = $(i+1)
             if(loss == "ctl") actor_loss = "_ctl"
+            else if(loss == "ctl_nosecondterm") actor_loss = "_ctln"
             else actor_loss = "_" substr(loss, 1, 3)
         }
         if($i == "--custom_single_prompt") custom_prompt = "_custom"
