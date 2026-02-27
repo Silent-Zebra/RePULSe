@@ -912,56 +912,71 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
     return log_tilde_sigma - log_q
 
 
-def g_q_estimate_batched(trainer, experience_maker, args, target_samples_by_prompt, num_actions):
+def _compute_num_actions_for_target_samples(target_samples, prompt_text, experience_maker):
+    """Compute num_actions for target samples by tokenizing the prompt.
+
+    Target samples have shape (K, seq_len) where seq_len = prompt_tokens + gen_tokens.
+    We tokenize the prompt to find prompt_tokens, then num_actions = seq_len - prompt_tokens.
+
+    Uses experience_maker.tokenize_fn to ensure tokenization is consistent with generation.
+    """
+    # tokenize_fn with padding=True returns tensors (consistent with generation usage)
+    # For a single prompt, no padding is needed, so result matches non-padded tokenization
+    inputs = experience_maker.tokenize_fn([prompt_text], experience_maker.prompt_max_len, device="cpu")
+    assert inputs["input_ids"].shape[0] == 1
+    prompt_len = inputs["input_ids"].shape[1]
+    num_actions = target_samples.shape[1] - prompt_len
+    assert num_actions > 0, (
+        f"Target sample seq_len ({target_samples.shape[1]}) <= prompt_len ({prompt_len}). "
+        f"This suggests a tokenization mismatch between target sample generation and current run."
+    )
+    return num_actions
+
+
+def g_q_estimate_batched(trainer, experience_maker, args, target_samples_by_prompt,
+                         prompt_texts):
     """
     Batched g_q estimation across multiple prompts' target samples.
-    Left-pads all target samples to a common seq_len, then processes
-    through g_q_estimate in chunks.
+    Processes each prompt's target samples with the correct num_actions
+    (derived from tokenizing the prompt text), since different prompts
+    may have different prompt token lengths.
 
     Args:
         trainer: Trainer instance
         experience_maker: Experience maker instance
         args: Training arguments
         target_samples_by_prompt: list of tensors, each shape (K_p, seq_len_p)
-        num_actions: int (= generate_max_len)
+        prompt_texts: list of prompt strings (one per prompt, same length as
+            target_samples_by_prompt)
 
     Returns:
         g_qs_per_prompt: list of tensors, each shape (K_p,)
     """
+    assert len(target_samples_by_prompt) == len(prompt_texts)
     eos_token_id = trainer.generate_kwargs["eos_token_id"]
     pad_token_id = trainer.generate_kwargs["pad_token_id"]
+    chunk_size = args.n_samples_for_f_q_g_q
 
-    # Find common seq_len and left-pad all target samples
-    max_seq_len = max(t.shape[1] for t in target_samples_by_prompt)
-    padded_samples = []
-    prompt_sizes = []
-    for t in target_samples_by_prompt:
-        padded = left_pad_sequences(t, max_seq_len, pad_token_id)
-        padded_samples.append(padded)
-        prompt_sizes.append(t.shape[0])
+    g_qs_per_prompt = []
+    for t, prompt_text in zip(target_samples_by_prompt, prompt_texts):
+        num_actions = _compute_num_actions_for_target_samples(
+            t, prompt_text, experience_maker)
 
-    # Stack into one batch: (sum(K_p), max_seq_len)
-    all_samples = torch.cat(padded_samples, dim=0)
+        # Process this prompt's target samples in chunks
+        prompt_g_qs = []
+        for start in range(0, t.shape[0], chunk_size):
+            chunk = t[start:start + chunk_size]
+            if chunk.shape[0] == 0:
+                continue
+            attention_mask_chunk = (
+                chunk.ne(eos_token_id) & chunk.ne(pad_token_id)
+            ).to(dtype=torch.long)
+            g_qs_chunk = g_q_estimate(trainer, experience_maker, args, chunk,
+                                      num_actions, attention_mask_chunk)
+            prompt_g_qs.append(g_qs_chunk)
 
-    # Process in chunks of n_samples_for_f_q_g_q * n_prompts_f_q_g_q (matching f_q/IWAE UB batch budget)
-    n_prompts_f_q_g_q = getattr(args, 'n_prompts_f_q_g_q', 1)
-    chunk_size = args.n_samples_for_f_q_g_q * n_prompts_f_q_g_q
-    all_g_qs = []
-    for start in range(0, all_samples.shape[0], chunk_size):
-        chunk = all_samples[start:start + chunk_size]
-        if chunk.shape[0] == 0:
-            continue
-        attention_mask_chunk = (
-            chunk.ne(eos_token_id) & chunk.ne(pad_token_id)
-        ).to(dtype=torch.long)
-        g_qs_chunk = g_q_estimate(trainer, experience_maker, args, chunk,
-                                  num_actions, attention_mask_chunk)
-        all_g_qs.append(g_qs_chunk)
+        g_qs_per_prompt.append(torch.cat(prompt_g_qs, dim=0))
 
-    all_g_qs = torch.cat(all_g_qs, dim=0)  # (sum(K_p),)
-
-    # Split back to per-prompt
-    g_qs_per_prompt = list(torch.split(all_g_qs, prompt_sizes))
     return g_qs_per_prompt
 
 
@@ -1010,8 +1025,12 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
                     samples.ne(eos_token_id) & samples.ne(pad_token_id)).to(
                 dtype=torch.long)
 
+            # Compute num_actions from prompt tokenization, not from q generation,
+            # since q generation may truncate early (all samples hitting EOS).
+            target_num_actions = _compute_num_actions_for_target_samples(
+                samples, prompt_text, experience_maker)
             g_qs = g_q_estimate(trainer, experience_maker, args, samples,
-                                 num_actions, attention_mask_g_q)
+                                 target_num_actions, attention_mask_g_q)
 
             print(g_qs)
             print("Avg G_q Estimate (Learned Model)")
@@ -1024,27 +1043,16 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
                 print("Total G_qs shape")
                 print(total_g_qs.shape)
 
-    # IWAE Upper Bound: replace first q sample with first target sample
+    # IWAE Upper Bound: combine g_q(target_sample) with f_q(q_samples)
+    # Reuse pre-computed values instead of splicing target into q sequences
+    # (which fails when sequence lengths differ due to early EOS truncation).
     iwae_ub = None
-    if true_target_samples is not None:
-        assert true_target_samples[0].shape[0] <= q_seqs.shape[1], (
-            f"Target sample has length {true_target_samples[0].shape[0]} which exceeds "
-            f"q_seqs sequence length {q_seqs.shape[1]}. "
-            f"Target samples may have been generated with different generate_max_len or prompt_max_len."
-        )
-        iwae_mixture_with_one_post = q_seqs.detach().clone()
-        iwae_mixture_with_one_post[0] = true_target_samples[0]
-        attention_mask_g_q = (
-            iwae_mixture_with_one_post.ne(eos_token_id) & iwae_mixture_with_one_post.ne(
-            pad_token_id)).to(
-            dtype=torch.long)
-        iwae_ub_weights = g_q_estimate(trainer, experience_maker, args,
-                                        iwae_mixture_with_one_post,
-                                        num_actions,
-                                        attention_mask_g_q)
-
+    if true_target_samples is not None and total_g_qs is not None:
+        target_weight = total_g_qs[0:1]  # g_q for first target sample
+        q_weights = f_qs[1:]  # f_q for N-1 q samples (drop one to keep total = N)
+        all_weights = torch.cat([target_weight.to(q_weights.device), q_weights])
         print("IWAE Upper Bound Estimate (Learned Model)")
-        iwae_ub = (torch.logsumexp(iwae_ub_weights, dim=0) - math.log(iwae_ub_weights.shape[0])).item()
+        iwae_ub = (torch.logsumexp(all_weights, dim=0) - math.log(all_weights.shape[0])).item()
         print(iwae_ub)
 
     iwae_lbs_list.append(iwae_lb)
@@ -1185,8 +1193,10 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
                 attention_mask_g_q = (
                     samples.ne(eos_token_id) & samples.ne(pad_token_id)
                 ).to(dtype=torch.long)
+                target_num_actions = _compute_num_actions_for_target_samples(
+                    samples, prompt_text, experience_maker)
                 g_qs_mix = g_q_estimate_mixture(
-                    trainer, experience_maker, args, samples, num_actions,
+                    trainer, experience_maker, args, samples, target_num_actions,
                     attention_mask_g_q, q_best_model, log_w_current, log_w_best
                 )
                 if total_g_qs_mix is None:
@@ -1196,22 +1206,14 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
         if total_g_qs_mix is not None:
             print(f"[Mixture eval] Avg G_q_mix = {total_g_qs_mix.mean().item():.4f}")
 
-    # IWAE upper bound (replace first q_mix sample with first target sample)
+    # IWAE upper bound: reuse pre-computed g_q_mix (target) + f_q_mix (q samples)
     iwae_ub = None
-    if true_target_samples is not None:
-        with torch.no_grad():
-            iwae_mix_seqs = all_sequences.detach().clone()
-            assert true_target_samples[0].shape[0] <= iwae_mix_seqs.shape[1]
-            iwae_mix_seqs[0] = true_target_samples[0]
-            attention_mask_ub = (
-                iwae_mix_seqs.ne(eos_token_id) & iwae_mix_seqs.ne(pad_token_id)
-            ).to(dtype=torch.long)
-            iwae_ub_weights = g_q_estimate_mixture(
-                trainer, experience_maker, args, iwae_mix_seqs, num_actions,
-                attention_mask_ub, q_best_model, log_w_current, log_w_best
-            )
-            iwae_ub = (torch.logsumexp(iwae_ub_weights, dim=0) - _math.log(iwae_ub_weights.shape[0])).item()
-            print(f"[Mixture eval] IWAE UB (mix) = {iwae_ub:.4f}")
+    if true_target_samples is not None and total_g_qs_mix is not None:
+        target_weight = total_g_qs_mix[0:1]
+        q_weights = f_qs_mix[1:]
+        all_weights = torch.cat([target_weight.to(q_weights.device), q_weights])
+        iwae_ub = (torch.logsumexp(all_weights, dim=0) - _math.log(all_weights.shape[0])).item()
+        print(f"[Mixture eval] IWAE UB (mix) = {iwae_ub:.4f}")
 
     # Append to lists
     f_q_mix_list.append(f_qs_mix.cpu())
@@ -1306,15 +1308,15 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
     """
     P = len(prompt_texts)
     N = args.n_samples_for_f_q_g_q
-    pad_token_id = trainer.generate_kwargs["pad_token_id"]
-    eos_token_id = trainer.generate_kwargs["eos_token_id"]
+    # pad_token_id = trainer.generate_kwargs["pad_token_id"]
+    # eos_token_id = trainer.generate_kwargs["eos_token_id"]
 
     # --- f_q: batched generation ---
     f_q_result = f_q_estimate_batched(trainer, experience_maker, args, prompt_texts)
     f_qs_pp = f_q_result["f_qs_per_prompt"]       # P tensors, each (N,)
-    q_seqs_pp = f_q_result["q_seqs_per_prompt"]    # P tensors, each (N, seq_len)
-    num_actions = f_q_result["num_actions"]
-    common_seq_len = f_q_result["common_seq_len"]
+    # q_seqs_pp = f_q_result["q_seqs_per_prompt"]    # P tensors, each (N, seq_len)
+    # num_actions = f_q_result["num_actions"]
+    # common_seq_len = f_q_result["common_seq_len"]
 
     # Per-prompt results
     f_q_by_prompt = [f_qs_pp[p].cpu() for p in range(P)]
@@ -1344,46 +1346,30 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
 
     if prompts_with_targets and true_target_samples_by_prompt is not None:
         target_tensors = [true_target_samples_by_prompt[p] for p in prompts_with_targets]
+        target_prompt_texts = [prompt_texts[p] for p in prompts_with_targets]
         g_qs_list = g_q_estimate_batched(
-            trainer, experience_maker, args, target_tensors, num_actions)
+            trainer, experience_maker, args, target_tensors, target_prompt_texts)
         for i, p in enumerate(prompts_with_targets):
             g_qs_per_prompt[p] = g_qs_list[i].cpu()
             print(f"[batched] g_q prompt {p}: mean = {g_qs_list[i].mean().item()}")
 
-    # --- IWAE UB: batched across all prompts with target samples ---
+    # --- IWAE UB: reuse pre-computed f_q (q samples) and g_q (target samples) ---
+    # IWAE UB = logsumexp(w_1, ..., w_N) - log(N) where:
+    #   w_1 = g_q(target_sample) = log sigma(x_target) - log q(x_target)
+    #   w_2..w_N = f_q(q_samples) = log sigma(x_q) - log q(x_q)
+    # Both are already computed above, so we just combine them.
+    # This avoids the previous approach of splicing target samples into q-generated
+    # sequences, which failed when sequence lengths differed (e.g. early EOS truncation
+    # in f_q generation vs full-length target samples).
     if prompts_with_targets:
-        P_target = len(prompts_with_targets)
-        # Build 3D tensor: (P_target, N, common_seq_len)
-        mixture_3d = torch.stack([q_seqs_pp[p].detach().clone() for p in prompts_with_targets], dim=0)
-        # Replace position 0 with left-padded target sample for each prompt
         for i, p in enumerate(prompts_with_targets):
-            ts = true_target_samples_by_prompt[p]
-            assert ts.shape[0] > 0, f"Prompt {p} has no target samples for IWAE UB"
-            target_sample_0 = ts[0].unsqueeze(0)  # (1, ts_seq_len)
-            assert target_sample_0.shape[1] <= common_seq_len, (
-                f"Target sample for prompt {p} has length {target_sample_0.shape[1]} "
-                f"which exceeds common_seq_len={common_seq_len}. "
-                f"Target samples may have been generated with different generate_max_len or prompt_max_len."
-            )
-            padded_target = left_pad_sequences(target_sample_0, common_seq_len, pad_token_id)
-            mixture_3d[i, 0, :] = padded_target.squeeze(0)
-
-        # Reshape to 2D: (P_target * N, common_seq_len)
-        mixture_2d = mixture_3d.reshape(P_target * N, common_seq_len)
-        attention_mask_mix = (
-            mixture_2d.ne(eos_token_id) & mixture_2d.ne(pad_token_id)
-        ).to(dtype=torch.long)
-
-        # Single g_q_estimate call for all IWAE UB
-        iwae_ub_weights_flat = g_q_estimate(
-            trainer, experience_maker, args, mixture_2d,
-            num_actions, attention_mask_mix)
-
-        # Reshape back to (P_target, N)
-        iwae_ub_weights_2d = iwae_ub_weights_flat.reshape(P_target, N)
-
-        for i, p in enumerate(prompts_with_targets):
-            iwae_ub = (torch.logsumexp(iwae_ub_weights_2d[i], dim=0) - math.log(N)).item()
+            assert g_qs_per_prompt[p] is not None, f"g_q not computed for prompt {p}"
+            assert g_qs_per_prompt[p].shape[0] > 0, f"Prompt {p} has no target samples for IWAE UB"
+            # Take first target sample's weight, drop one q sample to keep total = N
+            target_weight = g_qs_per_prompt[p][0:1]  # (1,)
+            q_weights = f_qs_pp[p][1:]  # (N-1,)
+            all_weights = torch.cat([target_weight.to(q_weights.device), q_weights])  # (N,)
+            iwae_ub = (torch.logsumexp(all_weights, dim=0) - math.log(N)).item()
             iwae_ubs_by_prompt[p] = iwae_ub
             print(f"[batched] IWAE UB prompt {p}: {iwae_ub}")
 

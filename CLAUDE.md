@@ -40,7 +40,7 @@ Finally, the **current research direction** is to improve both settings above by
 
 ## Coding Guidelines
 
-Please avoid duplicate code as much as possible. Any time there exists code in the repo that already does the same thing or something very similar, extract methods and refactor as needed, to minimize copy-pasted and duplicate code.
+Please avoid duplicate code as much as possible. Any time there exists code in the repo that already does the same thing or something very similar, extract methods and refactor as needed, to minimize copy-pasted and duplicate code. This also helps reduce the chance of undesired behavior. ALWAYS CHECK THE CODEBASE TO SEE IF THERE IS AN EXISTING FUNCTION (or parts of an existing function) that do what is desired, or something very similar to desired. 
 
 While I have no strict conventions regarding style, I think it is very important to maintain correctness. Please flag anything that seems like it might be unintended behavior. Otherwise, follow the structure/setup of existing methods and function calls, as they are usually set up that way for a reason (but again, if anything seems fishy, please point it out, it might be a bug).
 
