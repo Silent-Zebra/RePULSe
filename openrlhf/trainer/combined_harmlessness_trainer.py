@@ -200,6 +200,12 @@ class CombinedHarmlessnessTrainer(ABC):
             self.mixture_optimization = getattr(self.args, 'mixture_optimization', 'mixture')
             self.mixture_psi_use_mix = getattr(self.args, 'mixture_psi_use_mix', False)
             self._q_ind_data = None  # populated per step for q_independent mode
+            if sampling_actor_loss_type == "ctl_nosecondterm":
+                assert self.mixture_optimization == "mixture", (
+                    f"ctl_nosecondterm drops the negative term, so q_half/q_independent modes "
+                    f"(which only differ in how they handle the negative term) are wasteful. "
+                    f"Use mixture_optimization='mixture' instead, got '{self.mixture_optimization}'."
+                )
 
         self.base_actor_loss_type = base_actor_loss_type
         self.alpha = alpha
@@ -258,6 +264,12 @@ class CombinedHarmlessnessTrainer(ABC):
         self.separate_neg_samples = True
         if self.base_actor_loss_type == "reinforce" or self.use_base_as_proposal:
             self.separate_neg_samples = False
+
+        assert not (self.mixture_proposal and not self.separate_neg_samples), (
+            "mixture_proposal requires separate_neg_samples=True (mixture sampling code is inside the "
+            "separate_neg_samples branch). This is incompatible with base_actor_loss_type='reinforce' "
+            "or use_base_as_proposal=True, which set separate_neg_samples=False."
+        )
 
         base_rm_type = "rlhf" # Use this to ensure the standard reward formulation for the base actor
         # Keep this even in case of the indicator_bad_token
