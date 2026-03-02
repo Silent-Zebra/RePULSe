@@ -1195,14 +1195,18 @@ class BaseExperienceMaker(ABC):
                 self._update_exact_count_visits(sequences, track_both_positions=track_both)
 
         # init log probs
+        from openrlhf.utils.utils import print_timestamp
+        print_timestamp("make_experience: start initial_model (p0) forward pass")
         with torch.no_grad():
             base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
 
+        print_timestamp("make_experience: start reward model inference")
         r, untransformed_reward, exploration_bonus, r_no_bonus = self.compute_reward_no_kl(
             sequences, attention_mask,
             multiply_by_beta=self.multiply_by_beta,
             force_no_exploration_bonus=force_no_exploration_bonus
         )
+        print_timestamp("make_experience: end reward model inference")
 
         rewards, kl = compute_reward(
             r,

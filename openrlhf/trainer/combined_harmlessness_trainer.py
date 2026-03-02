@@ -704,7 +704,9 @@ class CombinedHarmlessnessTrainer(ABC):
             first_tag = self.trajectory_checkpoints[0][1]
             self.current_trajectory_rejection_samples = self.trajectory_rejection_samples.get(first_tag, None)
 
+        from openrlhf.utils.utils import print_timestamp
         for episode in range(start_episode, args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop): # Actually with this current setup is kind of redundant to have these 2 hyperparameters, loops here or in the outer loop, just pick one, doesn't really matter with 1 update each...
+            print_timestamp(f"training - episode {episode}/{args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop}: start")
             print(f"HARMLESSNESS TRAINING EPISODE {episode}", flush=True)
             if isinstance(self.prompts_dataloader.sampler, DistributedSampler):
                 self.prompts_dataloader.sampler.set_epoch(
@@ -901,6 +903,7 @@ class CombinedHarmlessnessTrainer(ABC):
             #     output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
             #     self.strategy.print(output[0])
 
+        from openrlhf.utils.utils import print_timestamp
         if self.separate_neg_samples:
             print("Making experience: neg sampling")
 
@@ -911,10 +914,12 @@ class CombinedHarmlessnessTrainer(ABC):
                 print(f"[Mixture] Generating {self.n_current} from q_current + {self.n_best} from q_best per prompt")
 
                 # Pass 1: Generate n_current samples from q_current
+                print_timestamp("training - sampling: start generate from q_current")
                 expanded_current = tile_prompts(rand_prompts, self.n_current)
                 alp_curr, amask_curr, atmask_curr, nact_curr, seq_curr, val_curr = \
                     self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                         expanded_current, **self.generate_kwargs)
+                print_timestamp("training - sampling: end q_current, start generate from q_best")
 
                 # Pass 2: Generate n_best samples from q_best
                 with swap_actor(self.sampling_experience_maker_neg, self.q_best_model):
@@ -922,6 +927,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     alp_best, amask_best, atmask_best, nact_best, seq_best, val_best = \
                         self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                             expanded_best, **self.generate_kwargs)
+                print_timestamp("training - sampling: end q_best generation")
 
                 # Pad shorter batch to match longer one (different lengths due to early EOS stopping)
                 max_nact = max(nact_curr, nact_best)
@@ -943,11 +949,13 @@ class CombinedHarmlessnessTrainer(ABC):
                     value = None
 
                 # Recompute log probs for ALL merged samples from BOTH models
+                print_timestamp("training - sampling: start recompute log probs (q_current + q_best)")
                 with torch.no_grad():
                     q_current_action_log_probs = self.sampling_experience_maker_neg.actor(
                         sequences, num_actions, attention_mask)
                     q_best_action_log_probs = self.q_best_model(
                         sequences, num_actions, attention_mask)
+                print_timestamp("training - sampling: end recompute log probs, start make_experience")
 
                 # Use q_current's log probs as action_log_probs (for gradient tracking in make_experience)
                 action_log_probs = q_current_action_log_probs
@@ -965,6 +973,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     **self.generate_kwargs
                 )
 
+                print_timestamp("training - sampling: end make_experience (mixture path)")
                 # NOTE: We do NOT store q_best_action_log_probs in experience.info because the
                 # replay buffer's split_experience_batch only supports scalar info values.
                 # Instead, q_best log probs are recomputed in get_sampling_actor_loss via
@@ -990,9 +999,11 @@ class CombinedHarmlessnessTrainer(ABC):
             else:
                 # ---- Original (non-mixture) path ----
                 # Generate sequences once (with no_grad since generation doesn't need gradients)
+                print_timestamp("training - sampling: start generate (non-mixture)")
                 expanded_prompts = tile_prompts(rand_prompts, args.duplicate_rollout_batch_by)
                 action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                     expanded_prompts, **self.generate_kwargs)
+                print_timestamp("training - sampling: end generate, start make_experience (non-mixture)")
 
                 # Update exact_count visits if enabled (before make_experience)
                 if self.sampling_experience_maker_neg.exploration_bonus == "exact_count":
@@ -1025,11 +1036,13 @@ class CombinedHarmlessnessTrainer(ABC):
                         self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
                         torch.cuda.empty_cache()
 
+                print_timestamp("training - sampling: end make_experience (non-mixture)")
                 self.sampling_replay_buffer_neg.append(experience_neg_sampling)
 
         # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
         #              profile_memory=True, record_shapes=True) as prof:
 
+        print_timestamp("training - end sampling phase")
         self.total_steps += 1  # do this update before the save_steps, so that saving does happen e.g. if you do 4 save_steps, then on the 4th step, saving will actually happen
         # so far I modified self.save_logs_and_checkpoints, this should be the only place using self.total_steps
 
@@ -1043,7 +1056,9 @@ class CombinedHarmlessnessTrainer(ABC):
                 self.sampling_replay_buffer_neg.normalize(self.strategy, "advantages")
 
             assert custom_prompt is None
+            print_timestamp("training - start backprop (train())")
             status = self.train(global_steps, custom_prompt=custom_prompt, neg_sample_only=neg_sample_only)
+            print_timestamp("training - end backprop (train())")
 
             if not neg_sample_only:
                 self.base_replay_buffer.clear()
@@ -1355,11 +1370,13 @@ class CombinedHarmlessnessTrainer(ABC):
         return status
 
     def training_step_sampling_actor(self, experience_neg_sampling: Experience, custom_prompt=None) -> Dict[str, float]:
+        from openrlhf.utils.utils import print_timestamp
         if self.model_eval:
             self.sampling_actor.eval()
         else:
             self.sampling_actor.train()
 
+        print_timestamp("training - backprop: start loss computation")
         sampling_actor_loss = self.get_sampling_actor_loss(experience_neg_sampling, custom_prompt)
 
         # mixtral
@@ -1376,9 +1393,12 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.pretrain_dataloader is not None:
             raise NotImplementedError # not yet checked/fixed
 
+        print_timestamp("training - backprop: start backward pass")
         self.strategy.backward(loss, self.sampling_actor, self.sampling_actor_optim)
 
+        print_timestamp("training - backprop: start optimizer step")
         self.strategy.optimizer_step(self.sampling_actor_optim, self.sampling_actor, self.sampling_actor_scheduler, name="actor")
+        print_timestamp("training - backprop: end optimizer step")
 
         if self.ema_model:
             raise NotImplementedError

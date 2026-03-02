@@ -1,6 +1,8 @@
 import os
 import math
+import time as _time_module
 from contextlib import contextmanager
+from datetime import datetime as _datetime
 from pathlib import Path
 
 from datasets import interleave_datasets, load_dataset, load_from_disk
@@ -9,6 +11,19 @@ import torch
 import numpy as np
 
 import re
+
+
+_last_timestamp = [0.0]
+
+
+def print_timestamp(label):
+    """Print a timestamp with a label for performance profiling.
+    Shows wall-clock time and seconds elapsed since last timestamp call."""
+    t = _time_module.time()
+    dt = _datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    elapsed = t - _last_timestamp[0] if _last_timestamp[0] > 0 else 0.0
+    print(f"[TIMESTAMP {dt} | elapsed {elapsed:.1f}s] {label}", flush=True)
+    _last_timestamp[0] = t
 
 from openrlhf.models import Actor
 from openrlhf.models.actor_custom import ActorCustom
@@ -770,12 +785,14 @@ def f_q_estimate(trainer, experience_maker, args, prompt):
     batch_prompt = tile_prompts(prompt, args.n_samples_for_f_q_g_q)
 
     with torch.no_grad():
+        print_timestamp("eval - f_q_estimate: start generation")
         if trainer.shared_actorcritic:
             action_log_probs, action_mask, attention_mask, num_actions, sequences, value = experience_maker.generate_seqs_and_get_logprobs(
                 batch_prompt, **trainer.generate_kwargs)
         else:
             action_log_probs, action_mask, attention_mask, num_actions, sequences = experience_maker.generate_seqs_and_get_logprobs(
                 batch_prompt, **trainer.generate_kwargs)
+        print_timestamp("eval - f_q_estimate: end generation, start log_p + log_phi")
         action_log_probs = action_log_probs.float() * action_mask # more precision
         log_q = action_log_probs.sum(dim=-1)
 
@@ -786,6 +803,7 @@ def f_q_estimate(trainer, experience_maker, args, prompt):
         log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
             trainer, experience_maker, args, attention_mask, action_mask, num_actions, sequences, return_extra_info=True, force_no_exploration_bonus=True
         )
+        print_timestamp("eval - f_q_estimate: done")
 
         f_qs = log_tilde_sigma - log_q
 
@@ -997,8 +1015,10 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
         prompt_text: Prompt text for evaluation
         true_target_samples: True target samples
     """
+    print_timestamp("eval - f_q_g_q_evaluation: start f_q_estimate")
     f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = f_q_estimate(
         trainer, experience_maker, args, prompt_text)
+    print_timestamp("eval - f_q_g_q_evaluation: end f_q_estimate")
     print("Avg F_q Estimate (Learned Model)")
     print(f_qs.mean())
 
@@ -1012,6 +1032,12 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
 
     # g_q estimates over all target samples
     assert true_target_samples is not None
+    # Compute num_actions from prompt tokenization, not from q generation,
+    # since q generation may truncate early (all samples hitting EOS).
+    # All chunks of the same prompt's target samples have the same seq_len, so compute once.
+    target_num_actions = _compute_num_actions_for_target_samples(
+        true_target_samples, prompt_text, experience_maker)
+    print_timestamp("eval - f_q_g_q_evaluation: start g_q loop")
     total_g_qs = None
     range_val = math.ceil(true_target_samples.shape[0] / args.n_samples_for_f_q_g_q)
     print(range_val)
@@ -1025,10 +1051,6 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
                     samples.ne(eos_token_id) & samples.ne(pad_token_id)).to(
                 dtype=torch.long)
 
-            # Compute num_actions from prompt tokenization, not from q generation,
-            # since q generation may truncate early (all samples hitting EOS).
-            target_num_actions = _compute_num_actions_for_target_samples(
-                samples, prompt_text, experience_maker)
             g_qs = g_q_estimate(trainer, experience_maker, args, samples,
                                  target_num_actions, attention_mask_g_q)
 
@@ -1067,6 +1089,7 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
     print(total_g_qs.shape if total_g_qs is not None else None)
     print(f_qs.shape)
 
+    print_timestamp("eval - f_q_g_q_evaluation: done")
     if total_g_qs is not None:
         g_q_estimates_list.append(
             total_g_qs.cpu())  # Only one G_q estimate (over all the target samples)
@@ -1111,6 +1134,7 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
     """
     import math as _math
 
+    print_timestamp("eval - f_q_g_q_evaluation_mixture: start")
     experience_maker.set_all_eval()
     N = args.n_samples_for_f_q_g_q
     n_eval_current = N // 2
@@ -1186,6 +1210,9 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
     if true_target_samples is not None:
         eos_token_id = trainer.generate_kwargs["eos_token_id"]
         pad_token_id = trainer.generate_kwargs["pad_token_id"]
+        # All chunks of the same prompt's target samples have the same seq_len, so compute once.
+        target_num_actions = _compute_num_actions_for_target_samples(
+            true_target_samples, prompt_text, experience_maker)
         range_val = _math.ceil(true_target_samples.shape[0] / args.n_samples_for_f_q_g_q)
         for j in range(range_val):
             samples = true_target_samples[j * N: (j + 1) * N]
@@ -1193,8 +1220,6 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
                 attention_mask_g_q = (
                     samples.ne(eos_token_id) & samples.ne(pad_token_id)
                 ).to(dtype=torch.long)
-                target_num_actions = _compute_num_actions_for_target_samples(
-                    samples, prompt_text, experience_maker)
                 g_qs_mix = g_q_estimate_mixture(
                     trainer, experience_maker, args, samples, target_num_actions,
                     attention_mask_g_q, q_best_model, log_w_current, log_w_best
@@ -1222,6 +1247,7 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
     iwae_mix_lbs_list.append(iwae_lb)
     iwae_mix_ubs_list.append(iwae_ub)
 
+    print_timestamp("eval - f_q_g_q_evaluation_mixture: done")
     experience_maker.set_all_policies_train()
 
 
@@ -1235,12 +1261,14 @@ def f_q_g_q_evaluation_mixture_multi_prompt(
     calls the single-prompt mixture eval per prompt, then aggregates and appends
     one entry per timepoint to the accumulator lists.
     """
+    print_timestamp(f"eval - f_q_g_q_evaluation_mixture_multi_prompt: start ({len(prompt_texts)} prompts)")
     all_f_qs = []
     all_g_qs = []
     all_iwae_lbs = []
     all_iwae_ubs = []
 
     for i, prompt_text in enumerate(prompt_texts):
+        print_timestamp(f"eval - mixture_multi_prompt: prompt {i+1}/{len(prompt_texts)}")
         has_targets = (
             true_target_samples_by_prompt is not None
             and i < len(true_target_samples_by_prompt)
@@ -1286,6 +1314,7 @@ def f_q_g_q_evaluation_mixture_multi_prompt(
         print(f"[Mixture eval multi-prompt] Aggregated G_q_mix = {g_q_agg.mean().item():.4f} ({len(g_q_valid)} prompts)")
     iwae_mix_lbs_list.append(iwae_lbs_agg)
     iwae_mix_ubs_list.append(iwae_ubs_agg)
+    print_timestamp("eval - f_q_g_q_evaluation_mixture_multi_prompt: done")
 
 
 def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
@@ -1474,6 +1503,7 @@ def f_q_g_q_evaluation_multi_prompt(trainer, experience_maker, args,
             "iwae_lbs_agg": 1D tensor of shape (n_prompts_with_targets,) or None
             "iwae_ubs_agg": 1D tensor of shape (n_prompts_with_targets,) or None
     """
+    print_timestamp(f"eval - f_q_g_q_evaluation_multi_prompt: start ({len(prompt_texts)} prompts)")
     n_prompts_f_q_g_q = getattr(args, 'n_prompts_f_q_g_q', None)
 
     if n_prompts_f_q_g_q is not None:
@@ -1491,8 +1521,10 @@ def f_q_g_q_evaluation_multi_prompt(trainer, experience_maker, args,
         return _merge_batched_results(all_chunk_results)
     else:
         # Existing per-prompt for-loop (unchanged)
-        return _f_q_g_q_evaluation_multi_prompt_unbatched(
+        result = _f_q_g_q_evaluation_multi_prompt_unbatched(
             trainer, experience_maker, args, prompt_texts, true_target_samples_by_prompt)
+        print_timestamp("eval - f_q_g_q_evaluation_multi_prompt: done")
+        return result
 
 
 def _merge_batched_results(chunk_results):
@@ -1542,6 +1574,7 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
     iwae_ubs_by_prompt = []
 
     for i, prompt_text in enumerate(prompt_texts):
+        print_timestamp(f"eval - multi_prompt unbatched: prompt {i+1}/{len(prompt_texts)}")
         has_target_samples = (
             true_target_samples_by_prompt is not None
             and i < len(true_target_samples_by_prompt)

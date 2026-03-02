@@ -978,8 +978,10 @@ def train(args):
                     harmlessness_trainer.maybe_update_q_best(current_g_q)
                 _prompts_since_last_eval[0] = 0
 
+    from openrlhf.utils.utils import print_timestamp
     # Fit steps is kind of like a chunk for how many points we want to track progress; do x harmlessness training steps each fit step
     for fit_step in range(args.fit_steps):
+        print_timestamp(f"=== fit_step {fit_step}/{args.fit_steps}: start ===")
         prompt = args.custom_prompt  # Define prompt for analytic calculations
         if fit_step == 0 and args.analytic_bad_word_calc:
             
@@ -1060,6 +1062,7 @@ def train(args):
 
         if args.do_harmlessness_training:
             strategy.print("-----HARMLESSNESS TRAINING-----")
+            print_timestamp(f"fit_step {fit_step}: start harmlessness_trainer.fit()")
             # Do the harmlessness training: combined now (1 set of samples for both the base_actor and sampling_actor updates)
             if args.harmlessness_training_num_episodes > 0:
                 estimates_list = harmlessness_trainer.fit(
@@ -1082,6 +1085,7 @@ def train(args):
                     num_update_steps_per_episodes, true_target_samples
                 )
 
+        print_timestamp(f"fit_step {fit_step}: end harmlessness_trainer.fit()")
         # Lists are now passed into fit() and modified in place, so we can use them directly
         # The return value from fit() contains the same list objects for backward compatibility
         if estimates_list is not None:
@@ -1116,6 +1120,7 @@ def train(args):
 
             # Per-fit-step heldout + f_q (after each fit step)
             if (_per_fit_step_heldout or _per_fit_step_f_q_eval) and args.do_harmlessness_training:
+                print_timestamp(f"fit_step {fit_step}: start per-fit-step eval (_run_per_fit_step_heldout_and_f_q)")
                 _run_per_fit_step_heldout_and_f_q(
                     eval_prompts_fixed,
                     harmlessness_trainer,
@@ -1157,6 +1162,7 @@ def train(args):
                     iwae_mix_ubs_list=iwae_mix_ubs_list,
                 )
 
+                print_timestamp(f"fit_step {fit_step}: end per-fit-step eval")
                 # Update q_best if mixture proposal is enabled and g_q improved
                 if getattr(args, 'mixture_proposal', False) and g_q_estimates_list and g_q_estimates_list[-1] is not None:
                     current_g_q = g_q_estimates_list[-1].mean().item()
@@ -3279,10 +3285,12 @@ def _run_per_fit_step_heldout_and_f_q(
     eval_prompts_fixed: list of prompt strings (even for single-prompt mode, wrapped in a list).
     """
     import random
+    from openrlhf.utils.utils import print_timestamp
 
     is_single_prompt = args.new_custom_single_prompt
 
     if getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step":
+        print_timestamp("per-fit-step eval: start heldout evaluation")
         # For heldout sampling, use the first prompt for now (multi-prompt heldout looping is future work)
         prompt_text_for_heldout = eval_prompts_fixed[0] if eval_prompts_fixed else None
         do_evaluate_heldout_sampling(
@@ -3300,8 +3308,10 @@ def _run_per_fit_step_heldout_and_f_q(
             true_target_samples_by_prompt=eval_target_samples_fixed,
             eval_prompts_for_logprob=eval_prompts_fixed,
         )
+        print_timestamp("per-fit-step eval: end heldout evaluation")
 
     if getattr(args, "f_q_g_q_eval", False):
+        print_timestamp("per-fit-step eval: start f_q_g_q evaluation")
         if is_single_prompt:
             # Single-prompt: use original f_q_g_q_evaluation (backward compat)
             single_prompt_target = eval_target_samples_fixed[0] if eval_target_samples_fixed else None
@@ -3365,6 +3375,7 @@ def _run_per_fit_step_heldout_and_f_q(
             if result_fixed["iwae_ubs_agg"] is not None:
                 iwae_ubs_list.append(result_fixed["iwae_ubs_agg"])
 
+            print_timestamp("per-fit-step eval: end f_q_g_q multi-prompt (fixed set A)")
             # Set B (random prompts) - f_q only, no g_q/IWAE
             if eval_prompts_random_source is not None and f_q_by_prompt_list_random is not None:
                 n = n_eval_prompts if n_eval_prompts is not None else len(eval_prompts_random_source)
@@ -3377,6 +3388,7 @@ def _run_per_fit_step_heldout_and_f_q(
                 )
                 f_q_by_prompt_list_random.append(result_random["f_q_by_prompt"])
 
+            print_timestamp("per-fit-step eval: start mixture proposal eval")
             # Mixture proposal eval (if enabled) — multi-prompt
             if (getattr(args, 'mixture_proposal', False)
                     and f_q_mix_estimates_list is not None
