@@ -1209,7 +1209,7 @@ def train(args):
                 torch.save(target_to_save, save_str)
 
                 # Save mixture eval results separately (if enabled and non-empty)
-                if getattr(args, 'mixture_proposal', False) and len(f_q_mix_estimates_list) > 0:
+                if getattr(args, 'mixture_eval', False) and len(f_q_mix_estimates_list) > 0:
                     mix_save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_mixeval_OpenRLHF_{info_name_str}"
                     mix_target = (
                         f_q_mix_estimates_list, g_q_mix_estimates_list,
@@ -3323,8 +3323,8 @@ def _run_per_fit_step_heldout_and_f_q(
                 )
                 f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
 
-                # Mixture proposal eval (if enabled)
-                if (getattr(args, 'mixture_proposal', False)
+                # Mixture proposal eval (only if --mixture_eval is explicitly enabled)
+                if (getattr(args, 'mixture_eval', False)
                         and f_q_mix_estimates_list is not None
                         and hasattr(harmlessness_trainer, 'q_best_model')
                         and harmlessness_trainer.q_best_model is not None):
@@ -3388,12 +3388,12 @@ def _run_per_fit_step_heldout_and_f_q(
                 )
                 f_q_by_prompt_list_random.append(result_random["f_q_by_prompt"])
 
-            print_timestamp("per-fit-step eval: start mixture proposal eval")
-            # Mixture proposal eval (if enabled) — multi-prompt
-            if (getattr(args, 'mixture_proposal', False)
+            # Mixture proposal eval (only if --mixture_eval is explicitly enabled) — multi-prompt
+            if (getattr(args, 'mixture_eval', False)
                     and f_q_mix_estimates_list is not None
                     and hasattr(harmlessness_trainer, 'q_best_model')
                     and harmlessness_trainer.q_best_model is not None):
+                print_timestamp("per-fit-step eval: start mixture proposal eval")
                 f_q_g_q_evaluation_mixture_multi_prompt(
                     harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
                     f_q_mix_estimates_list, g_q_mix_estimates_list,
@@ -4101,6 +4101,9 @@ if __name__ == "__main__":
                         help="Optimization mode for mixture proposal: 'mixture' uses q_mix everywhere, "
                              "'q_independent' uses separate q_current samples for the negative term, "
                              "'q_half' reuses q_current samples from mixture for the negative term")
+    parser.add_argument("--mixture_eval", action="store_true", default=False,
+                        help="Enable f_q/g_q evaluation on the mixture proposal q_mix (expensive; off by default). "
+                             "Requires --mixture_proposal.")
     parser.add_argument("--mixture_psi_use_mix", action="store_true", default=False,
                         help="When using mixture proposal, also use q_mix (instead of q_current) for log_psi. "
                              "log_psi_mix = log q_mix(s_t|...) - log p(s_t|...). Gradient through logaddexp "
@@ -4183,6 +4186,9 @@ if __name__ == "__main__":
             f"--mixture_proposal requires --duplicate_rollout_batch_by >= 2 (need at least 1 sample from each component), "
             f"but got {args.duplicate_rollout_batch_by}"
         )
+
+    if getattr(args, 'mixture_eval', False):
+        assert args.mixture_proposal, "--mixture_eval requires --mixture_proposal"
 
     if args.advantage_estimator not in ["gae"]:
         raise NotImplementedError # Not tested
