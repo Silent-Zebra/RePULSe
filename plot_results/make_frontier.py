@@ -279,12 +279,15 @@ def make_frontier_exact_kl_bootstrap(
     all_x = []
     all_y = []
 
-    # For connect_groups: find the last series index per group (for legend deduplication)
-    # and track plotted coordinates per group (for connecting lines)
+    # For connect_groups: find the last series index per group *that has data*
+    # (for legend deduplication) and track plotted coordinates per group (for connecting lines)
     if connect_groups is not None:
         last_in_group = {}
         for idx in range(len(connect_groups)):
-            last_in_group[connect_groups[idx]] = idx
+            has_data = (isinstance(results_list[idx], list) and len(results_list[idx]) > 0) or (
+                isinstance(results_list[idx], tuple))
+            if has_data:
+                last_in_group[connect_groups[idx]] = idx
         group_plotted_coords = {}  # group_id -> list of (x, y)
 
     for i in range(len(labels)):

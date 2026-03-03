@@ -58,6 +58,14 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
     labels = []
     for a in load_prefixes_to_use:
         prefix = a[0]
+        # Detect CTL vs CTLN (ctl_nosecondterm) from prefix
+        if "_ctln_" in prefix:
+            loss_type_str = "CTLN"
+        elif "_ctl_" in prefix:
+            loss_type_str = "CTL"
+        else:
+            loss_type_str = None
+
         # Determine training run type (support both old and new abbreviations)
         # Check patterns in order of specificity
         # 1. Coin flip: old _cfn or new _cf followed by number
@@ -67,6 +75,9 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
         elif "_count" in prefix or re.search(r'_c([\d.]+)(?![a-z])', prefix):
             # The negative lookahead (?![a-z]) ensures _c is not followed by a letter (like _cf, _cl)
             run_type = "Exact Count"
+        # 3. Mixture proposal: _mix followed by variant abbreviation
+        elif "_mix" in prefix:
+            run_type = "Mixture"
         else:
             run_type = "No Exploration Bonus"
         
@@ -142,7 +153,6 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             elif "cfllp" in prefix or "_cfl" in prefix:
                 label_parts.append("Lin. on p")
 
-            labels.append(", ".join(label_parts))
         elif run_type == "Exact Count":
             label_parts = ["EC"]
 
@@ -166,7 +176,23 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             if tbs_match:
                 label_parts.append(f"batch={tbs_match.group(1)}")
 
-            labels.append(", ".join(label_parts))
+        elif run_type == "Mixture":
+            # Extract mixture optimization variant from _mix abbreviation
+            mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
+            mix_match = re.search(r'_mix([a-z]+)', prefix)
+            mix_variant = mix_variant_map.get(mix_match.group(1), mix_match.group(1)) if mix_match else "unknown"
+            label_parts = [f"Mixture ({mix_variant})"]
+
+            # Extract LR (q) / sampling actor LR from _al
+            al_match = re.search(r'_al([\d.e-]+)', prefix)
+            if al_match:
+                label_parts.append(f"{al_match.group(1)} LR (q)")
+
+            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
+            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
+            if tbs_match:
+                label_parts.append(f"batch={tbs_match.group(1)}")
+
         else:
             label_parts = ["No Bonus"]
 
@@ -185,7 +211,15 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             if tbs_match:
                 label_parts.append(f"batch={tbs_match.group(1)}")
 
-            labels.append(", ".join(label_parts))
+        # Prepend CTL/CTLN loss type if detected
+        if loss_type_str is not None:
+            label_parts.insert(0, loss_type_str)
+
+        # Check for mixeval prefix
+        if prefix.startswith("f_q_g_q_iwae_bounds_mixeval"):
+            label_parts.append("(mixeval)")
+
+        labels.append(", ".join(label_parts))
     
     return labels
 
