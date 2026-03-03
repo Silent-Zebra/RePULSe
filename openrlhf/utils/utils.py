@@ -311,6 +311,8 @@ def get_info_name_str(args):
     reward_clamp_str = ""
     if hasattr(args, "reward_clamp") and args.reward_clamp is not None:
         reward_clamp_str = f"_rc{args.reward_clamp}"
+    elif hasattr(args, "reward_cap") and args.reward_cap is not None:
+        reward_clamp_str = f"_rcap{args.reward_cap}"
 
     rew_trans_str = ""
     if args.reward_transform:
