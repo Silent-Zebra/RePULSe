@@ -347,9 +347,10 @@ def _get_reward_model_custom(
                 # print(attention_mask)
 
                 # text_question = list(map(lambda x: x.removeprefix('user\n').removesuffix('\nassistant\n'), texts))
-                print("text questions and answers:")
-                print("Q:", text_question)
-                print("A:", text_answer)
+                _n_print = min(5, len(text_question))
+                print(f"text questions and answers (showing {_n_print}/{len(text_question)}):")
+                print("Q:", text_question[:_n_print])
+                print("A:", text_answer[:_n_print])
 
                 device = self.rm.device
 
@@ -461,8 +462,9 @@ def _get_reward_model_custom(
                     # Strip chat template artifacts (e.g. "user\n...\nassistant\n") before feeding to RM
                     qa_list = list(map(strip_question_chat_template_fn, text))
                     text = [q + " " + a for q, a in qa_list]
-                print("text questions and answers (combined):")
-                print(text)
+                _n_print = min(5, len(text))
+                print(f"text questions and answers (combined, showing {_n_print}/{len(text)}):")
+                print(text[:_n_print])
 
                 tokens = self.tokenizer_RM(text, return_tensors="pt", padding=True)
                 # print(tokens)

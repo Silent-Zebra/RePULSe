@@ -1171,14 +1171,14 @@ def train(args):
             # Save f_q/g_q/iwae stuff separately (only if f_q_g_q_eval was done and lists are not empty).
             # Indexing: f_q_estimates_list[0] = initial (before training), f_q_estimates_list[k+1] = after fit step k.
             if args.f_q_g_q_eval and f_q_estimates_list is not None and len(f_q_estimates_list) > 0:
-                print("FINAL RESULTS IWAE LB LIST", flush=True)
-                print(iwae_lbs_list)
-                print("FINAL RESULTS IWAE UB LIST", flush=True)
-                print(iwae_ubs_list)
-                print("FINAL RESULTS F_Q", flush=True)
-                print(f_q_estimates_list)
-                print("FINAL RESULTS G_Q", flush=True)
-                print(g_q_estimates_list)
+                # print("FINAL RESULTS IWAE LB LIST", flush=True)
+                # print(iwae_lbs_list)
+                # print("FINAL RESULTS IWAE UB LIST", flush=True)
+                # print(iwae_ubs_list)
+                # print("FINAL RESULTS F_Q", flush=True)
+                # print(f_q_estimates_list)
+                # print("FINAL RESULTS G_Q", flush=True)
+                # print(g_q_estimates_list)
                 print("SAVING F_Q/G_Q/IWAE RESULTS", flush=True)
 
                 save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
@@ -1220,14 +1220,14 @@ def train(args):
 
             # Save the base metrics separately (always saved if not empty)
             if not args.neg_sample_only: # This stuff records it for p (base actor), so if skipping training p, this stuff will be empty
-                print("FINAL RESULTS REWARD", flush=True)
-                print(rewards_list)
-                print("FINAL RESULTS KL TO PRIOR", flush=True)
-                print(kl_vals_list)
-                print("FINAL RESULTS ENTROPY", flush=True)
-                print(entropy_list)
-                print("FINAL RESULTS UNTRANSFORMED RETURN (Including KL)", flush=True)
-                print(untrans_ret_list)
+                # print("FINAL RESULTS REWARD", flush=True)
+                # print(rewards_list)
+                # print("FINAL RESULTS KL TO PRIOR", flush=True)
+                # print(kl_vals_list)
+                # print("FINAL RESULTS ENTROPY", flush=True)
+                # print(entropy_list)
+                # print("FINAL RESULTS UNTRANSFORMED RETURN (Including KL)", flush=True)
+                # print(untrans_ret_list)
                 print("SAVING BASE METRICS", flush=True)
 
                 target_to_save = (
@@ -1240,13 +1240,13 @@ def train(args):
 
             # Save sampling metrics for harmlessness training (if available)
             if args.do_harmlessness_training and rewards_list_sampling is not None and len(rewards_list_sampling) > 0:
-                print("FINAL RESULTS SAMPLING REWARD", flush=True)
-                print(rewards_list_sampling)
-                print("FINAL RESULTS SAMPLING UNTRANSFORMED RETURN", flush=True)
-                print(untrans_ret_list_sampling)
-                if bonus_vals_list_sampling is not None and len(bonus_vals_list_sampling) > 0:
-                    print("FINAL RESULTS SAMPLING BONUS", flush=True)
-                    print(bonus_vals_list_sampling)
+                # print("FINAL RESULTS SAMPLING REWARD", flush=True)
+                # print(rewards_list_sampling)
+                # print("FINAL RESULTS SAMPLING UNTRANSFORMED RETURN", flush=True)
+                # print(untrans_ret_list_sampling)
+                # if bonus_vals_list_sampling is not None and len(bonus_vals_list_sampling) > 0:
+                #     print("FINAL RESULTS SAMPLING BONUS", flush=True)
+                #     print(bonus_vals_list_sampling)
                 print("SAVING SAMPLING METRICS", flush=True)
 
                 if bonus_vals_list_sampling is not None:

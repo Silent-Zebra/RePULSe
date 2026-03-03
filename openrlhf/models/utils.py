@@ -109,8 +109,8 @@ def compute_reward(
     eos_indices = action_mask.size(1) - 1 - action_mask.long().fliplr().argmax(dim=1, keepdim=True)
     last_reward = torch.zeros_like(kl).scatter_(dim=1, index=eos_indices, src=r.unsqueeze(1).to(kl.dtype))
 
-    print("--EOS INDICES--")
-    print(eos_indices.squeeze(-1))
+    _eos_flat = eos_indices.squeeze(-1).float()
+    print(f"--EOS INDICES-- avg={_eos_flat.mean().item():.1f}, min={_eos_flat.min().item():.0f}, max={_eos_flat.max().item():.0f} (n={_eos_flat.numel()})")
 
     # print("--LAST REWARD--")
     # # print(last_reward.mean())
