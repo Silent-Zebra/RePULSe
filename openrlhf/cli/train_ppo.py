@@ -2456,14 +2456,14 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
         raise NotImplementedError(f"Rejection sampling currently only supports rm_type='rlhf', got '{args.rm_type}'")
     if args.reward_clamp is None and args.reward_cap is None:
         raise ValueError("Either --reward_clamp or --reward_cap must be set when using --rejection_sample_true_target_only")
-    if args.reward_clamp is None:
-        raise NotImplementedError(
-            "Rejection sampling with --reward_cap (one-sided clamping) is not supported because "
-            "acceptance probabilities can exceed 1 when reward_cap is used with negative target_dist_beta "
-            "(rewards below -reward_cap are unbounded). Use --reward_clamp (symmetric clamping) instead."
-        )
     if args.target_dist_beta is None:
         raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
+    if args.reward_clamp is None and args.target_dist_beta < 0:
+        raise ValueError(
+            "Rejection sampling with --reward_cap (one-sided clamping) is not supported with negative "
+            "target_dist_beta because acceptance probabilities can exceed 1 (rewards below -reward_cap "
+            "are unbounded, so e^(beta * r) is unbounded). Use --reward_clamp (symmetric clamping) instead."
+        )
     if args.true_target_sample_amount <= 0:
         raise ValueError(f"--true_target_sample_amount must be > 0, got {args.true_target_sample_amount}")
 
