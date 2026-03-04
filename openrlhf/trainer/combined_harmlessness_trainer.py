@@ -2098,14 +2098,17 @@ class CombinedHarmlessnessTrainer(ABC):
                     f"Expected model.safetensors or pytorch_model.bin"
                 )
 
-            # Load into base_actor using from_pretrained, which handles tied weights
-            # (e.g. SmolLM ties lm_head.weight to model.embed_tokens.weight, so save_model
-            # doesn't save lm_head.weight separately).
-            from transformers import AutoModelForCausalLM
-            loaded_model = AutoModelForCausalLM.from_pretrained(ckpt_dir)
+            # Load into base_actor. Use strict=False to handle tied weights
+            # (e.g. SmolLM ties lm_head.weight to model.embed_tokens.weight;
+            # save_model skips the duplicate key — see strategy.save_model).
             unwrapped = self.strategy._unwrap_model(self.base_actor.model)
-            unwrapped.load_state_dict(loaded_model.state_dict(), strict=True)
-            del loaded_model
+            result = unwrapped.load_state_dict(state_dict, strict=False)
+            # Only tied-weight keys should be missing; no unexpected keys allowed.
+            assert not result.unexpected_keys, (
+                f"Unexpected keys loading trajectory checkpoint: {result.unexpected_keys}"
+            )
+            if result.missing_keys:
+                print(f"Missing keys (expected for tied weights): {result.missing_keys}", flush=True)
             print(f"Loaded HuggingFace checkpoint from {ckpt_dir}", flush=True)
         else:
             # Load DeepSpeed format
