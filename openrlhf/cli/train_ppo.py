@@ -867,7 +867,7 @@ def train(args):
         if getattr(args, 'load_base_actor_trajectory', None) and args.do_harmlessness_training:
             current_rej = getattr(harmlessness_trainer, 'current_trajectory_rejection_samples', None)
             if current_rej is not None and current_rej.get("accepted_seqs"):
-                seqs_tensor = torch.tensor(current_rej["accepted_seqs"], dtype=torch.long)
+                seqs_tensor = torch.tensor(current_rej["accepted_seqs"], dtype=torch.long, device=torch.cuda.current_device())
                 return [seqs_tensor]
             return None  # No rejection samples for current checkpoint
         return eval_target_samples_fixed
