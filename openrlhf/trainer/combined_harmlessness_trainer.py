@@ -2098,22 +2098,14 @@ class CombinedHarmlessnessTrainer(ABC):
                     f"Expected model.safetensors or pytorch_model.bin"
                 )
 
-            # Load into base_actor. The model is wrapped as a DeepSpeed engine (eval mode).
-            # Access the underlying model module.
+            # Load into base_actor using from_pretrained, which handles tied weights
+            # (e.g. SmolLM ties lm_head.weight to model.embed_tokens.weight, so save_model
+            # doesn't save lm_head.weight separately).
+            from transformers import AutoModelForCausalLM
+            loaded_model = AutoModelForCausalLM.from_pretrained(ckpt_dir)
             unwrapped = self.strategy._unwrap_model(self.base_actor.model)
-
-            # Handle tied weights (e.g. SmolLM ties lm_head.weight to model.embed_tokens.weight).
-            # HF save_model doesn't save the duplicate key, so we fill it from the tied source.
-            if hasattr(unwrapped.config, 'tie_word_embeddings') and unwrapped.config.tie_word_embeddings:
-                for key in unwrapped.state_dict().keys():
-                    if key not in state_dict and 'lm_head' in key:
-                        # Find the tied embedding key
-                        embed_key = key.replace('lm_head', 'model.embed_tokens')
-                        if embed_key in state_dict:
-                            state_dict[key] = state_dict[embed_key]
-                            print(f"Tied weight: copied {embed_key} -> {key}", flush=True)
-
-            unwrapped.load_state_dict(state_dict, strict=True)
+            unwrapped.load_state_dict(loaded_model.state_dict(), strict=True)
+            del loaded_model
             print(f"Loaded HuggingFace checkpoint from {ckpt_dir}", flush=True)
         else:
             # Load DeepSpeed format
