@@ -2084,31 +2084,22 @@ class CombinedHarmlessnessTrainer(ABC):
 
         if self.trajectory_is_hf_format:
             # Load HuggingFace format (saved with strategy.save_model / --no_save_optim)
-            from safetensors.torch import load_file as safetensors_load_file
             safetensors_path = os.path.join(ckpt_dir, "model.safetensors")
             pytorch_bin_path = os.path.join(ckpt_dir, "pytorch_model.bin")
 
             if os.path.exists(safetensors_path):
-                state_dict = safetensors_load_file(safetensors_path)
+                weights_path = safetensors_path
             elif os.path.exists(pytorch_bin_path):
-                state_dict = torch.load(pytorch_bin_path, map_location='cpu')
+                weights_path = pytorch_bin_path
             else:
                 raise FileNotFoundError(
                     f"No model weights found in {ckpt_dir}. "
                     f"Expected model.safetensors or pytorch_model.bin"
                 )
 
-            # Load into base_actor. Use strict=False to handle tied weights
-            # (e.g. SmolLM ties lm_head.weight to model.embed_tokens.weight;
-            # save_model skips the duplicate key — see strategy.save_model).
-            unwrapped = self.strategy._unwrap_model(self.base_actor.model)
-            result = unwrapped.load_state_dict(state_dict, strict=False)
-            # Only tied-weight keys should be missing; no unexpected keys allowed.
-            assert not result.unexpected_keys, (
-                f"Unexpected keys loading trajectory checkpoint: {result.unexpected_keys}"
-            )
-            if result.missing_keys:
-                print(f"Missing keys (expected for tied weights): {result.missing_keys}", flush=True)
+            # strict=False handles tied weights (e.g. SmolLM ties lm_head.weight
+            # to model.embed_tokens.weight; save_model skips the duplicate key).
+            self.strategy.load_model(self.base_actor.model, weights_path)
             print(f"Loaded HuggingFace checkpoint from {ckpt_dir}", flush=True)
         else:
             # Load DeepSpeed format
