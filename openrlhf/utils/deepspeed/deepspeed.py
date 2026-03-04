@@ -312,7 +312,7 @@ class DeepspeedStrategy(ABC):
         unwrapped_model = self._unwrap_model(model)
         if path.endswith(".safetensors"):
             from safetensors.torch import load_file as safetensors_load_file
-            state_dict = safetensors_load_file(path, device=map_location)
+            state_dict = safetensors_load_file(path, device=str(map_location))
         else:
             state_dict = torch.load(path, map_location=map_location)
         if key_replace_fn:
