@@ -2078,10 +2078,9 @@ class CombinedHarmlessnessTrainer(ABC):
     def _load_trajectory_checkpoint(self, index):
         """Load a trajectory checkpoint by index into the base actor."""
         step_num, tag = self.trajectory_checkpoints[index]
-        print(f"Loading trajectory checkpoint {index + 1}/{len(self.trajectory_checkpoints)}: "
-              f"tag={tag} at total_steps={self.total_steps}", flush=True)
-
         ckpt_dir = os.path.join(self._trajectory_dir, tag)
+        print(f"Loading trajectory checkpoint {index + 1}/{len(self.trajectory_checkpoints)}: "
+              f"tag={tag} at total_steps={self.total_steps}, path={ckpt_dir}", flush=True)
 
         if self.trajectory_is_hf_format:
             # Load HuggingFace format (saved with strategy.save_model / --no_save_optim)

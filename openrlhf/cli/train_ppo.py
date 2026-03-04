@@ -3323,6 +3323,13 @@ def _run_per_fit_step_heldout_and_f_q(
                 )
                 f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
 
+                # Print target sample text (up to 5 samples)
+                n_print = min(5, single_prompt_target.shape[0])
+                target_texts = tokenizer.batch_decode(single_prompt_target[:n_print], skip_special_tokens=True)
+                print(f"Target samples text ({n_print}/{single_prompt_target.shape[0]} shown):")
+                for i, txt in enumerate(target_texts):
+                    print(f"  [{i}] {txt}")
+
                 # Mixture proposal eval (only if --mixture_eval is explicitly enabled)
                 if (getattr(args, 'mixture_eval', False)
                         and f_q_mix_estimates_list is not None
