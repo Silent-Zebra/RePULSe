@@ -1711,7 +1711,7 @@ def rejection_sample_for_prompt(
     Stops when either:
       - `target_sample_amount` accepted samples are collected (if set), OR
       - `max_gen` total sequences have been generated (if set), OR
-      - both are None (runs forever — at least one should be set).
+      - both are None → raises AssertionError (at least one must be set).
 
     Args:
         actor: The model to sample from (e.g., base_actor).
@@ -1754,6 +1754,11 @@ def rejection_sample_for_prompt(
     # Compute log_M = |clamp_val * beta|
     clamp_val = reward_clamp if reward_clamp is not None else reward_cap
     log_M = abs(clamp_val * target_dist_beta)
+
+    assert target_sample_amount is not None or max_gen is not None, (
+        "At least one of target_sample_amount or max_gen must be set to prevent an infinite loop "
+        "in rejection sampling. Set --true_target_sample_amount and/or --max_gen_per_prompt_rejection."
+    )
 
     accepted_seqs = []
     accepted_rewards = []

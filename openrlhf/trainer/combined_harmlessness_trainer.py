@@ -2028,6 +2028,7 @@ class CombinedHarmlessnessTrainer(ABC):
         max_gen = getattr(args, 'max_gen_per_prompt_rejection', None)
 
         self.base_actor.eval()
+        target_sample_amount = getattr(args, 'true_target_sample_amount', None)
         accepted_seqs, accepted_rewards, total_generated = rejection_sample_for_prompt(
             actor=self.base_actor,
             reward_model=self.reward_model,
@@ -2040,6 +2041,7 @@ class CombinedHarmlessnessTrainer(ABC):
             generate_kwargs=generate_kwargs,
             batch_size=batch_size,
             max_gen=max_gen,
+            target_sample_amount=target_sample_amount,
             tile_prompts_fn=tile_prompts,
             rm_type=args.rm_type,
             strategy=self.strategy,
