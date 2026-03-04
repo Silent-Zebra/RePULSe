@@ -2099,8 +2099,9 @@ class CombinedHarmlessnessTrainer(ABC):
 
             # strict=False (default in load_model) handles tied weights (e.g. SmolLM
             # ties lm_head.weight to model.embed_tokens.weight; save_model skips the
-            # duplicate key).
-            self.strategy.load_model(self.base_actor.model, weights_path)
+            # duplicate key). Load directly to the model's device to avoid mismatch.
+            device = next(self.strategy._unwrap_model(self.base_actor.model).parameters()).device
+            self.strategy.load_model(self.base_actor.model, weights_path, map_location=device)
             print(f"Loaded HuggingFace checkpoint from {ckpt_dir}", flush=True)
         else:
             # Load DeepSpeed format
