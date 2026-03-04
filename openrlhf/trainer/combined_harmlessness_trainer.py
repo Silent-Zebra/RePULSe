@@ -2101,6 +2101,18 @@ class CombinedHarmlessnessTrainer(ABC):
             # Load into base_actor. The model is wrapped as a DeepSpeed engine (eval mode).
             # Access the underlying model module.
             unwrapped = self.strategy._unwrap_model(self.base_actor.model)
+
+            # Handle tied weights (e.g. SmolLM ties lm_head.weight to model.embed_tokens.weight).
+            # HF save_model doesn't save the duplicate key, so we fill it from the tied source.
+            if hasattr(unwrapped.config, 'tie_word_embeddings') and unwrapped.config.tie_word_embeddings:
+                for key in unwrapped.state_dict().keys():
+                    if key not in state_dict and 'lm_head' in key:
+                        # Find the tied embedding key
+                        embed_key = key.replace('lm_head', 'model.embed_tokens')
+                        if embed_key in state_dict:
+                            state_dict[key] = state_dict[embed_key]
+                            print(f"Tied weight: copied {embed_key} -> {key}", flush=True)
+
             unwrapped.load_state_dict(state_dict, strict=True)
             print(f"Loaded HuggingFace checkpoint from {ckpt_dir}", flush=True)
         else:
