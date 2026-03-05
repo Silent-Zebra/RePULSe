@@ -589,7 +589,9 @@ class CombinedHarmlessnessTrainer(ABC):
         total_update_steps = self.prompts_dataloader.__len__() * args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop * args.fit_steps
 
         # --- Trajectory recording: metadata save and max_ckpt_num validation ---
-        if getattr(args, 'save_trajectory_metadata', False):
+        # Only initialize on the first fit() call to avoid resetting
+        # _trajectory_steps_with_rejection_samples across fit_steps.
+        if getattr(args, 'save_trajectory_metadata', False) and not hasattr(self, '_trajectory_metadata_initialized'):
             if args.save_steps_harmless != float("inf"):
                 n_checkpoints_to_save = total_update_steps // int(args.save_steps_harmless)
                 if not getattr(args, 'no_save_optim', False):
@@ -621,6 +623,7 @@ class CombinedHarmlessnessTrainer(ABC):
             print(f"Saved trajectory metadata to {metadata_path}", flush=True)
             self._trajectory_metadata_path = metadata_path
             self._trajectory_steps_with_rejection_samples = []
+            self._trajectory_metadata_initialized = True
 
         beta_schedule = None
         if args.anneal_target_dist_beta:
@@ -2119,23 +2122,27 @@ class CombinedHarmlessnessTrainer(ABC):
         if not hasattr(self, 'trajectory_checkpoints'):
             return
 
-        next_index = self.trajectory_ckpt_index + 1
-        if next_index >= len(self.trajectory_checkpoints):
-            # All checkpoints already loaded. Check if we've gone past the last one.
-            last_step_num, _ = self.trajectory_checkpoints[-1]
-            if self.total_steps > last_step_num:
-                raise RuntimeError(
-                    f"Trajectory exhausted at step {self.total_steps}. "
-                    f"The trajectory has {len(self.trajectory_checkpoints)} checkpoints "
-                    f"(last at step {last_step_num}) but training continues past that. "
-                    f"Reduce training steps or extend the trajectory."
-                )
-            return
+        # Use while loop to catch up if total_steps jumped past multiple checkpoints
+        while True:
+            next_index = self.trajectory_ckpt_index + 1
+            if next_index >= len(self.trajectory_checkpoints):
+                # All checkpoints already loaded. Check if we've gone past the last one.
+                last_step_num, _ = self.trajectory_checkpoints[-1]
+                if self.total_steps > last_step_num:
+                    raise RuntimeError(
+                        f"Trajectory exhausted at step {self.total_steps}. "
+                        f"The trajectory has {len(self.trajectory_checkpoints)} checkpoints "
+                        f"(last at step {last_step_num}) but training continues past that. "
+                        f"Reduce training steps or extend the trajectory."
+                    )
+                return
 
-        next_step_num, _ = self.trajectory_checkpoints[next_index]
-        if self.total_steps >= next_step_num:
-            self.trajectory_ckpt_index = next_index
-            self._load_trajectory_checkpoint(next_index)
+            next_step_num, _ = self.trajectory_checkpoints[next_index]
+            if self.total_steps >= next_step_num:
+                self.trajectory_ckpt_index = next_index
+                self._load_trajectory_checkpoint(next_index)
+            else:
+                return
 
     def _save_proposal_checkpoint(self, args, tag, client_states):
         info_name_str = get_info_name_str(args)
