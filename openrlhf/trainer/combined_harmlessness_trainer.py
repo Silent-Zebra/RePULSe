@@ -642,7 +642,7 @@ class CombinedHarmlessnessTrainer(ABC):
             )
 
         # --- Trajectory replay setup ---
-        if getattr(args, 'load_base_actor_trajectory', None):
+        if getattr(args, 'load_base_actor_trajectory', None) and not hasattr(self, '_trajectory_initialized'):
             if not args.new_custom_single_prompt:
                 raise NotImplementedError(
                     "Trajectory replay is currently only supported for single-prompt mode "
@@ -660,24 +660,16 @@ class CombinedHarmlessnessTrainer(ABC):
             print(f"Found {len(self.trajectory_checkpoints)} trajectory checkpoints: "
                   f"{[tag for _, tag in self.trajectory_checkpoints]}", flush=True)
 
-            # Determine steps between checkpoint loads
-            if args.trajectory_steps_per_ckpt is not None:
-                self.trajectory_steps_per_ckpt = args.trajectory_steps_per_ckpt
-            else:
-                steps_list = [s for s, _ in self.trajectory_checkpoints]
-                intervals = [steps_list[i+1] - steps_list[i] for i in range(len(steps_list)-1)]
-                assert len(intervals) > 0, (
-                    "Only one trajectory checkpoint found; cannot infer interval. "
-                    "Please specify --trajectory_steps_per_ckpt explicitly."
-                )
-                assert len(set(intervals)) == 1, (
-                    f"Checkpoint intervals are not uniform: {intervals}. "
-                    f"Please specify --trajectory_steps_per_ckpt explicitly."
-                )
-                self.trajectory_steps_per_ckpt = intervals[0]
-            print(f"Trajectory steps per checkpoint: {self.trajectory_steps_per_ckpt}", flush=True)
+            # Log checkpoint step numbers for debugging
+            steps_list = [s for s, _ in self.trajectory_checkpoints]
+            print(f"Trajectory checkpoint steps: first={steps_list[0]}, last={steps_list[-1]}, "
+                  f"count={len(steps_list)}", flush=True)
 
-            self.trajectory_ckpt_index = 0
+            # Start before any checkpoint is loaded — the initial model (from --pretrain)
+            # is used until total_steps reaches the first checkpoint's step number.
+            # This matches the recording run, where steps before the first save used
+            # the initial model.
+            self.trajectory_ckpt_index = -1
 
             # Detect checkpoint format (HF vs DeepSpeed)
             first_tag = self.trajectory_checkpoints[0][1]
@@ -685,8 +677,7 @@ class CombinedHarmlessnessTrainer(ABC):
             self.trajectory_is_hf_format = os.path.exists(os.path.join(first_dir, "config.json"))
             print(f"Trajectory checkpoint format: {'HuggingFace' if self.trajectory_is_hf_format else 'DeepSpeed'}", flush=True)
 
-            # Load first checkpoint
-            self._load_trajectory_checkpoint(0)
+            self._trajectory_initialized = True
 
             # Load rejection samples if available
             self.trajectory_rejection_samples = {}
@@ -700,9 +691,8 @@ class CombinedHarmlessnessTrainer(ABC):
                         )
                 print(f"Loaded rejection samples for {len(self.trajectory_rejection_samples)} trajectory steps", flush=True)
 
-            # Set initial rejection samples for evaluation
-            first_tag = self.trajectory_checkpoints[0][1]
-            self.current_trajectory_rejection_samples = self.trajectory_rejection_samples.get(first_tag, None)
+            # No rejection samples initially (before any checkpoint is loaded)
+            self.current_trajectory_rejection_samples = None
 
         from openrlhf.utils.utils import print_timestamp
         for episode in range(start_episode, args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop): # Actually with this current setup is kind of redundant to have these 2 hyperparameters, loops here or in the outer loop, just pick one, doesn't really matter with 1 update each...
@@ -741,10 +731,6 @@ class CombinedHarmlessnessTrainer(ABC):
 
                 if args.new_custom_single_prompt:
                     rand_prompts = [prompt_text]
-
-                # Load next trajectory checkpoint if in replay mode
-                if getattr(args, 'load_base_actor_trajectory', None):
-                    self._maybe_load_next_trajectory_checkpoint()
 
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:
@@ -1073,6 +1059,12 @@ class CombinedHarmlessnessTrainer(ABC):
             # logs/checkpoints
             client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
             self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
+
+            # Load next trajectory checkpoint if in replay mode.
+            # This runs after total_steps increment and backprop, matching the recording
+            # run's timing where checkpoints are saved at this same point.
+            if getattr(args, 'load_base_actor_trajectory', None):
+                self._maybe_load_next_trajectory_checkpoint()
         # print("PROFILE2")
         # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
         pbar.update()
@@ -2118,23 +2110,32 @@ class CombinedHarmlessnessTrainer(ABC):
             self.current_trajectory_rejection_samples = self.trajectory_rejection_samples.get(tag, None)
 
     def _maybe_load_next_trajectory_checkpoint(self):
-        """Check if it's time to load the next trajectory checkpoint."""
+        """Check if it's time to load the next trajectory checkpoint.
+
+        Loads checkpoint at the same total_steps value at which it was saved during
+        the recording run. E.g., checkpoint total_step10 is loaded when total_steps
+        reaches 10, matching the recording where it was saved after step 10's update.
+        """
         if not hasattr(self, 'trajectory_checkpoints'):
             return
 
-        next_load_step = (self.trajectory_ckpt_index + 1) * self.trajectory_steps_per_ckpt
-        if self.total_steps >= next_load_step:
-            self.trajectory_ckpt_index += 1
-            if self.trajectory_ckpt_index < len(self.trajectory_checkpoints):
-                self._load_trajectory_checkpoint(self.trajectory_ckpt_index)
-            else:
-                # Trajectory exhausted — raise error
+        next_index = self.trajectory_ckpt_index + 1
+        if next_index >= len(self.trajectory_checkpoints):
+            # All checkpoints already loaded. Check if we've gone past the last one.
+            last_step_num, _ = self.trajectory_checkpoints[-1]
+            if self.total_steps > last_step_num:
                 raise RuntimeError(
                     f"Trajectory exhausted at step {self.total_steps}. "
                     f"The trajectory has {len(self.trajectory_checkpoints)} checkpoints "
-                    f"but training reached step {self.total_steps}. "
+                    f"(last at step {last_step_num}) but training continues past that. "
                     f"Reduce training steps or extend the trajectory."
                 )
+            return
+
+        next_step_num, _ = self.trajectory_checkpoints[next_index]
+        if self.total_steps >= next_step_num:
+            self.trajectory_ckpt_index = next_index
+            self._load_trajectory_checkpoint(next_index)
 
     def _save_proposal_checkpoint(self, args, tag, client_states):
         info_name_str = get_info_name_str(args)
