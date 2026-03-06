@@ -2247,7 +2247,11 @@ def precompute_toxicity_scores_for_all_tokens(
     # which uses model_p_for_target.config.vocab_size. tokenizer.vocab_size can differ
     # (e.g., padded embedding tables, added special tokens).
     if actor_model is not None:
-        n_vocab = actor_model.model.config.vocab_size
+        config = actor_model.model.config
+        if isinstance(config, dict):
+            n_vocab = config.get("vocab_size") or config.get("n_vocab") or tokenizer.vocab_size
+        else:
+            n_vocab = getattr(config, "vocab_size", None) or getattr(config, "n_vocab", None) or tokenizer.vocab_size
     else:
         n_vocab = tokenizer.vocab_size
     all_token_ids = torch.arange(n_vocab, device=device)
