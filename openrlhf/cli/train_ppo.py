@@ -1672,7 +1672,7 @@ def _compute_bad_word_sequence_log_probs(
     # Normalize bad word indices to tensor
     bad_word_indices_tensor = normalize_bad_word_indices(bad_word_indices, device)
 
-    n_vocab = model.config.vocab_size
+    n_vocab = _get_vocab_size(model.config)
     n_bad_words = len(bad_word_indices_tensor)
 
     # Identify indices of "good" words (all vocab except bad words)
@@ -1988,7 +1988,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
 
     # Compute log_probs_case1 locally for KL calculations (bad word at t=0, any word at t=1)
     # This is needed for KL divergence but not returned from the shared function
-    n_vocab = model_p_for_target.config.vocab_size
+    n_vocab = _get_vocab_size(model_p_for_target.config)
     n_bad_words = len(bad_word_indices_tensor)
     
     # For model p: compute sequences with bad word at t=0, any word at t=1
@@ -2055,7 +2055,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     log_differences_case2 = log_probs_q_case2 - log_probs_sigma_p_case2  # Shape: (n_good_words, n_bad_words)
     
     # Track differences aggregated by bad word and find largest differences
-    n_vocab = model_p_for_target.config.vocab_size
+    n_vocab = _get_vocab_size(model_p_for_target.config)
     n_bad_words = len(bad_word_indices_tensor)
     
     # Aggregate log differences by bad word
@@ -2208,6 +2208,13 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     return kl_sigma_q, kl_q_sigma_epsq_p, diff_by_bad_word_case1, diff_by_bad_word_case2, diff_by_bad_word, max_q_exceeds_info, max_sigma_exceeds_info 
 
 
+def _get_vocab_size(config):
+    """Get vocab size from a model config that may be a dict or config object."""
+    if isinstance(config, dict):
+        return config.get("vocab_size") or config.get("n_vocab")
+    return getattr(config, "vocab_size", None) or getattr(config, "n_vocab", None)
+
+
 @torch.no_grad()
 def precompute_toxicity_scores_for_all_tokens(
     reward_model,
@@ -2247,11 +2254,7 @@ def precompute_toxicity_scores_for_all_tokens(
     # which uses model_p_for_target.config.vocab_size. tokenizer.vocab_size can differ
     # (e.g., padded embedding tables, added special tokens).
     if actor_model is not None:
-        config = actor_model.model.config
-        if isinstance(config, dict):
-            n_vocab = config.get("vocab_size") or config.get("n_vocab") or tokenizer.vocab_size
-        else:
-            n_vocab = getattr(config, "vocab_size", None) or getattr(config, "n_vocab", None) or tokenizer.vocab_size
+        n_vocab = _get_vocab_size(actor_model.model.config) or tokenizer.vocab_size
     else:
         n_vocab = tokenizer.vocab_size
     all_token_ids = torch.arange(n_vocab, device=device)
@@ -2332,7 +2335,7 @@ def calculate_analytic_kl_toxicity_single_token(
     inputs = tokenizer(prompt_text, return_tensors="pt")
     prompt_ids = inputs["input_ids"].to(device)
 
-    n_vocab = model_p_for_target.config.vocab_size
+    n_vocab = _get_vocab_size(model_p_for_target.config)
 
     # Get log probabilities for all tokens from prompt (p and q)
     log_probs_p = get_next_token_log_probs(model_p_for_target, prompt_ids)  # Shape: (n_vocab,)
