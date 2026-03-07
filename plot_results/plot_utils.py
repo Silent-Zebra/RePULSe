@@ -1,6 +1,19 @@
 import torch
 import re
 import numpy as np
+import matplotlib.cm as cm
+
+
+# Marker constants for bonus types (legacy, kept for backward compatibility)
+MARKER_NO_BONUS = "x"
+MARKER_CFN = "P"
+MARKER_MIXTURE = "^"
+MARKER_EXACT_COUNT = "D"
+
+# Marker constants for loss types (used by semantic styling)
+MARKER_CTL = "o"
+MARKER_CTLN = "x"
+MARKER_LOSS_UNKNOWN = "D"
 
 
 def make_list(name, first_seed, last_seed):
@@ -38,6 +51,180 @@ def do_load_prefixes(results_list, load_prefixes_to_use, load_dir="./info", map_
                 print(e)
 
 
+def _parse_experiment_properties(prefix):
+    """
+    Extract semantic properties from a prefix string for visual styling.
+
+    Returns a dict with:
+        loss_type: "CTL", "CTLN", or None
+        bonus_type: "cfn", "exact_count", "mixture", or "none"
+        mixture_variant: "mixture", "q_independent", "q_half", or None (only set when bonus_type == "mixture")
+        learning_rate: float or None (sampling actor LR from _al pattern)
+        cfn_alpha: float or None (bonus_alpha from _cf<value> pattern)
+    """
+    # Loss type
+    if "_ctln_" in prefix:
+        loss_type = "CTLN"
+    elif "_ctl_" in prefix:
+        loss_type = "CTL"
+    else:
+        loss_type = None
+
+    # Bonus type (same order of specificity as generate_labels_from_prefixes)
+    if "cfn" in prefix or re.search(r'_cf([\d.]+)', prefix):
+        bonus_type = "cfn"
+    elif "_count" in prefix or re.search(r'_c([\d.]+)(?![a-z])', prefix):
+        bonus_type = "exact_count"
+    elif "_mix" in prefix:
+        bonus_type = "mixture"
+    else:
+        bonus_type = "none"
+
+    # Mixture variant (only when bonus_type is mixture)
+    mixture_variant = None
+    if bonus_type == "mixture":
+        mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
+        mix_match = re.search(r'_mix([a-z]+)', prefix)
+        if mix_match:
+            mixture_variant = mix_variant_map.get(mix_match.group(1), mix_match.group(1))
+        else:
+            mixture_variant = "unknown"
+
+    # Learning rate (sampling actor LR)
+    al_match = re.search(r'_al([\d.e-]+)', prefix)
+    learning_rate = float(al_match.group(1)) if al_match else None
+
+    # CFN alpha (bonus_alpha)
+    cfn_alpha = None
+    if bonus_type == "cfn":
+        cf_match = re.search(r'_cf([\d.]+)', prefix)
+        if cf_match:
+            cfn_alpha = float(cf_match.group(1))
+
+    return {
+        "loss_type": loss_type,
+        "bonus_type": bonus_type,
+        "mixture_variant": mixture_variant,
+        "learning_rate": learning_rate,
+        "cfn_alpha": cfn_alpha,
+    }
+
+
+def generate_visual_style_from_prefixes(load_prefixes_to_use):
+    """
+    Generate semantically consistent (color, marker, linestyle) lists from prefix lists.
+
+    Visual encoding:
+        - Color hue: bonus/experiment type
+            - No bonus (baselines): Greys
+            - CFN: blue / green / purple depending on alpha value
+            - Mixture (q_independent): Oranges
+            - Mixture (mixture / other): Reds
+            - Exact count: Teals (cm.YlGnBu)
+        - Color shade: learning rate rank (lighter=smaller LR, darker=larger LR; mid if only one)
+        - Marker shape: loss type (o=CTL, s=CTLN, D=unknown)
+        - Line style: CFN alpha value (solid=non-CFN or single alpha; distinct styles per unique alpha)
+
+    Args:
+        load_prefixes_to_use: List of lists of prefixes (one inner list per experiment)
+
+    Returns:
+        (color_list, marker_list, linestyle_list) — parallel lists, one entry per experiment
+    """
+    # 1. Parse all experiments
+    props_list = []
+    for prefix_list in load_prefixes_to_use:
+        first_prefix = prefix_list[0] if prefix_list else ""
+        props_list.append(_parse_experiment_properties(first_prefix))
+
+    # 2. Collect unique LRs (excluding None), sorted ascending
+    unique_lrs = sorted(set(p["learning_rate"] for p in props_list if p["learning_rate"] is not None))
+    if len(unique_lrs) <= 1:
+        lr_position = {lr: 0.5 for lr in unique_lrs}
+    else:
+        lr_position = {lr: i / (len(unique_lrs) - 1) for i, lr in enumerate(unique_lrs)}
+
+    # 3. Linestyle options for cycling within same-hue groups
+    linestyle_options = ["solid", "dashed", "dotted", "dashdot", (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))]
+
+    # 4. CFN alpha -> color family: cycle through blue, green, purple for distinct alphas
+    unique_alphas = sorted(set(p["cfn_alpha"] for p in props_list if p["cfn_alpha"] is not None))
+    cfn_alpha_cmaps = [cm.Blues, cm.Greens, cm.Purples]
+    if unique_alphas:
+        cfn_alpha_cmap = {a: cfn_alpha_cmaps[i % len(cfn_alpha_cmaps)] for i, a in enumerate(unique_alphas)}
+    else:
+        cfn_alpha_cmap = {}
+
+    # 5. Colormap and shade range per bonus category
+    #    Shade range [lo, hi] samples the colormap avoiding very light/very dark ends.
+    shade_range_default = (0.45, 0.85)
+
+    # Loss type -> marker
+    loss_marker = {
+        "CTL": MARKER_CTL,
+        "CTLN": MARKER_CTLN,
+        None: MARKER_LOSS_UNKNOWN,
+    }
+
+    # 6. Compute a "color hue key" for each experiment so we can cycle linestyles
+    #    within groups that share the same hue. This ensures experiments with
+    #    identical colors (same bonus type / CFN alpha / mixture variant) are
+    #    still distinguishable in time-series plots where markers aren't shown.
+    def _color_hue_key(props):
+        bonus = props["bonus_type"]
+        if bonus == "cfn":
+            return ("cfn", props["cfn_alpha"])
+        elif bonus == "mixture":
+            return ("mixture", props["mixture_variant"])
+        else:
+            return (bonus,)
+
+    hue_group_counter = {}  # hue_key -> running count of experiments seen
+
+    # 7. Build output lists
+    color_list = []
+    marker_list = []
+    linestyle_list = []
+
+    for props in props_list:
+        # Determine colormap based on bonus type (and variant / alpha)
+        bonus = props["bonus_type"]
+        if bonus == "none":
+            cmap = cm.Greys
+        elif bonus == "cfn":
+            cmap = cfn_alpha_cmap.get(props["cfn_alpha"], cm.Blues)
+        elif bonus == "mixture":
+            if props["mixture_variant"] == "q_independent":
+                cmap = cm.Oranges
+            else:
+                cmap = cm.RdPu
+        elif bonus == "exact_count":
+            cmap = cm.YlGnBu
+        else:
+            cmap = cm.Greys
+
+        # Shade based on LR rank
+        lo, hi = shade_range_default
+        if props["learning_rate"] is not None and props["learning_rate"] in lr_position:
+            t = lr_position[props["learning_rate"]]
+        else:
+            t = 0.5
+        shade = lo + t * (hi - lo)
+        color_list.append(cmap(shade))
+
+        # Marker from loss type
+        marker_list.append(loss_marker.get(props["loss_type"], MARKER_LOSS_UNKNOWN))
+
+        # Linestyle: cycle within each color-hue group so same-hue experiments
+        # are distinguishable even without markers (e.g. in time-series plots)
+        hue_key = _color_hue_key(props)
+        idx = hue_group_counter.get(hue_key, 0)
+        hue_group_counter[hue_key] = idx + 1
+        linestyle_list.append(linestyle_options[idx % len(linestyle_options)])
+
+    return color_list, marker_list, linestyle_list
+
+
 def generate_labels_from_prefixes(load_prefixes_to_use):
     """
     Generate labels from prefix lists based on the naming logic.
@@ -58,28 +245,18 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
     labels = []
     for a in load_prefixes_to_use:
         prefix = a[0]
-        # Detect CTL vs CTLN (ctl_nosecondterm) from prefix
-        if "_ctln_" in prefix:
-            loss_type_str = "CTLN"
-        elif "_ctl_" in prefix:
-            loss_type_str = "CTL"
-        else:
-            loss_type_str = None
+        # Use shared parsing for loss type and bonus type detection
+        props = _parse_experiment_properties(prefix)
+        loss_type_str = props["loss_type"]  # "CTL", "CTLN", or None
 
-        # Determine training run type (support both old and new abbreviations)
-        # Check patterns in order of specificity
-        # 1. Coin flip: old _cfn or new _cf followed by number
-        if "cfn" in prefix or re.search(r'_cf([\d.]+)', prefix):
-            run_type = "Coin Flip Net"
-        # 2. Exact count: old _count or new _c followed by number (not _cf, _cl, _ct)
-        elif "_count" in prefix or re.search(r'_c([\d.]+)(?![a-z])', prefix):
-            # The negative lookahead (?![a-z]) ensures _c is not followed by a letter (like _cf, _cl)
-            run_type = "Exact Count"
-        # 3. Mixture proposal: _mix followed by variant abbreviation
-        elif "_mix" in prefix:
-            run_type = "Mixture"
-        else:
-            run_type = "No Exploration Bonus"
+        # Map bonus_type to run_type string used below
+        _bonus_to_run_type = {
+            "cfn": "Coin Flip Net",
+            "exact_count": "Exact Count",
+            "mixture": "Mixture",
+            "none": "No Exploration Bonus",
+        }
+        run_type = _bonus_to_run_type[props["bonus_type"]]
         
         # If it's a coin flip net, extract additional parameters
         if run_type == "Coin Flip Net":
@@ -254,25 +431,33 @@ def compute_global_logZ_from_iwae_bounds(loaded_data):
     for exp_data in loaded_data:
         # Per-seed log Z
         for f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list in exp_data:
-            if len(iwae_lbs_list) == 0 or len(iwae_ubs_list) == 0:
+            # Filter out None entries (can occur when g_q/IWAE are unavailable for some timesteps,
+            # e.g. in the fixed trajectory setting without target samples)
+            valid_lbs = [x for x in iwae_lbs_list if x is not None]
+            valid_ubs = [x for x in iwae_ubs_list if x is not None]
+            if len(valid_lbs) == 0 or len(valid_ubs) == 0:
                 continue
-            lb_per_t = [to_scalar(iwae_lbs_list[t]) for t in range(len(iwae_lbs_list))]
-            ub_per_t = [to_scalar(iwae_ubs_list[t]) for t in range(len(iwae_ubs_list))]
+            lb_per_t = [to_scalar(x) for x in valid_lbs]
+            ub_per_t = [to_scalar(x) for x in valid_ubs]
             logZ_seed = (max(lb_per_t) + min(ub_per_t)) / 2.0
             all_logZ_estimates.append(logZ_seed)
-        
+
         # Per-experiment log Z (average lb/ub per timestep across seeds, then midpoint)
         if len(exp_data) == 0:
             continue
         T = len(exp_data[0][2])  # Length of iwae_lbs_list
-        lb_per_t = [
-            np.mean([to_scalar(exp_data[s][2][t]) for s in range(len(exp_data)) if t < len(exp_data[s][2])])
+        lb_per_t_raw = [
+            [to_scalar(exp_data[s][2][t]) for s in range(len(exp_data))
+             if t < len(exp_data[s][2]) and exp_data[s][2][t] is not None]
             for t in range(T)
         ]
-        ub_per_t = [
-            np.mean([to_scalar(exp_data[s][3][t]) for s in range(len(exp_data)) if t < len(exp_data[s][3])])
+        ub_per_t_raw = [
+            [to_scalar(exp_data[s][3][t]) for s in range(len(exp_data))
+             if t < len(exp_data[s][3]) and exp_data[s][3][t] is not None]
             for t in range(T)
         ]
+        lb_per_t = [np.mean(vals) for vals in lb_per_t_raw if len(vals) > 0]
+        ub_per_t = [np.mean(vals) for vals in ub_per_t_raw if len(vals) > 0]
         if lb_per_t and ub_per_t:
             all_logZ_estimates.append((max(lb_per_t) + min(ub_per_t)) / 2.0)
     

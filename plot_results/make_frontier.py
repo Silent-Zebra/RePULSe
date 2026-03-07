@@ -1544,7 +1544,13 @@ if __name__ == "__main__":
         marker_list = [marker_list[i] for i in inds_to_use]
         color_list = [color_list[i] for i in inds_to_use]
 
-
+    # Opt-in semantic styling: override hardcoded color/marker/linestyle lists
+    # based on experiment prefix properties (loss type, bonus type, LR, CFN alpha).
+    # Set to False to use the hardcoded lists above instead.
+    use_semantic_styling = True
+    if use_semantic_styling:
+        from plot_utils import generate_visual_style_from_prefixes
+        color_list, marker_list, linestyle_list = generate_visual_style_from_prefixes(load_prefixes_to_use)
 
     # if "kl_div" in figname_modifier:
     #     fontsize = 10
@@ -1603,12 +1609,18 @@ if __name__ == "__main__":
             n_use = min(len(kl_load_prefixes_to_use), len(labels))
             kl_load_prefixes_to_use = kl_load_prefixes_to_use[:n_use]
             kl_labels = labels[:n_use]
-            kl_color_list = color_list[:n_use]
-            kl_marker_list = marker_list[:n_use]
+            if use_semantic_styling:
+                kl_color_list, kl_marker_list, _ = generate_visual_style_from_prefixes(kl_load_prefixes_to_use)
+            else:
+                kl_color_list = color_list[:n_use]
+                kl_marker_list = marker_list[:n_use]
         else:
             kl_labels = labels
-            kl_color_list = color_list
-            kl_marker_list = marker_list
+            if use_semantic_styling:
+                kl_color_list, kl_marker_list, _ = generate_visual_style_from_prefixes(kl_load_prefixes_to_use)
+            else:
+                kl_color_list = color_list
+                kl_marker_list = marker_list
 
         # Load KL divergence results
         kl_results_list = [[] for i in range(len(kl_load_prefixes_to_use))]
