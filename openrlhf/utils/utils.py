@@ -390,6 +390,12 @@ def get_info_name_str(args):
         mix_opt = getattr(args, 'mixture_optimization', 'mixture')
         mix_short_map = {"mixture": "mx", "q_independent": "qi", "q_half": "qh"}
         mixture_str = f"_mix{mix_short_map.get(mix_opt, mix_opt)}"
+        # Append the other-model strategy (omit for "best" to preserve backward compat)
+        mix_other = getattr(args, 'mixture_other_model', 'best')
+        if mix_other == "first":
+            mixture_str += "_first"
+        elif mix_other == "lag":
+            mixture_str += f"_lag{getattr(args, 'mixture_lag_steps', '?')}"
         if getattr(args, 'mixture_psi_use_mix', False):
             mixture_str += "_mpsi"
 

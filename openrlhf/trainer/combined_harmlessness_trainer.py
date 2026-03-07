@@ -200,6 +200,26 @@ class CombinedHarmlessnessTrainer(ABC):
             self.mixture_optimization = getattr(self.args, 'mixture_optimization', 'mixture')
             self.mixture_psi_use_mix = getattr(self.args, 'mixture_psi_use_mix', False)
             self._q_ind_data = None  # populated per step for q_independent mode
+
+            # Strategy for the "other" model in the mixture:
+            #   "best"  = track the best q by g_q (original behavior)
+            #   "first" = static copy of q from before the first iteration (never updated)
+            #   "lag"   = a copy of q from mixture_lag_steps steps in the past
+            self.mixture_other_model_strategy = getattr(self.args, 'mixture_other_model', 'best')
+
+            if self.mixture_other_model_strategy == "lag":
+                self.mixture_lag_steps = getattr(self.args, 'mixture_lag_steps', None)
+                assert self.mixture_lag_steps is not None and self.mixture_lag_steps > 0, (
+                    f"mixture_other_model='lag' requires mixture_lag_steps > 0, got {self.mixture_lag_steps}"
+                )
+                # Memory-efficient ring buffer approach for the lag strategy.
+                # Instead of storing mixture_lag_steps full state dicts (which would be very
+                # memory-intensive), we keep just one "staging" snapshot. Every mixture_lag_steps
+                # steps, we rotate: q_best <- staging <- q_current. This means q_best is always
+                # between mixture_lag_steps and 2*mixture_lag_steps - 1 steps behind q_current.
+                # Before the first rotation, q_best remains the initial model (copy from t=0).
+                self._lag_staging_sd = None  # will hold one state_dict snapshot (on CPU)
+
             if sampling_actor_loss_type == "ctl_nosecondterm":
                 assert self.mixture_optimization == "mixture", (
                     f"ctl_nosecondterm drops the negative term, so q_half/q_independent modes "
@@ -767,8 +787,12 @@ class CombinedHarmlessnessTrainer(ABC):
         return estimates_list
 
     def maybe_update_q_best(self, current_g_q: float):
-        """Update q_best model if current q achieves better (lower) g_q."""
+        """Update q_best model if current q achieves better (lower) g_q.
+        Only valid for mixture_other_model='best'."""
         assert self.mixture_proposal, "maybe_update_q_best called but mixture_proposal is False"
+        assert self.mixture_other_model_strategy == "best", (
+            f"maybe_update_q_best called but mixture_other_model='{self.mixture_other_model_strategy}' (expected 'best')"
+        )
         if current_g_q < self.best_g_q:
             old_best = self.best_g_q
             self.best_g_q = current_g_q
@@ -779,6 +803,41 @@ class CombinedHarmlessnessTrainer(ABC):
             print(f"[Mixture] Updated q_best: g_q improved from {old_best:.4f} to {current_g_q:.4f}")
         else:
             print(f"[Mixture] No q_best update: current g_q={current_g_q:.4f} >= best g_q={self.best_g_q:.4f}")
+
+    def maybe_update_q_lag(self):
+        """Rotate the lag ring buffer: q_best <- staging <- q_current.
+
+        Memory-efficient approach: instead of storing mixture_lag_steps full model
+        snapshots (which would cost O(lag * model_size) memory), we store just one
+        "staging" state_dict. Every mixture_lag_steps steps we rotate:
+          1. Load the staging snapshot into q_best (the "other" model used in the mixture).
+          2. Snapshot the current q into staging.
+
+        This means q_best is always between mixture_lag_steps and
+        2*mixture_lag_steps - 1 steps behind the current model. Before the first
+        rotation (i.e. fewer than mixture_lag_steps steps have elapsed), q_best
+        remains the initial model (the copy made at t=0, same as "first" strategy).
+        """
+        assert self.mixture_proposal, "maybe_update_q_lag called but mixture_proposal is False"
+        assert self.mixture_other_model_strategy == "lag", (
+            f"maybe_update_q_lag called but mixture_other_model='{self.mixture_other_model_strategy}' (expected 'lag')"
+        )
+
+        if self.total_steps > 0 and self.total_steps % self.mixture_lag_steps == 0:
+            q_current_unwrapped = self.sampling_actor.module if hasattr(self.sampling_actor, 'module') else self.sampling_actor
+            q_best_unwrapped = self.q_best_model.module if hasattr(self.q_best_model, 'module') else self.q_best_model
+
+            if self._lag_staging_sd is not None:
+                # Load the previously staged snapshot into q_best
+                q_best_unwrapped.load_state_dict(self._lag_staging_sd)
+                print(f"[Mixture lag] Loaded staged model into q_best at step {self.total_steps}")
+            else:
+                # First rotation: q_best is still the initial model, no load needed
+                print(f"[Mixture lag] First rotation at step {self.total_steps}; q_best remains initial model")
+
+            # Stage the current model (clone to CPU to avoid holding GPU memory)
+            self._lag_staging_sd = {k: v.clone().cpu() for k, v in q_current_unwrapped.state_dict().items()}
+            print(f"[Mixture lag] Staged current model at step {self.total_steps}")
 
     def _pad_generation_outputs(self, sequences, action_log_probs, action_mask, attention_mask,
                                 value, num_actions, target_num_actions):
@@ -1034,6 +1093,10 @@ class CombinedHarmlessnessTrainer(ABC):
         print_timestamp("training - end sampling phase")
         self.total_steps += 1  # do this update before the save_steps, so that saving does happen e.g. if you do 4 save_steps, then on the 4th step, saving will actually happen
         # so far I modified self.save_logs_and_checkpoints, this should be the only place using self.total_steps
+
+        # Update lagged other model if using the "lag" mixture strategy
+        if self.mixture_proposal and self.mixture_other_model_strategy == "lag":
+            self.maybe_update_q_lag()
 
         if steps % update_timesteps == 0:
             global_steps = steps // update_timesteps

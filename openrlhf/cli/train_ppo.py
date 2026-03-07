@@ -914,8 +914,10 @@ def train(args):
             iwae_mix_ubs_list=iwae_mix_ubs_list,
         )
 
-        # Update q_best if mixture proposal is enabled and g_q improved (initial eval)
-        if getattr(args, 'mixture_proposal', False) and g_q_estimates_list and g_q_estimates_list[-1] is not None:
+        # Update q_best if mixture proposal is enabled with "best" strategy and g_q improved (initial eval)
+        if (getattr(args, 'mixture_proposal', False)
+                and getattr(args, 'mixture_other_model', 'best') == 'best'
+                and g_q_estimates_list and g_q_estimates_list[-1] is not None):
             current_g_q = g_q_estimates_list[-1].mean().item()
             harmlessness_trainer.maybe_update_q_best(current_g_q)
 
@@ -972,8 +974,10 @@ def train(args):
                     iwae_mix_lbs_list=iwae_mix_lbs_list,
                     iwae_mix_ubs_list=iwae_mix_ubs_list,
                 )
-                # Update q_best if mixture proposal is enabled and g_q improved (mid-fit eval)
-                if getattr(args, 'mixture_proposal', False) and g_q_estimates_list and g_q_estimates_list[-1] is not None:
+                # Update q_best if mixture proposal is enabled with "best" strategy and g_q improved (mid-fit eval)
+                if (getattr(args, 'mixture_proposal', False)
+                        and getattr(args, 'mixture_other_model', 'best') == 'best'
+                        and g_q_estimates_list and g_q_estimates_list[-1] is not None):
                     current_g_q = g_q_estimates_list[-1].mean().item()
                     harmlessness_trainer.maybe_update_q_best(current_g_q)
                 _prompts_since_last_eval[0] = 0
@@ -1163,8 +1167,10 @@ def train(args):
                 )
 
                 print_timestamp(f"fit_step {fit_step}: end per-fit-step eval")
-                # Update q_best if mixture proposal is enabled and g_q improved
-                if getattr(args, 'mixture_proposal', False) and g_q_estimates_list and g_q_estimates_list[-1] is not None:
+                # Update q_best if mixture proposal is enabled with "best" strategy and g_q improved
+                if (getattr(args, 'mixture_proposal', False)
+                        and getattr(args, 'mixture_other_model', 'best') == 'best'
+                        and g_q_estimates_list and g_q_estimates_list[-1] is not None):
                     current_g_q = g_q_estimates_list[-1].mean().item()
                     harmlessness_trainer.maybe_update_q_best(current_g_q)
 
@@ -4109,7 +4115,17 @@ if __name__ == "__main__":
 
     # Mixture proposal distribution
     parser.add_argument("--mixture_proposal", action="store_true", default=False,
-                        help="Use a mixture proposal q_mix = w*q_current + (1-w)*q_best for CTL training")
+                        help="Use a mixture proposal q_mix = w*q_current + (1-w)*q_other for CTL training")
+    parser.add_argument("--mixture_other_model", type=str, default="best",
+                        choices=["best", "first", "lag"],
+                        help="Strategy for the 'other' model in the mixture proposal: "
+                             "'best' = track the best q by g_q/KL(sigma|q) (requires f_q_g_q_eval, "
+                             "target samples, and base_actor_lr=0; original behavior), "
+                             "'first' = static copy of q from before the first iteration (never updated), "
+                             "'lag' = copy of q from mixture_lag_steps steps in the past")
+    parser.add_argument("--mixture_lag_steps", type=int, default=None,
+                        help="For --mixture_other_model lag: rotate the other model every this many steps. "
+                             "The other model is between mixture_lag_steps and 2*mixture_lag_steps-1 steps behind.")
     parser.add_argument("--mixture_optimization", type=str, default="mixture",
                         choices=["mixture", "q_independent", "q_half"],
                         help="Optimization mode for mixture proposal: 'mixture' uses q_mix everywhere, "
@@ -4190,16 +4206,34 @@ if __name__ == "__main__":
         assert args.generate_max_len == 1, "exploration_bonus_base_actor='exact_count' requires generate_max_len == 1"
 
     if args.mixture_proposal:
-        assert args.f_q_g_q_eval, "--mixture_proposal requires --f_q_g_q_eval (for g_q tracking to select q_best)"
-        assert args.load_target_samples_name is not None, "--mixture_proposal requires --load_target_samples_name (for g_q evaluation)"
-        assert abs(getattr(args, 'base_actor_learning_rate', 0)) < 1e-10, (
-            f"--mixture_proposal requires --base_actor_learning_rate 0 (SMC setting), "
-            f"but got {args.base_actor_learning_rate}"
-        )
         assert args.duplicate_rollout_batch_by >= 2, (
             f"--mixture_proposal requires --duplicate_rollout_batch_by >= 2 (need at least 1 sample from each component), "
             f"but got {args.duplicate_rollout_batch_by}"
         )
+
+        mixture_strategy = getattr(args, 'mixture_other_model', 'best')
+        if mixture_strategy == "best":
+            # "best" tracks the best q by g_q, so it needs g_q evaluation infrastructure
+            # and a fixed target distribution (base_actor_lr=0 / SMC setting).
+            assert args.f_q_g_q_eval, (
+                "--mixture_other_model best requires --f_q_g_q_eval (for g_q tracking to select q_best)"
+            )
+            assert args.load_target_samples_name is not None or getattr(args, 'analytic_bad_word_calc', False), (
+                "--mixture_other_model best requires either --load_target_samples_name or analytic KL "
+                "(for g_q evaluation to determine which model is best)"
+            )
+            assert abs(getattr(args, 'base_actor_learning_rate', 0)) < 1e-10, (
+                f"--mixture_other_model best requires --base_actor_learning_rate 0 (SMC setting, "
+                f"fixed target distribution), but got {args.base_actor_learning_rate}"
+            )
+        elif mixture_strategy == "first":
+            pass  # no additional requirements; q_other is just the initial model copy
+        elif mixture_strategy == "lag":
+            assert args.mixture_lag_steps is not None and args.mixture_lag_steps > 0, (
+                f"--mixture_other_model lag requires --mixture_lag_steps > 0, got {args.mixture_lag_steps}"
+            )
+        else:
+            raise ValueError(f"Unknown mixture_other_model strategy: {mixture_strategy}")
 
     if getattr(args, 'mixture_eval', False):
         assert args.mixture_proposal, "--mixture_eval requires --mixture_proposal"
