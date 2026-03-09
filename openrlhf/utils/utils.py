@@ -1824,6 +1824,171 @@ def rejection_sample_for_prompt(
     return accepted_seqs, accepted_rewards, total_generated
 
 
+@torch.no_grad()
+def rejection_sample_multi_prompt(
+    actor, reward_model, tokenizer, prompts,
+    target_dist_beta, reward_clamp, reward_cap, prompt_max_len,
+    generate_kwargs, batch_size, total_target,
+    max_gen_per_prompt=None, first_pass_limit=None,
+    rm_type="rlhf", strategy=None,
+):
+    """Multi-prompt rejection sampling: collect total_target samples across prompts.
+
+    Collects at most 1 accepted sample per prompt, cycling through prompts in multi-pass
+    fashion until the global target is reached.
+
+    Pass 1: iterate through all prompts, spending at most first_pass_limit generations
+    per prompt. Subsequent passes: revisit prompts without a sample, generating up to
+    the overall max_gen_per_prompt limit.
+    Stops when: enough total samples collected, OR all prompts have a sample,
+    OR all remaining prompts have exhausted max_gen_per_prompt, OR no progress in a pass.
+
+    Args:
+        actor: The model to sample from.
+        reward_model: Reward model for scoring sequences.
+        tokenizer: Tokenizer for encoding prompts.
+        prompts: List of prompt strings.
+        target_dist_beta: Beta parameter for the target distribution.
+        reward_clamp: Symmetric reward clamp value (or None).
+        reward_cap: Upper reward cap value (or None).
+        prompt_max_len: Maximum prompt length for tokenization.
+        generate_kwargs: Dict of generation kwargs.
+        batch_size: Number of sequences to generate per batch.
+        total_target: Total number of accepted samples to collect across all prompts.
+        max_gen_per_prompt: Maximum generations per prompt before giving up (None = no limit).
+        first_pass_limit: Per-prompt generation limit for the first pass (None = use max_gen_per_prompt).
+        rm_type: Reward model type (must be "rlhf").
+        strategy: Optional strategy object with .print() method.
+
+    Returns:
+        accepted_by_prompt: list of lists of token id lists (one list per prompt, may be empty)
+        rewards_by_prompt: list of lists of float rewards (parallel to accepted_by_prompt)
+        total_generated: int total sequences generated across all prompts
+        total_accepted: int total accepted samples
+    """
+    assert rm_type == "rlhf", (
+        f"Multi-prompt rejection sampling only supports rm_type='rlhf', got '{rm_type}'"
+    )
+
+    def _print(msg):
+        if strategy is not None:
+            strategy.print(msg)
+        else:
+            print(msg, flush=True)
+
+    if first_pass_limit is None:
+        first_pass_limit = max_gen_per_prompt  # Could still be None (no limit)
+
+    n_prompts = len(prompts)
+    _print(f"Multi-prompt rejection sampling: collecting {total_target} total samples "
+           f"across {n_prompts} prompts")
+    _print(f"  first_pass_limit={first_pass_limit}, max_gen_per_prompt={max_gen_per_prompt}")
+
+    accepted_by_prompt = [[] for _ in range(n_prompts)]
+    rewards_by_prompt = [[] for _ in range(n_prompts)]
+    generated_per_prompt = [0] * n_prompts
+    total_generated = 0
+    total_collected = 0
+
+    max_accepted_per_prompt = 1
+    pass_num = 0
+    while total_collected < total_target:
+        pass_num += 1
+        made_progress_this_pass = False
+        prompts_skipped_done = 0
+        prompts_skipped_limit = 0
+
+        for prompt_idx, prompt in enumerate(prompts):
+            if total_collected >= total_target:
+                break
+            # Skip prompts that already have their one accepted sample
+            if len(accepted_by_prompt[prompt_idx]) >= max_accepted_per_prompt:
+                prompts_skipped_done += 1
+                continue
+            # Skip prompts that have hit the overall generation limit
+            if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
+                prompts_skipped_limit += 1
+                continue
+
+            # Determine per-prompt budget for this pass
+            gen_at_pass_start = generated_per_prompt[prompt_idx]
+            if pass_num == 1 and first_pass_limit is not None:
+                pass_budget = first_pass_limit
+            else:
+                # Subsequent passes: no per-pass limit, just the overall limit
+                pass_budget = None
+
+            got_acceptance = False
+            iteration = 0
+            while not got_acceptance:
+                if total_collected >= total_target:
+                    break
+                # Check overall per-prompt limit
+                if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
+                    print(f"  Prompt {prompt_idx + 1}/{n_prompts}: reached overall limit "
+                          f"({max_gen_per_prompt}) with {len(accepted_by_prompt[prompt_idx])} accepted", flush=True)
+                    break
+                # Check per-pass budget (first pass uses first_pass_limit)
+                if pass_budget is not None and (generated_per_prompt[prompt_idx] - gen_at_pass_start) >= pass_budget:
+                    break
+
+                iteration += 1
+                sequences, attention_mask, action_mask, unclamped_rewards, clamped_rewards = \
+                    generate_and_score_batch(
+                        actor, reward_model, tokenizer, prompt, batch_size,
+                        prompt_max_len, reward_clamp, reward_cap, generate_kwargs,
+                    )
+
+                # Compute acceptance probability
+                clamp_val = reward_clamp if reward_clamp is not None else reward_cap
+                log_M = abs(clamp_val * target_dist_beta)
+                log_phi = target_dist_beta * clamped_rewards
+                log_ratio = log_phi - log_M
+                raw_accept_prob = torch.exp(log_ratio)
+                assert (raw_accept_prob >= -1e-6).all(), (
+                    f"Rejection sampling acceptance probability is negative (min={raw_accept_prob.min().item():.6f})."
+                )
+                assert (raw_accept_prob <= 1.0 + 1e-6).all(), (
+                    f"Rejection sampling acceptance probability exceeds 1 (max={raw_accept_prob.max().item():.6f})."
+                )
+                accept_prob = raw_accept_prob.clamp(min=0.0, max=1.0)
+                u = torch.rand_like(accept_prob)
+                accept_mask = u < accept_prob
+                seqs = [seq.cpu().tolist() for seq in sequences[accept_mask]]
+                rews = [rew.cpu().item() for rew in clamped_rewards[accept_mask]]
+                n_gen = sequences.shape[0]
+
+                generated_per_prompt[prompt_idx] += n_gen
+                total_generated += n_gen
+
+                # Take at most 1 sample per prompt (and at most what's left to reach total_target)
+                n_can_take_this_prompt = max_accepted_per_prompt - len(accepted_by_prompt[prompt_idx])
+                n_to_take = min(len(seqs), n_can_take_this_prompt, total_target - total_collected)
+                if n_to_take > 0:
+                    accepted_by_prompt[prompt_idx].extend(seqs[:n_to_take])
+                    rewards_by_prompt[prompt_idx].extend(rews[:n_to_take])
+                    total_collected += n_to_take
+                    made_progress_this_pass = True
+                    got_acceptance = True
+
+                print(f"  Pass {pass_num}, prompt {prompt_idx + 1}/{n_prompts}, iter {iteration}: "
+                      f"{len(seqs)} accepted in batch ({n_gen} generated), "
+                      f"took {n_to_take}, "
+                      f"{len(accepted_by_prompt[prompt_idx])} this prompt, "
+                      f"{total_collected}/{total_target} total, "
+                      f"{generated_per_prompt[prompt_idx]} generated this prompt", flush=True)
+
+        _print(f"  Pass {pass_num} complete: {total_collected}/{total_target} collected, "
+               f"{prompts_skipped_done} prompts done, {prompts_skipped_limit} prompts at gen limit")
+
+        if not made_progress_this_pass:
+            _print(f"  No progress in pass {pass_num}. "
+                   f"Collected {total_collected}/{total_target} total. Stopping.")
+            break
+
+    return accepted_by_prompt, rewards_by_prompt, total_generated, total_collected
+
+
 def discover_trajectory_checkpoints(trajectory_dir):
     """Discover and sort checkpoint tags in a trajectory directory.
 

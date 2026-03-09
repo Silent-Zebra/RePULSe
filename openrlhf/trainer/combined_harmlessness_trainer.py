@@ -665,15 +665,12 @@ class CombinedHarmlessnessTrainer(ABC):
             )
 
         # --- Trajectory replay setup ---
+        # Trajectory replay loads base actor checkpoints saved during a recording run.
+        # The checkpoints are model weight snapshots, independent of prompt order, so
+        # no prompt-order tracking is needed. Multi-prompt is supported: rejection samples
+        # (if present) are stored in v2 format with per-prompt data and matched by prompt
+        # text in _get_eval_target_for_trajectory().
         if getattr(args, 'load_base_actor_trajectory', None) and not hasattr(self, '_trajectory_initialized'):
-            if not args.new_custom_single_prompt:
-                raise NotImplementedError(
-                    "Trajectory replay is currently only supported for single-prompt mode "
-                    "(--new_custom_single_prompt). Multi-prompt support requires: "
-                    "(1) saving/replaying prompt order alongside trajectory, "
-                    "(2) per-prompt rejection samples, "
-                    "(3) per-prompt eval_target_samples_fixed update."
-                )
 
             from openrlhf.utils.utils import discover_trajectory_checkpoints
             self._trajectory_dir = args.load_base_actor_trajectory
@@ -2060,19 +2057,14 @@ class CombinedHarmlessnessTrainer(ABC):
             )
 
     def _attempt_rejection_sampling_at_checkpoint(self, args, step_tag):
-        """Attempt rejection sampling at the current base actor state and save results."""
-        from openrlhf.utils.utils import rejection_sample_for_prompt
+        """Attempt rejection sampling at the current base actor state and save results.
 
-        # Single-prompt only for now
-        if not args.new_custom_single_prompt:
-            raise NotImplementedError(
-                "Rejection sampling at checkpoint save is only supported for single-prompt mode. "
-                "TODO: multi-prompt support requires per-prompt rejection sampling."
-            )
-
-        prompt_text = get_custom_prompt_with_chat_template(
-            self.tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), self.strategy
-        )
+        Supports both single-prompt (--new_custom_single_prompt) and multi-prompt modes.
+        Single-prompt: per-prompt rejection sampling (collect target_sample_amount for the one prompt).
+        Multi-prompt: global budget rejection sampling (collect target_sample_amount total across prompts,
+        at most 1 per prompt), using self.rejection_sample_prompts (set by train_ppo.py).
+        """
+        from openrlhf.utils.utils import rejection_sample_for_prompt, rejection_sample_multi_prompt
 
         generate_kwargs = {
             "max_new_tokens": args.generate_max_len,
@@ -2084,44 +2076,105 @@ class CombinedHarmlessnessTrainer(ABC):
 
         batch_size = args.batch_size_rejection_sample if args.batch_size_rejection_sample is not None else args.duplicate_rollout_batch_by
         max_gen = getattr(args, 'max_gen_per_prompt_rejection', None)
+        target_sample_amount = getattr(args, 'true_target_sample_amount', None)
 
         self.base_actor.eval()
-        target_sample_amount = getattr(args, 'true_target_sample_amount', None)
-        accepted_seqs, accepted_rewards, total_generated = rejection_sample_for_prompt(
-            actor=self.base_actor,
-            reward_model=self.reward_model,
-            tokenizer=self.tokenizer,
-            prompt=prompt_text,
-            target_dist_beta=args.target_dist_beta,
-            reward_clamp=args.reward_clamp,
-            reward_cap=getattr(args, 'reward_cap', None),
-            prompt_max_len=args.prompt_max_len,
-            generate_kwargs=generate_kwargs,
-            batch_size=batch_size,
-            max_gen=max_gen,
-            target_sample_amount=target_sample_amount,
-            tile_prompts_fn=tile_prompts,
-            rm_type=args.rm_type,
-            strategy=self.strategy,
-        )
+
+        if args.new_custom_single_prompt:
+            # Single-prompt: collect target_sample_amount for the one prompt
+            prompt_text = get_custom_prompt_with_chat_template(
+                self.tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), self.strategy
+            )
+            accepted_seqs, accepted_rewards, total_generated_all = rejection_sample_for_prompt(
+                actor=self.base_actor,
+                reward_model=self.reward_model,
+                tokenizer=self.tokenizer,
+                prompt=prompt_text,
+                target_dist_beta=args.target_dist_beta,
+                reward_clamp=args.reward_clamp,
+                reward_cap=getattr(args, 'reward_cap', None),
+                prompt_max_len=args.prompt_max_len,
+                generate_kwargs=generate_kwargs,
+                batch_size=batch_size,
+                max_gen=max_gen,
+                target_sample_amount=target_sample_amount,
+                tile_prompts_fn=tile_prompts,
+                rm_type=args.rm_type,
+                strategy=self.strategy,
+            )
+            all_accepted_seqs = [accepted_seqs]
+            all_accepted_rewards = [accepted_rewards]
+            total_accepted_all = len(accepted_seqs)
+            prompts_to_sample = [prompt_text]
+        else:
+            # Multi-prompt: global budget, at most 1 per prompt
+            assert hasattr(self, 'rejection_sample_prompts') and self.rejection_sample_prompts is not None, (
+                "Multi-prompt rejection sampling requires rejection_sample_prompts to be set on the trainer. "
+                "This should be set in train_ppo.py after eval prompts are computed."
+            )
+            assert target_sample_amount is not None, (
+                "Multi-prompt rejection sampling requires --true_target_sample_amount to set the global budget."
+            )
+            prompts_to_sample = self.rejection_sample_prompts
+            first_pass_limit = getattr(args, 'max_gen_per_prompt_rejection_first_pass', None)
+            all_accepted_seqs, all_accepted_rewards, total_generated_all, total_accepted_all = \
+                rejection_sample_multi_prompt(
+                    actor=self.base_actor,
+                    reward_model=self.reward_model,
+                    tokenizer=self.tokenizer,
+                    prompts=prompts_to_sample,
+                    target_dist_beta=args.target_dist_beta,
+                    reward_clamp=args.reward_clamp,
+                    reward_cap=getattr(args, 'reward_cap', None),
+                    prompt_max_len=args.prompt_max_len,
+                    generate_kwargs=generate_kwargs,
+                    batch_size=batch_size,
+                    total_target=target_sample_amount,
+                    max_gen_per_prompt=max_gen,
+                    first_pass_limit=first_pass_limit,
+                    rm_type=args.rm_type,
+                    strategy=self.strategy,
+                )
 
         info_name_str = get_info_name_str(args)
         rejection_dir = os.path.join(args.ckpt_path, f"{info_name_str}_rejection_samples")
         os.makedirs(rejection_dir, exist_ok=True)
 
-        total_accepted = len(accepted_seqs)
-        rate = total_accepted / total_generated if total_generated > 0 else 0.0
-        print(f"Rejection sampling at {step_tag}: {total_accepted} accepted from "
-              f"{total_generated} generated (rate: {rate:.4f})", flush=True)
+        rate = total_accepted_all / total_generated_all if total_generated_all > 0 else 0.0
+        print(f"Rejection sampling at {step_tag}: {total_accepted_all} accepted from "
+              f"{total_generated_all} generated across {len(prompts_to_sample)} prompt(s) "
+              f"(rate: {rate:.4f})", flush=True)
 
-        if total_accepted > 0:
-            save_data = {
-                "accepted_seqs": accepted_seqs,
-                "accepted_rewards": accepted_rewards,
-                "total_generated": total_generated,
-                "total_accepted": total_accepted,
-                "prompt": args.custom_prompt,
-            }
+        if total_accepted_all > 0:
+            if args.new_custom_single_prompt:
+                # Single-prompt: v1 format (backward compat)
+                save_data = {
+                    "accepted_seqs": all_accepted_seqs[0],
+                    "accepted_rewards": all_accepted_rewards[0],
+                    "total_generated": total_generated_all,
+                    "total_accepted": total_accepted_all,
+                    "prompt": args.custom_prompt,
+                }
+            else:
+                # Multi-prompt: v2 format with per-prompt data.
+                # Filter to only prompts with >=1 accepted sample (avoids saving thousands
+                # of empty lists when total_target << n_prompts).
+                filtered_texts = []
+                filtered_seqs = []
+                filtered_rews = []
+                for pt, seqs, rews in zip(prompts_to_sample, all_accepted_seqs, all_accepted_rewards):
+                    if len(seqs) > 0:
+                        filtered_texts.append(pt)
+                        filtered_seqs.append(seqs)
+                        filtered_rews.append(rews)
+                save_data = {
+                    "version": 2,
+                    "prompt_texts": filtered_texts,
+                    "samples_by_prompt": filtered_seqs,
+                    "rewards_by_prompt": filtered_rews,
+                    "total_generated": total_generated_all,
+                    "total_accepted": total_accepted_all,
+                }
             save_path = os.path.join(rejection_dir, f"{step_tag}.pt")
             torch.save(save_data, save_path)
             print(f"Saved rejection samples to {save_path}", flush=True)

@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_mixture, f_q_g_q_evaluation_mixture_multi_prompt, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, generate_and_score_batch
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_mixture, f_q_g_q_evaluation_mixture_multi_prompt, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, rejection_sample_multi_prompt, generate_and_score_batch
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -862,14 +862,67 @@ def train(args):
             strategy.print(f"Eval prompt sets: Fixed={len(eval_prompts_fixed)} prompts"
                            + (f", Random source={len(eval_prompts_random_source)} prompts" if eval_prompts_random_source else ", No random set"))
 
-    # Helper to get eval target samples, updated from trajectory rejection samples if in replay mode
+    # Wire rejection_sample_prompts onto the trainer so _attempt_rejection_sampling_at_checkpoint
+    # can use them for multi-prompt rejection sampling at trajectory save time.
+    # This is decoupled from f_q eval: a recording run may save rejection samples without
+    # running f_q evaluation.
+    if (args.do_harmlessness_training
+            and getattr(args, 'rejection_sample_each_save', False)
+            and not args.new_custom_single_prompt):
+        if eval_prompts_fixed is not None:
+            # Reuse the eval prompts already built above (from target samples or dataset)
+            harmlessness_trainer.rejection_sample_prompts = eval_prompts_fixed
+        else:
+            # f_q eval / heldout eval not enabled, so eval_prompts_fixed wasn't built.
+            # Build prompts from the same sources: target sample prompts if available, else dataset.
+            if prompt_texts_from_target_samples is not None:
+                harmlessness_trainer.rejection_sample_prompts = list(prompt_texts_from_target_samples)
+            else:
+                _, rej_prompts_dataset = get_prompts_data(args, strategy, tokenizer)
+                harmlessness_trainer.rejection_sample_prompts = [rej_prompts_dataset[i] for i in range(len(rej_prompts_dataset))]
+            strategy.print(f"Built rejection_sample_prompts ({len(harmlessness_trainer.rejection_sample_prompts)} prompts) "
+                           f"independently of f_q eval")
+
+    # Helper to get eval target samples, updated from trajectory rejection samples if in replay mode.
+    # Handles both v1 (single-prompt) and v2 (multi-prompt) rejection sample formats.
     def _get_eval_target_for_trajectory():
         if getattr(args, 'load_base_actor_trajectory', None) and args.do_harmlessness_training:
             current_rej = getattr(harmlessness_trainer, 'current_trajectory_rejection_samples', None)
-            if current_rej is not None and current_rej.get("accepted_seqs"):
-                seqs_tensor = torch.tensor(current_rej["accepted_seqs"], dtype=torch.long, device=torch.cuda.current_device())
-                return [seqs_tensor]
-            return None  # No rejection samples for current checkpoint
+            if current_rej is None:
+                return None  # No rejection samples for current checkpoint
+
+            if current_rej.get("version", 1) >= 2:
+                # v2 multi-prompt format: match rejection sample prompts to eval_prompts_fixed
+                rej_prompt_texts = current_rej["prompt_texts"]
+                rej_samples_by_prompt = current_rej["samples_by_prompt"]
+                # Build lookup from prompt text to samples
+                rej_lookup = {}
+                for pt, samples_list in zip(rej_prompt_texts, rej_samples_by_prompt):
+                    if len(samples_list) > 0:
+                        rej_lookup[pt] = torch.tensor(
+                            samples_list, dtype=torch.long, device=torch.cuda.current_device()
+                        )
+                if not rej_lookup:
+                    return None
+                # Align with eval_prompts_fixed
+                assert eval_prompts_fixed is not None, (
+                    "eval_prompts_fixed must be set for multi-prompt trajectory replay"
+                )
+                result = []
+                for ep in eval_prompts_fixed:
+                    result.append(rej_lookup.get(ep, None))
+                # Return None if no prompts matched at all
+                if all(r is None for r in result):
+                    return None
+                return result
+            else:
+                # v1 single-prompt format (backward compat)
+                if current_rej.get("accepted_seqs"):
+                    seqs_tensor = torch.tensor(
+                        current_rej["accepted_seqs"], dtype=torch.long, device=torch.cuda.current_device()
+                    )
+                    return [seqs_tensor]
+                return None
         return eval_target_samples_fixed
 
     if _per_fit_step_heldout or _per_fit_step_f_q_eval:
@@ -2485,7 +2538,6 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     # Setup
     base_actor.eval()
     reward_model.eval()
-    device = next(base_actor.parameters()).device
 
     # Generate filename
     filename = get_target_samples_filename(args)
@@ -2520,36 +2572,6 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     # Batch size for rejection sampling
     rejection_batch_size = args.batch_size_rejection_sample if args.batch_size_rejection_sample is not None else args.duplicate_rollout_batch_by
     strategy.print(f"Rejection sampling batch size: {rejection_batch_size}")
-
-    # Helper: run one rejection sampling batch for a single prompt
-    def _rejection_sample_one_prompt_batch(prompt, device):
-        """Generate one batch from base_actor for a prompt and return (accepted_seqs_list, accepted_rews_list, n_generated)."""
-        with torch.no_grad():
-            sequences, attention_mask, action_mask, unclamped_rewards, clamped_rewards = \
-                generate_and_score_batch(
-                    base_actor, reward_model, tokenizer, prompt, rejection_batch_size,
-                    args.prompt_max_len, args.reward_clamp, args.reward_cap, generate_kwargs,
-                )
-        log_phi = args.target_dist_beta * clamped_rewards
-        log_ratio = log_phi - log_M
-        raw_accept_prob = torch.exp(log_ratio)
-        # Sanity check: acceptance probabilities must be in [0, 1] for valid rejection sampling.
-        # Allow small floating point tolerance for numerical issues.
-        assert (raw_accept_prob >= -1e-6).all(), (
-            f"Rejection sampling acceptance probability is negative (min={raw_accept_prob.min().item():.6f}). "
-            f"This should not happen since exp() is always non-negative."
-        )
-        assert (raw_accept_prob <= 1.0 + 1e-6).all(), (
-            f"Rejection sampling acceptance probability exceeds 1 (max={raw_accept_prob.max().item():.6f}). "
-            f"This indicates log_M is not a valid upper bound on log_phi. "
-            f"Check reward clamping and target_dist_beta settings."
-        )
-        accept_prob = raw_accept_prob.clamp(min=0.0, max=1.0)
-        u = torch.rand_like(accept_prob)
-        accept_mask = u < accept_prob
-        accepted_seqs = [seq.cpu().tolist() for seq in sequences[accept_mask]]
-        accepted_rews = [rew.cpu().item() for rew in clamped_rewards[accept_mask]]
-        return accepted_seqs, accepted_rews, sequences.shape[0]
 
     # Process prompts
     total_generated_all = 0
@@ -2593,106 +2615,33 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             total_generated_all += total_generated
             total_accepted_all += total_accepted
     else:
-        # Multi-prompt mode: at most 1 accepted sample per prompt.
-        # Pass 1: iterate through all prompts, spending at most first_pass_limit generations per prompt.
-        # Subsequent passes: revisit prompts that don't have a sample yet, generating up to the
-        # overall max_gen_per_prompt limit.
-        # Stops when: enough total samples collected, OR all prompts have a sample,
-        # OR all remaining prompts have exhausted max_gen_per_prompt.
-        total_target = args.true_target_sample_amount
-        n_prompts = len(prompts)
-
+        # Multi-prompt mode: at most 1 accepted sample per prompt, global budget.
         first_pass_limit = getattr(args, "max_gen_per_prompt_rejection_first_pass", None)
-        if first_pass_limit is None:
-            first_pass_limit = max_gen_per_prompt  # Could still be None (no limit)
-        strategy.print(f"\nMulti-prompt rejection sampling: collecting {total_target} total samples "
-                       f"across {n_prompts} prompts")
-        strategy.print(f"  first_pass_limit={first_pass_limit}, max_gen_per_prompt={max_gen_per_prompt}")
-
-        accepted_by_prompt = [[] for _ in range(n_prompts)]
-        rewards_by_prompt = [[] for _ in range(n_prompts)]
-        generated_per_prompt = [0] * n_prompts
-        total_collected = 0
-
-        max_accepted_per_prompt = 1
-        pass_num = 0
-        while total_collected < total_target:
-            pass_num += 1
-            made_progress_this_pass = False
-            prompts_skipped_done = 0
-            prompts_skipped_limit = 0
-
-            for prompt_idx, prompt in enumerate(prompts):
-                if total_collected >= total_target:
-                    break
-                # Skip prompts that already have their one accepted sample
-                if len(accepted_by_prompt[prompt_idx]) >= max_accepted_per_prompt:
-                    prompts_skipped_done += 1
-                    continue
-                # Skip prompts that have hit the overall generation limit
-                if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
-                    prompts_skipped_limit += 1
-                    continue
-
-                # Determine per-prompt budget for this pass
-                gen_at_pass_start = generated_per_prompt[prompt_idx]
-                if pass_num == 1 and first_pass_limit is not None:
-                    pass_budget = first_pass_limit
-                else:
-                    # Subsequent passes: no per-pass limit, just the overall limit
-                    pass_budget = None
-
-                got_acceptance = False
-                iteration = 0
-                while not got_acceptance:
-                    if total_collected >= total_target:
-                        break
-                    # Check overall per-prompt limit
-                    if max_gen_per_prompt is not None and generated_per_prompt[prompt_idx] >= max_gen_per_prompt:
-                        print(f"  Prompt {prompt_idx + 1}/{n_prompts}: reached overall limit "
-                              f"({max_gen_per_prompt}) with {len(accepted_by_prompt[prompt_idx])} accepted", flush=True)
-                        break
-                    # Check per-pass budget (first pass uses first_pass_limit)
-                    if pass_budget is not None and (generated_per_prompt[prompt_idx] - gen_at_pass_start) >= pass_budget:
-                        break
-
-                    iteration += 1
-                    seqs, rews, n_gen = _rejection_sample_one_prompt_batch(prompt, device)
-                    generated_per_prompt[prompt_idx] += n_gen
-                    total_generated_all += n_gen
-
-                    # Take at most 1 sample per prompt (and at most what's left to reach total_target)
-                    n_can_take_this_prompt = max_accepted_per_prompt - len(accepted_by_prompt[prompt_idx])
-                    n_to_take = min(len(seqs), n_can_take_this_prompt, total_target - total_collected)
-                    if n_to_take > 0:
-                        accepted_by_prompt[prompt_idx].extend(seqs[:n_to_take])
-                        rewards_by_prompt[prompt_idx].extend(rews[:n_to_take])
-                        total_collected += n_to_take
-                        total_accepted_all += n_to_take
-                        made_progress_this_pass = True
-                        got_acceptance = True
-
-                    print(f"  Pass {pass_num}, prompt {prompt_idx + 1}/{n_prompts}, iter {iteration}: "
-                          f"{len(seqs)} accepted in batch ({n_gen} generated), "
-                          f"took {n_to_take}, "
-                          f"{len(accepted_by_prompt[prompt_idx])} this prompt, "
-                          f"{total_collected}/{total_target} total, "
-                          f"{generated_per_prompt[prompt_idx]} generated this prompt", flush=True)
-
-            strategy.print(f"  Pass {pass_num} complete: {total_collected}/{total_target} collected, "
-                           f"{prompts_skipped_done} prompts done, {prompts_skipped_limit} prompts at gen limit")
-
-            if not made_progress_this_pass:
-                strategy.print(f"  No progress in pass {pass_num}. "
-                               f"Collected {total_collected}/{total_target} total. Stopping.")
-                break
+        accepted_by_prompt, rewards_by_prompt, total_gen, total_acc = rejection_sample_multi_prompt(
+            actor=base_actor,
+            reward_model=reward_model,
+            tokenizer=tokenizer,
+            prompts=prompts,
+            target_dist_beta=args.target_dist_beta,
+            reward_clamp=args.reward_clamp,
+            reward_cap=args.reward_cap,
+            prompt_max_len=args.prompt_max_len,
+            generate_kwargs=generate_kwargs,
+            batch_size=rejection_batch_size,
+            total_target=args.true_target_sample_amount,
+            max_gen_per_prompt=max_gen_per_prompt,
+            first_pass_limit=first_pass_limit,
+            rm_type=args.rm_type,
+            strategy=strategy,
+        )
+        total_generated_all += total_gen
+        total_accepted_all += total_acc
 
         # Store results
-        for prompt_idx in range(n_prompts):
+        for prompt_idx in range(len(prompts)):
             target_samples_by_prompt.append(accepted_by_prompt[prompt_idx])
             n_accepted = len(accepted_by_prompt[prompt_idx])
-            strategy.print(f"Prompt {prompt_idx + 1}: {n_accepted} samples accepted "
-                           f"from {generated_per_prompt[prompt_idx]} generated")
+            strategy.print(f"Prompt {prompt_idx + 1}: {n_accepted} samples accepted")
             # Print decoded text for each accepted sample
             if n_accepted > 0:
                 strategy.print(f"--- Accepted samples for prompt {prompt_idx + 1} ---")
