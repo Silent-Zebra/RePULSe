@@ -871,17 +871,25 @@ def train(args):
             and not args.new_custom_single_prompt):
         if eval_prompts_fixed is not None:
             # Reuse the eval prompts already built above (from target samples or dataset)
-            harmlessness_trainer.rejection_sample_prompts = eval_prompts_fixed
+            rej_prompts = list(eval_prompts_fixed)
         else:
             # f_q eval / heldout eval not enabled, so eval_prompts_fixed wasn't built.
             # Build prompts from the same sources: target sample prompts if available, else dataset.
             if prompt_texts_from_target_samples is not None:
-                harmlessness_trainer.rejection_sample_prompts = list(prompt_texts_from_target_samples)
+                rej_prompts = list(prompt_texts_from_target_samples)
             else:
                 _, rej_prompts_dataset = get_prompts_data(args, strategy, tokenizer)
-                harmlessness_trainer.rejection_sample_prompts = [rej_prompts_dataset[i] for i in range(len(rej_prompts_dataset))]
-            strategy.print(f"Built rejection_sample_prompts ({len(harmlessness_trainer.rejection_sample_prompts)} prompts) "
+                rej_prompts = [rej_prompts_dataset[i] for i in range(len(rej_prompts_dataset))]
+            strategy.print(f"Built rejection_sample_prompts ({len(rej_prompts)} prompts) "
                            f"independently of f_q eval")
+
+        # Cap the number of prompts for rejection sampling at checkpoint saves
+        max_prompts_rej = getattr(args, 'max_prompts_rejection_sample', 2000)
+        if max_prompts_rej > 0 and len(rej_prompts) > max_prompts_rej:
+            strategy.print(f"Capping rejection_sample_prompts from {len(rej_prompts)} to {max_prompts_rej} "
+                           f"(--max_prompts_rejection_sample)")
+            rej_prompts = rej_prompts[:max_prompts_rej]
+        harmlessness_trainer.rejection_sample_prompts = rej_prompts
 
     # Helper to get eval target samples, updated from trajectory rejection samples if in replay mode.
     # Handles both v1 (single-prompt) and v2 (multi-prompt) rejection sample formats.
@@ -3945,6 +3953,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_gen_per_prompt_rejection", type=int, default=None, help="Max samples to generate per prompt during rejection sampling before giving up (default: no limit)")
     parser.add_argument("--max_gen_per_prompt_rejection_first_pass", type=int, default=None, help="Max samples to generate per prompt in the first pass through the dataset during multi-prompt rejection sampling. If not set, defaults to max_gen_per_prompt_rejection. Use a smaller value to quickly scan all prompts before spending more budget on harder ones.")
     parser.add_argument("--batch_size_rejection_sample", type=int, default=None, help="Batch size (number of sequences generated per iteration) during rejection sampling. Defaults to duplicate_rollout_batch_by if not set.")
+    parser.add_argument("--max_prompts_rejection_sample", type=int, default=2000, help="Maximum number of prompts to consider during multi-prompt rejection sampling at checkpoint saves. The first N prompts from the prompt list are used. Set to -1 to use all prompts.")
     parser.add_argument("--reward_signal_analysis_only", action="store_true", default=False,
                         help="Early-exit mode: generate samples from the base model, score with reward model, "
                              "and compute reward signal metrics (stats, ESS, diversity). Exits before training.")
