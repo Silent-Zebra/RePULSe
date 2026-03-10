@@ -20,7 +20,7 @@ from openrlhf.trainer.combined_harmlessness_trainer import CombinedHarmlessnessT
 
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer, tile_prompts
 from openrlhf.models.model import _get_reward_model_custom
-from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_mixture, f_q_g_q_evaluation_mixture_multi_prompt, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, rejection_sample_multi_prompt, generate_and_score_batch
+from openrlhf.utils.utils import get_info_name_str, inspect_rewards_list, get_target_samples_filename, get_custom_prompt_with_chat_template, f_q_estimate, f_q_g_q_evaluation, f_q_g_q_evaluation_mixture, f_q_g_q_evaluation_mixture_multi_prompt, f_q_g_q_evaluation_multi_prompt, load_target_samples, compute_actor_log_probs_for_sequences, rejection_sample_for_prompt, rejection_sample_multi_prompt, generate_and_score_batch, collect_trajectory_rejection_prompt_texts
 from openrlhf.models.utils import (
     normalize_bad_word_indices,
     get_next_token_log_probs,
@@ -844,6 +844,21 @@ def train(args):
                 # Use prompts from dataset
                 _, eval_prompts_dataset = get_prompts_data(args, strategy, tokenizer)
                 all_eval_prompts = [eval_prompts_dataset[i] for i in range(len(eval_prompts_dataset))]
+
+                # In trajectory replay, prioritize prompts that have rejection samples
+                # so g_q can be computed at those trajectory steps.
+                if getattr(args, 'load_base_actor_trajectory', None):
+                    traj_prompt_set = collect_trajectory_rejection_prompt_texts(args.load_base_actor_trajectory)
+                    if traj_prompt_set:
+                        priority = [p for p in all_eval_prompts if p in traj_prompt_set]
+                        remaining = [p for p in all_eval_prompts if p not in traj_prompt_set]
+                        all_eval_prompts = priority + remaining
+                        strategy.print(
+                            f"Trajectory prompt prioritization: {len(priority)} dataset prompts have "
+                            f"rejection samples (out of {len(traj_prompt_set)} unique in trajectory), "
+                            f"{len(remaining)} remaining"
+                        )
+
                 if n_eval_prompts is not None:
                     eval_prompts_fixed = all_eval_prompts[:n_eval_prompts]
                 else:
@@ -3341,16 +3356,22 @@ def _run_per_fit_step_heldout_and_f_q(
                 iwae_lbs_by_prompt_list_fixed.append(result_fixed["iwae_lbs_by_prompt"])
             if iwae_ubs_by_prompt_list_fixed is not None:
                 iwae_ubs_by_prompt_list_fixed.append(result_fixed["iwae_ubs_by_prompt"])
-            # Append aggregated results (backward compat lists)
-            if result_fixed["f_q_agg"] is not None:
-                f_q_estimates_list.append(result_fixed["f_q_agg"].cpu())
-                f_q_over_time_list.append(result_fixed["f_q_agg"].cpu())
-            if result_fixed["g_q_agg"] is not None:
-                g_q_estimates_list.append(result_fixed["g_q_agg"])
-            if result_fixed["iwae_lbs_agg"] is not None:
-                iwae_lbs_list.append(result_fixed["iwae_lbs_agg"])
-            if result_fixed["iwae_ubs_agg"] is not None:
-                iwae_ubs_list.append(result_fixed["iwae_ubs_agg"])
+            # Append aggregated results (backward compat lists).
+            # Always append (even None) to keep lists aligned with f_q_estimates_list,
+            # so that index t in each list corresponds to the same eval step.
+            f_q_agg = result_fixed["f_q_agg"]
+            if f_q_agg is not None:
+                f_q_estimates_list.append(f_q_agg.cpu())
+                f_q_over_time_list.append(f_q_agg.cpu())
+            else:
+                f_q_estimates_list.append(None)
+                f_q_over_time_list.append(None)
+            g_q_agg = result_fixed["g_q_agg"]
+            g_q_estimates_list.append(g_q_agg.cpu() if g_q_agg is not None else None)
+            iwae_lbs_agg = result_fixed["iwae_lbs_agg"]
+            iwae_lbs_list.append(iwae_lbs_agg)
+            iwae_ubs_agg = result_fixed["iwae_ubs_agg"]
+            iwae_ubs_list.append(iwae_ubs_agg)
 
             print_timestamp("per-fit-step eval: end f_q_g_q multi-prompt (fixed set A)")
             # Set B (random prompts) - f_q only, no g_q/IWAE

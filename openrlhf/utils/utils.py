@@ -2016,3 +2016,29 @@ def discover_trajectory_checkpoints(trajectory_dir):
 
     checkpoints.sort(key=lambda x: x[0])
     return checkpoints
+
+
+def collect_trajectory_rejection_prompt_texts(trajectory_dir):
+    """Scan all trajectory rejection sample files and return the set of prompt texts
+    that have >=1 sample in any trajectory step.
+
+    Args:
+        trajectory_dir: Path to the trajectory directory (the _harml_actor dir).
+            The rejection samples directory is inferred by replacing "_harml_actor"
+            with "_rejection_samples" (same convention as combined_harmlessness_trainer).
+
+    Returns:
+        Set of prompt text strings found across all trajectory rejection sample files.
+    """
+    rejection_dir = trajectory_dir.replace("_harml_actor", "_rejection_samples")
+    if not os.path.isdir(rejection_dir):
+        return set()
+    prompt_texts = set()
+    for f in sorted(os.listdir(rejection_dir)):
+        if f.endswith('.pt'):
+            data = torch.load(os.path.join(rejection_dir, f), map_location='cpu')
+            if isinstance(data, dict) and data.get("version", 1) >= 2:
+                for pt in data.get("prompt_texts", []):
+                    prompt_texts.add(pt)
+            # v1 format has no prompt texts — skip (single-prompt mode)
+    return prompt_texts
