@@ -1318,7 +1318,7 @@ def train(args):
                 save_str = f"{args.save_info_path}/rew_kltoprior_ent_untransret_{info_name_str}"
                 torch.save(target_to_save, save_str)
 
-                inspect_rewards_list(rewards_list)
+                inspect_rewards_list(rewards_list, label="untransformed reward")
 
             # Save sampling metrics for harmlessness training (if available)
             if args.do_harmlessness_training and rewards_list_sampling is not None and len(rewards_list_sampling) > 0:

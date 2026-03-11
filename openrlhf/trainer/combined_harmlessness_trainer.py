@@ -527,18 +527,11 @@ class CombinedHarmlessnessTrainer(ABC):
         num_rollouts_per_episodes = (
             num_update_steps_per_episodes * args.train_batch_size // args.max_epochs // args.rollout_batch_size
         )
-        update_timesteps = args.rollout_batch_size // (self.strategy.world_size * self.micro_rollout_batch_size)
-        if update_timesteps != 1:
-            raise NotImplementedError(
-                f"update_timesteps={update_timesteps} != 1 is not supported "
-                f"(rollout_batch_size={args.rollout_batch_size}, world_size={self.strategy.world_size}, "
-                f"micro_rollout_batch_size={self.micro_rollout_batch_size}). "
-                f"The steps variable in make_experience_and_do_update is not propagated back to the caller, "
-                f"so training would be silently skipped when update_timesteps > 1."
-            )
-
-        print("UPDATE TIMESTEPS")
-        print(update_timesteps)
+        assert args.rollout_batch_size == self.strategy.world_size * self.micro_rollout_batch_size, (
+            f"rollout_batch_size ({args.rollout_batch_size}) must equal "
+            f"world_size ({self.strategy.world_size}) * micro_rollout_batch_size ({self.micro_rollout_batch_size}). "
+            f"Multi-accumulation rollouts (update_timesteps > 1) are not supported."
+        )
 
         # get eval and save steps
         if args.eval_steps == -1:
@@ -551,24 +544,6 @@ class CombinedHarmlessnessTrainer(ABC):
         self.prompts_dataloader = prompts_dataloader
         self.pretrain_dataloader = pretrain_dataloader
 
-        # Restore step and start_epoch
-
-        # if args.num_episodes > 1:
-        #     raise NotImplementedError # Later: can create an additional outer loop to allow for more proposal/twist updates per harmlessness update. But 1 is a decent baseline, to keep overhead to a minimum and learn fast...
-
-        # print("INSPECT_HARMLESS")
-        # print(num_update_steps_per_episodes)
-        # print(args.train_batch_size)
-        # print(args.max_epochs)
-        # print(args.rollout_batch_size)
-        # print(args.train_batch_size // args.max_epochs // args.rollout_batch_size)
-        #
-        # print(consumed_samples)
-        # print(args.rollout_batch_size)
-        # print(num_rollouts_per_episodes)
-
-
-        steps = consumed_samples // args.rollout_batch_size * update_timesteps + 1
         start_episode = consumed_samples // args.rollout_batch_size // num_rollouts_per_episodes
         consumed_samples = consumed_samples % (num_rollouts_per_episodes * args.rollout_batch_size)
 
@@ -758,15 +733,15 @@ class CombinedHarmlessnessTrainer(ABC):
                 if args.num_episodes > 1:
                     for q_train_step in range(args.num_episodes - 1):
                         print(f"q train step: {q_train_step}")
-                        self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
-                                                           untrans_ret_list, update_timesteps, neg_sample_only=True,
+                        self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list,
+                                                           untrans_ret_list, neg_sample_only=True,
                                                            rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling, bonus_vals_list_sampling=bonus_vals_list_sampling)
 
                 # If base_actor learning rate is 0, only sample from sampling_actor (q)
                 # Use flag from args if set, otherwise check learning rate
                 neg_sample_only = getattr(args, 'neg_sample_only', False) or abs(getattr(args, 'base_actor_learning_rate', 0)) < 1e-10
-                self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
-                                                   untrans_ret_list, update_timesteps, neg_sample_only=neg_sample_only,
+                self.make_experience_and_do_update(args, custom_prompt, pbar, rand_prompts, rewards_list,
+                                                   untrans_ret_list, neg_sample_only=neg_sample_only,
                                                    rewards_list_sampling=rewards_list_sampling, untrans_ret_list_sampling=untrans_ret_list_sampling, bonus_vals_list_sampling=bonus_vals_list_sampling)
 
                 if mid_fit_callback is not None:
@@ -931,8 +906,8 @@ class CombinedHarmlessnessTrainer(ABC):
 
         return seq_log_probs, partial_seq_log_probs
 
-    def make_experience_and_do_update(self, args, custom_prompt, pbar, rand_prompts, rewards_list, steps,
-                                      untrans_ret_list, update_timesteps, neg_sample_only=False,
+    def make_experience_and_do_update(self, args, custom_prompt, pbar, rand_prompts, rewards_list,
+                                      untrans_ret_list, neg_sample_only=False,
                                       rewards_list_sampling=None, untrans_ret_list_sampling=None, bonus_vals_list_sampling=None):
         if not neg_sample_only:
             print("Making experience: standard sampling")
@@ -942,11 +917,6 @@ class CombinedHarmlessnessTrainer(ABC):
                 **self.generate_kwargs
             )
             self.base_replay_buffer.append(experience)
-
-            # # print prompt/answer in each update step
-            # if steps % update_timesteps == 0:
-            #     output = self.tokenizer.batch_decode(experience.sequences, skip_special_tokens=True)
-            #     self.strategy.print(output[0])
 
         from openrlhf.utils.utils import print_timestamp
         if self.separate_neg_samples:
@@ -1095,74 +1065,69 @@ class CombinedHarmlessnessTrainer(ABC):
         if self.mixture_proposal and self.mixture_other_model_strategy == "lag":
             self.maybe_update_q_lag()
 
-        if steps % update_timesteps == 0:
-            global_steps = steps // update_timesteps
+        torch.cuda.empty_cache()
+        if not neg_sample_only:
+            self.base_replay_buffer.normalize(self.strategy, "advantages")
+        if self.separate_neg_samples:
+            self.sampling_replay_buffer_neg.normalize(self.strategy, "advantages")
 
-            torch.cuda.empty_cache()
-            if not neg_sample_only:
-                self.base_replay_buffer.normalize(self.strategy, "advantages")
-            if self.separate_neg_samples:
-                self.sampling_replay_buffer_neg.normalize(self.strategy, "advantages")
+        assert custom_prompt is None
+        print_timestamp("training - start backprop (train())")
+        status = self.train(self.total_steps, custom_prompt=custom_prompt, neg_sample_only=neg_sample_only)
+        print_timestamp("training - end backprop (train())")
 
-            assert custom_prompt is None
-            print_timestamp("training - start backprop (train())")
-            status = self.train(global_steps, custom_prompt=custom_prompt, neg_sample_only=neg_sample_only)
-            print_timestamp("training - end backprop (train())")
+        if not neg_sample_only:
+            self.base_replay_buffer.clear()
+        if self.separate_neg_samples:
+            self.sampling_replay_buffer_neg.clear()
+        torch.cuda.empty_cache()
 
-            if not neg_sample_only:
-                self.base_replay_buffer.clear()
-            if self.separate_neg_samples:
-                self.sampling_replay_buffer_neg.clear()
-            torch.cuda.empty_cache()
+        if "kl" in status:
+            self.kl_ctl.update(status["kl"], args.rollout_batch_size)
+        pbar.set_postfix(status)
 
-            if "kl" in status:
-                self.kl_ctl.update(status["kl"], args.rollout_batch_size)
-            pbar.set_postfix(status)
+        # logs/checkpoints
+        client_states = {"consumed_samples": self.total_steps * args.rollout_batch_size}
+        self.save_logs_and_checkpoints(args, self.total_steps, pbar, status, client_states)
 
-            # logs/checkpoints
-            client_states = {"consumed_samples": global_steps * args.rollout_batch_size}
-            self.save_logs_and_checkpoints(args, global_steps, pbar, status, client_states)
+        # Load next trajectory checkpoint if in replay mode.
+        # This runs after total_steps increment and backprop, matching the recording
+        # run's timing where checkpoints are saved at this same point.
+        if getattr(args, 'load_base_actor_trajectory', None):
+            self._maybe_load_next_trajectory_checkpoint()
 
-            # Load next trajectory checkpoint if in replay mode.
-            # This runs after total_steps increment and backprop, matching the recording
-            # run's timing where checkpoints are saved at this same point.
-            if getattr(args, 'load_base_actor_trajectory', None):
-                self._maybe_load_next_trajectory_checkpoint()
-        # print("PROFILE2")
-        # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
         pbar.update()
-        steps = steps + 1
         if not neg_sample_only:
             rewards_list.append(experience.info["untransformed_reward"].mean().item())
             untrans_ret_list.append(experience.info["untransformed_ret"].mean().item())
-            inspect_rewards_list(rewards_list)
-            inspect_rewards_list(untrans_ret_list)
+            inspect_rewards_list(rewards_list, label="untransformed reward")
+            inspect_rewards_list(untrans_ret_list, label="untransformed return")
         
         if self.separate_neg_samples and experience_neg_sampling is not None and rewards_list_sampling is not None and untrans_ret_list_sampling is not None:
             rewards_list_sampling.append(experience_neg_sampling.info["reward"].mean().item())
             untrans_ret_list_sampling.append(experience_neg_sampling.info["untransformed_reward"].mean().item())
             # Diagnostic: within-prompt reward std (untransformed, i.e. raw RM output)
-            samples_per_prompt = args.duplicate_rollout_batch_by
-            untrans_rew = experience_neg_sampling.info["untransformed_reward"]
-            num_prompts_rew = untrans_rew.shape[0] // samples_per_prompt
-            if num_prompts_rew > 1 and samples_per_prompt > 1:
-                per_prompt_rew = untrans_rew.view(num_prompts_rew, samples_per_prompt)
-                # Per-prompt reward std (distribution over prompts)
-                per_prompt_rew_stds = per_prompt_rew.std(dim=1)  # (num_prompts,)
-                # Max-to-second-max gap in β·r (the quantity driving softmax concentration)
-                # Sort rewards per prompt; with β < 0, lowest reward gets highest β·r
-                sorted_rew, _ = per_prompt_rew.sort(dim=1)  # ascending
-                # Gap between 2nd-lowest and lowest reward (= gap between max and 2nd-max β·r)
-                rew_gaps = sorted_rew[:, 1] - sorted_rew[:, 0]  # (num_prompts,)
-                beta_r_gaps = abs(args.target_dist_beta) * rew_gaps  # (num_prompts,)
-                gap_over_std_mean = rew_gaps.mean().item() / (per_prompt_rew_stds.mean().item() + 1e-8)
-                def _stats(t):
-                    return (f"mean={t.mean().item():.4f}, med={t.median().item():.4f}, "
-                            f"min={t.min().item():.4f}, max={t.max().item():.4f}")
-                print(f"[Reward Diagnostic] within-prompt reward std: {_stats(per_prompt_rew_stds)}")
-                print(f"[Reward Diagnostic] max-to-2nd reward gap: {_stats(rew_gaps)} "
-                      f"(ratio to std: {gap_over_std_mean:.4f}, normal theory: ~0.67)")
-                print(f"[Reward Diagnostic] |beta|*gap: {_stats(beta_r_gaps)}")
+            # samples_per_prompt = args.duplicate_rollout_batch_by
+            # untrans_rew = experience_neg_sampling.info["untransformed_reward"]
+            # num_prompts_rew = untrans_rew.shape[0] // samples_per_prompt
+            # if num_prompts_rew > 1 and samples_per_prompt > 1:
+                # per_prompt_rew = untrans_rew.view(num_prompts_rew, samples_per_prompt)
+                # # Per-prompt reward std (distribution over prompts)
+                # per_prompt_rew_stds = per_prompt_rew.std(dim=1)  # (num_prompts,)
+                # $ Max-to-second-max gap in β·r (the quantity driving softmax concentration)
+                # # Sort rewards per prompt; with β < 0, lowest reward gets highest β·r
+                # sorted_rew, _ = per_prompt_rew.sort(dim=1)  # ascending
+                # # Gap between 2nd-lowest and lowest reward (= gap between max and 2nd-max β·r)
+                # rew_gaps = sorted_rew[:, 1] - sorted_rew[:, 0]  # (num_prompts,)
+                # beta_r_gaps = abs(args.target_dist_beta) * rew_gaps  # (num_prompts,)
+                # gap_over_std_mean = rew_gaps.mean().item() / (per_prompt_rew_stds.mean().item() + 1e-8)
+                # def _stats(t):
+                #     return (f"mean={t.mean().item():.4f}, med={t.median().item():.4f}, "
+                #             f"min={t.min().item():.4f}, max={t.max().item():.4f}")
+                # print(f"[Reward Diagnostic] within-prompt reward std: {_stats(per_prompt_rew_stds)}")
+                # print(f"[Reward Diagnostic] max-to-2nd reward gap: {_stats(rew_gaps)} "
+                #       f"(ratio to std: {gap_over_std_mean:.4f}, normal theory: ~0.67)")
+                # print(f"[Reward Diagnostic] |beta|*gap: {_stats(beta_r_gaps)}")
             # Extract exploration bonus if available (only for sampling actor for now)
             # TODO: Add support for base_actor bonus tracking
             if bonus_vals_list_sampling is not None and "exploration_bonus" in experience_neg_sampling.info:
@@ -1170,24 +1135,24 @@ class CombinedHarmlessnessTrainer(ABC):
                 if exploration_bonus is not None:
                     bonus_vals_list_sampling.append(exploration_bonus.mean().item())
                     # Diagnostic: within-prompt vs. across-prompt bonus variance
-                    samples_per_prompt = args.duplicate_rollout_batch_by
-                    num_prompts = exploration_bonus.shape[0] // samples_per_prompt
-                    if num_prompts > 1 and samples_per_prompt > 1:
-                        per_prompt_bonus = exploration_bonus.view(num_prompts, samples_per_prompt)
-                        # Per-prompt bonus stats (distributions over prompts)
-                        bonus_stds = per_prompt_bonus.std(dim=1)  # (num_prompts,)
-                        across_prompt_std = per_prompt_bonus.mean(dim=1).std().item()
-                        bonus_ranges = per_prompt_bonus.max(dim=1).values - per_prompt_bonus.min(dim=1).values  # (num_prompts,)
-                        bonus_alpha = getattr(args, 'bonus_alpha', 1.0)
-                        delta_raws = bonus_ranges / bonus_alpha if bonus_alpha > 0 else bonus_ranges * float('inf')
-                        def _stats(t):
-                            return (f"mean={t.mean().item():.4f}, med={t.median().item():.4f}, "
-                                    f"min={t.min().item():.4f}, max={t.max().item():.4f}")
-                        print(f"[Bonus Diagnostic] within-prompt std: {_stats(bonus_stds)}")
-                        print(f"[Bonus Diagnostic] across-prompt std: {across_prompt_std:.6f}, "
-                              f"ratio (within/across): {bonus_stds.mean().item() / (across_prompt_std + 1e-8):.4f}")
-                        print(f"[Bonus Diagnostic] within-prompt range: {_stats(bonus_ranges)}")
-                        print(f"[Bonus Diagnostic] delta_raw (range/alpha): {_stats(delta_raws)}")
+                    # samples_per_prompt = args.duplicate_rollout_batch_by
+                    # num_prompts = exploration_bonus.shape[0] // samples_per_prompt
+                    # if num_prompts > 1 and samples_per_prompt > 1:
+                    #     per_prompt_bonus = exploration_bonus.view(num_prompts, samples_per_prompt)
+                    #     # Per-prompt bonus stats (distributions over prompts)
+                    #     bonus_stds = per_prompt_bonus.std(dim=1)  # (num_prompts,)
+                    #     across_prompt_std = per_prompt_bonus.mean(dim=1).std().item()
+                    #     bonus_ranges = per_prompt_bonus.max(dim=1).values - per_prompt_bonus.min(dim=1).values  # (num_prompts,)
+                    #     bonus_alpha = getattr(args, 'bonus_alpha', 1.0)
+                    #     # delta_raws = bonus_ranges / bonus_alpha if bonus_alpha > 0 else bonus_ranges * float('inf')
+                    #     # def _stats(t):
+                    #     #     return (f"mean={t.mean().item():.4f}, med={t.median().item():.4f}, "
+                    #     #             f"min={t.min().item():.4f}, max={t.max().item():.4f}")
+                    #     # print(f"[Bonus Diagnostic] within-prompt std: {_stats(bonus_stds)}")
+                    #     # print(f"[Bonus Diagnostic] across-prompt std: {across_prompt_std:.6f}, "
+                    #     #       f"ratio (within/across): {bonus_stds.mean().item() / (across_prompt_std + 1e-8):.4f}")
+                    #     # print(f"[Bonus Diagnostic] within-prompt range: {_stats(bonus_ranges)}")
+                    #     # print(f"[Bonus Diagnostic] delta_raw (range/alpha): {_stats(delta_raws)}")
                 else:
                     bonus_vals_list_sampling.append(0.0)  # No bonus when not enabled
 

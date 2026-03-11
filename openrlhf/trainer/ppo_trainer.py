@@ -447,7 +447,7 @@ class BasePPOTrainer(ABC):
                 # print(prof.key_averages().table(sort_by="self_cuda_memory_usage"))
 
                 rewards_list.append(experience.info["untransformed_reward"].mean().item())
-                inspect_rewards_list(rewards_list)
+                inspect_rewards_list(rewards_list, label="untransformed reward")
 
                 pbar.update()
                 steps = steps + 1
