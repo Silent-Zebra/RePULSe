@@ -501,18 +501,18 @@ def get_target_samples_filename(args):
     return f"{args.save_path}/{filename}"
 
 
-def inspect_rewards_list(rewards_list):
+def inspect_rewards_list(rewards_list, label="reward"):
     # print(rewards_list)
     rewards_tensor = torch.tensor(rewards_list)
-    print("Rewards record shape")
+    print(f"{label} record shape")
     print(rewards_tensor.shape)
     firsts = [5, 10, 50]
     for first in firsts:
-        print(f"First {first} reward average")
+        print(f"First {first} {label} average")
         print(rewards_tensor[:first].mean())
     lasts = [500, 200, 100, 50, 10, 5]
     for last in lasts:
-        print(f"Last {last} reward average")
+        print(f"Last {last} {label} average")
         print(rewards_tensor[-last:].mean())
 
 # New function to load model and tokenizer
