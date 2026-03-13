@@ -110,4 +110,4 @@ deepspeed --master_port 35601 --module openrlhf.cli.train_ppo \
 
 ## Build / Testing
 
-There are no build/test commands at present. Code is run on a cluster. That said, please check to ensure there are no compilation errors.
+There are no build/test commands at present. Code is run on a cluster. That said, please check to ensure there are no compilation errors. Do not try to run code locally; it won't work. Libraries are missing.

@@ -1754,7 +1754,11 @@ def _compute_bad_word_sequence_log_probs(
     # Normalize bad word indices to tensor
     bad_word_indices_tensor = normalize_bad_word_indices(bad_word_indices, device)
 
-    n_vocab = _get_vocab_size(model.config)
+    n_vocab = _get_vocab_size(_get_model_config(model))
+    assert n_vocab is not None, (
+        f"Could not determine vocab size from model config. "
+        f"model type: {type(model)}, config type: {type(getattr(model, 'config', None))}"
+    )
     n_bad_words = len(bad_word_indices_tensor)
 
     # Identify indices of "good" words (all vocab except bad words)
@@ -2070,9 +2074,9 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
 
     # Compute log_probs_case1 locally for KL calculations (bad word at t=0, any word at t=1)
     # This is needed for KL divergence but not returned from the shared function
-    n_vocab = _get_vocab_size(model_p_for_target.config)
+    n_vocab = _get_vocab_size(_get_model_config(model_p_for_target))
     n_bad_words = len(bad_word_indices_tensor)
-    
+
     # For model p: compute sequences with bad word at t=0, any word at t=1
     batch_prompts_case1_p = prompt_ids_p.repeat(n_bad_words, 1)
     batch_inputs_case1_p = torch.cat(
@@ -2137,7 +2141,7 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     log_differences_case2 = log_probs_q_case2 - log_probs_sigma_p_case2  # Shape: (n_good_words, n_bad_words)
     
     # Track differences aggregated by bad word and find largest differences
-    n_vocab = _get_vocab_size(model_p_for_target.config)
+    n_vocab = _get_vocab_size(_get_model_config(model_p_for_target))
     n_bad_words = len(bad_word_indices_tensor)
     
     # Aggregate log differences by bad word
@@ -2290,6 +2294,18 @@ def calculate_analytic_kl_indicator_bad_words_both_directions(
     return kl_sigma_q, kl_q_sigma_epsq_p, diff_by_bad_word_case1, diff_by_bad_word_case2, diff_by_bad_word, max_q_exceeds_info, max_sigma_exceeds_info 
 
 
+def _get_model_config(model):
+    """Get the HuggingFace model config, unwrapping DeepSpeed/DataParallel wrappers if needed.
+
+    After strategy.prepare(), Actor.model is a DeepSpeedEngine wrapping the HF model.
+    DeepSpeedEngine.config is the DS config dict (not HF config), so we need to
+    unwrap through .module to reach the actual HF model config.
+    """
+    if hasattr(model, 'module'):
+        return _get_model_config(model.module)
+    return model.config
+
+
 def _get_vocab_size(config):
     """Get vocab size from a model config that may be a dict or config object."""
     if isinstance(config, dict):
@@ -2336,7 +2352,7 @@ def precompute_toxicity_scores_for_all_tokens(
     # which uses model_p_for_target.config.vocab_size. tokenizer.vocab_size can differ
     # (e.g., padded embedding tables, added special tokens).
     if actor_model is not None:
-        n_vocab = _get_vocab_size(actor_model.model.config) or tokenizer.vocab_size
+        n_vocab = _get_vocab_size(_get_model_config(actor_model.model)) or tokenizer.vocab_size
     else:
         n_vocab = tokenizer.vocab_size
     all_token_ids = torch.arange(n_vocab, device=device)
@@ -2417,7 +2433,7 @@ def calculate_analytic_kl_toxicity_single_token(
     inputs = tokenizer(prompt_text, return_tensors="pt")
     prompt_ids = inputs["input_ids"].to(device)
 
-    n_vocab = _get_vocab_size(model_p_for_target.config)
+    n_vocab = _get_vocab_size(_get_model_config(model_p_for_target))
 
     # Get log probabilities for all tokens from prompt (p and q)
     log_probs_p = get_next_token_log_probs(model_p_for_target, prompt_ids)  # Shape: (n_vocab,)

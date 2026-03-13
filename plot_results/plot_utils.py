@@ -59,6 +59,8 @@ def _parse_experiment_properties(prefix):
         loss_type: "CTL", "CTLN", or None
         bonus_type: "cfn", "exact_count", "mixture", or "none"
         mixture_variant: "mixture", "q_independent", "q_half", or None (only set when bonus_type == "mixture")
+        mixture_other_model: "best", "first", "lag", or None (only set when bonus_type == "mixture")
+        mixture_lag_steps: int or None (only set when mixture_other_model == "lag")
         learning_rate: float or None (sampling actor LR from _al pattern)
         cfn_alpha: float or None (bonus_alpha from _cf<value> pattern)
     """
@@ -82,6 +84,8 @@ def _parse_experiment_properties(prefix):
 
     # Mixture variant (only when bonus_type is mixture)
     mixture_variant = None
+    mixture_other_model = None
+    mixture_lag_steps = None
     if bonus_type == "mixture":
         mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
         mix_match = re.search(r'_mix([a-z]+)', prefix)
@@ -89,6 +93,17 @@ def _parse_experiment_properties(prefix):
             mixture_variant = mix_variant_map.get(mix_match.group(1), mix_match.group(1))
         else:
             mixture_variant = "unknown"
+
+        # Other-model strategy: _first or _lag<N> (absent means "best")
+        if "_first" in prefix:
+            mixture_other_model = "first"
+        else:
+            lag_match = re.search(r'_lag(\d+)', prefix)
+            if lag_match:
+                mixture_other_model = "lag"
+                mixture_lag_steps = int(lag_match.group(1))
+            else:
+                mixture_other_model = "best"
 
     # Learning rate (sampling actor LR)
     al_match = re.search(r'_al([\d.e-]+)', prefix)
@@ -105,6 +120,8 @@ def _parse_experiment_properties(prefix):
         "loss_type": loss_type,
         "bonus_type": bonus_type,
         "mixture_variant": mixture_variant,
+        "mixture_other_model": mixture_other_model,
+        "mixture_lag_steps": mixture_lag_steps,
         "learning_rate": learning_rate,
         "cfn_alpha": cfn_alpha,
     }
@@ -147,13 +164,34 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     # 3. Linestyle options for cycling within same-hue groups
     linestyle_options = ["solid", "dashed", "dotted", "dashdot", (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))]
 
-    # 4. CFN alpha -> color family: cycle through blue, green, purple for distinct alphas
+    # 4a. CFN alpha -> color family: cycle through blue, green, purple for distinct alphas
     unique_alphas = sorted(set(p["cfn_alpha"] for p in props_list if p["cfn_alpha"] is not None))
     cfn_alpha_cmaps = [cm.Blues, cm.Greens, cm.Purples]
     if unique_alphas:
         cfn_alpha_cmap = {a: cfn_alpha_cmaps[i % len(cfn_alpha_cmaps)] for i, a in enumerate(unique_alphas)}
     else:
         cfn_alpha_cmap = {}
+
+    # 4b. Mixture lag_steps -> color family: cycle through orange-ish colormaps for distinct lag values.
+    #     None/"best" gets one colormap, each unique lag value gets another.
+    unique_mixture_keys = sorted(
+        set((p["mixture_variant"], p["mixture_lag_steps"])
+            for p in props_list if p["bonus_type"] == "mixture"),
+        key=lambda x: (x[0] or "", x[1] if x[1] is not None else -1),
+    )
+    # Colormaps for q_independent variants; first is for best/no-lag, rest cycle for lag values
+    qi_cmaps = [cm.Oranges, cm.YlOrRd, cm.OrRd, cm.Reds]
+    # Colormaps for other mixture variants
+    other_mix_cmaps = [cm.RdPu, cm.PuRd, cm.pink, cm.hot]
+    mixture_cmap_map = {}
+    qi_idx, other_idx = 0, 0
+    for variant, lag in unique_mixture_keys:
+        if variant == "q_independent":
+            mixture_cmap_map[(variant, lag)] = qi_cmaps[qi_idx % len(qi_cmaps)]
+            qi_idx += 1
+        else:
+            mixture_cmap_map[(variant, lag)] = other_mix_cmaps[other_idx % len(other_mix_cmaps)]
+            other_idx += 1
 
     # 5. Colormap and shade range per bonus category
     #    Shade range [lo, hi] samples the colormap avoiding very light/very dark ends.
@@ -175,7 +213,7 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         if bonus == "cfn":
             return ("cfn", props["cfn_alpha"])
         elif bonus == "mixture":
-            return ("mixture", props["mixture_variant"])
+            return ("mixture", props["mixture_variant"], props["mixture_lag_steps"])
         else:
             return (bonus,)
 
@@ -194,10 +232,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         elif bonus == "cfn":
             cmap = cfn_alpha_cmap.get(props["cfn_alpha"], cm.Blues)
         elif bonus == "mixture":
-            if props["mixture_variant"] == "q_independent":
-                cmap = cm.Oranges
-            else:
-                cmap = cm.RdPu
+            mix_key = (props["mixture_variant"], props["mixture_lag_steps"])
+            cmap = mixture_cmap_map.get(mix_key, cm.Oranges)
         elif bonus == "exact_count":
             cmap = cm.YlGnBu
         else:
@@ -358,7 +394,19 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
             mix_match = re.search(r'_mix([a-z]+)', prefix)
             mix_variant = mix_variant_map.get(mix_match.group(1), mix_match.group(1)) if mix_match else "unknown"
-            label_parts = [f"Mixture ({mix_variant})"]
+
+            # Extract other-model strategy: _first, _lag<N>, or absent (= best)
+            other_model = props["mixture_other_model"]
+            if other_model == "first":
+                other_str = ", first"
+            elif other_model == "lag":
+                lag_steps = props["mixture_lag_steps"]
+                other_str = f", lag={lag_steps}" if lag_steps is not None else ", lag"
+            else:
+                # "best" is the original default; omit to keep labels short for backward compat
+                other_str = ""
+
+            label_parts = [f"Mixture ({mix_variant}{other_str})"]
 
             # Extract LR (q) / sampling actor LR from _al
             al_match = re.search(r'_al([\d.e-]+)', prefix)
