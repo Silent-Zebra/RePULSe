@@ -640,7 +640,7 @@ class BaseExperienceMaker(ABC):
         # Initialize state visitation count tensor for t=0 tokens
         # Only for exact_count type
         if self.exploration_bonus == "exact_count":
-            vocab_size = self.actor.model.config.vocab_size
+            vocab_size = self.strategy._unwrap_model(self.actor).config.vocab_size
             # Start with 0 for all tokens (will be incremented to 1 on first visit)
             self.state_visitation_counts = torch.zeros(vocab_size, dtype=torch.long)
         else:
