@@ -884,7 +884,7 @@ class BaseExperienceMaker(ABC):
 
         # Get device
         if self.coin_flip_architecture == "separate_nn":
-            coin_flip_head_device = next(self.coin_flip_network.trainable_network.parameters()).device
+            coin_flip_head_device = next(self.coin_flip_network.trainable_engine.parameters()).device
         else:
             coin_flip_head_device = next(self.coin_flip_network.coin_flip_head.parameters()).device
         
@@ -932,12 +932,6 @@ class BaseExperienceMaker(ABC):
             # No replay buffer yet, use current batch
             replay_buffer_batch_size = batch_size
         
-        # Check if model is wrapped by DeepSpeed
-        try:
-            import deepspeed
-            is_deepspeed_wrapped = isinstance(self.coin_flip_network, deepspeed.DeepSpeedEngine)
-        except (ImportError, AttributeError):
-            is_deepspeed_wrapped = False
         
         # Step 4: Loop over update steps
         
@@ -1065,27 +1059,21 @@ class BaseExperienceMaker(ABC):
                     print(f"  Min bonus: {min_bonus:.6f}")
                     print(f"  Max bonus: {max_bonus:.6f}")
             
-            # Backward pass and optimizer step
-            # Note: Network stays in eval mode - only the head is trained, base model is frozen
-            if self.strategy:
-                self.strategy.backward(loss, self.coin_flip_network, self.coin_flip_optim)
-                
-                if is_deepspeed_wrapped:
-                    # DeepSpeed handles optimizer step internally
-                    self.strategy.optimizer_step(
-                        self.coin_flip_optim,
-                        self.coin_flip_network,
-                        self.coin_flip_scheduler,
-                        name="coin_flip_network"
-                    )
-                else:
-                    # Not wrapped by DeepSpeed - manually step the optimizer
-                    self.coin_flip_optim.step()
-                    if self.coin_flip_scheduler is not None:
-                        self.coin_flip_scheduler.step()
-                    self.coin_flip_optim.zero_grad()
+            # Backward pass and optimizer step.
+            # For separate_nn: trainable_engine is a DeepSpeedEngine; use strategy.backward /
+            #   optimizer_step for proper gradient synchronization across all ranks.
+            # For other architectures: coin_flip_head is a plain nn.Module; use manual
+            #   backward / step. (AllReduce for non-separate_nn is a future TODO.)
+            if self.strategy and self.coin_flip_architecture == "separate_nn":
+                self.strategy.backward(loss, self.coin_flip_network.trainable_engine, self.coin_flip_optim)
+                self.strategy.optimizer_step(
+                    self.coin_flip_optim,
+                    self.coin_flip_network.trainable_engine,
+                    self.coin_flip_scheduler,
+                    name="coin_flip_trainable_engine",
+                )
             else:
-                # Fallback if no strategy (shouldn't happen in practice)
+                # Manual backward/step for non-separate_nn or missing strategy
                 loss.backward()
                 self.coin_flip_optim.step()
                 if self.coin_flip_scheduler is not None:

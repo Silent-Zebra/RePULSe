@@ -119,8 +119,10 @@ class CombinedHarmlessnessTrainer(ABC):
         bad_word_tokens_ids: Optional[List[int]] = None,
         train_coin_flip_before: bool = False,
         coin_flip_first_online: bool = False,
-        coin_flip_trainable_network: Optional[Actor] = None,
+        coin_flip_trainable_network=None,
         coin_flip_frozen_prior_network: Optional[Actor] = None,
+        coin_flip_trainable_optim=None,
+        coin_flip_trainable_scheduler=None,
         q_best_model: Optional[Actor] = None,
         **generate_kwargs,
     ) -> None:
@@ -352,37 +354,40 @@ class CombinedHarmlessnessTrainer(ABC):
             # This ensures consistent outputs (no dropout/stochasticity from base model)
             self.coin_flip_network.eval()
             
-            # Create optimizer and scheduler (defaulting to sampling_actor's)
-            coin_flip_lr = getattr(strategy.args, 'coin_flip_lr', None)
-            if coin_flip_lr is None:
-                # Default to same LR as actor (avoid get_last_lr() which warns before first step)
-                coin_flip_lr = getattr(strategy.args, 'actor_learning_rate', 1e-5)
-            
-            # Use strategy's create_optimizer method (same as sampling_actor)
-            # Extract optimizer parameters from args (same as sampling_actor uses)
-            adam_betas = getattr(strategy.args, 'adam_betas', (0.9, 0.95))
-            l2 = getattr(strategy.args, 'l2', 0.0)
-            self.coin_flip_optim = strategy.create_optimizer(
-                self.coin_flip_network,
-                lr=coin_flip_lr,
-                betas=adam_betas,
-                weight_decay=l2
-            )
-            
-            # Use same scheduler type as sampling_actor_scheduler
-            if sampling_actor_scheduler is not None:
-                from transformers.trainer import get_scheduler
-                scheduler_type = getattr(strategy.args, 'lr_scheduler', 'constant')
-                num_training_steps = getattr(strategy.args, 'num_training_steps', 1000)
-                num_warmup_steps = getattr(strategy.args, 'num_warmup_steps', 0)
-                self.coin_flip_scheduler = get_scheduler(
-                    scheduler_type,
-                    optimizer=self.coin_flip_optim,
-                    num_warmup_steps=num_warmup_steps,
-                    num_training_steps=num_training_steps,
-                )
+            if coin_flip_trainable_optim is not None:
+                # separate_nn: optimizer/scheduler were created in train_ppo.py before strategy.prepare()
+                # and are now bound to the DeepSpeedEngine; use them directly.
+                self.coin_flip_optim = coin_flip_trainable_optim
+                self.coin_flip_scheduler = coin_flip_trainable_scheduler
             else:
-                self.coin_flip_scheduler = None
+                # Other architectures (linear_head_on_*): create optimizer for CoinFlipNetwork here.
+                coin_flip_lr = getattr(strategy.args, 'coin_flip_lr', None)
+                if coin_flip_lr is None:
+                    # Default to same LR as actor (avoid get_last_lr() which warns before first step)
+                    coin_flip_lr = getattr(strategy.args, 'actor_learning_rate', 1e-5)
+
+                adam_betas = getattr(strategy.args, 'adam_betas', (0.9, 0.95))
+                l2 = getattr(strategy.args, 'l2', 0.0)
+                self.coin_flip_optim = strategy.create_optimizer(
+                    self.coin_flip_network,
+                    lr=coin_flip_lr,
+                    betas=adam_betas,
+                    weight_decay=l2,
+                )
+
+                if sampling_actor_scheduler is not None:
+                    from transformers.trainer import get_scheduler
+                    scheduler_type = getattr(strategy.args, 'lr_scheduler', 'constant')
+                    num_training_steps = getattr(strategy.args, 'num_training_steps', 1000)
+                    num_warmup_steps = getattr(strategy.args, 'num_warmup_steps', 0)
+                    self.coin_flip_scheduler = get_scheduler(
+                        scheduler_type,
+                        optimizer=self.coin_flip_optim,
+                        num_warmup_steps=num_warmup_steps,
+                        num_training_steps=num_training_steps,
+                    )
+                else:
+                    self.coin_flip_scheduler = None
 
         # Base actor experience maker (for standard reinforce)
         self.base_experience_maker = BaseExperienceMaker(
@@ -769,8 +774,8 @@ class CombinedHarmlessnessTrainer(ABC):
             old_best = self.best_g_q
             self.best_g_q = current_g_q
             # Unwrap DeepSpeed engines if needed
-            q_current_unwrapped = self.sampling_actor.module if hasattr(self.sampling_actor, 'module') else self.sampling_actor
-            q_best_unwrapped = self.q_best_model.module if hasattr(self.q_best_model, 'module') else self.q_best_model
+            q_current_unwrapped = self.strategy._unwrap_model(self.sampling_actor)
+            q_best_unwrapped = self.strategy._unwrap_model(self.q_best_model)
             q_best_unwrapped.load_state_dict(q_current_unwrapped.state_dict())
             print(f"[Mixture] Updated q_best: g_q improved from {old_best:.4f} to {current_g_q:.4f}")
         else:
@@ -796,8 +801,8 @@ class CombinedHarmlessnessTrainer(ABC):
         )
 
         if self.total_steps > 0 and self.total_steps % self.mixture_lag_steps == 0:
-            q_current_unwrapped = self.sampling_actor.module if hasattr(self.sampling_actor, 'module') else self.sampling_actor
-            q_best_unwrapped = self.q_best_model.module if hasattr(self.q_best_model, 'module') else self.q_best_model
+            q_current_unwrapped = self.strategy._unwrap_model(self.sampling_actor)
+            q_best_unwrapped = self.strategy._unwrap_model(self.q_best_model)
 
             if self._lag_staging_sd is not None:
                 # Load the previously staged snapshot into q_best

@@ -296,7 +296,11 @@ def train(args):
         )
 
     # Initialize coin flip networks if needed for separate_nn architecture
-    coin_flip_trainable_network = None
+    coin_flip_trainable_module = None   # CoinFlipTrainableModule (before strategy.prepare())
+    coin_flip_trainable_network = None  # DeepSpeedEngine (after strategy.prepare())
+    coin_flip_trainable_optim = None
+    coin_flip_trainable_scheduler = None
+    coin_flip_trainable_is_module = False
     # Create q_best model for mixture proposal (frozen copy of sampling actor)
     q_best_model = None
     if args.do_harmlessness_training and getattr(args, 'mixture_proposal', False):
@@ -314,9 +318,24 @@ def train(args):
     if (args.do_harmlessness_training and
         getattr(args, 'exploration_bonus_sampling_actor', None) == "coin_flip" and
         getattr(args, 'coin_flip_architecture', 'linear_head_on_static_initial_base') == "separate_nn"):
-        # Create trainable network (copy of actor structure)
-        coin_flip_trainable_network = Actor(
-            args.pretrain,
+        from openrlhf.models.coin_flip_network import CoinFlipTrainableModule
+        coin_flip_pretrain_path = getattr(args, 'coin_flip_pretrain', None) or args.pretrain
+
+        # If a separate backbone is specified, verify its tokenizer exactly matches the main tokenizer.
+        # Same vocab_size is not sufficient — independently trained BPE models can have the same
+        # vocab_size but completely different token→string mappings.
+        if getattr(args, 'coin_flip_pretrain', None):
+            from transformers import AutoTokenizer
+            cf_tokenizer = AutoTokenizer.from_pretrained(args.coin_flip_pretrain)
+            assert cf_tokenizer.get_vocab() == tokenizer.get_vocab(), (
+                f"--coin_flip_pretrain tokenizer vocabulary differs from --pretrain tokenizer. "
+                "The coin flip backbone must use the same tokenizer as the main model."
+            )
+
+        # Load backbone via Actor loader, then extract the raw HF model for CoinFlipTrainableModule.
+        # Using Actor's loading path ensures bf16, flash attention, LoRA, etc. are applied correctly.
+        _loader_actor = Actor(
+            coin_flip_pretrain_path,
             use_flash_attention_2=args.flash_attn,
             bf16=args.bf16,
             load_in_4bit=args.load_in_4bit,
@@ -326,9 +345,33 @@ def train(args):
             lora_dropout=args.lora_dropout,
             ds_config=strategy.get_ds_train_config(is_actor=True),
         )
-        # Create frozen prior network (copy of actor structure)
+        coin_flip_trainable_module = CoinFlipTrainableModule(
+            backbone=_loader_actor.model,
+            coin_flip_dim=args.coin_flip_dim,
+            head_init_std=getattr(args, 'coin_flip_head_init_std', 0.001),
+            coin_flip_linear_bias=getattr(args, 'coin_flip_linear_bias', False),
+        )
+        del _loader_actor
+
+        coin_flip_lr = getattr(args, 'coin_flip_lr', None) or args.actor_learning_rate
+        coin_flip_trainable_optim = strategy.create_optimizer(
+            coin_flip_trainable_module,
+            lr=coin_flip_lr,
+            betas=args.adam_betas,
+            weight_decay=args.l2,
+        )
+        coin_flip_trainable_scheduler = get_scheduler(
+            args.lr_scheduler,
+            coin_flip_trainable_optim,
+            num_warmup_steps=math.ceil(max_steps * 0.03),
+            num_training_steps=max_steps,
+            scheduler_specific_kwargs={"min_lr": coin_flip_lr * 0.1},
+        )
+        coin_flip_trainable_is_module = True
+
+        # Frozen prior network (Actor; wrapped by DeepSpeed in eval mode via strategy.prepare())
         coin_flip_frozen_prior_network = Actor(
-            args.pretrain,
+            coin_flip_pretrain_path,
             use_flash_attention_2=args.flash_attn,
             bf16=args.bf16,
             load_in_4bit=args.load_in_4bit,
@@ -338,7 +381,6 @@ def train(args):
             lora_dropout=args.lora_dropout,
             ds_config=strategy.get_ds_eval_config(offload=False),
         )
-        # Freeze the frozen prior network
         for param in coin_flip_frozen_prior_network.parameters():
             param.requires_grad = False
 
@@ -348,6 +390,13 @@ def train(args):
         base_actor_is_eval = (base_actor_optim is None)
         base_actor_arg = base_actor if base_actor_is_eval else (base_actor, base_actor_optim, base_actor_scheduler)
 
+        # For separate_nn: pass CoinFlipTrainableModule as a (module, optim, scheduler) tuple so it
+        # goes through _ds_init_train_model and gets proper DeepSpeed gradient synchronization.
+        coin_flip_trainable_arg = (
+            (coin_flip_trainable_module, coin_flip_trainable_optim, coin_flip_trainable_scheduler)
+            if coin_flip_trainable_is_module else None
+        )
+
         if critic is not None:
             # prepare models/optimizers...
             prepared = strategy.prepare(
@@ -356,7 +405,7 @@ def train(args):
                 base_actor_arg,
                 reward_model,
                 static_initial_model,
-                coin_flip_trainable_network,
+                coin_flip_trainable_arg,
                 coin_flip_frozen_prior_network,
                 q_best_model,
                 is_rlhf=True,
@@ -390,7 +439,7 @@ def train(args):
                 base_actor_arg,
                 reward_model,
                 static_initial_model,
-                coin_flip_trainable_network,
+                coin_flip_trainable_arg,
                 coin_flip_frozen_prior_network,
                 q_best_model,
                 is_rlhf=True,
@@ -417,12 +466,21 @@ def train(args):
                     q_best_model,
                 ) = prepared
 
+        # For separate_nn: strategy.prepare() returns a (engine, optim, scheduler) tuple for
+        # coin_flip_trainable_arg; unpack it to get the DeepSpeedEngine and updated optim/scheduler.
+        if coin_flip_trainable_is_module:
+            assert isinstance(coin_flip_trainable_network, tuple) and len(coin_flip_trainable_network) == 3, (
+                "Expected (engine, optim, scheduler) tuple from _ds_init_train_model for coin_flip_trainable"
+            )
+            coin_flip_trainable_network, coin_flip_trainable_optim, coin_flip_trainable_scheduler = (
+                coin_flip_trainable_network
+            )
+
         # After prepare, copy q_current's state_dict to q_best (they start identical)
         if q_best_model is not None:
-            import deepspeed
-            # Unwrap DeepSpeed engine if needed
-            q_current_unwrapped = actor.module if hasattr(actor, 'module') else actor
-            q_best_unwrapped = q_best_model.module if hasattr(q_best_model, 'module') else q_best_model
+            # Unwrap DeepSpeed engines if needed
+            q_current_unwrapped = strategy._unwrap_model(actor)
+            q_best_unwrapped = strategy._unwrap_model(q_best_model)
             q_best_unwrapped.load_state_dict(q_current_unwrapped.state_dict())
             strategy.print("Initialized q_best_model with q_current's state_dict")
 
@@ -689,6 +747,8 @@ def train(args):
             coin_flip_use_prioritization=args.coin_flip_use_prioritization,
             coin_flip_trainable_network=coin_flip_trainable_network,
             coin_flip_frozen_prior_network=coin_flip_frozen_prior_network,
+            coin_flip_trainable_optim=coin_flip_trainable_optim,
+            coin_flip_trainable_scheduler=coin_flip_trainable_scheduler,
             q_best_model=q_best_model,
         )
 
@@ -4073,6 +4133,7 @@ if __name__ == "__main__":
                                 "linear_head_on_learning_proposal", "separate_nn"],
                         help="Architecture for coin flip network: 'linear_head_on_static_initial_base' (linear head on frozen base model copy), 'linear_head_on_learning_base' (linear head on live base_actor), 'linear_head_on_learning_proposal' (linear head on live sampling_actor), or 'separate_nn' (separate trainable and frozen networks)")
     parser.add_argument("--coin_flip_warmup_steps", type=int, default=0, help="Number of calls to compute_intrinsic_reward (i.e., batches of generated sequences) before returning non-zero bonuses. During warmup, Welford normalization stats accumulate but bonus is 0. (default: 0, no warmup)")
+    parser.add_argument("--coin_flip_pretrain", type=str, default=None, help="Path to pretrained model for the coin flip network backbone (separate_nn architecture only). Defaults to --pretrain if not set. Allows using a smaller model for the coin flip network.")
 
     parser.add_argument("--do_harmlessness_training", action="store_true", help="Have an outer loop where we do harmlessness training on the base/initial model. Use --num_episodes for the inner loop/proposal/twist training steps, --harmlessness_training_num_episodes for the number of outer loop steps, and --harmlessness_training_episodes_per_loop for the number of harmlessness training steps in each loop iteration. So total harmlessness_training_num_episodes * num_episodes twist/proposal updates will be done, and harmlessness_training_num_episodes * harmlessness_training_episodes_per_loop base model updates will be done)")
     parser.add_argument("--harmlessness_training_num_episodes", type=int, default=1, help="Total number of outer loop steps (where each inner loop does --num_episodes twist/proposal updates")
