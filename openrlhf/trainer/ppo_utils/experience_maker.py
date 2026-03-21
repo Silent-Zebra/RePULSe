@@ -869,6 +869,18 @@ class BaseExperienceMaker(ABC):
         )
         cf_input_ids = encoded["input_ids"].to(sequences.device)
         cf_attention_mask = encoded["attention_mask"].to(sequences.device)
+
+        # Debug: show up to 5 examples of the decode→re-tokenize conversion
+        n_show = min(5, sequences.shape[0])
+        print(f"[CF tokenizer debug] batch_size={sequences.shape[0]}, showing {n_show} examples:")
+        for i in range(n_show):
+            orig_ids = sequences[i].tolist()
+            decoded_str = texts[i]
+            cf_ids = cf_input_ids[i].tolist()
+            print(f"  [{i}] original token ids (len={len(orig_ids)}): {orig_ids}")
+            print(f"  [{i}] decoded string: {repr(decoded_str)}")
+            print(f"  [{i}] cf token ids   (len={len(cf_ids)}): {cf_ids}")
+
         return cf_input_ids, cf_attention_mask
 
     def _train_coin_flip_network(self, sequences: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
