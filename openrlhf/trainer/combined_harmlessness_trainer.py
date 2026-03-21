@@ -1271,10 +1271,15 @@ class CombinedHarmlessnessTrainer(ABC):
 
         # for DP
         # weighted mean for kl
+        from openrlhf.utils.utils import print_timestamp
         for x in ["sampling", "base"]:
             if f"{x}_kl" in status:
                 status[f"{x}_kl"] *= status[f"{x}_response_length"]
+        torch.cuda.synchronize()
+        print_timestamp("training - backprop: start all_reduce status")
         status = self.strategy.all_reduce(status)
+        torch.cuda.synchronize()
+        print_timestamp("training - backprop: end all_reduce status")
         for x in ["sampling", "base"]:
             if f"{x}_kl" in status:
                 status[f"{x}_kl"] /= status[f"{x}_response_length"]
@@ -1351,11 +1356,14 @@ class CombinedHarmlessnessTrainer(ABC):
         return status
 
     def training_step_base_actor(self, experience: Experience, experience_neg_sampling: Experience, custom_prompt=None) -> Dict[str, float]:
+        from openrlhf.utils.utils import print_timestamp
         if self.model_eval:
             self.base_actor.eval()
         else:
             self.base_actor.train()
 
+        torch.cuda.synchronize()
+        print_timestamp("p backprop: start loss computation")
         actor_loss = self.get_base_actor_loss(experience, experience_neg_sampling, custom_prompt)
 
         # mixtral
@@ -1370,6 +1378,8 @@ class CombinedHarmlessnessTrainer(ABC):
             raise NotImplementedError
             print("DOING BEHAVIOUR CLONING")
 
+        torch.cuda.synchronize()
+        print_timestamp("p backprop: start backward pass")
         self.strategy.backward(loss, self.base_actor, self.base_actor_optim)
 
         # ptx loss
@@ -1398,7 +1408,11 @@ class CombinedHarmlessnessTrainer(ABC):
             # self.strategy.backward(self.ptx_coef * loss, self.base_actor, self.base_actor_optim)
 
 
+        torch.cuda.synchronize()
+        print_timestamp("p backprop: start optimizer step")
         self.strategy.optimizer_step(self.base_actor_optim, self.base_actor, self.base_actor_scheduler, name="base_actor") # this name doesn't appear to do anything though
+        torch.cuda.synchronize()
+        print_timestamp("p backprop: end optimizer step")
         if self.ema_model:
             raise NotImplementedError # not tested
             self.strategy.moving_average(self.base_actor, self.ema_model, self.ema_beta, "cpu")
