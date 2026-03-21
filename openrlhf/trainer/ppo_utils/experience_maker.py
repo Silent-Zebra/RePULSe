@@ -565,6 +565,7 @@ class BaseExperienceMaker(ABC):
         coin_flip_architecture: str = "linear_head_on_static_initial_base",
         base_actor: Optional[Actor] = None,
         sampling_actor: Optional[Actor] = None,
+        coin_flip_tokenizer=None,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -622,6 +623,7 @@ class BaseExperienceMaker(ABC):
         # Store references to base_actor and sampling_actor for learning architectures
         self.base_actor_ref = base_actor
         self.sampling_actor_ref = sampling_actor
+        self.coin_flip_tokenizer = coin_flip_tokenizer
         
         # Initialize coin flip replay buffer if using coin_flip exploration bonus
         # Follows same pattern as NaiveReplayBuffer: limit=0 means unlimited, cpu_offload=True saves GPU memory
@@ -849,6 +851,26 @@ class BaseExperienceMaker(ABC):
         # Increment num_updates for indices
         self.coin_flip_replay_buffer.num_updates_buffer.increment(indices)
     
+    def _get_cf_token_ids(self, sequences: torch.Tensor, attention_mask: Optional[torch.Tensor]):
+        """
+        If a separate coin flip tokenizer is configured, decode sequences with the
+        main tokenizer and re-tokenize with the coin flip tokenizer. Otherwise returns
+        the inputs unchanged.
+        """
+        if self.coin_flip_tokenizer is None:
+            return sequences, attention_mask
+        texts = self.tokenizer.batch_decode(sequences, skip_special_tokens=True)
+        encoded = self.coin_flip_tokenizer(
+            texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            add_special_tokens=True,
+        )
+        cf_input_ids = encoded["input_ids"].to(sequences.device)
+        cf_attention_mask = encoded["attention_mask"].to(sequences.device)
+        return cf_input_ids, cf_attention_mask
+
     def _train_coin_flip_network(self, sequences: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
         """
         Train the coin flip network on the given sequences.
@@ -869,7 +891,9 @@ class BaseExperienceMaker(ABC):
         """
         if self.coin_flip_network is None or self.coin_flip_optim is None:
             return
-        
+
+        sequences, attention_mask = self._get_cf_token_ids(sequences, attention_mask)
+
         # Get update steps from args
         update_steps = getattr(self.strategy.args, 'coin_flip_update_steps', 1) if self.strategy else 1
 
@@ -1101,7 +1125,9 @@ class BaseExperienceMaker(ABC):
         # Set network to eval mode for consistent reward computation
         # This ensures dropout and batch norm behave consistently
         self.coin_flip_network.eval()
-        
+
+        sequences, attention_mask = self._get_cf_token_ids(sequences, attention_mask)
+
         # Compute intrinsic reward using coin flip network
         # The network expects full sequences and computes r_I(x) = sqrt((1/d) * ||f_φ(x)||^2)
         # For non-separate_nn architectures, forward pass uses torch.no_grad() internally

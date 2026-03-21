@@ -315,22 +315,31 @@ def train(args):
             param.requires_grad = False
 
     coin_flip_frozen_prior_network = None
+    coin_flip_tokenizer = None
     if (args.do_harmlessness_training and
         getattr(args, 'exploration_bonus_sampling_actor', None) == "coin_flip" and
         getattr(args, 'coin_flip_architecture', 'linear_head_on_static_initial_base') == "separate_nn"):
         from openrlhf.models.coin_flip_network import CoinFlipTrainableModule
         coin_flip_pretrain_path = getattr(args, 'coin_flip_pretrain', None) or args.pretrain
 
-        # If a separate backbone is specified, verify its tokenizer exactly matches the main tokenizer.
-        # Same vocab_size is not sufficient — independently trained BPE models can have the same
+        # If a separate backbone is specified, check whether its tokenizer matches the main tokenizer.
+        # When the vocabularies differ, sequences must be decoded with the main tokenizer and
+        # re-tokenized with the coin flip tokenizer before being passed to the coin flip network.
+        # Same vocab_size is NOT sufficient — independently trained BPE models can have the same
         # vocab_size but completely different token→string mappings.
         if getattr(args, 'coin_flip_pretrain', None):
-            from transformers import AutoTokenizer
-            cf_tokenizer = AutoTokenizer.from_pretrained(args.coin_flip_pretrain)
-            assert cf_tokenizer.get_vocab() == tokenizer.get_vocab(), (
-                f"--coin_flip_pretrain tokenizer vocabulary differs from --pretrain tokenizer. "
-                "The coin flip backbone must use the same tokenizer as the main model."
-            )
+            cf_tok = AutoTokenizer.from_pretrained(args.coin_flip_pretrain)
+            cf_tok.padding_side = "left"
+            if cf_tok.pad_token is None:
+                cf_tok.pad_token = cf_tok.eos_token
+            if cf_tok.get_vocab() == tokenizer.get_vocab():
+                coin_flip_tokenizer = None  # same tokenizer, no conversion needed
+            else:
+                coin_flip_tokenizer = cf_tok
+                strategy.print(
+                    f"--coin_flip_pretrain tokenizer differs from --pretrain tokenizer; "
+                    "sequences will be decoded and re-tokenized before the coin flip network."
+                )
 
         # Load backbone via Actor loader, then extract the raw HF model for CoinFlipTrainableModule.
         # Using Actor's loading path ensures bf16, flash attention, LoRA, etc. are applied correctly.
@@ -750,6 +759,7 @@ def train(args):
             coin_flip_trainable_optim=coin_flip_trainable_optim,
             coin_flip_trainable_scheduler=coin_flip_trainable_scheduler,
             q_best_model=q_best_model,
+            coin_flip_tokenizer=coin_flip_tokenizer,
         )
 
 

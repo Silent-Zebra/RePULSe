@@ -371,6 +371,10 @@ def get_info_name_str(args):
                 exploration_bonus_str += f"_cfq"
             elif coin_flip_architecture == "separate_nn":
                 exploration_bonus_str += f"_cfsn"
+                coin_flip_pretrain = getattr(args, 'coin_flip_pretrain', None)
+                if coin_flip_pretrain and coin_flip_pretrain != args.pretrain:
+                    cfp_str = "".join([x[:2] for x in re.split(r"[-_]", coin_flip_pretrain.split("/")[-1])])
+                    exploration_bonus_str += f"_cfp{cfp_str}"
             else:
                 raise ValueError(f"Unknown coin flip architecture: {coin_flip_architecture}")
             if train_coin_flip_before:
