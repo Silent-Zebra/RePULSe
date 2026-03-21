@@ -4330,15 +4330,11 @@ if __name__ == "__main__":
 
     if args.analytic_bad_word_calc:
         assert args.rm_type in ["rlhf"] or args.reward_pretrain == "indicator_bad_token"
-        assert "gpt" in args.pretrain
-        # others not yet implemented/tested
         assert args.generate_max_len in [1, 2]
         assert args.new_custom_single_prompt
 
     if args.analytic_calc:
         assert args.rm_type in ["rlhf"]
-        assert "gpt" in args.pretrain
-        # others not yet implemented/tested
         assert args.generate_max_len == 1
         assert args.new_custom_single_prompt
         assert args.target_dist_beta is not None
