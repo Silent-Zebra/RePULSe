@@ -910,27 +910,6 @@ class BaseExperienceMaker(ABC):
 
         cf_input_ids = encoded["input_ids"].to(sequences.device)
         cf_attention_mask = encoded["attention_mask"].to(sequences.device)
-
-        # Debug: show up to 5 examples of the full decode → strip → re-template → re-tokenize pipeline
-        n_show = min(5, sequences.shape[0])
-        print(f"[CF tokenizer debug] batch_size={sequences.shape[0]}, showing {n_show} examples:")
-        for i in range(n_show):
-            # A) Original tokens from base actor (prompt + response in main model vocab)
-            print(f"  [{i}] A) original token ids (len={sequences[i].shape[0]}): {sequences[i].tolist()}")
-            # B) Decoded text (main model's tokenizer, special tokens stripped)
-            print(f"  [{i}] B) decoded text: {repr(texts[i])}")
-            # C) Stripped text: question and answer split apart (if strip_fn available)
-            if self.cf_strip_fn is not None:
-                q, a = qa_pairs[i]
-                print(f"  [{i}] C) stripped question: {repr(q)}")
-                print(f"  [{i}] C) stripped answer:   {repr(a)}")
-            else:
-                print(f"  [{i}] C) (no strip fn — skipped)")
-            # D) Text after CF chat template applied (what goes into CF tokenizer)
-            print(f"  [{i}] D) cf-templated text: {repr(cf_texts[i])}")
-            # E) Token ids passed into CF net
-            print(f"  [{i}] E) cf token ids (len={cf_input_ids[i].shape[0]}): {cf_input_ids[i].tolist()}")
-
         return cf_input_ids, cf_attention_mask
 
     def _train_coin_flip_network(self, sequences: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
