@@ -728,6 +728,10 @@ class CoinFlipNetwork(nn.Module):
         trainable component, and frozen_prior_network for the frozen prior component.
         The frozen prior is always run under torch.no_grad().
 
+        When the same input tensors are used for both training and bonus computation in the
+        same step (the common case with coin_flip_first_online=True), the frozen prior forward
+        pass is cached by GPU buffer address so it runs only once per unique input.
+
         Args:
             input_ids: Token IDs, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
@@ -742,23 +746,42 @@ class CoinFlipNetwork(nn.Module):
         # Gradients flow here during training; caller wraps in torch.no_grad() when not needed.
         trainable_predictions = self.trainable_engine(input_ids, attention_mask)  # (B, coin_flip_dim)
 
-        # Frozen prior predictions: always run with no_grad
-        position_ids = self._compute_position_ids(attention_mask)
-        frozen_outputs = self._forward_through_model(
-            self.frozen_prior_network, input_ids, attention_mask, position_ids, apply_no_grad=True
-        )
-        frozen_hidden_states = self._extract_hidden_states_from_outputs(frozen_outputs)
-        frozen_final = self._extract_final_hidden_states(frozen_hidden_states, attention_mask)
+        # Cache frozen prior predictions by GPU buffer address + shape.
+        # The frozen prior is deterministic (no parameter updates), so its output is identical
+        # for the same underlying data regardless of call order.  When training and bonus
+        # computation share the same tensors (coin_flip_first_online + update_steps=1), this
+        # avoids a second full forward pass through the backbone.
+        # Normalization (Welford update) is always re-run with the caller-specified update_prior_stats,
+        # so stats are updated exactly once per unique input regardless of cache hits.
+        am_ptr = attention_mask.data_ptr() if attention_mask is not None else None
+        cache_key = (input_ids.data_ptr(), input_ids.shape, am_ptr)
+        cached = getattr(self, '_frozen_prior_predictions_cache', None)
 
-        # Move to the frozen prior head's device if needed
-        coin_flip_head_device = next(self.frozen_prior_network.coin_flip_head.parameters()).device
-        if frozen_final.device != coin_flip_head_device:
-            frozen_final = frozen_final.to(coin_flip_head_device)
+        if cached is not None and cached[0] == cache_key:
+            frozen_predictions = cached[1]
+        else:
+            # Cache miss: run frozen prior forward.
+            position_ids = self._compute_position_ids(attention_mask)
+            frozen_outputs = self._forward_through_model(
+                self.frozen_prior_network, input_ids, attention_mask, position_ids, apply_no_grad=True
+            )
+            frozen_hidden_states = self._extract_hidden_states_from_outputs(frozen_outputs)
+            frozen_final = self._extract_final_hidden_states(frozen_hidden_states, attention_mask)
 
-        with torch.no_grad():
-            frozen_predictions = self.frozen_prior_network.coin_flip_head(frozen_final)  # (B, coin_flip_dim)
+            # Move to the frozen prior head's device if needed
+            coin_flip_head_device = next(self.frozen_prior_network.coin_flip_head.parameters()).device
+            if frozen_final.device != coin_flip_head_device:
+                frozen_final = frozen_final.to(coin_flip_head_device)
 
-        # Normalize frozen prior outputs using Welford's algorithm
+            with torch.no_grad():
+                frozen_predictions = self.frozen_prior_network.coin_flip_head(frozen_final)  # (B, coin_flip_dim)
+
+            self._frozen_prior_predictions_cache = (cache_key, frozen_predictions)
+
+        # Normalize frozen prior outputs using Welford's algorithm.
+        # update_prior_stats controls whether running stats are updated:
+        # - False during training (replayed states should not shift the normalization)
+        # - True during bonus computation (new states should update the normalization)
         normalized_frozen = self._normalize_with_welford_per_dim(
             frozen_predictions,
             self.prior_running_mean,

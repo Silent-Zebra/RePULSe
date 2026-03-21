@@ -1038,11 +1038,14 @@ class CombinedHarmlessnessTrainer(ABC):
 
                 if self.train_coin_flip_before:
                     if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
+                        print_timestamp("training - sampling: start CF train (before make_experience)")
                         self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
                         torch.cuda.empty_cache()
+                        print_timestamp("training - sampling: end CF train (before make_experience)")
 
                 # Pass pre-generated sequences to make_experience to avoid duplicate generation
                 # Exploration bonus is calculated inside make_experience
+                print_timestamp("training - sampling: start make_experience (non-mixture)")
                 experience_neg_sampling = self.sampling_experience_maker_neg.make_experience(
                     rand_prompts,
                     samples_per_prompt=args.duplicate_rollout_batch_by,
@@ -1059,8 +1062,10 @@ class CombinedHarmlessnessTrainer(ABC):
                     # Train coin flip network AFTER exploration bonus calculation
                     # This ensures pseudocounts are correctly initialized near 1 for new states
                     if self.sampling_experience_maker_neg.coin_flip_network is not None and self.sampling_experience_maker_neg.coin_flip_optim is not None:
+                        print_timestamp("training - sampling: start CF train (after make_experience)")
                         self.sampling_experience_maker_neg._train_coin_flip_network(sequences, attention_mask)
                         torch.cuda.empty_cache()
+                        print_timestamp("training - sampling: end CF train (after make_experience)")
 
                 print_timestamp("training - sampling: end make_experience (non-mixture)")
                 self.sampling_replay_buffer_neg.append(experience_neg_sampling)
@@ -1095,6 +1100,17 @@ class CombinedHarmlessnessTrainer(ABC):
 
         if "kl" in status:
             self.kl_ctl.update(status["kl"], args.rollout_batch_size)
+
+        # Add exploration bonus stats to status for per-step wandb logging.
+        # The full bonus tensor is stored in experience.info["exploration_bonus"] (shape (B,)).
+        if (self.separate_neg_samples and experience_neg_sampling is not None
+                and "exploration_bonus" in experience_neg_sampling.info
+                and experience_neg_sampling.info["exploration_bonus"] is not None):
+            bonus = experience_neg_sampling.info["exploration_bonus"]
+            status["exploration_bonus_mean"] = bonus.mean().item()
+            status["exploration_bonus_min"] = bonus.min().item()
+            status["exploration_bonus_max"] = bonus.max().item()
+
         pbar.set_postfix(status)
 
         # logs/checkpoints

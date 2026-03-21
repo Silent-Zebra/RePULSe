@@ -19,12 +19,11 @@ _last_timestamp = [0.0]
 def print_timestamp(label):
     """Print a timestamp with a label for performance profiling.
     Shows wall-clock time and seconds elapsed since last timestamp call."""
-    # t = _time_module.time()
-    # dt = _datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    # elapsed = t - _last_timestamp[0] if _last_timestamp[0] > 0 else 0.0
-    # print(f"[TIMESTAMP {dt} | elapsed {elapsed:.1f}s] {label}", flush=True)
-    # _last_timestamp[0] = t
-    pass
+    t = _time_module.time()
+    dt = _datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    elapsed = t - _last_timestamp[0] if _last_timestamp[0] > 0 else 0.0
+    print(f"[TIMESTAMP {dt} | elapsed {elapsed:.1f}s] {label}", flush=True)
+    _last_timestamp[0] = t
 
 from openrlhf.models import Actor
 from openrlhf.models.actor_custom import ActorCustom

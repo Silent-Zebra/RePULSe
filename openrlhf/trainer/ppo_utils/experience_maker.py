@@ -933,6 +933,10 @@ class BaseExperienceMaker(ABC):
         if self.coin_flip_network is None or self.coin_flip_optim is None:
             return
 
+        from openrlhf.utils.utils import print_timestamp
+        torch.cuda.synchronize()
+        print_timestamp("CF train: start")
+
         sequences, attention_mask = self._get_cf_token_ids(sequences, attention_mask)
 
         # Get update steps from args
@@ -1032,6 +1036,8 @@ class BaseExperienceMaker(ABC):
                 sampled_indices = None
             
             # Forward pass through coin flip network to get combined predictions
+            torch.cuda.synchronize()
+            print_timestamp(f"CF train: start forward (update_step={update_step})")
             if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                 # Use _predict() which does full forward pass from inputs
                 # This handles separate_nn and learning architectures (which store tokens, not embeddings)
@@ -1039,7 +1045,9 @@ class BaseExperienceMaker(ABC):
             else:
                 # Use _predict_from_embeddings() for static architecture (which stores embeddings)
                 final_predictions = self.coin_flip_network._predict_from_embeddings(sampled_embeddings)  # (B, d)
-            
+            torch.cuda.synchronize()
+            print_timestamp(f"CF train: end forward (update_step={update_step})")
+
             # Compute MSE loss: L(x, c) = ||f_combined(x_final) - c||^2
             # where f_combined = coin_flip_head(x) + normalized_random_prior(x)
             # Average over coin_flip_dim and batch
@@ -1077,60 +1085,17 @@ class BaseExperienceMaker(ABC):
                         "Buffer Sample Update", truncate_debug=True
                     )
 
-            print_info = False # True
-            if print_info:
-                # Compute differences for inspection
-                differences = final_predictions - sampled_coin_flips  # (B, d)
-                abs_differences = differences.abs()  # (B, d)
-                abs_differences_flat = abs_differences.flatten()  # (B*d,)
-                max_diff, max_diff_flat_idx = abs_differences_flat.max(dim=0)  # scalar, flat index tensor
-                max_diff_flat_idx = max_diff_flat_idx.item()  # convert to Python int
-                max_diff_batch_idx = max_diff_flat_idx // coin_flip_dim
-                max_diff_dim_idx = max_diff_flat_idx % coin_flip_dim
-                
-                # Compute bonus statistics (same computation as compute_intrinsic_reward)
-                # Note: final_predictions are combined predictions (coin_flip_head + normalized_random_prior)
-                with torch.no_grad():
-                    # Compute ||f_combined(x)||^2 for final token: sum over coin_flip_dim dimension
-                    norm_squared = (final_predictions ** 2).sum(dim=-1)  # (B,)
-                    
-                    # Compute intrinsic reward: sqrt((1/d) * ||f_combined(x)||^2)
-                    intrinsic_reward = torch.sqrt(norm_squared / coin_flip_dim)  # (B,)
-                    
-                    # Apply normalization if enabled (same as in compute_intrinsic_reward)
-                    if self.coin_flip_network.normalization_momentum is not None:
-                        intrinsic_reward = self.coin_flip_network._normalize_bonus(intrinsic_reward)
-                    
-                    # Multiply by bonus_alpha
-                    bonus = intrinsic_reward * self.bonus_alpha  # (B,)
-                    
-                    # Compute statistics
-                    mean_bonus = bonus.mean().item()
-                    min_bonus = bonus.min().item()
-                    max_bonus = bonus.max().item()
-                
-                # Print inspection information
-                if self.strategy and self.strategy.is_rank_0():
-                    print(f"\n[Coin Flip Network Update Step {update_step + 1}/{update_steps}]")
-                    print(f"  Replay buffer size: {self.coin_flip_replay_buffer.size if self.coin_flip_replay_buffer is not None else 0}")
-                    print(f"  Target (first sample, first 10 dims): {sampled_coin_flips[0, :10].cpu().tolist()}")
-                    print(f"  Prediction (first sample, first 10 dims): {final_predictions[0, :10].detach().cpu().tolist()}")
-                    print(f"  Loss: {loss.item():.6f}")
-                    print(f"  Max absolute difference: {max_diff.item():.6f}")
-                    print(f"  Max diff location: batch_idx={max_diff_batch_idx}, dim_idx={max_diff_dim_idx}")
-                    print(f"  Max diff target value: {sampled_coin_flips[max_diff_batch_idx, max_diff_dim_idx].item():.6f}")
-                    print(f"  Max diff prediction value: {final_predictions[max_diff_batch_idx, max_diff_dim_idx].detach().item():.6f}")
-                    print(f"  Mean bonus: {mean_bonus:.6f}")
-                    print(f"  Min bonus: {min_bonus:.6f}")
-                    print(f"  Max bonus: {max_bonus:.6f}")
-            
             # Backward pass and optimizer step.
             # For separate_nn: trainable_engine is a DeepSpeedEngine; use strategy.backward /
             #   optimizer_step for proper gradient synchronization across all ranks.
             # For other architectures: coin_flip_head is a plain nn.Module; use manual
             #   backward / step. (AllReduce for non-separate_nn is a future TODO.)
+            torch.cuda.synchronize()
+            print_timestamp(f"CF train: start backward (update_step={update_step})")
             if self.strategy and self.coin_flip_architecture == "separate_nn":
                 self.strategy.backward(loss, self.coin_flip_network.trainable_engine, self.coin_flip_optim)
+                torch.cuda.synchronize()
+                print_timestamp(f"CF train: end backward, start optimizer_step (update_step={update_step})")
                 self.strategy.optimizer_step(
                     self.coin_flip_optim,
                     self.coin_flip_network.trainable_engine,
@@ -1140,11 +1105,17 @@ class BaseExperienceMaker(ABC):
             else:
                 # Manual backward/step for non-separate_nn or missing strategy
                 loss.backward()
+                torch.cuda.synchronize()
+                print_timestamp(f"CF train: end backward, start optimizer_step (update_step={update_step})")
                 self.coin_flip_optim.step()
                 if self.coin_flip_scheduler is not None:
                     self.coin_flip_scheduler.step()
                 self.coin_flip_optim.zero_grad()
-    
+            torch.cuda.synchronize()
+            print_timestamp(f"CF train: end optimizer_step (update_step={update_step})")
+        torch.cuda.synchronize()
+        print_timestamp("CF train: end")
+
     def _calculate_coin_flip_bonus(
         self,
         sequences: torch.Tensor,
@@ -1162,7 +1133,9 @@ class BaseExperienceMaker(ABC):
         """
         if self.coin_flip_network is None:
             raise ValueError("coin_flip_network must be provided when exploration_bonus='coin_flip'")
-        
+
+        from openrlhf.utils.utils import print_timestamp
+
         # Set network to eval mode for consistent reward computation
         # This ensures dropout and batch norm behave consistently
         self.coin_flip_network.eval()
@@ -1172,12 +1145,16 @@ class BaseExperienceMaker(ABC):
         # Compute intrinsic reward using coin flip network
         # The network expects full sequences and computes r_I(x) = sqrt((1/d) * ||f_φ(x)||^2)
         # For non-separate_nn architectures, forward pass uses torch.no_grad() internally
+        torch.cuda.synchronize()
+        print_timestamp("CF bonus: start compute_intrinsic_reward")
         intrinsic_reward = self.coin_flip_network.compute_intrinsic_reward(
             sequences,
             attention_mask,
             bonus_alpha=self.bonus_alpha,
         )
-        
+        torch.cuda.synchronize()
+        print_timestamp("CF bonus: end compute_intrinsic_reward")
+
         return intrinsic_reward
 
     # tokenizer
@@ -1216,8 +1193,6 @@ class BaseExperienceMaker(ABC):
         force_no_exploration_bonus: bool = False,
         **generate_kwargs
     ) -> Experience:
-        print(f"Current target_dist_beta: {self.target_dist_beta}")
-        
         # If sequences are provided, use them; otherwise generate
         if sequences is not None:
             # Use pre-generated sequences and related data
@@ -1540,9 +1515,6 @@ class BaseExperienceMaker(ABC):
             # Calculate exploration bonus if enabled (will be added after transformations)
             if self.exploration_bonus and not force_no_exploration_bonus:
                 exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=False)
-                print(f"Exploration bonus calculated for rlhf. Mean bonus: {exploration_bonus.mean().item():.4f}, "
-                      f"Min bonus: {exploration_bonus.min().item():.4f}, "
-                      f"Max bonus: {exploration_bonus.max().item():.4f}")
             # else: exploration_bonus already initialized to zeros above
             
             if self.reward_clamp is not None:
