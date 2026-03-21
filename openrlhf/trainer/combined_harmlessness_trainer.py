@@ -125,6 +125,7 @@ class CombinedHarmlessnessTrainer(ABC):
         coin_flip_trainable_scheduler=None,
         q_best_model: Optional[Actor] = None,
         coin_flip_tokenizer=None,
+        cf_strip_fn=None,
         **generate_kwargs,
     ) -> None:
         assert (
@@ -188,6 +189,7 @@ class CombinedHarmlessnessTrainer(ABC):
         self.train_coin_flip_before = train_coin_flip_before
         self.coin_flip_first_online = coin_flip_first_online
         self.coin_flip_tokenizer = coin_flip_tokenizer
+        self.cf_strip_fn = cf_strip_fn
 
         # Mixture proposal state
         self.q_best_model = q_best_model
@@ -466,6 +468,7 @@ class CombinedHarmlessnessTrainer(ABC):
             base_actor=base_actor,
             sampling_actor=sampling_actor,
             coin_flip_tokenizer=coin_flip_tokenizer,
+            cf_strip_fn=cf_strip_fn,
         )
 
         self.base_replay_buffer = NaiveReplayBuffer(micro_train_batch_size, buffer_limit, buffer_cpu_offload)

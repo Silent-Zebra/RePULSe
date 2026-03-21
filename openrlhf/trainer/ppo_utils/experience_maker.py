@@ -566,6 +566,7 @@ class BaseExperienceMaker(ABC):
         base_actor: Optional[Actor] = None,
         sampling_actor: Optional[Actor] = None,
         coin_flip_tokenizer=None,
+        cf_strip_fn=None,
     ) -> None:
         super().__init__()
         self.actor = actor
@@ -624,6 +625,7 @@ class BaseExperienceMaker(ABC):
         self.base_actor_ref = base_actor
         self.sampling_actor_ref = sampling_actor
         self.coin_flip_tokenizer = coin_flip_tokenizer
+        self.cf_strip_fn = cf_strip_fn
         
         # Initialize coin flip replay buffer if using coin_flip exploration bonus
         # Follows same pattern as NaiveReplayBuffer: limit=0 means unlimited, cpu_offload=True saves GPU memory
@@ -860,15 +862,75 @@ class BaseExperienceMaker(ABC):
         if self.coin_flip_tokenizer is None:
             return sequences, attention_mask
         texts = self.tokenizer.batch_decode(sequences, skip_special_tokens=True)
-        encoded = self.coin_flip_tokenizer(
-            texts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            add_special_tokens=True,
-        )
+
+        if self.cf_strip_fn is not None:
+            # Split each decoded text into (question, answer) using the main model's chat template
+            # markers, then reconstruct with the CF model's own formatting.
+            qa_pairs = [self.cf_strip_fn(t) for t in texts]
+            if self.coin_flip_tokenizer.chat_template is not None:
+                # Instruct CF model: apply its own chat template so it receives in-distribution input.
+                # apply_chat_template embeds special tokens (e.g. BOS) in the returned string, so we
+                # tokenize with add_special_tokens=False to avoid adding them a second time.
+                cf_texts = [
+                    self.coin_flip_tokenizer.apply_chat_template(
+                        [{"role": "user", "content": q}, {"role": "assistant", "content": a}],
+                        tokenize=False,
+                        add_generation_prompt=False,
+                    )
+                    for q, a in qa_pairs
+                ]
+                encoded = self.coin_flip_tokenizer(
+                    cf_texts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    add_special_tokens=False,
+                )
+            else:
+                # Base CF model: no chat template, concatenate question and answer as plain text.
+                cf_texts = [q + " " + a for q, a in qa_pairs]
+                encoded = self.coin_flip_tokenizer(
+                    cf_texts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    add_special_tokens=True,
+                )
+        else:
+            # No strip function available (multi-prompt without --apply_chat_template):
+            # fall back to passing the full decoded text directly.
+            cf_texts = texts
+            encoded = self.coin_flip_tokenizer(
+                cf_texts,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                add_special_tokens=True,
+            )
+
         cf_input_ids = encoded["input_ids"].to(sequences.device)
         cf_attention_mask = encoded["attention_mask"].to(sequences.device)
+
+        # Debug: show up to 5 examples of the full decode → strip → re-template → re-tokenize pipeline
+        n_show = min(5, sequences.shape[0])
+        print(f"[CF tokenizer debug] batch_size={sequences.shape[0]}, showing {n_show} examples:")
+        for i in range(n_show):
+            # A) Original tokens from base actor (prompt + response in main model vocab)
+            print(f"  [{i}] A) original token ids (len={sequences[i].shape[0]}): {sequences[i].tolist()}")
+            # B) Decoded text (main model's tokenizer, special tokens stripped)
+            print(f"  [{i}] B) decoded text: {repr(texts[i])}")
+            # C) Stripped text: question and answer split apart (if strip_fn available)
+            if self.cf_strip_fn is not None:
+                q, a = qa_pairs[i]
+                print(f"  [{i}] C) stripped question: {repr(q)}")
+                print(f"  [{i}] C) stripped answer:   {repr(a)}")
+            else:
+                print(f"  [{i}] C) (no strip fn — skipped)")
+            # D) Text after CF chat template applied (what goes into CF tokenizer)
+            print(f"  [{i}] D) cf-templated text: {repr(cf_texts[i])}")
+            # E) Token ids passed into CF net
+            print(f"  [{i}] E) cf token ids (len={cf_input_ids[i].shape[0]}): {cf_input_ids[i].tolist()}")
+
         return cf_input_ids, cf_attention_mask
 
     def _train_coin_flip_network(self, sequences: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):

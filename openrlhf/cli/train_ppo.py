@@ -316,6 +316,7 @@ def train(args):
 
     coin_flip_frozen_prior_network = None
     coin_flip_tokenizer = None
+    cf_strip_fn = None
     if (args.do_harmlessness_training and
         getattr(args, 'exploration_bonus_sampling_actor', None) == "coin_flip" and
         getattr(args, 'coin_flip_architecture', 'linear_head_on_static_initial_base') == "separate_nn"):
@@ -340,6 +341,19 @@ def train(args):
                     f"--coin_flip_pretrain tokenizer differs from --pretrain tokenizer; "
                     "sequences will be decoded and re-tokenized before the coin flip network."
                 )
+                # Create a strip function so _get_cf_token_ids can split prompt/response text
+                # and re-apply the CF model's own chat template (rather than passing raw decoded
+                # text that still contains the main model's template markers like "user\n\n").
+                if getattr(args, 'apply_chat_template', False):
+                    cf_strip_fn = get_strip_question_chat_template_fn(args)
+                elif getattr(args, 'new_custom_single_prompt', False):
+                    cf_strip_fn = get_strip_question_raw_fn(args.custom_prompt, tokenizer)
+                else:
+                    cf_strip_fn = None
+                    strategy.print(
+                        "Warning: cross-tokenizer CF model in multi-prompt mode without "
+                        "--apply_chat_template; decoded text passed directly without prompt/response split."
+                    )
 
         # Load backbone via Actor loader, then extract the raw HF model for CoinFlipTrainableModule.
         # Using Actor's loading path ensures bf16, flash attention, LoRA, etc. are applied correctly.
@@ -760,6 +774,7 @@ def train(args):
             coin_flip_trainable_scheduler=coin_flip_trainable_scheduler,
             q_best_model=q_best_model,
             coin_flip_tokenizer=coin_flip_tokenizer,
+            cf_strip_fn=cf_strip_fn,
         )
 
 
