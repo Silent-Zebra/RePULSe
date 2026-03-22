@@ -758,8 +758,12 @@ class CoinFlipNetwork(nn.Module):
         cached = getattr(self, '_frozen_prior_predictions_cache', None)
 
         if cached is not None and cached[0] == cache_key:
+            print("Cache found")
+            print(cached)
             frozen_predictions = cached[1]
         else:
+            print("Cache not found")
+
             # Cache miss: run frozen prior forward.
             position_ids = self._compute_position_ids(attention_mask)
             frozen_outputs = self._forward_through_model(
