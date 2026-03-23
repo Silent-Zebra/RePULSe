@@ -19,11 +19,12 @@ import torch
 from plot_utils import (
     make_list, do_load_prefixes, generate_labels_from_prefixes, to_scalar,
     compute_global_logZ_from_iwae_bounds, compute_approx_kl_from_f_q_g_q,
-    generate_visual_style_from_prefixes,
+    generate_visual_style_from_prefixes, plot_top_tokens_bar_chart, plot_top_tokens_lollipop,
+    plot_top_tokens_lollipop_over_time, plot_top_q_intersection_lollipop, plot_top_q_ranked_lollipop,
     MARKER_NO_BONUS, MARKER_CFN, MARKER_MIXTURE, MARKER_EXACT_COUNT,
     MARKER_CTL, MARKER_CTLN, MARKER_LOSS_UNKNOWN,
 )
-from make_frontier import make_frontier_exact_kl_bootstrap
+from make_frontier import make_frontier_exact_kl_bootstrap, make_frontier_bootstrap
 
 # Color and linestyle lists (defined early for use in plotting functions)
 color_list_for_variances = ['xkcd:light blue', 'xkcd:light green', 'xkcd:light orange', 'xkcd:light red',
@@ -277,23 +278,51 @@ def plot_results_over_time(results_list, labels, x_range=None, fontsize=7, figna
     plt.legend(fontsize=fontsize)
     plt.tight_layout()
     
-    # Add suffix to filename if provided
-    if file_type_suffix:
-        basename = f"{figname_modifier}_{file_type_suffix}_{plot_name}.pdf"
-    else:
-        basename = f"{figname_modifier}_{plot_name}.pdf"
+    # Add suffix to filename if provided; omit figname_modifier prefix when saving to a subdirectory
     if output_dir is not None:
+        if file_type_suffix:
+            basename = f"{file_type_suffix}_{plot_name}.pdf"
+        else:
+            basename = f"{plot_name}.pdf"
         figname = os.path.join(output_dir, basename)
     else:
+        if file_type_suffix:
+            basename = f"{figname_modifier}_{file_type_suffix}_{plot_name}.pdf"
+        else:
+            basename = f"{figname_modifier}_{plot_name}.pdf"
         figname = f"./{basename}"
     plt.savefig(figname)
     plt.clf()
 
 
-def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7):
+def _build_frontier_data_from_results(results_list, x_index, y_index):
+    """Convert loaded analyticlogprob tuple data into the format expected by _generate_kl_frontier_plots.
+
+    Args:
+        results_list: Standard results_list[exp_i] = list of loaded tuples per seed.
+        x_index: Index into each loaded tuple for the x-axis time series.
+        y_index: Index into each loaded tuple for the y-axis time series.
+
+    Returns:
+        frontier_data[exp_i] = list of (x_arr, y_arr) numpy array pairs per seed.
+    """
+    frontier_data = []
+    for exp_seeds in results_list:
+        seed_tuples = []
+        for loaded_tuple in exp_seeds:
+            if isinstance(loaded_tuple, tuple) and len(loaded_tuple) > max(x_index, y_index):
+                x_arr = np.array(loaded_tuple[x_index])
+                y_arr = np.array(loaded_tuple[y_index])
+                seed_tuples.append((x_arr, y_arr))
+        frontier_data.append(seed_tuples)
+    return frontier_data
+
+
+def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier,
+                      x_range=None, fontsize=7, n_frontiers=0, frontier_legendfontsize=None):
     """
     Process one file type (base or sampling) and generate all standard plots.
-    
+
     Args:
         file_type_suffix: Either "base" or "sampling"
         load_prefixes_to_use: List of lists of prefixes
@@ -301,40 +330,53 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
         figname_modifier: Figure name modifier
         x_range: X-axis range
         fontsize: Font size
+        n_frontiers: Number of frontier plots at evenly-spaced checkpoints (0 to skip)
+        frontier_legendfontsize: Legend font size for frontier plots
     """
+    import traceback
+
     # Transform prefixes for this file type
     transformed_prefixes = transform_prefixes_for_file_type(load_prefixes_to_use, file_type_suffix)
-    
+
     # Load data
     results_list = [[] for i in range(len(transformed_prefixes))]
     do_load_prefixes(results_list, transformed_prefixes)
-    
+
+    # Save to same subdirectory as KL plots
+    output_dir = _make_output_dir(figname_modifier)
+
     # Generate plots
     # Pass transformed_prefixes (which preserve the parameter encoding) for auto-detection
     try:
         plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                               index_to_use=0, plot_name="logprobbad",
                               ylabel=r"Log Total Probability of Bad Output",
-                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
+                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes,
+                              output_dir=output_dir)
     except:
         print(f"Failed to generate logprobbad plot for {file_type_suffix}")
+        traceback.print_exc()
 
     try:
         plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                               index_to_use=4, plot_name="rew",
                               ylabel=r"Average Reward",
-                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
+                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes,
+                              output_dir=output_dir)
     except:
         print(f"Failed to generate rew plot for {file_type_suffix}")
+        traceback.print_exc()
 
     try:
         plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                               index_to_use=5, plot_name="untransformed_ret",
                               ylabel=r"Average Return",
-                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
+                              file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes,
+                              output_dir=output_dir)
     except:
         print(f"Failed to generate untransformed_ret plot for {file_type_suffix}")
-    
+        traceback.print_exc()
+
     # Plot threshold-based log probability of bad output (if available)
     try:
         # Check if data has threshold-based results (10 elements for base, 11 for sampling)
@@ -343,17 +385,19 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
             if len(result_group) > 0 and len(result_group[0]) >= 10:
                 has_threshold_data = True
                 break
-        
+
         if has_threshold_data:
             # For base: threshold data starts at index 6, for sampling: at index 7
             threshold_index = 7 if file_type_suffix == "sampling" else 6
             plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                                   index_to_use=threshold_index, plot_name="logprobbad_threshold",
                                   ylabel=r"Log Total Probability of Bad Output (Threshold-based)",
-                                  file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
+                                  file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes,
+                                  output_dir=output_dir)
     except Exception as e:
         print(f"Failed to generate logprobbad_threshold plot for {file_type_suffix}: {e}")
-    
+        traceback.print_exc()
+
     # Plot exploration bonus values (only for sampling actor, and only if available)
     if file_type_suffix == "sampling":
         try:
@@ -364,14 +408,52 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
                 if len(result_group) > 0 and len(result_group[0]) >= 7:
                     has_bonus_data = True
                     break
-            
+
             if has_bonus_data:
                 plot_results_over_time(results_list, labels, x_range, fontsize, figname_modifier,
                                       index_to_use=6, plot_name="bonus",
                                       ylabel=r"Average Exploration Bonus",
-                                      file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes)
+                                      file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes,
+                                      output_dir=output_dir)
         except Exception as e:
             print(f"Failed to generate bonus plot for {file_type_suffix}: {e}")
+            traceback.print_exc()
+
+    # Frontier plots: logprobbad vs return, and logprobbad_threshold vs return
+    if n_frontiers > 0:
+        # Index 5 is return for both base and sampling files.
+        # For logprobbad_threshold: index 6 for base, index 7 for sampling.
+        threshold_index = 7 if file_type_suffix == "sampling" else 6
+
+        try:
+            frontier_data = _build_frontier_data_from_results(results_list, x_index=5, y_index=0)
+            _generate_kl_frontier_plots(
+                frontier_data, labels, load_prefixes_to_use, output_dir,
+                n_frontiers=n_frontiers, fontsize=fontsize,
+                frontier_legendfontsize=frontier_legendfontsize,
+                filename_prefix=f"{file_type_suffix}_",
+                xlabel="Average Return", ylabel="Log Prob Bad Output",
+                plot_name="ret",
+                skip_time_avg_halves=True,
+            )
+        except Exception as e:
+            print(f"Failed to generate logprobbad vs return frontier for {file_type_suffix}: {e}")
+            traceback.print_exc()
+
+        try:
+            frontier_data_thr = _build_frontier_data_from_results(results_list, x_index=5, y_index=threshold_index)
+            _generate_kl_frontier_plots(
+                frontier_data_thr, labels, load_prefixes_to_use, output_dir,
+                n_frontiers=n_frontiers, fontsize=fontsize,
+                frontier_legendfontsize=frontier_legendfontsize,
+                filename_prefix=f"{file_type_suffix}_",
+                xlabel="Average Return", ylabel="Log Prob Bad Output (Threshold)",
+                plot_name="ret_thr",
+                skip_time_avg_halves=True,
+            )
+        except Exception as e:
+            print(f"Failed to generate logprobbad_threshold vs return frontier for {file_type_suffix}: {e}")
+            traceback.print_exc()
 
     return results_list
 
@@ -419,6 +501,104 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
                           ylabel=r"KL(q|$\sigma$) = KL(proposal|target)",
                           file_type_suffix=file_type_suffix, load_prefixes_to_use=transformed_prefixes,
                           output_dir=output_dir)
+
+    # Bar chart of top token log probability differences (q - target) — avg over time + final step
+    for final_only, name_suffix in [(False, "_top_tokens_bar_avg"), (True, "_top_tokens_bar_final")]:
+        try:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+            plot_top_tokens_bar_chart(
+                figname=os.path.join(output_dir, f"{file_type_suffix}{name_suffix}.pdf"),
+                labels=labels,
+                results_list=kl_results_list,
+                color_list=semantic_colors,
+                fontsize=fontsize,
+                legendfontsize=fontsize,
+                n_bootstrap_draws=5000,
+                n_top_tokens=10,
+                final_only=final_only,
+            )
+        except Exception as e:
+            print(f"Failed to generate top tokens bar chart ({name_suffix}) for {file_type_suffix}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # Lollipop chart of absolute log probabilities (target vs q) — avg over time + final step
+    for final_only, name_suffix in [(False, "_top_tokens_lollipop_avg"), (True, "_top_tokens_lollipop_final")]:
+        try:
+            if semantic_colors is None:
+                semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+            plot_top_tokens_lollipop(
+                figname=os.path.join(output_dir, f"{file_type_suffix}{name_suffix}.pdf"),
+                labels=labels,
+                results_list=kl_results_list,
+                color_list=semantic_colors,
+                fontsize=fontsize,
+                legendfontsize=fontsize,
+                n_bootstrap_draws=5000,
+                n_top_tokens=10,
+                final_only=final_only,
+            )
+        except Exception as e:
+            print(f"Failed to generate top tokens lollipop chart ({name_suffix}) for {file_type_suffix}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # Lollipop chart of top token log q over time
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_top_tokens_lollipop_over_time(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_top_tokens_lollipop_over_time.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            n_frontiers=n_frontiers,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+            n_bootstrap_draws=5000,
+            n_top_tokens=10,
+        )
+    except Exception as e:
+        print(f"Failed to generate over-time lollipop chart for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Lollipop chart for intersection of top-q tokens across all settings
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_top_q_intersection_lollipop(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_top_q_lollipop_final.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+            n_bootstrap_draws=5000,
+        )
+    except Exception as e:
+        print(f"Failed to generate top-q intersection lollipop chart for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Ranked lollipop chart (rank-ordered log probs under q, with target at same tokens)
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_top_q_ranked_lollipop(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_top_q_ranked_lollipop_final.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+            n_bootstrap_draws=5000,
+            n_ranks=10,
+        )
+    except Exception as e:
+        print(f"Failed to generate ranked lollipop chart for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
 
     # Frontier plots at training checkpoints (use original prefixes for semantic styling)
     if n_frontiers > 0:
@@ -481,6 +661,50 @@ def load_heldout_over_time_files(load_prefixes_to_use, load_dir="./info", map_lo
     return loaded_data
 
 
+def plot_info_eval_frontier(load_prefixes_to_use, labels, figname_modifier, threshold=-5, fontsize=7, load_dir="./info", frontier_legendfontsize=None):
+    """
+    Load info_eval_* files and plot reward vs prob-of-bad-output and return vs prob-of-bad-output frontiers.
+
+    info_eval files are tensors or tuples of tensors saved per-seed. Each element is a tuple
+    (reward_tensor, return_tensor, ...) where index 0 = rewards, index 1 = returns (with KL penalty).
+    Uses make_frontier_bootstrap from make_frontier.py for plotting with bootstrap CIs.
+    """
+    results_list = [[] for _ in range(len(load_prefixes_to_use))]
+    do_load_prefixes(results_list, load_prefixes_to_use, map_location='cpu', load_dir=load_dir)
+
+    has_data = any(len(exp_data) > 0 for exp_data in results_list)
+    if not has_data:
+        print("Warning: No info_eval data found, skipping frontier plots")
+        return
+
+    output_dir = _make_output_dir(figname_modifier)
+    semantic_colors, semantic_markers, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+    effective_legendfontsize = frontier_legendfontsize if frontier_legendfontsize is not None else fontsize
+    ylabel_bad = f"Prob of Bad Output (reward < {threshold})"
+
+    make_frontier_bootstrap(
+        xlabel="Average Reward", ylabel=ylabel_bad,
+        figname=os.path.join(output_dir, "frontier_rew.pdf"),
+        labels=labels, results_list=results_list,
+        color_list=semantic_colors, marker_list=semantic_markers,
+        fontsize=fontsize, legendfontsize=effective_legendfontsize,
+        aggregate_seeds=True,
+        tuple_index=0,
+        threshold=threshold,
+    )
+
+    make_frontier_bootstrap(
+        xlabel="Average Return (including KL penalty)", ylabel=ylabel_bad,
+        figname=os.path.join(output_dir, "frontier_ret.pdf"),
+        labels=labels, results_list=results_list,
+        color_list=semantic_colors, marker_list=semantic_markers,
+        fontsize=fontsize, legendfontsize=effective_legendfontsize,
+        aggregate_seeds=True,
+        tuple_index=1,
+        threshold=threshold,
+    )
+
+
 def plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=7, load_dir="./info", threshold=-5):
     """
     Load heldout_over_time_* files and plot reward mean, return mean, f_q mean, probability of bad output, and target samples log probability over time.
@@ -492,22 +716,28 @@ def plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_ran
         print("Warning: No heldout_over_time data found, skipping plots")
         return
 
+    output_dir = _make_output_dir(figname_modifier)
+
     # Plot reward mean over time
     plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
                           index_to_use=0, plot_name="heldout_reward",
-                          ylabel=r"Heldout reward (mean)", load_prefixes_to_use=load_prefixes_to_use)
+                          ylabel=r"Heldout reward (mean)", load_prefixes_to_use=load_prefixes_to_use,
+                          output_dir=output_dir)
     # Plot return mean over time
     plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
                           index_to_use=1, plot_name="heldout_return",
-                          ylabel=r"Heldout return (mean)", load_prefixes_to_use=load_prefixes_to_use)
+                          ylabel=r"Heldout return (mean)", load_prefixes_to_use=load_prefixes_to_use,
+                          output_dir=output_dir)
     # Plot f_q mean over time
     plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
                           index_to_use=2, plot_name="heldout_f_q",
-                          ylabel=r"$f_q$ (mean)", load_prefixes_to_use=load_prefixes_to_use)
+                          ylabel=r"$f_q$ (mean)", load_prefixes_to_use=load_prefixes_to_use,
+                          output_dir=output_dir)
     # Plot probability of bad output over time
     plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
                           index_to_use=3, plot_name="heldout_prob_bad_output",
-                          ylabel=f"Probability of bad output (reward < {threshold})", load_prefixes_to_use=load_prefixes_to_use)
+                          ylabel=f"Probability of bad output (reward < {threshold})", load_prefixes_to_use=load_prefixes_to_use,
+                          output_dir=output_dir)
     # Plot target samples log probability over time (if available)
     # Check if any experiment has target_samples_logprob data
     has_target_logprob = False
@@ -518,11 +748,12 @@ def plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_ran
                 break
         if has_target_logprob:
             break
-    
+
     if has_target_logprob:
         plot_results_over_time(loaded_data, labels, x_range, fontsize, figname_modifier,
                               index_to_use=4, plot_name="heldout_target_samples_logprob",
-                              ylabel=r"Log probability of target samples (logsumexp)", load_prefixes_to_use=load_prefixes_to_use)
+                              ylabel=r"Log probability of target samples (logsumexp)", load_prefixes_to_use=load_prefixes_to_use,
+                              output_dir=output_dir)
 
 
 def _reconstruct_aligned_agg_from_per_prompt(per_prompt_list):
@@ -730,8 +961,9 @@ def _generate_kl_frontier_plots(
     n_frontiers=1, fontsize=7, frontier_legendfontsize=None,
     filename_prefix="", skip_individual_timestep_plots=False,
     skip_combined_frontier=False, skip_time_avg_halves=False,
+    xlabel=r"KL($\sigma$|q)", ylabel=r"KL(q|$\sigma$)", plot_name="kl",
 ):
-    """Generate KL frontier plots (individual per-timestep + combined) from KL results.
+    """Generate frontier plots (individual per-timestep + combined) from paired time-series results.
 
     Args:
         kl_results_list: Standard format — kl_results_list[exp_i] is a list of
@@ -793,8 +1025,8 @@ def _generate_kl_frontier_plots(
         # Individual frontier plot for this time step
         if not skip_individual_timestep_plots:
             make_frontier_exact_kl_bootstrap(
-                xlabel=r"KL($\sigma$|q)", ylabel=r"KL(q|$\sigma$)",
-                figname=os.path.join(output_dir, f"{filename_prefix}frontier_kl_t{t_idx}.pdf"),
+                xlabel=xlabel, ylabel=ylabel,
+                figname=os.path.join(output_dir, f"{filename_prefix}frontier_{plot_name}_t{t_idx}.pdf"),
                 labels=labels, results_list=frontier_results,
                 color_list=semantic_colors, marker_list=semantic_markers,
                 aggregate_seeds=True, fontsize=fontsize,
@@ -824,8 +1056,8 @@ def _generate_kl_frontier_plots(
                 combined_groups.append(exp_i)
 
         make_frontier_exact_kl_bootstrap(
-            xlabel=r"KL($\sigma$|q)", ylabel=r"KL(q|$\sigma$)",
-            figname=os.path.join(output_dir, f"{filename_prefix}frontier_kl_combined.pdf"),
+            xlabel=xlabel, ylabel=ylabel,
+            figname=os.path.join(output_dir, f"{filename_prefix}frontier_{plot_name}_combined.pdf"),
             labels=combined_labels, results_list=combined_results,
             color_list=combined_colors, marker_list=combined_markers,
             aggregate_seeds=True, fontsize=fontsize,
@@ -842,23 +1074,23 @@ def _generate_kl_frontier_plots(
         for exp_data in kl_results_list:
             seed_data = []
             for seed_item in exp_data:
-                kl_sigma_q_arr, kl_q_sigma_arr = seed_item[0], seed_item[1]
-                T = len(kl_sigma_q_arr)
+                x_arr, y_arr = seed_item[0], seed_item[1]
+                T = len(x_arr)
                 t_start = int(round(T * frac_start))
                 t_end = int(round(T * frac_end))
                 if t_end <= t_start:
                     continue
-                avg_sigma_q = np.nanmean(kl_sigma_q_arr[t_start:t_end])
-                avg_q_sigma = np.nanmean(kl_q_sigma_arr[t_start:t_end])
-                if np.isnan(avg_sigma_q) or np.isnan(avg_q_sigma):
+                avg_x = np.nanmean(x_arr[t_start:t_end])
+                avg_y = np.nanmean(y_arr[t_start:t_end])
+                if np.isnan(avg_x) or np.isnan(avg_y):
                     continue
-                seed_data.append((np.array([avg_sigma_q]), np.array([avg_q_sigma])))
+                seed_data.append((np.array([avg_x]), np.array([avg_y])))
             avg_results.append(seed_data)
 
         if any(len(sd) > 0 for sd in avg_results):
             make_frontier_exact_kl_bootstrap(
-                xlabel=r"KL($\sigma$|q)", ylabel=r"KL(q|$\sigma$)",
-                figname=os.path.join(output_dir, f"{filename_prefix}frontier_kl_{suffix}.pdf"),
+                xlabel=xlabel, ylabel=ylabel,
+                figname=os.path.join(output_dir, f"{filename_prefix}frontier_{plot_name}_{suffix}.pdf"),
                 labels=labels, results_list=avg_results,
                 color_list=semantic_colors, marker_list=semantic_markers,
                 aggregate_seeds=True, fontsize=fontsize,
@@ -3512,8 +3744,171 @@ random_f_q_ylim_low = None
 n_frontiers = 2
 frontier_legendfontsize = 5
 
-# TODO remodev and toypos. Then, what next? remodev with it with pos (need to use cap for this)? noit with pos? Noit with mixture (did I do this already?)
-# Basically just collect all the results and make a story. If you have a consistent story, good. If not, investigate why this is not the case - why some better in some settings.
+
+
+load_prefixes_to_use = [
+# for x in $(ls info/repulselen1/ | grep analyticlogprob_rewsample_base | grep bl3e-05 | grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_cf2.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_cf4.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_cf8.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_mixqi_first_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_mixqi_lag10_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_mixqi_lag30_tb5_s1", 1, 10),
+make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_mixqi_lag50_tb5_s1", 1, 10),
+make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_cf2.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_cf4.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_cf8.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_mixqi_first_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_mixqi_lag10_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_mixqi_lag30_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al0.0001_bl3e-05_ppq_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_mixmx_first_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_mixmx_lag30_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al1e-05_bl3e-05_ppq_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_mixmx_first_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_mixmx_lag30_tb5_s1", 1, 10),
+# make_list("analyticlogprob_rewsample_base_rlhf_rc10.0_di_To_thmaisa_l1_kl0.2_b-20.0_hlnt_a0.1_ppq_ctln_ep1_e1_he10_fs100_scc_al3e-05_bl3e-05_ppq_tb5_s1", 1, 10),
+
+# ls | grep sba | grep blr3e-5  | grep -v _s | grep len1 | grep 03-1 | grep -v ctln
+
+]
+threshold = -5
+figname_modifier = "len1_repulse_b-20_03_13_v8"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 2
+frontier_legendfontsize = 4
+
+
+load_prefixes_to_use = [
+# for x in $(ls info/repulsedis2/ | grep held | grep fs50 | grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl1e-05_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs50_scc_al1e-05_bl1e-05_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs50_scc_al1e-05_bl1e-05_ppq_tb5_s1", 1, 10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs50_scc_al1e-05_bl3e-05_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs50_scc_al1e-05_bl3e-05_ppq_tb5_s1", 1, 10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl1e-05_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl1e-05_ppq_tb5_s1", 1, 10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl3e-05_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+make_list("heldout_over_time_rlhf_rc7.0_Sm13In_remodev3lav2_T_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he10_fs50_scc_al3e-05_bl3e-05_ppq_tb5_s1", 1, 10),
+
+]
+threshold = -5
+figname_modifier = "len20_repulsedis2_b-20_03-16"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 2
+frontier_legendfontsize = 4
+
+
+
+load_prefixes_to_use = [
+# for x in $(ls info/rlhfmultilen20kl2v2 | grep info_eval | grep -v first | grep -v al0.0001 | grep -v cf0.5 | grep -v cf4 | grep -v ctln | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_cf2.0_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_cf4.0_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_mixqi_lag30_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_mixqi_lag50_tb250_s1", 1, 10),
+make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_tb250_s1", 1, 10),
+make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl3e-05_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl3e-05_ppq_cf2.0_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl3e-05_ppq_mixqi_lag30_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl3e-05_ppq_mixqi_lag50_tb250_s1", 1, 10),
+make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl3e-05_ppq_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_cf2.0_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_mixqi_lag30_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_mixqi_lag50_tb250_s1", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_tb250_s1", 1, 10),
+
+make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_mixqi_lag80_tb250_s2", 1, 10),
+
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_cf2.0_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_mixqi_lag30_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_mixqi_lag50_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_mixqi_lag80_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_tb250_s2", 1, 10),
+
+]
+threshold = -5
+figname_modifier = "repulsemultilen20kl2v2_03-17_v13"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 2
+frontier_legendfontsize = 4
+
+
+
+# load_prefixes_to_use = [
+# # for x in $(ls info/rlhfmultilen20kl2v3 | grep info_eval | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_cf2.0_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-10.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl3e-05_ppq_cf2.0_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl3e-05_ppq_mixqi_lag30_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl3e-05_ppq_tb250_s2", 1, 10),
+#
+#
+# ]
+# threshold = -5
+# figname_modifier = "repulsemultilen20kl2v3_03-18"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 2
+# frontier_legendfontsize = 4
+
+
+
+load_prefixes_to_use = [
+# for x in $(ls info/exploretoyrlhfmulti03 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_c3.0_tb5_s2", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_cfpSm13_af_fo_tb5_s2", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+
+]
+threshold = -5
+figname_modifier = "probinflen1_exploretoyrlhfmulti03_03-20_v9"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 4
+frontier_legendfontsize = 4
+
+
+
+
+
+#
+# load_prefixes_to_use = [
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl20v2 |  grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+# ]
+# threshold = -7
+# figname_modifier = "repulselen100_rlhfmultikl20v2_03-21_v3"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 2
+# frontier_legendfontsize = 4
+
+
 
 
 
@@ -3561,6 +3956,7 @@ labels = generate_labels_from_prefixes(load_prefixes_to_use)
 # Check prefix type for routing
 use_f_q_g_q = False
 use_heldout_over_time = False
+use_info_eval = False
 if len(load_prefixes_to_use) > 0 and len(load_prefixes_to_use[0]) > 0:
     first_prefix = load_prefixes_to_use[0][0]
 
@@ -3569,12 +3965,20 @@ if len(load_prefixes_to_use) > 0 and len(load_prefixes_to_use[0]) > 0:
             use_f_q_g_q = True
         elif first_prefix.startswith("heldout_over_time_"):
             use_heldout_over_time = True
+        elif first_prefix.startswith("info_eval"):
+            use_info_eval = True
 
 
-if use_heldout_over_time:
+if use_info_eval:
+    print("\nPlotting info_eval reward/return vs prob-of-bad-output frontiers...")
+    plot_info_eval_frontier(
+        load_prefixes_to_use, labels, figname_modifier,
+        threshold=threshold, fontsize=fontsize,
+        frontier_legendfontsize=frontier_legendfontsize, load_dir="./info"
+    )
+elif use_heldout_over_time:
     # Plot heldout reward/return/f_q means over time (from heldout_over_time_* files)
     print("\nPlotting heldout and f_q over time...")
-
     plot_heldout_over_time(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize, threshold=threshold)
 elif use_f_q_g_q:
     # Try multiprompt v2 path first (works with or without target_samples_path)
@@ -3597,7 +4001,7 @@ else:
     for file_type_suffix in ["base", "sampling"]:
         print(f"\nProcessing {file_type_suffix} files...")
         # x_range will be computed dynamically from data (can pass custom x_range if needed)
-        process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize)
+        process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize, n_frontiers=n_frontiers, frontier_legendfontsize=frontier_legendfontsize)
 
     # x_range will be computed dynamically from data (can pass custom x_range if needed)
     plot_kl_divergences("sampling", load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize, n_frontiers=n_frontiers, frontier_legendfontsize=frontier_legendfontsize)

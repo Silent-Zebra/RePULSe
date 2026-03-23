@@ -197,7 +197,7 @@ def make_frontier_bootstrap(
                     #     f"  {labels[i]}: X CI ({((1 - alpha_level_for_ci) * 100):.0f}%) = [{x_ci_lower:.3f}, {x_ci_upper:.3f}], Y CI = [{y_ci_lower:.6f}, {y_ci_upper:.6f}]")
 
                     print(
-                        f"  {labels[i]}: X = {x_observed_mean:.3f} [{x_ci_lower:.3f}, {x_ci_upper:.3f}], Y = {y_observed_mean:.2f} [{y_ci_lower:.2f}, {y_ci_upper:.2f}]")
+                        f"  {labels[i]}: X = {x_observed_mean:.3f} [{x_ci_lower:.3f}, {x_ci_upper:.3f}], Y = {y_observed_mean:.2f} [{y_ci_lower:.2f}, {y_ci_upper:.2f}], n_seeds={n_seeds}")
 
                 # Plot the observed mean
                 plt.scatter(x_observed_mean, y_observed_mean, label=labels[i], c=color_list[i],
@@ -415,7 +415,7 @@ def make_frontier_exact_kl_bootstrap(
                     y_err_bootstrap[y_err_bootstrap < 0] = 0
 
                     print(
-                        f"  {labels[i]}: X = {x_observed_mean:.3f} [{x_ci_lower:.3f}, {x_ci_upper:.3f}], Y = {y_observed_mean:.3f} [{y_ci_lower:.3f}, {y_ci_upper:.3f}]")
+                        f"  {labels[i]}: X = {x_observed_mean:.3f} [{x_ci_lower:.3f}, {x_ci_upper:.3f}], Y = {y_observed_mean:.3f} [{y_ci_lower:.3f}, {y_ci_upper:.3f}], n_seeds={n_seeds}")
 
                 # Plot the observed mean
                 agg_scatter_kwargs = dict(label=use_label, c=color_list[i],
@@ -578,215 +578,6 @@ def make_frontier_approx_kl_bootstrap(
         ylimlow=ylimlow,
         ylimhigh=ylimhigh,
     )
-
-
-def plot_top_tokens_bar_chart(
-    figname, labels, results_list,
-    color_list, fontsize=7, legendfontsize=7,
-    n_bootstrap_draws=5000,
-    n_top_tokens=10,
-):
-    """
-    Plot bar chart of log probability differences (q - target) for top N tokens under target distribution.
-    
-    Identifies top tokens by their target distribution probabilities, then plots log_probs_q - log_probs_target
-    for those tokens. For each token, shows bars for each setting, with confidence intervals.
-    
-    results_list should contain tuples of (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
-    where metrics_list contains dicts with 'top_10_target_tokens', 'log_probs_target', and 'log_probs_q'.
-    """
-    plt.clf()
-    
-    # Collect all tokens and their log probabilities across all settings/seeds
-    # Structure: token_id -> {setting_idx: {'target': [per-seed averages], 'q': [per-seed averages]}}
-    token_log_probs_target_by_setting = {}  # token_id -> {setting_idx: [per-seed averages]}
-    token_log_probs_q_by_setting = {}  # token_id -> {setting_idx: [per-seed averages]}
-    
-    for setting_idx in range(len(labels)):
-        tuple_list = results_list[setting_idx]
-        
-        if not tuple_list:
-            print(f"Warning: Empty tuple_list for {labels[setting_idx]}. Skipping.")
-            continue
-        
-        for t_idx, t in enumerate(tuple_list):
-            # t should be a tuple: (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
-            if not isinstance(t, tuple) or len(t) < 3:
-                print(f"Warning: Expected tuple with at least 3 elements for {labels[setting_idx]}, seed {t_idx+1}. Skipping.")
-                continue
-            
-            metrics_list = t[2]  # List of metrics dicts (one per prompt)
-            
-            if not isinstance(metrics_list, list):
-                print(f"Warning: metrics_list should be a list for {labels[setting_idx]}, seed {t_idx+1}. Got {type(metrics_list)}. Skipping.")
-                continue
-            
-            # Collect log probs for this seed across all prompts
-            # Store as pairs to ensure matching
-            seed_token_log_probs = {}  # token_id -> {'target': [values], 'q': [values]} per prompt
-            
-            # Process each prompt's metrics
-            for metrics_dict in metrics_list:
-                if not isinstance(metrics_dict, dict):
-                    continue
-                
-                # Get all tracked tokens and their log probabilities
-                # Use all_tracked_tokens to get more complete coverage (includes top 10 from both q and target)
-                tracked_tokens = metrics_dict.get('all_tracked_tokens', metrics_dict.get('top_10_target_tokens', []))
-                log_probs_target = metrics_dict.get('log_probs_target', {})
-                log_probs_q = metrics_dict.get('log_probs_q', {})
-                
-                for token_id in tracked_tokens:
-                    if token_id not in seed_token_log_probs:
-                        seed_token_log_probs[token_id] = {'target': [], 'q': []}
-                    
-                    if token_id in log_probs_target:
-                        seed_token_log_probs[token_id]['target'].append(log_probs_target[token_id])
-                    
-                    if token_id in log_probs_q:
-                        seed_token_log_probs[token_id]['q'].append(log_probs_q[token_id])
-            
-            # Average across prompts for this seed, compute difference, then store
-            for token_id, probs_dict in seed_token_log_probs.items():
-                target_values = probs_dict['target']
-                q_values = probs_dict['q']
-                
-                if len(target_values) > 0 and len(q_values) > 0:
-                    # Average across prompts
-                    seed_avg_target = np.mean(target_values)
-                    seed_avg_q = np.mean(q_values)
-                    seed_diff = seed_avg_q - seed_avg_target
-                    
-                    # Store target averages
-                    if token_id not in token_log_probs_target_by_setting:
-                        token_log_probs_target_by_setting[token_id] = {}
-                    if setting_idx not in token_log_probs_target_by_setting[token_id]:
-                        token_log_probs_target_by_setting[token_id][setting_idx] = []
-                    token_log_probs_target_by_setting[token_id][setting_idx].append(seed_avg_target)
-                    
-                    # Store q averages
-                    if token_id not in token_log_probs_q_by_setting:
-                        token_log_probs_q_by_setting[token_id] = {}
-                    if setting_idx not in token_log_probs_q_by_setting[token_id]:
-                        token_log_probs_q_by_setting[token_id][setting_idx] = []
-                    token_log_probs_q_by_setting[token_id][setting_idx].append(seed_avg_q)
-    
-    # Find top N tokens by average log probability under target distribution across all settings
-    token_avg_log_probs_target = {}
-    for token_id, setting_dict in token_log_probs_target_by_setting.items():
-        all_values = []
-        for setting_idx, values in setting_dict.items():
-            all_values.extend(values)
-        if all_values:
-            token_avg_log_probs_target[token_id] = np.mean(all_values)
-    
-    # Get top N tokens
-    if len(token_avg_log_probs_target) == 0:
-        print("Warning: No token data found. Cannot create bar chart.")
-        return
-    
-    sorted_tokens = sorted(token_avg_log_probs_target.items(), key=lambda x: x[1], reverse=True)
-    top_n_tokens = [token_id for token_id, _ in sorted_tokens[:n_top_tokens]]
-    
-    print(f"\nTop {n_top_tokens} tokens (by average log prob under target): {top_n_tokens}")
-    
-    # Prepare data for plotting: for each token, get mean and CI for log_probs_q - log_probs_target
-    n_settings = len(labels)
-    n_tokens = len(top_n_tokens)
-    
-    # Bar positions
-    bar_width = 0.25
-    x_positions = np.arange(n_tokens)
-    setting_offsets = np.linspace(-bar_width * (n_settings - 1) / 2, 
-                                   bar_width * (n_settings - 1) / 2, 
-                                   n_settings)
-    
-    # Collect means and CIs for the difference (q - target)
-    means = np.zeros((n_tokens, n_settings))
-    ci_lowers = np.zeros((n_tokens, n_settings))
-    ci_uppers = np.zeros((n_tokens, n_settings))
-    
-    alpha_level_for_ci = 0.05  # For a 95% CI
-    
-    for token_idx, token_id in enumerate(top_n_tokens):
-        for setting_idx in range(n_settings):
-            # Get target and q values (should be matched per seed)
-            target_values = []
-            if token_id in token_log_probs_target_by_setting and setting_idx in token_log_probs_target_by_setting[token_id]:
-                target_values = np.array(token_log_probs_target_by_setting[token_id][setting_idx])
-            
-            q_values = []
-            if token_id in token_log_probs_q_by_setting and setting_idx in token_log_probs_q_by_setting[token_id]:
-                q_values = np.array(token_log_probs_q_by_setting[token_id][setting_idx])
-            
-            # Compute differences per seed
-            if len(target_values) > 0 and len(q_values) > 0:
-                # Ensure same length (should be, but handle edge case)
-                min_len = min(len(target_values), len(q_values))
-                target_values = target_values[:min_len]
-                q_values = q_values[:min_len]
-                diff_values = q_values - target_values
-            else:
-                diff_values = np.array([])
-            
-            if len(diff_values) == 0:
-                means[token_idx, setting_idx] = np.nan
-                ci_lowers[token_idx, setting_idx] = np.nan
-                ci_uppers[token_idx, setting_idx] = np.nan
-            elif len(diff_values) < 2:
-                means[token_idx, setting_idx] = np.mean(diff_values)
-                ci_lowers[token_idx, setting_idx] = np.mean(diff_values)
-                ci_uppers[token_idx, setting_idx] = np.mean(diff_values)
-            else:
-                # Bootstrap CI
-                bootstrap_means = []
-                for _ in range(n_bootstrap_draws):
-                    resample_indices = np.random.choice(len(diff_values), size=len(diff_values), replace=True)
-                    bootstrap_sample = diff_values[resample_indices]
-                    bootstrap_means.append(np.mean(bootstrap_sample))
-                
-                mean_val = np.mean(diff_values)
-                ci_lower = np.percentile(bootstrap_means, (alpha_level_for_ci / 2) * 100)
-                ci_upper = np.percentile(bootstrap_means, (1 - alpha_level_for_ci / 2) * 100)
-                
-                means[token_idx, setting_idx] = mean_val
-                ci_lowers[token_idx, setting_idx] = ci_lower
-                ci_uppers[token_idx, setting_idx] = ci_upper
-    
-    # Plot bars
-    for setting_idx in range(n_settings):
-        x_pos = x_positions + setting_offsets[setting_idx]
-        bars = plt.bar(x_pos, means[:, setting_idx], bar_width, 
-                       label=labels[setting_idx], 
-                       color=color_list[setting_idx],
-                       alpha=0.7)
-        
-        # Add error bars (CI intervals centered at top of bar)
-        for token_idx in range(n_tokens):
-            if not np.isnan(means[token_idx, setting_idx]):
-                mean_val = means[token_idx, setting_idx]
-                ci_lower = ci_lowers[token_idx, setting_idx]
-                ci_upper = ci_uppers[token_idx, setting_idx]
-                
-                # Error bar from mean to CI bounds
-                lower_err = mean_val - ci_lower
-                upper_err = ci_upper - mean_val
-                
-                plt.errorbar(x_pos[token_idx], mean_val,
-                           yerr=[[lower_err], [upper_err]],
-                           fmt='none', color='black', capsize=3, linewidth=1)
-    
-    plt.xlabel('Token ID', fontsize=fontsize)
-    plt.ylabel('Log Probability Difference (q - target)', fontsize=fontsize)
-    plt.title(f'Top {n_top_tokens} Target Tokens: Log Prob Difference (q - target)', fontsize=fontsize+1)
-    plt.xticks(x_positions, [str(token_id) for token_id in top_n_tokens], fontsize=fontsize-1)
-    plt.legend(fontsize=legendfontsize)
-    plt.grid(axis='y', alpha=0.3, linestyle='--')
-    plt.axhline(y=0, color='gray', linestyle='--', linewidth=0.5)  # Add reference line at 0
-    plt.tight_layout()
-    
-    plt.savefig(figname)
-    print(f"Bar chart saved to {figname}")
 
 
 if __name__ == "__main__":
@@ -1661,18 +1452,70 @@ if __name__ == "__main__":
                 compare_to_reference=compare_to_reference,
             )
 
-            # Plot bar chart of top tokens
-            plot_top_tokens_bar_chart(
-                figname=f"{figname_modifier}_top_tokens_bar",
+            # Plot bar chart of top tokens (avg over time + final step)
+            for final_only, suffix in [(False, "_top_tokens_bar_avg"), (True, "_top_tokens_bar_final")]:
+                plot_top_tokens_bar_chart(
+                    figname=f"{figname_modifier}{suffix}",
+                    labels=kl_labels,
+                    results_list=kl_results_list,
+                    color_list=kl_color_list,
+                    fontsize=fontsize,
+                    legendfontsize=legendfontsize,
+                    n_bootstrap_draws=5000,
+                    n_top_tokens=10,
+                    final_only=final_only,
+                )
+
+            # Lollipop chart of absolute log probabilities (avg over time + final step)
+            for final_only, suffix in [(False, "_top_tokens_lollipop_avg"), (True, "_top_tokens_lollipop_final")]:
+                plot_top_tokens_lollipop(
+                    figname=f"{figname_modifier}{suffix}",
+                    labels=kl_labels,
+                    results_list=kl_results_list,
+                    color_list=kl_color_list,
+                    fontsize=fontsize,
+                    legendfontsize=legendfontsize,
+                    n_bootstrap_draws=5000,
+                    n_top_tokens=10,
+                    final_only=final_only,
+                )
+
+            # Lollipop chart for intersection of top-q tokens across settings
+            plot_top_q_intersection_lollipop(
+                figname=f"{figname_modifier}_top_q_lollipop_final",
                 labels=kl_labels,
                 results_list=kl_results_list,
                 color_list=kl_color_list,
                 fontsize=fontsize,
                 legendfontsize=legendfontsize,
                 n_bootstrap_draws=5000,
+            )
+
+            # Ranked lollipop chart (rank-ordered log probs under q, with target at same tokens)
+            plot_top_q_ranked_lollipop(
+                figname=f"{figname_modifier}_top_q_ranked_lollipop_final",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                color_list=kl_color_list,
+                fontsize=fontsize,
+                legendfontsize=legendfontsize,
+                n_bootstrap_draws=5000,
+                n_ranks=10,
+            )
+
+            # Lollipop chart of top token log q over time
+            plot_top_tokens_lollipop_over_time(
+                figname=f"{figname_modifier}_top_tokens_lollipop_over_time",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                color_list=kl_color_list,
+                n_frontiers=4,
+                fontsize=fontsize,
+                legendfontsize=legendfontsize,
+                n_bootstrap_draws=5000,
                 n_top_tokens=10,
             )
-    
+
         raise SystemExit(0)
 
 

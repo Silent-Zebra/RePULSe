@@ -499,6 +499,39 @@ class CombinedHarmlessnessTrainer(ABC):
 
         self.total_steps = 0
 
+        # Cumulative count of tokens sampled by q (set from outside via set_cumulative_q_sample_counts)
+        self.cumulative_q_sample_counts = None
+
+    def set_cumulative_q_sample_counts(self, n_vocab: int):
+        """Initialize the cumulative sample count tensor for tracking q's sampled tokens."""
+        self.cumulative_q_sample_counts = torch.zeros(n_vocab, dtype=torch.long)
+
+    def _update_cumulative_q_sample_counts(self, sequences, num_actions):
+        """Update cumulative_q_sample_counts with the generated tokens from sequences.
+
+        Args:
+            sequences: (B, seq_len) tensor of prompt + generated token IDs
+            num_actions: int or (B,) tensor, number of generated tokens per sequence
+        """
+        if self.cumulative_q_sample_counts is None:
+            return
+        # Extract generated token IDs (the last num_actions tokens of each sequence)
+        if isinstance(num_actions, int):
+            generated_tokens = sequences[:, -num_actions:]  # (B, num_actions)
+        else:
+            # Variable-length: gather each sequence's generated tokens
+            generated_tokens_list = []
+            for i in range(sequences.size(0)):
+                na = num_actions[i].item() if isinstance(num_actions, torch.Tensor) else num_actions
+                generated_tokens_list.append(sequences[i, -na:])
+            generated_tokens = torch.cat(generated_tokens_list)  # (total_tokens,)
+
+        # Flatten and count on CPU
+        flat_tokens = generated_tokens.reshape(-1).cpu()
+        self.cumulative_q_sample_counts.scatter_add_(
+            0, flat_tokens.long(), torch.ones_like(flat_tokens, dtype=torch.long)
+        )
+
     def get_base_actor_loss_fn(self):
         if self.base_actor_loss_type == "reinforce":
             base_actor_loss_fn = REINFORCELoss(baseline_type=self.baseline_type,
@@ -999,6 +1032,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     **self.generate_kwargs
                 )
 
+                self._update_cumulative_q_sample_counts(sequences, num_actions)
                 print_timestamp("training - sampling: end make_experience (mixture path)")
                 # NOTE: We do NOT store q_best_action_log_probs in experience.info because the
                 # replay buffer's split_experience_batch only supports scalar info values.
@@ -1030,6 +1064,8 @@ class CombinedHarmlessnessTrainer(ABC):
                 action_log_probs, action_mask, attention_mask, num_actions, sequences, value = self.sampling_experience_maker_neg.generate_seqs_and_get_all_data(
                     expanded_prompts, **self.generate_kwargs)
                 print_timestamp("training - sampling: end generate, start make_experience (non-mixture)")
+
+                self._update_cumulative_q_sample_counts(sequences, num_actions)
 
                 # Update exact_count visits if enabled (before make_experience)
                 if self.sampling_experience_maker_neg.exploration_bonus == "exact_count":

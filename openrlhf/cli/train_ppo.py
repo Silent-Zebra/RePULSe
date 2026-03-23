@@ -852,6 +852,14 @@ def train(args):
             strategy.print(f"Threshold-based bad word list (reward < {args.threshold}): {bad_word_tokens_ids_threshold}")
             strategy.print(f"Number of tokens with reward < {args.threshold}: {len(bad_word_tokens_ids_threshold)}")
 
+    # Initialize cumulative q sample counts if analytic_calc is enabled
+    cumulative_q_sample_counts = None
+    if args.analytic_calc and args.do_harmlessness_training and precomputed_toxicity_scores is not None:
+        n_vocab = precomputed_toxicity_scores.shape[0]
+        harmlessness_trainer.set_cumulative_q_sample_counts(n_vocab)
+        # Reference for passing to do_analytic_kl_calc
+        cumulative_q_sample_counts = harmlessness_trainer.cumulative_q_sample_counts
+
     # Initialize lists to track metrics across all fit_steps
     # These will be passed into fit() so they accumulate data across all fit steps
     iwae_lbs_list = []
@@ -1223,6 +1231,7 @@ def train(args):
                 total_kl_sigma_q_list_analytic=total_kl_sigma_q_list_analytic,
                 total_kl_q_sigma_list_analytic=total_kl_q_sigma_list_analytic,
                 metrics_list_analytic=metrics_list_analytic,
+                cumulative_q_sample_counts=cumulative_q_sample_counts,
             )
 
         if args.do_harmlessness_training:
@@ -1566,6 +1575,7 @@ def train(args):
             total_kl_sigma_q_list_analytic=total_kl_sigma_q_list_analytic,
             total_kl_q_sigma_list_analytic=total_kl_q_sigma_list_analytic,
             metrics_list_analytic=metrics_list_analytic,
+            cumulative_q_sample_counts=cumulative_q_sample_counts,
         )
 
     if args.analytic_bad_word_calc:
@@ -1719,13 +1729,14 @@ def train(args):
 
 
 def do_analytic_kl_calc(
-    base_actor, actor, args, tokenizer, prompt, 
+    base_actor, actor, args, tokenizer, prompt,
     precomputed_toxicity_scores,
-    total_kl_sigma_q_list_analytic, total_kl_q_sigma_list_analytic, metrics_list_analytic
+    total_kl_sigma_q_list_analytic, total_kl_q_sigma_list_analytic, metrics_list_analytic,
+    cumulative_q_sample_counts=None,
 ) -> dict:
     """
     Calculate analytic KL divergence between target distribution and actor model.
-    
+
     Args:
         base_actor: The base actor model (used as p in target distribution)
         actor: The current actor model (used as q)
@@ -1736,7 +1747,9 @@ def do_analytic_kl_calc(
         total_kl_sigma_q_list_analytic: List to append KL(sigma_p || q) values to
         total_kl_q_sigma_list_analytic: List to append KL(q || sigma_p) values to
         metrics_list_analytic: List to append metrics dictionaries to
-        
+        cumulative_q_sample_counts: Optional tensor of shape (n_vocab,) tracking cumulative
+            token sample counts from q. Snapshot is included in metrics_dict if provided.
+
     Returns:
         metrics_dict: Dictionary containing metrics from the calculation
     """
@@ -1752,6 +1765,7 @@ def do_analytic_kl_calc(
         precomputed_toxicity_scores=precomputed_toxicity_scores,
         total_kl_sigma_q_list=total_kl_sigma_q_list_analytic,
         total_kl_q_sigma_list=total_kl_q_sigma_list_analytic,
+        cumulative_q_sample_counts=cumulative_q_sample_counts,
     )
     metrics_list_analytic.append(metrics_dict)
     return metrics_dict
@@ -2485,14 +2499,15 @@ def calculate_analytic_kl_toxicity_single_token(
     precomputed_toxicity_scores: torch.Tensor,
     total_kl_sigma_q_list: List[float],
     total_kl_q_sigma_list: List[float],
+    cumulative_q_sample_counts: Optional[torch.Tensor] = None,
 ) -> Tuple[float, float, dict]:
     """
     Calculates the analytic KL divergence in both directions between target distribution and q(x),
     given a prompt and single token output.
-    
+
     Target distribution: sigma_p(x) = p(x) * e^(target_dist_beta * r(x)) / Z
     where r(x) is the toxicity score for token x.
-    
+
     Args:
         model_p_for_target: The language model used as p in the target distribution
         model_q: The language model used as the proposal distribution q
@@ -2502,7 +2517,9 @@ def calculate_analytic_kl_toxicity_single_token(
         precomputed_toxicity_scores: Precomputed toxicity scores for all tokens, shape (n_vocab,)
         total_kl_sigma_q_list: List to append KL(sigma_p || q) values to
         total_kl_q_sigma_list: List to append KL(q || sigma_p) values to
-        
+        cumulative_q_sample_counts: Optional tensor of shape (n_vocab,) tracking how many times
+            each token has been sampled by q up to this point. If provided, included in metrics_dict.
+
     Returns:
         Tuple of (kl_sigma_q, kl_q_sigma, metrics_dict) where metrics_dict contains top token info
     """
@@ -2548,45 +2565,18 @@ def calculate_analytic_kl_toxicity_single_token(
     print(f"KL(sigma_p || q): {kl_sigma_q}")
     print(f"KL(q || sigma_p): {kl_q_sigma}")
     
-    # Find top 10 tokens under q and target distribution
-    top_10_q_indices = torch.topk(probs_q, k=10, dim=0).indices
-    top_10_target_indices = torch.topk(probs_target, k=10, dim=0).indices
-    
-    # Combine and get unique tokens
-    all_top_indices = torch.unique(torch.cat([top_10_q_indices, top_10_target_indices]))
-    
-    # Create metrics dictionary
+    # Create metrics dictionary with full-vocab tensors, shape (n_vocab,)
+    log_probs_q_cpu = log_probs_q.detach().cpu()
+    log_probs_target_cpu = log_probs_target.detach().cpu()
+
     metrics_dict = {
-        'top_10_q_tokens': top_10_q_indices.cpu().tolist(),
-        'top_10_target_tokens': top_10_target_indices.cpu().tolist(),
-        'all_tracked_tokens': all_top_indices.cpu().tolist(),
-        'log_probs_q': {},
-        'log_probs_target': {},
-        'log_diff': {},
+        'log_probs_q_full': log_probs_q_cpu,
+        'log_probs_target_full': log_probs_target_cpu,
     }
-    
-    # Calculate log probs and differences for tracked tokens
-    for token_idx in all_top_indices:
-        token_id = token_idx.item()
-        log_q_val = log_probs_q[token_idx].item()
-        log_target_val = log_probs_target[token_idx].item()
-        log_diff = log_q_val - log_target_val
-        
-        metrics_dict['log_probs_q'][token_id] = log_q_val
-        metrics_dict['log_probs_target'][token_id] = log_target_val
-        metrics_dict['log_diff'][token_id] = log_diff
-    
-    print("\nTop 10 tokens under q(x):")
-    for token_id in metrics_dict['top_10_q_tokens']:
-        print(f"  Token {token_id}: log_q={metrics_dict['log_probs_q'][token_id]:.6f}, "
-              f"log_target={metrics_dict['log_probs_target'][token_id]:.6f}, "
-              f"diff={metrics_dict['log_diff'][token_id]:.6f}")
-    
-    print("\nTop 10 tokens under target distribution:")
-    for token_id in metrics_dict['top_10_target_tokens']:
-        print(f"  Token {token_id}: log_q={metrics_dict['log_probs_q'][token_id]:.6f}, "
-              f"log_target={metrics_dict['log_probs_target'][token_id]:.6f}, "
-              f"diff={metrics_dict['log_diff'][token_id]:.6f}")
+
+    # Include cumulative sample counts snapshot if available
+    if cumulative_q_sample_counts is not None:
+        metrics_dict['cumulative_q_sample_counts'] = cumulative_q_sample_counts.clone()
     
     total_kl_sigma_q_list.append(kl_sigma_q)
     total_kl_q_sigma_list.append(kl_q_sigma)
