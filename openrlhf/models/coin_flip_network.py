@@ -448,6 +448,42 @@ class CoinFlipNetwork(nn.Module):
         self.warmup_steps = warmup_steps
         self.register_buffer('warmup_counter', torch.zeros(1, dtype=torch.long, device=base_model_device))
 
+        # In distributed settings, synchronize frozen prior head weights and check that the
+        # architecture supports multi-GPU training.
+        #
+        # For separate_nn: the trainable engine goes through strategy.prepare() which broadcasts
+        # weights from rank 0 and all-reduces gradients — fully synced. But the frozen prior head
+        # (frozen_prior_network.coin_flip_head) is initialized independently per rank with
+        # nn.init.normal_(), so we broadcast it from rank 0 here.
+        #
+        # For non-separate_nn architectures: neither the trainable coin_flip_head weights nor its
+        # gradients are synced across ranks (it uses a plain optimizer with manual backward/step,
+        # not DeepSpeed). This means the trainable head diverges across ranks from the start.
+        # Until this is fixed (e.g., by all-reducing gradients or wrapping in DDP), we fail noisily
+        # rather than silently producing incorrect results.
+        self._sync_frozen_prior_weights_or_fail()
+
+    def _sync_frozen_prior_weights_or_fail(self):
+        """
+        In distributed settings: broadcast frozen prior head weights from rank 0, or raise
+        NotImplementedError if the architecture doesn't support multi-GPU training.
+        """
+        if not torch.distributed.is_initialized() or torch.distributed.get_world_size() <= 1:
+            return
+
+        if self.coin_flip_architecture == "separate_nn":
+            # frozen_prior_network.coin_flip_head is the frozen head — broadcast from rank 0
+            for param in self.frozen_prior_network.coin_flip_head.parameters():
+                torch.distributed.broadcast(param.data, src=0)
+        else:
+            raise NotImplementedError(
+                f"CoinFlipNetwork with architecture '{self.coin_flip_architecture}' does not support "
+                f"distributed/multi-GPU training. The trainable coin_flip_head uses a plain optimizer "
+                f"with manual backward/step (no gradient all-reduce across ranks), so weights diverge. "
+                f"Use coin_flip_architecture='separate_nn' for multi-GPU, or implement gradient "
+                f"synchronization for this architecture."
+            )
+
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         """Backward compatibility: convert old prior_running_var to prior_running_M2."""
         old_key = prefix + 'prior_running_var'
