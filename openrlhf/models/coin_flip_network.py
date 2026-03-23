@@ -425,10 +425,12 @@ class CoinFlipNetwork(nn.Module):
         # Running statistics for normalization of random prior outputs (per dimension)
         # These ensure the random prior contributes ~1 pseudocount
         # Normalize each of the d dimensions to have mean 0, std 1
-        # Uses Welford's online algorithm (same as CFN implementation)
+        # Uses Chan's parallel Welford algorithm for batched updates and distributed sync
         # Track statistics per dimension: shape (coin_flip_dim,)
+        # prior_running_M2 stores the sum of squared deviations (M2), NOT the variance.
+        # Variance is computed on the fly as M2 / count when needed for normalization.
         self.register_buffer('prior_running_mean', torch.zeros(coin_flip_dim, device=base_model_device))
-        self.register_buffer('prior_running_var', torch.zeros(coin_flip_dim, device=base_model_device))
+        self.register_buffer('prior_running_M2', torch.zeros(coin_flip_dim, device=base_model_device))
         self.register_buffer('prior_num_updates', torch.zeros(1, dtype=torch.long, device=base_model_device))
 
         # Warmup: return bonus = 0 for the first warmup_steps calls to compute_intrinsic_reward,
@@ -445,8 +447,18 @@ class CoinFlipNetwork(nn.Module):
         #     the pre-warmup constant bonus was already having no effect on the target distribution.
         self.warmup_steps = warmup_steps
         self.register_buffer('warmup_counter', torch.zeros(1, dtype=torch.long, device=base_model_device))
-        self._warned_welford_distributed = False
-    
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        """Backward compatibility: convert old prior_running_var to prior_running_M2."""
+        old_key = prefix + 'prior_running_var'
+        new_key = prefix + 'prior_running_M2'
+        count_key = prefix + 'prior_num_updates'
+        if old_key in state_dict and new_key not in state_dict:
+            # Old format stored variance = M2 / count. Convert to M2 = variance * count.
+            count = state_dict.get(count_key, torch.zeros(1, dtype=torch.long))
+            state_dict[new_key] = state_dict.pop(old_key) * count.item()
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+
     def _get_device(self):
         """Get the device of the model, prioritizing GPU/cuda."""
         # Try to get device from model parameters
@@ -680,7 +692,7 @@ class CoinFlipNetwork(nn.Module):
         normalized_random_prior_final = self._normalize_with_welford_per_dim(
             random_prior_final,
             self.prior_running_mean,
-            self.prior_running_var,
+            self.prior_running_M2,
             self.prior_num_updates,
             update_stats=update_prior_stats,
         )  # (batch_size, coin_flip_dim)
@@ -759,14 +771,14 @@ class CoinFlipNetwork(nn.Module):
         with torch.no_grad():
             frozen_predictions = self.frozen_prior_network.coin_flip_head(frozen_final)  # (B, coin_flip_dim)
 
-        # Normalize frozen prior outputs using Welford's algorithm.
+        # Normalize frozen prior outputs using Chan's parallel Welford algorithm.
         # update_prior_stats controls whether running stats are updated:
         # - False during training (replayed states should not shift the normalization)
         # - True during bonus computation (new states should update the normalization)
         normalized_frozen = self._normalize_with_welford_per_dim(
             frozen_predictions,
             self.prior_running_mean,
-            self.prior_running_var,
+            self.prior_running_M2,
             self.prior_num_updates,
             update_stats=update_prior_stats,
         )
@@ -839,7 +851,7 @@ class CoinFlipNetwork(nn.Module):
         normalized_random_prior_final = self._normalize_with_welford_per_dim(
             random_prior_final,
             self.prior_running_mean,
-            self.prior_running_var,
+            self.prior_running_M2,
             self.prior_num_updates,
             update_stats=update_prior_stats,
         )  # (batch_size, coin_flip_dim)
@@ -1108,20 +1120,89 @@ class CoinFlipNetwork(nn.Module):
         # Normalize using updated running statistics
         return self._normalize_values(values, running_mean, running_var)
     
+    def _merge_batch_stats_across_ranks(
+        self,
+        batch_mean: torch.Tensor,
+        batch_M2: torch.Tensor,
+        batch_count: int,
+    ) -> tuple:
+        """
+        Merge batch statistics across distributed ranks using Chan's parallel merge formula.
+
+        Each rank has computed (batch_mean, batch_M2, batch_count) from its local subset of the
+        batch. This method all-gathers these stats and merges them into a single global batch
+        statistic, as if all samples had been on one rank.
+
+        No-ops (returns inputs unchanged) when not in a distributed setting or world_size <= 1.
+
+        Args:
+            batch_mean: Mean of local batch per dimension, shape (num_dims,)
+            batch_M2: Sum of squared deviations from batch_mean in local batch, shape (num_dims,)
+            batch_count: Number of samples in local batch
+
+        Returns:
+            (global_mean, global_M2, global_count) — merged statistics across all ranks
+        """
+        if not torch.distributed.is_initialized() or torch.distributed.get_world_size() <= 1:
+            return batch_mean, batch_M2, batch_count
+
+        world_size = torch.distributed.get_world_size()
+
+        # All-gather batch stats from all ranks
+        all_means = [torch.zeros_like(batch_mean) for _ in range(world_size)]
+        all_M2s = [torch.zeros_like(batch_M2) for _ in range(world_size)]
+        # Use a tensor for batch_count so we can all-gather it
+        count_tensor = torch.tensor([batch_count], dtype=torch.long, device=batch_mean.device)
+        all_counts = [torch.zeros_like(count_tensor) for _ in range(world_size)]
+
+        torch.distributed.all_gather(all_means, batch_mean.contiguous())
+        torch.distributed.all_gather(all_M2s, batch_M2.contiguous())
+        torch.distributed.all_gather(all_counts, count_tensor)
+
+        # Sequential merge using Chan's formula (world_size is typically 2-8, so this is fast)
+        # Chan's merge for two datasets A and B:
+        #   delta = mean_B - mean_A
+        #   count_AB = count_A + count_B
+        #   mean_AB = mean_A + delta * count_B / count_AB
+        #   M2_AB = M2_A + M2_B + delta^2 * count_A * count_B / count_AB
+        merged_mean = all_means[0].clone()
+        merged_M2 = all_M2s[0].clone()
+        merged_count = all_counts[0].item()
+
+        for i in range(1, world_size):
+            other_count = all_counts[i].item()
+            if other_count == 0:
+                continue
+            if merged_count == 0:
+                merged_mean = all_means[i].clone()
+                merged_M2 = all_M2s[i].clone()
+                merged_count = other_count
+                continue
+
+            delta = all_means[i] - merged_mean
+            new_count = merged_count + other_count
+            merged_mean = merged_mean + delta * other_count / new_count
+            merged_M2 = merged_M2 + all_M2s[i] + delta ** 2 * merged_count * other_count / new_count
+            merged_count = new_count
+
+        return merged_mean, merged_M2, merged_count
+
     def _normalize_with_welford_per_dim(
         self,
         values: torch.Tensor,
         running_mean: torch.Tensor,
-        running_var: torch.Tensor,
+        running_M2: torch.Tensor,
         num_updates: torch.Tensor,
         update_stats: bool = True,
     ) -> torch.Tensor:
         """
-        Normalize values per dimension, optionally updating running statistics using Welford's
-        online algorithm.
+        Normalize values per dimension, optionally updating running statistics using Chan's
+        parallel Welford algorithm.
 
         When update_stats=True, incorporates the current batch into the running statistics
         before normalizing (so batch T is normalized using stats from batches 1,...,T).
+        In distributed settings, batch stats are merged across ranks before updating running
+        stats, ensuring all ranks maintain identical statistics.
         When update_stats=False, normalizes using existing stats without modifying them.
 
         Stats should only be updated on genuinely new states (during bonus computation),
@@ -1130,8 +1211,9 @@ class CoinFlipNetwork(nn.Module):
         Args:
             values: Values to normalize, shape (batch_size, num_dims)
             running_mean: Buffer storing running mean per dimension, shape (num_dims,)
-            running_var: Buffer storing running variance per dimension, shape (num_dims,)
-            num_updates: Buffer storing number of updates (will be incremented by batch_size if update_stats=True)
+            running_M2: Buffer storing sum of squared deviations (M2) per dimension, shape (num_dims,)
+            num_updates: Buffer storing total number of samples seen (will be incremented by
+                batch_count if update_stats=True). This counts individual samples, not batches.
             update_stats: If True, update running statistics with the current batch before normalizing.
                 If False, only normalize using existing statistics. Defaults to True.
 
@@ -1139,104 +1221,74 @@ class CoinFlipNetwork(nn.Module):
             Normalized values with mean ~0, std ~1 per dimension, shape (batch_size, num_dims)
         """
         if update_stats:
-            if (not self._warned_welford_distributed
-                    and torch.distributed.is_initialized()
-                    and torch.distributed.get_world_size() > 1):
-                print(
-                    "[WARNING] CoinFlipNetwork Welford stats are updated independently per rank. "
-                    "In a distributed setting each rank only sees its own subset of the rollout batch, "
-                    "so running_mean and running_var will diverge across ranks. "
-                    "This affects the frozen prior normalization scale but not gradient correctness. "
-                    "Synchronizing these stats correctly across ranks (e.g. via Chan's parallel Welford) "
-                    "is left as a future improvement.",
-                    flush=True,
-                )
-                self._warned_welford_distributed = True
+            batch_count = values.shape[0]
+            assert batch_count > 0, "Cannot update Welford stats with an empty batch"
 
-            batch_size = values.shape[0]
+            # Phase 1: Compute local batch statistics (vectorized, no running state mutation yet)
+            batch_mean = values.mean(dim=0)  # (num_dims,)
+            # batch_M2 = sum of squared deviations from batch_mean within this batch
+            batch_M2 = ((values - batch_mean.unsqueeze(0)) ** 2).sum(dim=0)  # (num_dims,)
 
-            # Process each sample in the batch sequentially through Welford's algorithm.
-            # After processing all samples, the running stats reflect batches 1,...,T
-            # (including the current batch T).
-            for i in range(batch_size):
-                value = values[i]  # (num_dims,)
+            # Phase 2: In distributed, merge batch stats across ranks into a single global batch
+            # stat. All ranks start from identical running stats (from the previous call's merge),
+            # and after this step they all have the same global batch stat, so the running stats
+            # update below produces identical results on every rank.
+            batch_mean, batch_M2, batch_count = self._merge_batch_stats_across_ranks(
+                batch_mean, batch_M2, batch_count
+            )
 
-                # Define n as the number of updates we've done so far.
-                # n starts at 0 and increments by 1 each time we update.
-                # effective_iter = n + 1 (the count after incorporating this sample).
-                effective_iter = num_updates.item() + 1
+            # Phase 3: Merge the (global) batch stat into running stats using Chan's parallel
+            # merge formula.
+            #
+            # Chan's merge for combining existing stats (A) with new batch (B):
+            #   delta = mean_B - mean_A
+            #   count_AB = count_A + count_B
+            #   mean_AB = mean_A + delta * count_B / count_AB
+            #   M2_AB = M2_A + M2_B + delta^2 * count_A * count_B / count_AB
+            #
+            # Derivation of the M2 update (using the parallel axis / bias-variance decomposition):
+            #   For data x_1,...,x_m with mean mu, and any constant c:
+            #     sum_i (x_i - c)^2 = sum_i (x_i - mu)^2 + m*(mu - c)^2
+            #   Apply with all n_AB samples, mu = mean_AB, c = mean_A:
+            #     sum_i (x_i - mean_A)^2 = M2_AB + n_AB * (mean_AB - mean_A)^2
+            #   The left side splits into group A and group B contributions:
+            #     M2_A + M2_B + n_B * (mean_B - mean_A)^2 [by bias-variance on each group]
+            #   Wait — more precisely, for group A: sum_{i in A} (x_i - mean_A)^2 = M2_A
+            #   For group B: sum_{i in B} (x_i - mean_A)^2 = M2_B + n_B * (mean_B - mean_A)^2
+            #   So the left side = M2_A + M2_B + n_B * delta^2
+            #   Therefore: M2_AB = M2_A + M2_B + n_B * delta^2 - n_AB * (mean_AB - mean_A)^2
+            #   Since mean_AB - mean_A = delta * n_B / n_AB:
+            #     n_AB * (delta * n_B / n_AB)^2 = delta^2 * n_B^2 / n_AB
+            #   So: M2_AB = M2_A + M2_B + n_B * delta^2 - n_B^2 * delta^2 / n_AB
+            #            = M2_A + M2_B + delta^2 * n_B * (1 - n_B / n_AB)
+            #            = M2_A + M2_B + delta^2 * n_B * n_A / n_AB
+            #            = M2_A + M2_B + delta^2 * n_A * n_B / n_AB
+            #
+            # When n_B = 1 (single-sample Welford), batch_M2 = 0 and the formula reduces to:
+            #   M2_new = M2_old + delta^2 * n / (n+1), matching the original Welford update.
+            old_count = num_updates.item()
 
-                # Welford's algorithm
-                # First let's update the mean:
-                # mean_new = (mean_old * n + value) / (n+1)
-                # = (mean_old * n + mean_old + value - mean_old) / (n+1)
-                # With delta := value - mean_old
-                delta = value - running_mean
-                # mean_new = (mean_old * (n+1) + delta) / (n+1)
-                # = mean_old + delta / (n+1)
-                running_mean.data = running_mean + delta / effective_iter
-                # So if the code divides by effective_iter, then effective_iter = n+1 by necessity;
-                # incrementing must be done first
+            if old_count == 0:
+                # First batch: initialize directly from batch statistics
+                running_mean.data = batch_mean
+                running_M2.data = batch_M2
+            else:
+                delta = batch_mean - running_mean
+                new_count = old_count + batch_count
+                running_mean.data = running_mean + delta * batch_count / new_count
+                running_M2.data = running_M2 + batch_M2 + delta ** 2 * old_count * batch_count / new_count
 
-                # Now to update the variance:
-                squared_delta = delta ** 2
-                # Variance = sum of squared deviations from the mean / (number of samples)
-                # (no correction for bias here, since we're correcting the same set of samples)
-                # running_var * n = sum of squared deviations from previous mean
-                # Let the sum of squared deviations from the previous mean be M^2_n
-                # and let the sum of squared deviations from the new mean be M^2_{n+1}
-                # and let x_i denote the i-th value
-                # M^2_{n+1} = sum_{i=1}^{n+1} (x_i - mean_new)^2
-                #           = sum_{i=1}^{n} (x_i - mean_new)^2 + (x_{n+1} - mean_new)^2
-                # Then since x_i - mean_new = (x_i - mean_old) + (mean_old - mean_new)
-                # squaring and summing both sides, the cross term will disappear since
-                # sum of (x_i - mean_old) is 0
-                # Then we get that:
-                # sum_{i=1}^{n} (x_i - mean_new)^2 = sum_{i=1}^{n} (x_i - mean_old)^2
-                #                                   + sum_{i=1}^{n} (mean_old - mean_new)^2
-                # = M^2_n + n * (mean_old - mean_new)^2
-                # So M^2_{n+1} = M^2_n + n * (mean_old - mean_new)^2 + (x_{n+1} - mean_new)^2
-                # Now recall that delta = x_{n+1} - mean_old, and mean_new = mean_old + delta / (n+1)
-                # So mean_old - mean_new = - delta / (n+1)
-                # Also note that delta = x_{n+1} - mean_old = x_{n+1} - mean_old + mean_new - mean_new
-                # So x_{n+1} - mean_new = delta + mean_old - mean_new
-                # = delta - (delta / (n+1)) = ((n+1) - 1) * delta / (n+1)
-                # So M^2_{n+1} = M^2_n + n * (- delta / (n+1))^2 + (((n+1) - 1) * delta / (n+1))^2
-                # = M^2_n + n * (- delta / (n+1))^2 + (n * delta / (n+1))^2
-                # = M^2_n + delta^2 (n + n^2) / (n+1)^2
-                # = M^2_n + delta^2 n(n+1) / (n+1)^2
-                # = M^2_n + delta^2 n / (n+1)
-                # Then since effective_iter = n+1, we get that:
-                # M^2_{n+1} = M^2_n + delta^2 * (effective_iter - 1) / effective_iter
-                # Finally, to get the new variance, we need
-                # variance = M^2_{n+1} / (n+1)
-                # = M^2_{n+1} / effective_iter
-
-                # From the derivation: M^2_{n+1} = M^2_n + delta^2 * (effective_iter - 1) / effective_iter
-                # where n = effective_iter - 1, so M^2_n = running_var * n = running_var * (effective_iter - 1)
-                # Then variance_new = M^2_{n+1} / effective_iter
-                n = effective_iter - 1
-
-                # M^2_n = running_var * n (sum of squared deviations from previous mean)
-                M_squared_n = running_var * n
-                # M^2_{n+1} = M^2_n + delta^2 * n / effective_iter
-                M_squared_new = M_squared_n + squared_delta * n / effective_iter
-                # variance_new = M^2_{n+1} / effective_iter
-                running_var.data = M_squared_new / effective_iter
-                # Note: variance should indeed be 0 when n=0 (first update),
-                # so no need to handle separate cases
-
-                # Increment update counter
-                num_updates.data += 1
+            num_updates.data += batch_count
 
         # Normalize all values using the (possibly updated) running statistics.
         # If no stats have been collected yet (num_updates == 0), skip normalization and return
-        # raw values. This avoids dividing by ~1e-8 (since running_var is 0), which would scale
+        # raw values. This avoids dividing by ~1e-8 (since M2 is 0), which would scale
         # values by ~1e8 and cause a massive gradient step on the first training iteration
         # (relevant when train_coin_flip_before=True, where _predict is called before forward).
         if num_updates.item() == 0:
             return values
-        normalized = (values - running_mean.unsqueeze(0)) / (torch.sqrt(running_var.unsqueeze(0)) + 1e-8)
+        variance = running_M2 / num_updates.item()  # (num_dims,)
+        normalized = (values - running_mean.unsqueeze(0)) / (torch.sqrt(variance.unsqueeze(0)) + 1e-8)
         return normalized
     
     def _normalize_with_stats_update_per_dim(
