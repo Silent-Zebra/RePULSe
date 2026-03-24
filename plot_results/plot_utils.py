@@ -585,21 +585,23 @@ def compute_approx_kl_from_f_q_g_q(f_q_estimates, g_q_estimates, global_logZ):
 
 def _collect_top_token_log_probs(labels, results_list, n_top_tokens=10, final_only=False):
     """
-    Extract per-token log probabilities (target and q) from results_list.
+    Extract per-token log probabilities (target, q, and base) from results_list.
 
     Args:
         final_only: If True, only use the last metrics dict per seed (final evaluation timestep)
                     instead of averaging across all timesteps.
 
     Returns:
-        (token_log_probs_target_by_setting, token_log_probs_q_by_setting, top_n_tokens)
+        (token_log_probs_target_by_setting, token_log_probs_q_by_setting,
+         token_log_probs_base_by_setting, top_n_tokens)
         where:
-            token_log_probs_{target,q}_by_setting: dict of token_id -> {setting_idx: [per-seed averages]}
+            token_log_probs_{target,q,base}_by_setting: dict of token_id -> {setting_idx: [per-seed averages]}
             top_n_tokens: list of token IDs ranked by average target log prob (descending)
-        Returns (None, None, None) if no token data is found.
+        Returns (None, None, None, None) if no token data is found.
     """
     token_log_probs_target_by_setting = {}  # token_id -> {setting_idx: [per-seed averages]}
     token_log_probs_q_by_setting = {}  # token_id -> {setting_idx: [per-seed averages]}
+    token_log_probs_base_by_setting = {}  # token_id -> {setting_idx: [per-seed averages]}
 
     for setting_idx in range(len(labels)):
         tuple_list = results_list[setting_idx]
@@ -621,7 +623,7 @@ def _collect_top_token_log_probs(labels, results_list, n_top_tokens=10, final_on
                 continue
 
             # Collect log probs for this seed
-            seed_token_log_probs = {}  # token_id -> {'target': [values], 'q': [values]}
+            seed_token_log_probs = {}  # token_id -> {'target': [values], 'q': [values], 'base': [values]}
 
             metrics_to_use = [metrics_list[-1]] if final_only else metrics_list
             for metrics_dict in metrics_to_use:
@@ -631,6 +633,7 @@ def _collect_top_token_log_probs(labels, results_list, n_top_tokens=10, final_on
                 # Prefer full-vocab tensors (new format) over dict entries (old format)
                 log_probs_target_full = metrics_dict.get('log_probs_target_full', None)
                 log_probs_q_full = metrics_dict.get('log_probs_q_full', None)
+                log_probs_base_full = metrics_dict.get('log_probs_base_full', None)
 
                 if log_probs_target_full is not None and log_probs_q_full is not None:
                     # New format: full-vocab tensors — iterate over all tokens
@@ -638,9 +641,11 @@ def _collect_top_token_log_probs(labels, results_list, n_top_tokens=10, final_on
                     n_vocab = len(log_probs_target_full)
                     for token_id in range(n_vocab):
                         if token_id not in seed_token_log_probs:
-                            seed_token_log_probs[token_id] = {'target': [], 'q': []}
+                            seed_token_log_probs[token_id] = {'target': [], 'q': [], 'base': []}
                         seed_token_log_probs[token_id]['target'].append(log_probs_target_full[token_id].item())
                         seed_token_log_probs[token_id]['q'].append(log_probs_q_full[token_id].item())
+                        if log_probs_base_full is not None:
+                            seed_token_log_probs[token_id]['base'].append(log_probs_base_full[token_id].item())
                 else:
                     # Old format: dict entries for tracked tokens only
                     tracked_tokens = metrics_dict.get('all_tracked_tokens', metrics_dict.get('top_10_target_tokens', []))
@@ -649,7 +654,7 @@ def _collect_top_token_log_probs(labels, results_list, n_top_tokens=10, final_on
 
                     for token_id in tracked_tokens:
                         if token_id not in seed_token_log_probs:
-                            seed_token_log_probs[token_id] = {'target': [], 'q': []}
+                            seed_token_log_probs[token_id] = {'target': [], 'q': [], 'base': []}
 
                         if token_id in log_probs_target:
                             seed_token_log_probs[token_id]['target'].append(log_probs_target[token_id])
@@ -661,6 +666,7 @@ def _collect_top_token_log_probs(labels, results_list, n_top_tokens=10, final_on
             for token_id, probs_dict in seed_token_log_probs.items():
                 target_values = probs_dict['target']
                 q_values = probs_dict['q']
+                base_values = probs_dict.get('base', [])
 
                 if len(target_values) > 0 and len(q_values) > 0:
                     seed_avg_target = np.mean(target_values)
@@ -678,6 +684,14 @@ def _collect_top_token_log_probs(labels, results_list, n_top_tokens=10, final_on
                         token_log_probs_q_by_setting[token_id][setting_idx] = []
                     token_log_probs_q_by_setting[token_id][setting_idx].append(seed_avg_q)
 
+                    if len(base_values) > 0:
+                        seed_avg_base = np.mean(base_values)
+                        if token_id not in token_log_probs_base_by_setting:
+                            token_log_probs_base_by_setting[token_id] = {}
+                        if setting_idx not in token_log_probs_base_by_setting[token_id]:
+                            token_log_probs_base_by_setting[token_id][setting_idx] = []
+                        token_log_probs_base_by_setting[token_id][setting_idx].append(seed_avg_base)
+
     # Find top N tokens by average log probability under target distribution across all settings
     token_avg_log_probs_target = {}
     for token_id, setting_dict in token_log_probs_target_by_setting.items():
@@ -689,14 +703,12 @@ def _collect_top_token_log_probs(labels, results_list, n_top_tokens=10, final_on
 
     if len(token_avg_log_probs_target) == 0:
         print("Warning: No token data found.")
-        return None, None, None
+        return None, None, None, None
 
     sorted_tokens = sorted(token_avg_log_probs_target.items(), key=lambda x: x[1], reverse=True)
     top_n_tokens = [token_id for token_id, _ in sorted_tokens[:n_top_tokens]]
 
-    print(f"\nTop {n_top_tokens} tokens (by average log prob under target): {top_n_tokens}")
-
-    return token_log_probs_target_by_setting, token_log_probs_q_by_setting, top_n_tokens
+    return token_log_probs_target_by_setting, token_log_probs_q_by_setting, token_log_probs_base_by_setting, top_n_tokens
 
 
 def _bootstrap_mean_ci(values, n_bootstrap_draws=5000, alpha=0.05):
@@ -724,6 +736,7 @@ def plot_top_tokens_bar_chart(
     n_bootstrap_draws=5000,
     n_top_tokens=10,
     final_only=False,
+    precomputed_token_data=None,
 ):
     """
     Plot bar chart of log probability differences (q - target) for top N tokens under target distribution.
@@ -737,20 +750,27 @@ def plot_top_tokens_bar_chart(
     """
     plt.clf()
 
-    target_by_setting, q_by_setting, top_n_tokens = _collect_top_token_log_probs(
-        labels, results_list, n_top_tokens, final_only=final_only)
+    if precomputed_token_data is not None:
+        target_by_setting, q_by_setting, base_by_setting, all_sorted_tokens = precomputed_token_data
+        top_n_tokens = all_sorted_tokens[:n_top_tokens]
+    else:
+        target_by_setting, q_by_setting, base_by_setting, top_n_tokens = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens, final_only=final_only)
     if top_n_tokens is None:
         print("Warning: Cannot create bar chart.")
         return
 
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
+    has_base_data = len(base_by_setting) > 0
 
+    # Number of bar groups: one per setting + optionally one for base
+    n_groups = n_settings + (1 if has_base_data else 0)
     bar_width = 0.25
     x_positions = np.arange(n_tokens)
-    setting_offsets = np.linspace(-bar_width * (n_settings - 1) / 2,
-                                   bar_width * (n_settings - 1) / 2,
-                                   n_settings)
+    group_offsets = np.linspace(-bar_width * (n_groups - 1) / 2,
+                                 bar_width * (n_groups - 1) / 2,
+                                 n_groups)
 
     # Collect means and CIs for the difference (q - target)
     means = np.zeros((n_tokens, n_settings))
@@ -771,9 +791,29 @@ def plot_top_tokens_bar_chart(
             means[token_idx, setting_idx], ci_lowers[token_idx, setting_idx], ci_uppers[token_idx, setting_idx] = \
                 _bootstrap_mean_ci(diff_values, n_bootstrap_draws)
 
-    # Plot bars
+    # Collect means and CIs for the difference (base - target) — pooled across settings
+    base_means = np.full(n_tokens, np.nan)
+    base_ci_lowers = np.full(n_tokens, np.nan)
+    base_ci_uppers = np.full(n_tokens, np.nan)
+    if has_base_data:
+        for token_idx, token_id in enumerate(top_n_tokens):
+            all_base_vals = []
+            for vals in base_by_setting.get(token_id, {}).values():
+                all_base_vals.extend(vals)
+            all_target_vals = []
+            for vals in target_by_setting.get(token_id, {}).values():
+                all_target_vals.extend(vals)
+            if all_base_vals and all_target_vals:
+                min_len = min(len(all_base_vals), len(all_target_vals))
+                diff_values = np.array(all_base_vals[:min_len]) - np.array(all_target_vals[:min_len])
+            else:
+                diff_values = np.array([])
+            base_means[token_idx], base_ci_lowers[token_idx], base_ci_uppers[token_idx] = \
+                _bootstrap_mean_ci(diff_values, n_bootstrap_draws)
+
+    # Plot bars for each setting (q - target)
     for setting_idx in range(n_settings):
-        x_pos = x_positions + setting_offsets[setting_idx]
+        x_pos = x_positions + group_offsets[setting_idx]
         plt.bar(x_pos, means[:, setting_idx], bar_width,
                 label=labels[setting_idx],
                 color=color_list[setting_idx],
@@ -788,10 +828,26 @@ def plot_top_tokens_bar_chart(
                            yerr=[[lower_err], [upper_err]],
                            fmt='none', color='black', capsize=3, linewidth=1)
 
+    # Plot bars for base model (base - target)
+    if has_base_data:
+        x_pos_base = x_positions + group_offsets[-1]
+        plt.bar(x_pos_base, base_means, bar_width,
+                label=r"$p$ (base)",
+                color='gray',
+                alpha=0.7)
+        for token_idx in range(n_tokens):
+            if not np.isnan(base_means[token_idx]):
+                mean_val = base_means[token_idx]
+                lower_err = mean_val - base_ci_lowers[token_idx]
+                upper_err = base_ci_uppers[token_idx] - mean_val
+                plt.errorbar(x_pos_base[token_idx], mean_val,
+                           yerr=[[lower_err], [upper_err]],
+                           fmt='none', color='black', capsize=3, linewidth=1)
+
     plt.xlabel('Token ID', fontsize=fontsize)
-    plt.ylabel('Log Probability Difference (q - target)', fontsize=fontsize)
+    plt.ylabel('Log Probability Difference (model - target)', fontsize=fontsize)
     time_label = " (final step)" if final_only else " (avg over time)"
-    plt.title(f'Top {n_top_tokens} Target Tokens: Log Prob Difference (q - target){time_label}', fontsize=fontsize+1)
+    plt.title(f'Top {n_top_tokens} Target Tokens: Log Prob Difference (model - target){time_label}', fontsize=fontsize+1)
     plt.xticks(x_positions, [str(token_id) for token_id in top_n_tokens], fontsize=fontsize-1)
     plt.legend(fontsize=legendfontsize)
     plt.grid(axis='y', alpha=0.3, linestyle='--')
@@ -808,6 +864,7 @@ def plot_top_tokens_lollipop(
     n_bootstrap_draws=5000,
     n_top_tokens=10,
     final_only=False,
+    precomputed_token_data=None,
 ):
     """
     Lollipop/dumbbell chart showing absolute log probabilities under target and q for top N tokens.
@@ -820,8 +877,12 @@ def plot_top_tokens_lollipop(
     This complements plot_top_tokens_bar_chart (which shows differences) by letting you see
     the absolute scale of both distributions per token.
     """
-    target_by_setting, q_by_setting, top_n_tokens = _collect_top_token_log_probs(
-        labels, results_list, n_top_tokens, final_only=final_only)
+    if precomputed_token_data is not None:
+        target_by_setting, q_by_setting, base_by_setting, all_sorted_tokens = precomputed_token_data
+        top_n_tokens = all_sorted_tokens[:n_top_tokens]
+    else:
+        target_by_setting, q_by_setting, base_by_setting, top_n_tokens = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens, final_only=final_only)
     if top_n_tokens is None:
         print("Warning: Cannot create lollipop chart.")
         return
@@ -878,6 +939,17 @@ def plot_top_tokens_lollipop(
         if all_target_vals:
             target_means[token_idx] = np.mean(all_target_vals)
 
+    # Compute base model mean per token (pooled across all settings/seeds — base is shared)
+    base_means = np.full(n_tokens, np.nan)
+    has_base_data = len(base_by_setting) > 0
+    if has_base_data:
+        for token_idx, token_id in enumerate(top_n_tokens):
+            all_base_vals = []
+            for vals in base_by_setting.get(token_id, {}).values():
+                all_base_vals.extend(vals)
+            if all_base_vals:
+                base_means[token_idx] = np.mean(all_base_vals)
+
     # Draw target markers: one horizontal dash per token spanning the offset range
     dash_half_width = (total_width / 2 + dot_spacing * 0.6) if n_settings > 1 else 0.15
     target_label_added = False
@@ -891,6 +963,20 @@ def plot_top_tokens_lollipop(
             color='black', linewidth=2, solid_capstyle='butt', label=label, zorder=3,
         )
         target_label_added = True
+
+    # Draw base model markers (if available): dashed horizontal line per token
+    if has_base_data:
+        base_label_added = False
+        for token_idx in range(n_tokens):
+            if np.isnan(base_means[token_idx]):
+                continue
+            label = r"$p$ (base)" if not base_label_added else None
+            ax.plot(
+                [x_positions[token_idx] - dash_half_width, x_positions[token_idx] + dash_half_width],
+                [base_means[token_idx], base_means[token_idx]],
+                color='gray', linewidth=2, linestyle='--', solid_capstyle='butt', label=label, zorder=3,
+            )
+            base_label_added = True
 
     # Draw q dots + connecting lines for each setting
     for setting_idx in range(n_settings):
@@ -921,7 +1007,7 @@ def plot_top_tokens_lollipop(
     ax.set_xlabel('Token ID', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     time_label = " (final step)" if final_only else " (avg over time)"
-    ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Prob (target vs q){time_label}', fontsize=fontsize + 1)
+    ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Prob (target vs q vs base){time_label}', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
     ax.set_xticklabels([str(token_id) for token_id in top_n_tokens], fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
@@ -939,6 +1025,7 @@ def plot_top_tokens_lollipop_individual(
     figname, labels, results_list,
     color_list, fontsize=7, legendfontsize=7,
     n_top_tokens=10,
+    precomputed_token_data=None,
 ):
     """
     Individual-seed version of plot_top_tokens_lollipop (final step only).
@@ -946,8 +1033,12 @@ def plot_top_tokens_lollipop_individual(
     Instead of bootstrap-aggregated means with CIs, each seed is plotted as a separate dot.
     Seeds share the same color/marker per setting; one legend entry per setting.
     """
-    target_by_setting, q_by_setting, top_n_tokens = _collect_top_token_log_probs(
-        labels, results_list, n_top_tokens, final_only=True)
+    if precomputed_token_data is not None:
+        target_by_setting, q_by_setting, _, all_sorted_tokens = precomputed_token_data
+        top_n_tokens = all_sorted_tokens[:n_top_tokens]
+    else:
+        target_by_setting, q_by_setting, _, top_n_tokens = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens, final_only=True)
     if top_n_tokens is None:
         print("Warning: Cannot create individual lollipop chart.")
         return
@@ -1071,6 +1162,7 @@ def plot_top_tokens_lollipop_over_time(
     fontsize=7, legendfontsize=7,
     n_bootstrap_draws=5000,
     n_top_tokens=10,
+    precomputed_token_data=None,
 ):
     """
     Lollipop chart showing log q for top target tokens at multiple timesteps, with lines connecting
@@ -1084,8 +1176,12 @@ def plot_top_tokens_lollipop_over_time(
     Timestep progression is shown via marker alpha (lighter = earlier, darker = later).
     """
     # Select top tokens using final timestep
-    target_by_setting, q_by_setting, top_n_tokens = _collect_top_token_log_probs(
-        labels, results_list, n_top_tokens, final_only=True)
+    if precomputed_token_data is not None:
+        target_by_setting, q_by_setting, _, all_sorted_tokens = precomputed_token_data
+        top_n_tokens = all_sorted_tokens[:n_top_tokens]
+    else:
+        target_by_setting, q_by_setting, _, top_n_tokens = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens, final_only=True)
     if top_n_tokens is None:
         print("Warning: Cannot create over-time lollipop chart.")
         return
@@ -1256,6 +1352,7 @@ def plot_sample_counts_over_time(
     fontsize=7, legendfontsize=7,
     n_bootstrap_draws=5000,
     n_top_tokens=10,
+    precomputed_token_data=None,
 ):
     """
     Plot cumulative sample counts over time for the top tokens under the target distribution.
@@ -1265,8 +1362,12 @@ def plot_sample_counts_over_time(
     (across seeds) with bootstrap CIs. Alpha progresses from light (early) to dark (late).
     """
     # Select top tokens using final timestep target log prob
-    target_by_setting, _, top_n_tokens = _collect_top_token_log_probs(
-        labels, results_list, n_top_tokens, final_only=True)
+    if precomputed_token_data is not None:
+        target_by_setting, _, _, all_sorted_tokens = precomputed_token_data
+        top_n_tokens = all_sorted_tokens[:n_top_tokens]
+    else:
+        target_by_setting, _, _, top_n_tokens = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens, final_only=True)
     if top_n_tokens is None:
         print("Warning: Cannot create sample counts over time plot.")
         return
@@ -1389,6 +1490,7 @@ def plot_coverage_curve(
     color_list, fontsize=7, legendfontsize=7,
     n_bootstrap_draws=5000,
     n_top_tokens=10,
+    precomputed_token_data=None,
 ):
     """
     Plot the fraction of top-K target tokens discovered (sampled at least once by q)
@@ -1400,8 +1502,12 @@ def plot_coverage_curve(
     Coverage is monotonically non-decreasing since counts are cumulative.
     """
     # Select top tokens using final timestep target log prob
-    _, _, top_n_tokens = _collect_top_token_log_probs(
-        labels, results_list, n_top_tokens, final_only=True)
+    if precomputed_token_data is not None:
+        _, _, _, all_sorted_tokens = precomputed_token_data
+        top_n_tokens = all_sorted_tokens[:n_top_tokens]
+    else:
+        _, _, _, top_n_tokens = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens, final_only=True)
     if top_n_tokens is None:
         print("Warning: Cannot create coverage curve.")
         return
@@ -1805,6 +1911,7 @@ def plot_top_q_intersection_lollipop(
     color_list, fontsize=7, legendfontsize=7,
     n_bootstrap_draws=5000,
     n_top_tokens=10,
+    precomputed_token_data=None,
 ):
     """
     Lollipop chart showing per-setting top tokens ranked by average log q (across seeds).
@@ -1816,8 +1923,11 @@ def plot_top_q_intersection_lollipop(
     show each setting's log q.
     """
     # Collect all token data at the final timestep
-    target_by_setting, q_by_setting, _ = _collect_top_token_log_probs(
-        labels, results_list, n_top_tokens=999999, final_only=True)
+    if precomputed_token_data is not None:
+        target_by_setting, q_by_setting, _, _ = precomputed_token_data
+    else:
+        target_by_setting, q_by_setting, _, _ = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens=999999, final_only=True)
     if q_by_setting is None:
         print("Warning: No token data found. Cannot create top-q lollipop.")
         return
@@ -1835,7 +1945,6 @@ def plot_top_q_intersection_lollipop(
         sorted_tokens = sorted(token_avg_q.items(), key=lambda x: x[1], reverse=True)
         top_tokens_per_setting[setting_idx] = sorted_tokens[:n_top_tokens]
         top_ids = [tid for tid, _ in top_tokens_per_setting[setting_idx]]
-        print(f"\n[{labels[setting_idx]}] Top-{n_top_tokens} tokens by avg log q: {top_ids}")
 
     # Build grouped token list: all for setting 0, then all for setting 1, ...
     # Each entry is (setting_idx, token_id)
@@ -1944,6 +2053,7 @@ def plot_top_q_intersection_lollipop_individual(
     figname, labels, results_list,
     color_list, fontsize=7, legendfontsize=7,
     n_top_tokens=10,
+    precomputed_token_data=None,
 ):
     """
     Individual-seed version of plot_top_q_intersection_lollipop.
@@ -1952,8 +2062,11 @@ def plot_top_q_intersection_lollipop_individual(
     is plotted as a separate dot. Same color/marker per setting; one legend entry per setting.
     """
     # Collect all token data at the final timestep
-    target_by_setting, q_by_setting, _ = _collect_top_token_log_probs(
-        labels, results_list, n_top_tokens=999999, final_only=True)
+    if precomputed_token_data is not None:
+        target_by_setting, q_by_setting, _, _ = precomputed_token_data
+    else:
+        target_by_setting, q_by_setting, _, _ = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens=999999, final_only=True)
     if q_by_setting is None:
         print("Warning: No token data found. Cannot create individual top-q lollipop.")
         return

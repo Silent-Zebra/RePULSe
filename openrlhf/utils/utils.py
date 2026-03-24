@@ -1035,8 +1035,8 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
     print("Avg F_q Estimate (Learned Model)")
     print(f_qs.mean())
 
-    # IWAE Lower Bound
-    print("IWAE Lower Bound Estimate (Learned Model)")
+    # IWAE Lower Bound (per-rank estimate for logging only; recomputed from gathered samples in train_ppo.py)
+    print("IWAE Lower Bound Estimate (Learned Model, per-rank only)")
     iwae_lb = (torch.logsumexp(f_qs, dim=0) - math.log(f_qs.shape[0])).item()
     print(iwae_lb)
 
@@ -1078,23 +1078,13 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
                 print("Total G_qs shape")
                 print(total_g_qs.shape)
 
-    # IWAE Upper Bound: combine g_q(target_sample) with f_q(q_samples)
-    # Reuse pre-computed values instead of splicing target into q sequences
-    # (which fails when sequence lengths differ due to early EOS truncation).
-    iwae_ub = None
-    if true_target_samples is not None and total_g_qs is not None:
-        target_weight = total_g_qs[0:1]  # g_q for first target sample
-        q_weights = f_qs[1:]  # f_q for N-1 q samples (drop one to keep total = N)
-        all_weights = torch.cat([target_weight.to(q_weights.device), q_weights])
-        print("IWAE Upper Bound Estimate (Learned Model)")
-        iwae_ub = (torch.logsumexp(all_weights, dim=0) - math.log(all_weights.shape[0])).item()
-        print(iwae_ub)
-
-    iwae_lbs_list.append(iwae_lb)
-    iwae_ubs_list.append(iwae_ub)
-    print("IWAE LB AND UB")
+    # Both IWAE bounds are recomputed post-gather in train_ppo.py using all ranks' samples.
+    # Per-rank iwae_lb above is printed for logging only and not appended.
+    iwae_lbs_list.append(None)
+    iwae_ubs_list.append(None)
+    print("IWAE LB AND UB (per-rank; both recomputed post-gather)")
     print(iwae_lb)
-    print(iwae_ub)
+    print(None)
     print("IWAE LB AND UB LISTS")
     print(iwae_lbs_list)
     print(iwae_ubs_list)
@@ -1214,9 +1204,9 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
         f_qs_mix = log_tilde_sigma - log_q_mix
         print(f"[Mixture eval] Avg F_q_mix = {f_qs_mix.mean().item():.4f}")
 
-        # IWAE lower bound for mixture
+        # IWAE lower bound (per-rank for logging only; recomputed post-gather in train_ppo.py)
         iwae_lb = (torch.logsumexp(f_qs_mix, dim=0) - _math.log(f_qs_mix.shape[0])).item()
-        print(f"[Mixture eval] IWAE LB (mix) = {iwae_lb:.4f}")
+        print(f"[Mixture eval] IWAE LB (mix, per-rank) = {iwae_lb:.4f}")
 
     # g_q_mix on target samples
     total_g_qs_mix = None
@@ -1244,21 +1234,15 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
         if total_g_qs_mix is not None:
             print(f"[Mixture eval] Avg G_q_mix = {total_g_qs_mix.mean().item():.4f}")
 
-    # IWAE upper bound: reuse pre-computed g_q_mix (target) + f_q_mix (q samples)
-    iwae_ub = None
-    if true_target_samples is not None and total_g_qs_mix is not None:
-        target_weight = total_g_qs_mix[0:1]
-        q_weights = f_qs_mix[1:]
-        all_weights = torch.cat([target_weight.to(q_weights.device), q_weights])
-        iwae_ub = (torch.logsumexp(all_weights, dim=0) - _math.log(all_weights.shape[0])).item()
-        print(f"[Mixture eval] IWAE UB (mix) = {iwae_ub:.4f}")
+    # IWAE upper bound is computed post-gather in train_ppo.py (after all-gathering
+    # f_q samples across ranks), so we skip per-rank UB computation here.
 
     # Append to lists
     f_q_mix_list.append(f_qs_mix.cpu())
     if total_g_qs_mix is not None:
         g_q_mix_list.append(total_g_qs_mix.cpu())
     iwae_mix_lbs_list.append(iwae_lb)
-    iwae_mix_ubs_list.append(iwae_ub)
+    iwae_mix_ubs_list.append(None)
 
     print_timestamp("eval - f_q_g_q_evaluation_mixture: done")
     experience_maker.set_all_policies_train()
@@ -1360,16 +1344,14 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
     # num_actions = f_q_result["num_actions"]
     # common_seq_len = f_q_result["common_seq_len"]
 
-    # Per-prompt results
+    # Per-prompt results (IWAE bounds recomputed post-gather in train_ppo.py)
     f_q_by_prompt = [f_qs_pp[p].cpu() for p in range(P)]
     g_qs_per_prompt = [None] * P
-    iwae_lbs_by_prompt = []
+    iwae_lbs_by_prompt = [None] * P
     iwae_ubs_by_prompt = [None] * P
 
-    # IWAE LB per prompt (scalar)
-    for p in range(P):
-        iwae_lb = (torch.logsumexp(f_qs_pp[p], dim=0) - math.log(N)).item()
-        iwae_lbs_by_prompt.append(iwae_lb)
+    # IWAE LB per prompt is recomputed post-gather in train_ppo.py using all ranks' samples.
+    # (All ranks process the same prompts with independent stochastic draws → gathering gives more samples.)
 
     print(f"[batched] mean f_q per prompt = {[f.mean().item() for f in f_qs_pp]}")
 
@@ -1395,25 +1377,8 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
             g_qs_per_prompt[p] = g_qs_list[i].cpu()
             print(f"[batched] g_q prompt {p}: mean = {g_qs_list[i].mean().item()}")
 
-    # --- IWAE UB: reuse pre-computed f_q (q samples) and g_q (target samples) ---
-    # IWAE UB = logsumexp(w_1, ..., w_N) - log(N) where:
-    #   w_1 = g_q(target_sample) = log sigma(x_target) - log q(x_target)
-    #   w_2..w_N = f_q(q_samples) = log sigma(x_q) - log q(x_q)
-    # Both are already computed above, so we just combine them.
-    # This avoids the previous approach of splicing target samples into q-generated
-    # sequences, which failed when sequence lengths differed (e.g. early EOS truncation
-    # in f_q generation vs full-length target samples).
-    if prompts_with_targets:
-        for i, p in enumerate(prompts_with_targets):
-            assert g_qs_per_prompt[p] is not None, f"g_q not computed for prompt {p}"
-            assert g_qs_per_prompt[p].shape[0] > 0, f"Prompt {p} has no target samples for IWAE UB"
-            # Take first target sample's weight, drop one q sample to keep total = N
-            target_weight = g_qs_per_prompt[p][0:1]  # (1,)
-            q_weights = f_qs_pp[p][1:]  # (N-1,)
-            all_weights = torch.cat([target_weight.to(q_weights.device), q_weights])  # (N,)
-            iwae_ub = (torch.logsumexp(all_weights, dim=0) - math.log(N)).item()
-            iwae_ubs_by_prompt[p] = iwae_ub
-            print(f"[batched] IWAE UB prompt {p}: {iwae_ub}")
+    # IWAE UB per prompt is computed post-gather in train_ppo.py (after all-gathering
+    # f_q samples across ranks). iwae_ubs_by_prompt remains all None here.
 
     # Aggregate across prompts
     f_q_valid = [x for x in f_q_by_prompt if x is not None]

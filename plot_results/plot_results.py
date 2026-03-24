@@ -19,7 +19,8 @@ import torch
 from plot_utils import (
     make_list, do_load_prefixes, generate_labels_from_prefixes, to_scalar,
     compute_global_logZ_from_iwae_bounds, compute_approx_kl_from_f_q_g_q,
-    generate_visual_style_from_prefixes, plot_top_tokens_bar_chart, plot_top_tokens_lollipop,
+    generate_visual_style_from_prefixes, _collect_top_token_log_probs,
+    plot_top_tokens_bar_chart, plot_top_tokens_lollipop,
     plot_top_tokens_lollipop_over_time, plot_sample_counts_over_time,
     plot_top_q_intersection_lollipop, plot_top_q_ranked_lollipop,
     plot_top_tokens_lollipop_individual, plot_top_q_intersection_lollipop_individual,
@@ -364,6 +365,12 @@ def process_file_type(file_type_suffix, load_prefixes_to_use, labels, figname_mo
     results_list = [[] for i in range(len(transformed_prefixes))]
     do_load_prefixes(results_list, transformed_prefixes)
 
+    # Check if we have any data
+    has_data = any(len(results_list[i]) > 0 for i in range(len(results_list)))
+    if not has_data:
+        print(f"Warning: No data found for {file_type_suffix}, skipping plots")
+        return results_list
+
     # Save to same subdirectory as KL plots
     output_dir = _make_output_dir(figname_modifier)
 
@@ -510,6 +517,15 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
     # Save to subdirectory (consistent with sample-based f_q plots)
     output_dir = _make_output_dir(figname_modifier)
 
+    # Precompute token data to avoid redundant full-vocab iterations.
+    # Use n_top_tokens=999999 to get all tokens sorted; individual plots slice to their own n_top_tokens.
+    print("Precomputing token data (final_only=True)...")
+    token_data_final = _collect_top_token_log_probs(
+        labels, kl_results_list, n_top_tokens=999999, final_only=True)
+    print("Precomputing token data (final_only=False)...")
+    token_data_avg = _collect_top_token_log_probs(
+        labels, kl_results_list, n_top_tokens=999999, final_only=False)
+
     # Plot KL(sigma|q) = KL(target|proposal) from index 0
     plot_results_over_time(kl_results_list, labels, x_range, fontsize, figname_modifier,
                           index_to_use=0, plot_name="kl_sigma_q",
@@ -538,6 +554,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
                 n_bootstrap_draws=5000,
                 n_top_tokens=10,
                 final_only=final_only,
+                precomputed_token_data=token_data_final if final_only else token_data_avg,
             )
         except Exception as e:
             print(f"Failed to generate top tokens bar chart ({name_suffix}) for {file_type_suffix}: {e}")
@@ -559,6 +576,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
                 n_bootstrap_draws=5000,
                 n_top_tokens=10,
                 final_only=final_only,
+                precomputed_token_data=token_data_final if final_only else token_data_avg,
             )
         except Exception as e:
             print(f"Failed to generate top tokens lollipop chart ({name_suffix}) for {file_type_suffix}: {e}")
@@ -579,6 +597,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             legendfontsize=fontsize,
             n_bootstrap_draws=5000,
             n_top_tokens=10,
+            precomputed_token_data=token_data_final,
         )
     except Exception as e:
         print(f"Failed to generate over-time lollipop chart for {file_type_suffix}: {e}")
@@ -599,6 +618,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             legendfontsize=fontsize,
             n_bootstrap_draws=5000,
             n_top_tokens=10,
+            precomputed_token_data=token_data_final,
         )
     except Exception as e:
         print(f"Failed to generate sample counts over time chart for {file_type_suffix}: {e}")
@@ -618,6 +638,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             legendfontsize=fontsize,
             n_bootstrap_draws=5000,
             n_top_tokens=10,
+            precomputed_token_data=token_data_final,
         )
     except Exception as e:
         print(f"Failed to generate coverage curve for {file_type_suffix}: {e}")
@@ -668,6 +689,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             fontsize=fontsize,
             legendfontsize=fontsize,
             n_bootstrap_draws=5000,
+            precomputed_token_data=token_data_final,
         )
     except Exception as e:
         print(f"Failed to generate top-q intersection lollipop chart for {file_type_suffix}: {e}")
@@ -705,6 +727,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             fontsize=fontsize,
             legendfontsize=fontsize,
             n_top_tokens=10,
+            precomputed_token_data=token_data_final,
         )
     except Exception as e:
         print(f"Failed to generate individual top tokens lollipop for {file_type_suffix}: {e}")
@@ -721,6 +744,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             color_list=semantic_colors,
             fontsize=fontsize,
             legendfontsize=fontsize,
+            precomputed_token_data=token_data_final,
         )
     except Exception as e:
         print(f"Failed to generate individual top-q lollipop for {file_type_suffix}: {e}")
@@ -4042,15 +4066,13 @@ frontier_legendfontsize = 4
 
 
 load_prefixes_to_use = [
-# for x in $(ls info/exploretoyrlhfmulti03 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_c3.0_tb5_s2", 1, 10),
+# for x in $(ls info/exploretoyrlhfmulti03v4 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
 make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_cfpSm13_af_fo_tb5_s2", 1, 10),
 make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
 
 ]
 threshold = -5
-figname_modifier = "probinflen1_exploretoyrlhfmulti03_03-20_v11"
+figname_modifier = "probinflen1_exploretoyrlhfmulti03_03-24"
 target_samples_path = None
 individual_prompt_plots = False
 random_f_q_ylim_low = None
@@ -4058,6 +4080,66 @@ n_frontiers = 4
 frontier_legendfontsize = 4
 
 
+# load_prefixes_to_use = [
+# # for x in $(ls info/exploretoyrlhfmulti03v4 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+#
+# ]
+# threshold = -5
+# figname_modifier = "probinflen1_exploretoyrlhfmultiremodev03_03-24"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 4
+# frontier_legendfontsize = 4
+
+
+# load_prefixes_to_use = [
+# # for x in $(ls info/exploretoyrlhfmulti03v4  | grep analy | grep b-10 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+#
+# ]
+# threshold = -5
+# figname_modifier = "probinflen1_exploretoyrlhfmultiremodev03_b-10_03-24"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 4
+# frontier_legendfontsize = 4
+
+
+
+load_prefixes_to_use = [
+# for x in $(ls info/exploretoyrlhfmulti03v4  | grep analy | grep b-30 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-30.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-30.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+
+]
+threshold = -5
+figname_modifier = "probinflen1_exploretoyrlhfmultiremodev03_b-30_03-24_moresteps"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 4
+frontier_legendfontsize = 4
+
+
+
+# load_prefixes_to_use = [
+# # for x in $(ls info/exploretoyrlhfmulti03v4  | grep analy | grep b-100 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-100.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-100.0_hlnt_a0.0_ppq_ctl_ep1_e4_he5_fs50_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+#
+# ]
+# threshold = -5
+# figname_modifier = "probinflen1_exploretoyrlhfmultiremodev03_b-100_03-24"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 4
+# frontier_legendfontsize = 4
 
 
 

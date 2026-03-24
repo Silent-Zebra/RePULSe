@@ -77,37 +77,48 @@ def _recompute_iwae_lb(f_qs):
     return (torch.logsumexp(f_qs, dim=0) - math.log(f_qs.shape[0])).item()
 
 
+def _recompute_iwae_ub(f_qs, g_qs):
+    """Recompute IWAE upper bound using all gathered q samples + first target sample.
+
+    IWAE UB = logsumexp(cat([g_qs[0:1], f_qs])) - log(N + 1)
+    where g_qs[0:1] is the weight of the first (fixed) target sample, and f_qs are
+    weights for all q samples. The target sample is the same across all ranks (loaded
+    from a fixed file), so g_qs[0:1] is identical everywhere — no gathering needed.
+    """
+    if f_qs is None or g_qs is None:
+        return None
+    target_weight = g_qs[0:1].to(f_qs.device)
+    all_weights = torch.cat([target_weight, f_qs])
+    # all_weights has shape (N + 1,): one target sample + all q samples
+    return (torch.logsumexp(all_weights, dim=0) - math.log(all_weights.shape[0])).item()
+
+
 def _distributed_gather_f_q_g_q_lists(strategy, f_q_list, g_q_list, iwae_lbs_list, iwae_ubs_list):
-    """All-gather f_q/g_q tensor lists across ranks and recompute IWAE LB from gathered data.
+    """All-gather f_q/g_q tensor lists across ranks and recompute both IWAE bounds.
 
     Each entry in f_q_list/g_q_list is a 1D tensor of per-sample values (or None).
     Gathering concatenates samples from all ranks, giving a larger sample set.
-    IWAE LB is recomputed from gathered f_q (simple logsumexp formula).
-    IWAE UB uses a complex construction mixing f_q and g_q samples (see f_q_g_q_evaluation),
-    so we keep the original per-rank values unchanged.
+    Both IWAE bounds are recomputed from the gathered data; the per-rank values
+    in iwae_ubs_list are discarded since this function is the single source of UBs.
     """
-    if strategy.world_size <= 1:
-        return f_q_list, g_q_list, iwae_lbs_list, iwae_ubs_list
     gathered_f_q = _distributed_all_gather_tensor_list(strategy, f_q_list)
     gathered_g_q = _distributed_all_gather_tensor_list(strategy, g_q_list)
     new_iwae_lbs = [_recompute_iwae_lb(f) for f in gathered_f_q]
-    # UB construction is complex (mixes g_q target samples with f_q proposal samples);
-    # keep original values rather than incorrectly recomputing.
-    return gathered_f_q, gathered_g_q, new_iwae_lbs, iwae_ubs_list
+    new_iwae_ubs = [_recompute_iwae_ub(f, g) for f, g in zip(gathered_f_q, gathered_g_q)]
+    return gathered_f_q, gathered_g_q, new_iwae_lbs, new_iwae_ubs
 
 
 def _distributed_gather_f_q_g_q_by_prompt_lists(strategy, f_q_by_prompt_list, g_q_by_prompt_list,
                                                   iwae_lbs_by_prompt_list, iwae_ubs_by_prompt_list):
-    """All-gather per-prompt f_q/g_q lists and recompute per-prompt IWAE LB.
+    """All-gather per-prompt f_q/g_q lists and recompute per-prompt IWAE bounds.
 
     Each entry in f_q_by_prompt_list is a list of tensors (one per prompt) at a given eval step.
     For each eval step and each prompt, gather the per-sample tensor across ranks.
     """
-    if strategy.world_size <= 1:
-        return f_q_by_prompt_list, g_q_by_prompt_list, iwae_lbs_by_prompt_list, iwae_ubs_by_prompt_list
     gathered_f_q_bp = []
     gathered_g_q_bp = []
     new_iwae_lbs_bp = []
+    new_iwae_ubs_bp = []
     for step_idx in range(len(f_q_by_prompt_list)):
         f_q_per_prompt = f_q_by_prompt_list[step_idx]  # list of tensors, one per prompt
         g_q_per_prompt = g_q_by_prompt_list[step_idx] if g_q_by_prompt_list else None
@@ -116,8 +127,8 @@ def _distributed_gather_f_q_g_q_by_prompt_lists(strategy, f_q_by_prompt_list, g_
         gathered_f_q_bp.append(gathered_f)
         gathered_g_q_bp.append(gathered_g)
         new_iwae_lbs_bp.append([_recompute_iwae_lb(f) for f in gathered_f])
-    # UB: keep originals (complex construction)
-    return gathered_f_q_bp, gathered_g_q_bp, new_iwae_lbs_bp, iwae_ubs_by_prompt_list
+        new_iwae_ubs_bp.append([_recompute_iwae_ub(f, g) for f, g in zip(gathered_f, gathered_g)])
+    return gathered_f_q_bp, gathered_g_q_bp, new_iwae_lbs_bp, new_iwae_ubs_bp
 
 
 def train(args):
@@ -1439,11 +1450,13 @@ def train(args):
 
                 # Gather f_q/g_q samples across ranks (each rank has independent MC samples).
                 # All gather calls are collective ops — all ranks must participate.
-                g_f_q, g_g_q, g_iwae_lbs, g_iwae_ubs = _distributed_gather_f_q_g_q_lists(
-                    strategy, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
-
-                if not args.new_custom_single_prompt:
-                    # Gather per-prompt breakdowns (must be outside rank-0 guard — collective ops)
+                if args.new_custom_single_prompt:
+                    # Single-prompt: gather aggregate and recompute IWAE bounds from all gathered samples.
+                    g_f_q, g_g_q, g_iwae_lbs, g_iwae_ubs = _distributed_gather_f_q_g_q_lists(
+                        strategy, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
+                else:
+                    # Multi-prompt: gather per-prompt data, then derive aggregate from it.
+                    # No separate aggregate-level gather — avoids duplicate communication over the same data.
                     g_f_q_bp, g_g_q_bp, g_iwae_lbs_bp, g_iwae_ubs_bp = _distributed_gather_f_q_g_q_by_prompt_lists(
                         strategy, f_q_by_prompt_list_fixed, g_q_by_prompt_list_fixed,
                         iwae_lbs_by_prompt_list_fixed, iwae_ubs_by_prompt_list_fixed)
@@ -1452,6 +1465,18 @@ def train(args):
                     if f_q_by_prompt_list_random:
                         for step_data in f_q_by_prompt_list_random:
                             g_f_q_bp_random.append(_distributed_all_gather_tensor_list(strategy, step_data))
+                    # Reconstruct aggregate lists from per-prompt gathered data (local — no extra communication).
+                    # g_f_q[t] / g_g_q[t]: concatenation of per-prompt gathered tensors at timestep t.
+                    # g_iwae_lbs[t] / g_iwae_ubs[t]: 1-D tensor of per-prompt scalar IWAE bounds at timestep t.
+                    # to_scalar() in plotting takes the mean, giving the average per-prompt bound.
+                    g_f_q = [torch.cat([f for f in step if f is not None]) if any(f is not None for f in step) else None
+                             for step in g_f_q_bp]
+                    g_g_q = [torch.cat([g for g in step if g is not None]) if any(g is not None for g in step) else None
+                             for step in g_g_q_bp]
+                    g_iwae_lbs = [torch.tensor([lb for lb in step if lb is not None]) if any(lb is not None for lb in step) else None
+                                  for step in g_iwae_lbs_bp]
+                    g_iwae_ubs = [torch.tensor([ub for ub in step if ub is not None]) if any(ub is not None for ub in step) else None
+                                  for step in g_iwae_ubs_bp]
 
                 if strategy.is_rank_0():
                     save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
@@ -3890,6 +3915,10 @@ def get_prompts_data(args, strategy, tokenizer):
         train_split=args.prompt_split,
     )
     prompts_data = prompts_data.select(range(min(args.max_samples, len(prompts_data))))
+    # With new_custom_single_prompt, the dataset prompts are unused (overwritten by custom_prompt
+    # in the training loop), so truncate to 1 row to avoid tying iteration count to dataset size.
+    if getattr(args, 'new_custom_single_prompt', False):
+        prompts_data = prompts_data.select(range(1))
     prompts_dataset = PromptDataset(prompts_data, tokenizer, strategy, input_template=args.input_template)
     pretrain_dataset = None
     if args.pretrain_data:
