@@ -1656,6 +1656,11 @@ def train(args):
         print(f"KL q_sigma list (analytic): {total_kl_q_sigma_list_analytic}")
         print(f"Metrics list (analytic): {metrics_list_analytic}")
 
+    # Save SIS weights history (per-episode normalized importance weights from CTL)
+    if args.do_harmlessness_training and hasattr(harmlessness_trainer, 'sis_weights_history') and harmlessness_trainer.sis_weights_history:
+        save_str = f"{args.save_info_path}/sis_weights_history_{info_name_str}"
+        torch.save(harmlessness_trainer.sis_weights_history, save_str)
+        print(f"Saved SIS weights history ({len(harmlessness_trainer.sis_weights_history)} episodes) to {save_str}")
 
     if args.do_harmlessness_training:
         actor_to_test = base_actor

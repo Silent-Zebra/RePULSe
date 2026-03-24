@@ -935,6 +935,91 @@ def plot_top_tokens_lollipop(
     print(f"Lollipop chart saved to {figname}")
 
 
+def plot_top_tokens_lollipop_individual(
+    figname, labels, results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_top_tokens=10,
+):
+    """
+    Individual-seed version of plot_top_tokens_lollipop (final step only).
+
+    Instead of bootstrap-aggregated means with CIs, each seed is plotted as a separate dot.
+    Seeds share the same color/marker per setting; one legend entry per setting.
+    """
+    target_by_setting, q_by_setting, top_n_tokens = _collect_top_token_log_probs(
+        labels, results_list, n_top_tokens, final_only=True)
+    if top_n_tokens is None:
+        print("Warning: Cannot create individual lollipop chart.")
+        return
+
+    n_settings = len(labels)
+    n_tokens = len(top_n_tokens)
+
+    fig, ax = plt.subplots()
+
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+    x_positions = np.arange(n_tokens)
+
+    # Compute target mean per token (pooled across all settings/seeds — target is shared)
+    target_means = np.full(n_tokens, np.nan)
+    for token_idx, token_id in enumerate(top_n_tokens):
+        all_target_vals = []
+        for vals in target_by_setting.get(token_id, {}).values():
+            all_target_vals.extend(vals)
+        if all_target_vals:
+            target_means[token_idx] = np.mean(all_target_vals)
+
+    # Draw target markers
+    dash_half_width = (total_width / 2 + dot_spacing * 0.6) if n_settings > 1 else 0.15
+    target_label_added = False
+    for token_idx in range(n_tokens):
+        if np.isnan(target_means[token_idx]):
+            continue
+        label = r"$\sigma$ (target)" if not target_label_added else None
+        ax.plot(
+            [x_positions[token_idx] - dash_half_width, x_positions[token_idx] + dash_half_width],
+            [target_means[token_idx], target_means[token_idx]],
+            color='black', linewidth=2, solid_capstyle='butt', label=label, zorder=3,
+        )
+        target_label_added = True
+
+    # Draw individual seed dots for each setting
+    rng = np.random.RandomState(42)
+    for setting_idx in range(n_settings):
+        label_added = False
+        for token_idx, token_id in enumerate(top_n_tokens):
+            q_values = q_by_setting.get(token_id, {}).get(setting_idx, [])
+            if not q_values:
+                continue
+            x_base = x_positions[token_idx] + setting_offsets[setting_idx]
+            # Small jitter to avoid overlap
+            jitter = rng.uniform(-0.03, 0.03, size=len(q_values))
+            label = labels[setting_idx] if not label_added else None
+            ax.scatter(
+                x_base + jitter, q_values,
+                color=color_list[setting_idx], s=20, alpha=0.7,
+                label=label, zorder=4,
+            )
+            label_added = True
+
+    ax.set_xlabel('Token ID', fontsize=fontsize)
+    ax.set_ylabel('Log Probability', fontsize=fontsize)
+    ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Prob (individual seeds, final step)', fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([str(token_id) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Individual lollipop chart saved to {figname}")
+
+
 def _collect_token_log_probs_at_timestep(results_list, setting_idx, timestep_idx, token_ids):
     """Extract per-seed log probs (target and q) for given tokens at a specific timestep index.
 
@@ -1132,6 +1217,589 @@ def plot_top_tokens_lollipop_over_time(
     print(f"Over-time lollipop chart saved to {figname}")
 
 
+def _collect_sample_counts_at_timestep(results_list, setting_idx, timestep_idx, token_ids):
+    """Extract per-seed cumulative sample counts for given tokens at a specific timestep.
+
+    Returns:
+        dict of token_id -> list of per-seed count values.
+    """
+    counts_by_token = {tid: [] for tid in token_ids}
+
+    tuple_list = results_list[setting_idx]
+    if not tuple_list:
+        return counts_by_token
+
+    for t in tuple_list:
+        if not isinstance(t, tuple) or len(t) < 3:
+            continue
+        metrics_list = t[2]
+        if not isinstance(metrics_list, list) or len(metrics_list) == 0:
+            continue
+        if timestep_idx >= len(metrics_list):
+            continue
+        metrics_dict = metrics_list[timestep_idx]
+        if not isinstance(metrics_dict, dict):
+            continue
+        counts = metrics_dict.get('cumulative_q_sample_counts', None)
+        if counts is None:
+            continue
+        for tid in token_ids:
+            if tid < len(counts):
+                counts_by_token[tid].append(counts[tid].item())
+
+    return counts_by_token
+
+
+def plot_sample_counts_over_time(
+    figname, labels, results_list,
+    color_list, n_frontiers=4,
+    fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+    n_top_tokens=10,
+):
+    """
+    Plot cumulative sample counts over time for the top tokens under the target distribution.
+
+    Token selection is based on the final timestep (top N by target log prob).
+    At each of n_frontiers evenly-spaced timesteps, dots show the mean cumulative count
+    (across seeds) with bootstrap CIs. Alpha progresses from light (early) to dark (late).
+    """
+    # Select top tokens using final timestep target log prob
+    target_by_setting, _, top_n_tokens = _collect_top_token_log_probs(
+        labels, results_list, n_top_tokens, final_only=True)
+    if top_n_tokens is None:
+        print("Warning: Cannot create sample counts over time plot.")
+        return
+
+    # Check if any data has cumulative_q_sample_counts
+    has_counts = False
+    for setting_data in results_list:
+        for t in setting_data:
+            if isinstance(t, tuple) and len(t) >= 3 and isinstance(t[2], list) and len(t[2]) > 0:
+                last = t[2][-1]
+                if isinstance(last, dict) and 'cumulative_q_sample_counts' in last:
+                    has_counts = True
+                    break
+        if has_counts:
+            break
+    if not has_counts:
+        print("Warning: No cumulative_q_sample_counts found in data. Skipping counts plot.")
+        return
+
+    # Determine max trajectory length
+    max_T = 0
+    for setting_idx in range(len(labels)):
+        for t in results_list[setting_idx]:
+            if isinstance(t, tuple) and len(t) >= 3 and isinstance(t[2], list):
+                max_T = max(max_T, len(t[2]))
+
+    if max_T == 0 or n_frontiers <= 0:
+        return
+
+    # Compute evenly-spaced timestep indices
+    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
+    seen = set()
+    unique_frontier_indices = []
+    for idx in frontier_indices:
+        if idx not in seen:
+            seen.add(idx)
+            unique_frontier_indices.append(idx)
+    frontier_indices = unique_frontier_indices
+    n_times = len(frontier_indices)
+
+    n_settings = len(labels)
+    n_tokens = len(top_n_tokens)
+
+    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+    x_positions = np.arange(n_tokens)
+
+    # Alpha progression
+    alphas = np.linspace(0.25, 1.0, n_times)
+
+    # Collect counts at each timestep
+    counts_over_time = np.full((n_settings, n_tokens, n_times), np.nan)
+    counts_ci_lo = np.full((n_settings, n_tokens, n_times), np.nan)
+    counts_ci_hi = np.full((n_settings, n_tokens, n_times), np.nan)
+
+    for time_i, t_idx in enumerate(frontier_indices):
+        for setting_idx in range(n_settings):
+            counts_by_token = _collect_sample_counts_at_timestep(
+                results_list, setting_idx, t_idx, top_n_tokens)
+            for token_idx, token_id in enumerate(top_n_tokens):
+                vals = np.array(counts_by_token[token_id])
+                if len(vals) > 0:
+                    m, lo, hi = _bootstrap_mean_ci(vals, n_bootstrap_draws)
+                    counts_over_time[setting_idx, token_idx, time_i] = m
+                    counts_ci_lo[setting_idx, token_idx, time_i] = lo
+                    counts_ci_hi[setting_idx, token_idx, time_i] = hi
+
+    # Draw dots for each setting
+    for setting_idx in range(n_settings):
+        x_base = x_positions + setting_offsets[setting_idx]
+
+        setting_label_added = False
+        for time_i in range(n_times):
+            means = counts_over_time[setting_idx, :, time_i]
+            lo = counts_ci_lo[setting_idx, :, time_i]
+            hi = counts_ci_hi[setting_idx, :, time_i]
+            lower_err = means - lo
+            upper_err = hi - means
+            valid = ~np.isnan(means)
+            if not valid.any():
+                continue
+
+            label = labels[setting_idx] if not setting_label_added else None
+            ax.errorbar(
+                x_base[valid], means[valid],
+                yerr=[lower_err[valid], upper_err[valid]],
+                fmt='o', color=color_list[setting_idx], markersize=4,
+                capsize=2, linewidth=0.8, alpha=alphas[time_i],
+                label=label, zorder=4,
+            )
+            setting_label_added = True
+
+    # Timestep annotation
+    time_str = ", ".join(str(idx) for idx in frontier_indices)
+    ax.annotate(f"Timesteps: {time_str} (light\u2192dark)", xy=(0.02, 0.98),
+                xycoords='axes fraction', fontsize=fontsize - 1, color='gray',
+                verticalalignment='top')
+
+    ax.set_xlabel('Token ID', fontsize=fontsize)
+    ax.set_ylabel('Cumulative Sample Count', fontsize=fontsize)
+    ax.set_title(f'Top {n_top_tokens} Target Tokens: Cumulative q Sample Counts Over Time', fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([str(token_id) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Sample counts over time chart saved to {figname}")
+
+
+def plot_coverage_curve(
+    figname, labels, results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+    n_top_tokens=10,
+):
+    """
+    Plot the fraction of top-K target tokens discovered (sampled at least once by q)
+    over training time.
+
+    X-axis: evaluation step index.
+    Y-axis: fraction of top-K target tokens with cumulative_q_sample_counts > 0.
+    One line per setting with bootstrap CI shading across seeds.
+    Coverage is monotonically non-decreasing since counts are cumulative.
+    """
+    # Select top tokens using final timestep target log prob
+    _, _, top_n_tokens = _collect_top_token_log_probs(
+        labels, results_list, n_top_tokens, final_only=True)
+    if top_n_tokens is None:
+        print("Warning: Cannot create coverage curve.")
+        return
+
+    # Check if any data has cumulative_q_sample_counts
+    has_counts = False
+    for setting_data in results_list:
+        for t in setting_data:
+            if isinstance(t, tuple) and len(t) >= 3 and isinstance(t[2], list) and len(t[2]) > 0:
+                last = t[2][-1]
+                if isinstance(last, dict) and 'cumulative_q_sample_counts' in last:
+                    has_counts = True
+                    break
+        if has_counts:
+            break
+    if not has_counts:
+        print("Warning: No cumulative_q_sample_counts found. Skipping coverage curve.")
+        return
+
+    n_settings = len(labels)
+    n_tokens = len(top_n_tokens)
+
+    fig, ax = plt.subplots()
+
+    for setting_idx in range(n_settings):
+        tuple_list = results_list[setting_idx]
+        if not tuple_list:
+            continue
+
+        # For each seed, compute coverage at each evaluation step
+        seed_curves = []
+        for t in tuple_list:
+            if not isinstance(t, tuple) or len(t) < 3:
+                continue
+            metrics_list = t[2]
+            if not isinstance(metrics_list, list) or len(metrics_list) == 0:
+                continue
+
+            curve = []
+            for metrics_dict in metrics_list:
+                if not isinstance(metrics_dict, dict):
+                    curve.append(np.nan)
+                    continue
+                counts = metrics_dict.get('cumulative_q_sample_counts', None)
+                if counts is None:
+                    curve.append(np.nan)
+                    continue
+                n_discovered = sum(1 for tid in top_n_tokens if tid < len(counts) and counts[tid].item() > 0)
+                curve.append(n_discovered / n_tokens)
+            seed_curves.append(curve)
+
+        if not seed_curves:
+            continue
+
+        # Pad shorter curves with their last value (seeds may have different lengths)
+        max_len = max(len(c) for c in seed_curves)
+        for c in seed_curves:
+            last_val = c[-1] if c else np.nan
+            while len(c) < max_len:
+                c.append(last_val)
+
+        # Bootstrap CI at each timestep
+        timesteps = np.arange(max_len)
+        means = np.full(max_len, np.nan)
+        ci_lo = np.full(max_len, np.nan)
+        ci_hi = np.full(max_len, np.nan)
+
+        for t_idx in range(max_len):
+            vals = np.array([c[t_idx] for c in seed_curves])
+            valid_vals = vals[~np.isnan(vals)]
+            if len(valid_vals) > 0:
+                means[t_idx], ci_lo[t_idx], ci_hi[t_idx] = _bootstrap_mean_ci(valid_vals, n_bootstrap_draws)
+
+        valid = ~np.isnan(means)
+        if valid.any():
+            ax.plot(timesteps[valid], means[valid], color=color_list[setting_idx],
+                    label=labels[setting_idx], linewidth=1.5)
+            ax.fill_between(timesteps[valid], ci_lo[valid], ci_hi[valid],
+                            color=color_list[setting_idx], alpha=0.15)
+
+    ax.set_xlabel('Evaluation Step', fontsize=fontsize)
+    ax.set_ylabel(f'Fraction of Top-{n_top_tokens} Target Tokens Discovered', fontsize=fontsize)
+    ax.set_title(f'Coverage: Fraction of Top-{n_top_tokens} Target Tokens Sampled by q', fontsize=fontsize + 1)
+    ax.set_ylim(-0.05, 1.05)
+    ax.tick_params(axis='both', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Coverage curve saved to {figname}")
+
+
+def plot_vocab_coverage_curve(
+    figname, labels, results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+):
+    """
+    Plot the fraction of ALL vocab tokens discovered (sampled at least once by q)
+    over training time.
+
+    X-axis: evaluation step index.
+    Y-axis: fraction of vocab tokens with cumulative_q_sample_counts > 0.
+    One line per setting with bootstrap CI shading across seeds.
+    """
+    # Check if any data has cumulative_q_sample_counts and determine n_vocab
+    n_vocab = None
+    has_counts = False
+    for setting_data in results_list:
+        for t in setting_data:
+            if isinstance(t, tuple) and len(t) >= 3 and isinstance(t[2], list) and len(t[2]) > 0:
+                last = t[2][-1]
+                if isinstance(last, dict) and 'cumulative_q_sample_counts' in last:
+                    has_counts = True
+                    n_vocab = len(last['cumulative_q_sample_counts'])
+                    break
+        if has_counts:
+            break
+    if not has_counts or n_vocab is None:
+        print("Warning: No cumulative_q_sample_counts found. Skipping vocab coverage curve.")
+        return
+
+    n_settings = len(labels)
+
+    fig, ax = plt.subplots()
+
+    for setting_idx in range(n_settings):
+        tuple_list = results_list[setting_idx]
+        if not tuple_list:
+            continue
+
+        seed_curves = []
+        for t in tuple_list:
+            if not isinstance(t, tuple) or len(t) < 3:
+                continue
+            metrics_list = t[2]
+            if not isinstance(metrics_list, list) or len(metrics_list) == 0:
+                continue
+
+            curve = []
+            for metrics_dict in metrics_list:
+                if not isinstance(metrics_dict, dict):
+                    curve.append(np.nan)
+                    continue
+                counts = metrics_dict.get('cumulative_q_sample_counts', None)
+                if counts is None:
+                    curve.append(np.nan)
+                    continue
+                n_discovered = (counts > 0).sum().item()
+                curve.append(n_discovered / n_vocab)
+            seed_curves.append(curve)
+
+        if not seed_curves:
+            continue
+
+        # Pad shorter curves with their last value
+        max_len = max(len(c) for c in seed_curves)
+        for c in seed_curves:
+            last_val = c[-1] if c else np.nan
+            while len(c) < max_len:
+                c.append(last_val)
+
+        timesteps = np.arange(max_len)
+        means = np.full(max_len, np.nan)
+        ci_lo = np.full(max_len, np.nan)
+        ci_hi = np.full(max_len, np.nan)
+
+        for t_idx in range(max_len):
+            vals = np.array([c[t_idx] for c in seed_curves])
+            valid_vals = vals[~np.isnan(vals)]
+            if len(valid_vals) > 0:
+                means[t_idx], ci_lo[t_idx], ci_hi[t_idx] = _bootstrap_mean_ci(valid_vals, n_bootstrap_draws)
+
+        valid = ~np.isnan(means)
+        if valid.any():
+            ax.plot(timesteps[valid], means[valid], color=color_list[setting_idx],
+                    label=labels[setting_idx], linewidth=1.5)
+            ax.fill_between(timesteps[valid], ci_lo[valid], ci_hi[valid],
+                            color=color_list[setting_idx], alpha=0.15)
+
+    ax.set_xlabel('Evaluation Step', fontsize=fontsize)
+    ax.set_ylabel('Fraction of Vocab Tokens Discovered', fontsize=fontsize)
+    ax.set_title(f'Vocab Coverage: Fraction of All Tokens Sampled by q (n_vocab={n_vocab})', fontsize=fontsize + 1)
+    # Dynamic y-axis: scale to data range with a small margin
+    y_lo, y_hi = ax.get_ylim()
+    margin = (y_hi - y_lo) * 0.05 if y_hi > y_lo else 0.05
+    ax.set_ylim(max(0, y_lo - margin), y_hi + margin)
+    ax.tick_params(axis='both', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Vocab coverage curve saved to {figname}")
+
+
+def plot_visitation_heatmaps(
+    figname_prefix, labels, results_list,
+    n_frontiers=4,
+    fontsize=7,
+):
+    """
+    For each setting, produce a figure with (n_frontiers + 1) heatmap subplots showing
+    token visitation counts on a 2D grid (reshaped to roughly sqrt(n_vocab) x sqrt(n_vocab)).
+
+    The first n_frontiers subplots show incremental counts (new visits since the previous
+    frontier timestep). The final subplot shows the cumulative count at the last timestep.
+    Counts are averaged across seeds.
+
+    One PDF is saved per setting: {figname_prefix}_setting{idx}.pdf
+    """
+    import math
+
+    # Check if any data has cumulative_q_sample_counts and determine n_vocab
+    n_vocab = None
+    has_counts = False
+    for setting_data in results_list:
+        for t in setting_data:
+            if isinstance(t, tuple) and len(t) >= 3 and isinstance(t[2], list) and len(t[2]) > 0:
+                last = t[2][-1]
+                if isinstance(last, dict) and 'cumulative_q_sample_counts' in last:
+                    has_counts = True
+                    n_vocab = len(last['cumulative_q_sample_counts'])
+                    break
+        if has_counts:
+            break
+    if not has_counts or n_vocab is None:
+        print("Warning: No cumulative_q_sample_counts found. Skipping visitation heatmaps.")
+        return
+
+    # Determine max trajectory length
+    max_T = 0
+    for setting_idx in range(len(labels)):
+        for t in results_list[setting_idx]:
+            if isinstance(t, tuple) and len(t) >= 3 and isinstance(t[2], list):
+                max_T = max(max_T, len(t[2]))
+
+    if max_T == 0 or n_frontiers <= 0:
+        return
+
+    # Compute evenly-spaced frontier timestep indices
+    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
+    seen = set()
+    unique_frontier_indices = []
+    for idx in frontier_indices:
+        if idx not in seen:
+            seen.add(idx)
+            unique_frontier_indices.append(idx)
+    frontier_indices = unique_frontier_indices
+    n_times = len(frontier_indices)
+
+    # Grid dimensions: reshape n_vocab into roughly square grid
+    grid_h = int(math.ceil(math.sqrt(n_vocab)))
+    grid_w = int(math.ceil(n_vocab / grid_h))
+    n_pad = grid_h * grid_w - n_vocab  # tokens to pad with NaN
+
+    n_settings = len(labels)
+
+    for setting_idx in range(n_settings):
+        tuple_list = results_list[setting_idx]
+        if not tuple_list:
+            continue
+
+        # Collect cumulative counts at each frontier timestep, averaged across seeds
+        # Also need counts at one step before the first frontier for the first diff
+        # We use timestep 0 as the "previous" for the first frontier
+        # Timesteps to collect: [0] + frontier_indices (but 0 may overlap with first frontier)
+        all_timesteps = [0] + frontier_indices
+        # Remove duplicates while preserving order
+        seen_ts = set()
+        unique_all_timesteps = []
+        for ts in all_timesteps:
+            if ts not in seen_ts:
+                seen_ts.add(ts)
+                unique_all_timesteps.append(ts)
+        all_timesteps = unique_all_timesteps
+
+        # avg_counts[ts] = average count vector across seeds at timestep ts
+        avg_counts = {}
+        for ts in all_timesteps:
+            seed_counts = []
+            for t in tuple_list:
+                if not isinstance(t, tuple) or len(t) < 3:
+                    continue
+                metrics_list = t[2]
+                if not isinstance(metrics_list, list) or ts >= len(metrics_list):
+                    continue
+                metrics_dict = metrics_list[ts]
+                if not isinstance(metrics_dict, dict):
+                    continue
+                counts = metrics_dict.get('cumulative_q_sample_counts', None)
+                if counts is None:
+                    continue
+                seed_counts.append(np.array([counts[i].item() for i in range(min(len(counts), n_vocab))]))
+            if seed_counts:
+                # Pad to n_vocab if needed
+                padded = []
+                for sc in seed_counts:
+                    if len(sc) < n_vocab:
+                        sc = np.concatenate([sc, np.zeros(n_vocab - len(sc))])
+                    padded.append(sc)
+                avg_counts[ts] = np.mean(padded, axis=0)
+
+        if not avg_counts:
+            continue
+
+        # Build incremental diffs
+        diff_grids = []
+        prev_ts = 0
+        for time_i, ts in enumerate(frontier_indices):
+            curr = avg_counts.get(ts, np.zeros(n_vocab))
+            prev = avg_counts.get(prev_ts, np.zeros(n_vocab)) if ts != prev_ts else np.zeros(n_vocab)
+            diff = curr - prev
+            diff_grids.append((diff, ts, prev_ts))
+            prev_ts = ts
+
+        # Cumulative counts at the final timestep
+        final_ts = frontier_indices[-1]
+        cumulative = avg_counts.get(final_ts, np.zeros(n_vocab))
+
+        # Colormap: light gray (count >= 1) to black (max count).
+        # Zero-count cells are masked and shown as white, giving a clear visual
+        # boundary between "never visited" (white) and "visited at least once" (light gray).
+        from matplotlib.colors import LinearSegmentedColormap
+        gray_colors = plt.cm.Greys(np.linspace(0.2, 1.0, 256))
+        cmap = LinearSegmentedColormap.from_list('gray_nonzero', gray_colors)
+        cmap.set_bad(color='white')
+
+        def _mask_zeros(data):
+            """Return a masked array where zeros (and NaNs) are masked."""
+            masked = np.ma.array(data, mask=(data == 0) | np.isnan(data))
+            return masked
+
+        # --- Incremental (new visitations) PDF ---
+        n_diff_panels = len(diff_grids)
+        fig_diff, axes_diff = plt.subplots(1, n_diff_panels, figsize=(3.5 * n_diff_panels, 3.5))
+        if n_diff_panels == 1:
+            axes_diff = [axes_diff]
+
+        diff_max = max(np.max(d[0]) for d in diff_grids) if diff_grids else 1
+        if diff_max == 0:
+            diff_max = 1
+
+        for panel_i, (data, ts, prev_ts_val) in enumerate(diff_grids):
+            ax = axes_diff[panel_i]
+            padded_data = np.concatenate([data, np.full(n_pad, np.nan)]) if n_pad > 0 else data.copy()
+            grid = _mask_zeros(padded_data.reshape(grid_h, grid_w))
+
+            im = ax.imshow(grid, cmap=cmap, aspect='equal', vmin=1, vmax=diff_max,
+                           interpolation='nearest')
+
+            if prev_ts_val == 0 and panel_i == 0:
+                ax.set_title(f'Steps 0\u2013{ts}', fontsize=fontsize)
+            else:
+                ax.set_title(f'Steps {prev_ts_val}\u2013{ts}', fontsize=fontsize)
+
+            ax.set_xticks([])
+            ax.set_yticks([])
+            fig_diff.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+        fig_diff.suptitle(f'New Token Visitations \u2014 {labels[setting_idx]}', fontsize=fontsize + 2)
+        plt.tight_layout()
+
+        diff_figname = f"{figname_prefix}_incremental_setting{setting_idx}.pdf"
+        plt.savefig(diff_figname)
+        plt.clf()
+        plt.close(fig_diff)
+        print(f"Incremental visitation heatmap saved to {diff_figname}")
+
+        # --- Cumulative PDF ---
+        fig_cum, ax_cum = plt.subplots(figsize=(4, 4))
+
+        cum_max = np.max(cumulative) if np.max(cumulative) > 0 else 1
+        padded_cum = np.concatenate([cumulative, np.full(n_pad, np.nan)]) if n_pad > 0 else cumulative.copy()
+        grid_cum = _mask_zeros(padded_cum.reshape(grid_h, grid_w))
+
+        im_cum = ax_cum.imshow(grid_cum, cmap=cmap, aspect='equal', vmin=1, vmax=cum_max,
+                               interpolation='nearest')
+        ax_cum.set_title(f'Cumulative (step {final_ts})', fontsize=fontsize)
+        ax_cum.set_xticks([])
+        ax_cum.set_yticks([])
+        fig_cum.colorbar(im_cum, ax=ax_cum, fraction=0.046, pad=0.04)
+
+        fig_cum.suptitle(f'Cumulative Token Visitations \u2014 {labels[setting_idx]}', fontsize=fontsize + 2)
+        plt.tight_layout()
+
+        cum_figname = f"{figname_prefix}_cumulative_setting{setting_idx}.pdf"
+        plt.savefig(cum_figname)
+        plt.clf()
+        plt.close(fig_cum)
+        print(f"Cumulative visitation heatmap saved to {cum_figname}")
+
+
 def plot_top_q_intersection_lollipop(
     figname, labels, results_list,
     color_list, fontsize=7, legendfontsize=7,
@@ -1139,11 +1807,13 @@ def plot_top_q_intersection_lollipop(
     n_top_tokens=10,
 ):
     """
-    Lollipop chart for top tokens ranked by average log prob under q across all settings.
+    Lollipop chart showing per-setting top tokens ranked by average log q (across seeds).
 
-    Uses final-timestep data. Collects all tokens, computes average log q across all
-    settings and seeds, sorts descending, and picks the top n_top_tokens.
-    Shows target log prob as a shared reference dash + per-setting q dots with CIs.
+    Each setting gets its own top-N tokens (by mean log q across seeds at the final timestep).
+    Tokens are grouped by setting: all top-N for setting 1, then all top-N for setting 2, etc.
+    Within each group, tokens are ordered left-to-right by decreasing average log q.
+    For each token, a black dash shows the target log prob and colored dots (with bootstrap CIs)
+    show each setting's log q.
     """
     # Collect all token data at the final timestep
     target_by_setting, q_by_setting, _ = _collect_top_token_log_probs(
@@ -1152,87 +1822,113 @@ def plot_top_q_intersection_lollipop(
         print("Warning: No token data found. Cannot create top-q lollipop.")
         return
 
-    # Compute average log q across all settings/seeds for each token
-    token_avg_q = {}
-    for token_id, setting_dict in q_by_setting.items():
-        all_q_vals = []
-        for vals in setting_dict.values():
-            all_q_vals.extend(vals)
-        if all_q_vals:
-            token_avg_q[token_id] = np.mean(all_q_vals)
+    n_settings = len(labels)
 
-    if not token_avg_q:
-        print("Warning: No log prob data. Skipping top-q lollipop.")
+    # For each setting, compute mean log q per token (across seeds), sort, pick top N
+    top_tokens_per_setting = {}
+    for setting_idx in range(n_settings):
+        token_avg_q = {}
+        for token_id, setting_dict in q_by_setting.items():
+            vals = setting_dict.get(setting_idx, [])
+            if vals:
+                token_avg_q[token_id] = np.mean(vals)
+        sorted_tokens = sorted(token_avg_q.items(), key=lambda x: x[1], reverse=True)
+        top_tokens_per_setting[setting_idx] = sorted_tokens[:n_top_tokens]
+        top_ids = [tid for tid, _ in top_tokens_per_setting[setting_idx]]
+        print(f"\n[{labels[setting_idx]}] Top-{n_top_tokens} tokens by avg log q: {top_ids}")
+
+    # Build grouped token list: all for setting 0, then all for setting 1, ...
+    # Each entry is (setting_idx, token_id)
+    grouped = []
+    for setting_idx in range(n_settings):
+        for token_id, _ in top_tokens_per_setting.get(setting_idx, []):
+            grouped.append((setting_idx, token_id))
+
+    if not grouped:
+        print("Warning: No tokens found. Skipping top-q lollipop.")
         return
 
-    # Sort by average q log prob (descending) and pick top N
-    sorted_tokens = sorted(token_avg_q.items(), key=lambda x: x[1], reverse=True)
-    token_list = [token_id for token_id, _ in sorted_tokens[:n_top_tokens]]
+    n_positions = len(grouped)
+    fig, ax = plt.subplots(figsize=(max(8, n_positions * 0.45), 5))
 
-    n_settings = len(labels)
-    n_tokens = len(token_list)
-    print(f"\nTop-q tokens ({n_tokens}), sorted by avg log q: {token_list}")
+    x_positions = np.arange(n_positions)
 
-    fig, ax = plt.subplots()
-
-    dot_spacing = 0.12
-    total_width = dot_spacing * (n_settings - 1)
-    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
-    x_positions = np.arange(n_tokens)
-
-    # Target mean per token (pooled across all settings/seeds)
-    target_means = np.full(n_tokens, np.nan)
-    for token_idx, token_id in enumerate(token_list):
+    # For each position, compute target mean
+    target_means = np.full(n_positions, np.nan)
+    for pos_idx, (owner_setting, token_id) in enumerate(grouped):
         all_target_vals = []
         for vals in target_by_setting.get(token_id, {}).values():
             all_target_vals.extend(vals)
         if all_target_vals:
-            target_means[token_idx] = np.mean(all_target_vals)
+            target_means[pos_idx] = np.mean(all_target_vals)
 
     # Draw target dashes
-    dash_half_width = (total_width / 2 + dot_spacing * 0.6) if n_settings > 1 else 0.15
+    dash_half_width = 0.35
     target_label_added = False
-    for token_idx in range(n_tokens):
-        if np.isnan(target_means[token_idx]):
+    for pos_idx in range(n_positions):
+        if np.isnan(target_means[pos_idx]):
             continue
         label = r"$\sigma$ (target)" if not target_label_added else None
         ax.plot(
-            [x_positions[token_idx] - dash_half_width, x_positions[token_idx] + dash_half_width],
-            [target_means[token_idx], target_means[token_idx]],
-            color='black', linewidth=2, solid_capstyle='butt', label=label, zorder=3,
+            [x_positions[pos_idx] - dash_half_width, x_positions[pos_idx] + dash_half_width],
+            [target_means[pos_idx], target_means[pos_idx]],
+            color='black', linewidth=1.5, solid_capstyle='butt', label=label, zorder=3,
         )
         target_label_added = True
 
-    # Draw q dots for each setting
-    for setting_idx in range(n_settings):
-        q_means = np.full(n_tokens, np.nan)
-        q_ci_lo = np.full(n_tokens, np.nan)
-        q_ci_hi = np.full(n_tokens, np.nan)
+    # Draw q dots for each setting at every position
+    setting_label_added = [False] * n_settings
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
 
-        for token_idx, token_id in enumerate(token_list):
+    for setting_idx in range(n_settings):
+        q_means = np.full(n_positions, np.nan)
+        q_ci_lo = np.full(n_positions, np.nan)
+        q_ci_hi = np.full(n_positions, np.nan)
+
+        for pos_idx, (owner_setting, token_id) in enumerate(grouped):
             q_values = np.array(q_by_setting.get(token_id, {}).get(setting_idx, []))
-            q_means[token_idx], q_ci_lo[token_idx], q_ci_hi[token_idx] = \
+            q_means[pos_idx], q_ci_lo[pos_idx], q_ci_hi[pos_idx] = \
                 _bootstrap_mean_ci(q_values, n_bootstrap_draws)
 
         x_pos = x_positions + setting_offsets[setting_idx]
-
-        # q dots with CI error bars
         lower_err = q_means - q_ci_lo
         upper_err = q_ci_hi - q_means
         valid = ~np.isnan(q_means)
         if valid.any():
+            label = labels[setting_idx] if not setting_label_added[setting_idx] else None
             ax.errorbar(
                 x_pos[valid], q_means[valid],
                 yerr=[lower_err[valid], upper_err[valid]],
-                fmt='o', color=color_list[setting_idx], markersize=5,
-                capsize=3, linewidth=1, label=labels[setting_idx], zorder=4,
+                fmt='o', color=color_list[setting_idx], markersize=4,
+                capsize=2, linewidth=0.8, label=label, zorder=4,
             )
+            setting_label_added[setting_idx] = True
 
-    ax.set_xlabel('Token ID', fontsize=fontsize)
-    ax.set_ylabel('Log Probability', fontsize=fontsize)
-    ax.set_title(f'Top {n_tokens} Tokens by Avg Log q (final step)', fontsize=fontsize + 1)
+    # Colored tick labels matching the owner setting
+    tick_labels = []
+    tick_colors = []
+    for owner_setting, token_id in grouped:
+        tick_labels.append(str(token_id))
+        tick_colors.append(color_list[owner_setting])
+
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([str(token_id) for token_id in token_list], fontsize=fontsize - 1)
+    ax.set_xticklabels(tick_labels, fontsize=max(fontsize - 2, 4), rotation=90)
+    for tick_label, color in zip(ax.get_xticklabels(), tick_colors):
+        tick_label.set_color(color)
+
+    # Add setting separator lines between groups
+    pos = 0
+    for setting_idx in range(n_settings):
+        n_tokens_in_group = len(top_tokens_per_setting.get(setting_idx, []))
+        pos += n_tokens_in_group
+        if setting_idx < n_settings - 1 and pos < n_positions:
+            ax.axvline(x=pos - 0.5, color='gray', linewidth=0.8, linestyle='--', alpha=0.6)
+
+    ax.set_xlabel('Token ID (colored by owning setting)', fontsize=fontsize)
+    ax.set_ylabel('Log Probability', fontsize=fontsize)
+    ax.set_title(f'Per-Setting Top-{n_top_tokens} Tokens by Log q (final step)', fontsize=fontsize + 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1242,6 +1938,131 @@ def plot_top_q_intersection_lollipop(
     plt.clf()
     plt.close(fig)
     print(f"Top-q lollipop chart saved to {figname}")
+
+
+def plot_top_q_intersection_lollipop_individual(
+    figname, labels, results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_top_tokens=10,
+):
+    """
+    Individual-seed version of plot_top_q_intersection_lollipop.
+
+    Per-setting top-N tokens by mean log q, but instead of bootstrap CIs, each seed
+    is plotted as a separate dot. Same color/marker per setting; one legend entry per setting.
+    """
+    # Collect all token data at the final timestep
+    target_by_setting, q_by_setting, _ = _collect_top_token_log_probs(
+        labels, results_list, n_top_tokens=999999, final_only=True)
+    if q_by_setting is None:
+        print("Warning: No token data found. Cannot create individual top-q lollipop.")
+        return
+
+    n_settings = len(labels)
+
+    # For each setting, compute mean log q per token (across seeds), sort, pick top N
+    top_tokens_per_setting = {}
+    for setting_idx in range(n_settings):
+        token_avg_q = {}
+        for token_id, setting_dict in q_by_setting.items():
+            vals = setting_dict.get(setting_idx, [])
+            if vals:
+                token_avg_q[token_id] = np.mean(vals)
+        sorted_tokens = sorted(token_avg_q.items(), key=lambda x: x[1], reverse=True)
+        top_tokens_per_setting[setting_idx] = sorted_tokens[:n_top_tokens]
+
+    # Build grouped token list: all for setting 0, then all for setting 1, ...
+    grouped = []
+    for setting_idx in range(n_settings):
+        for token_id, _ in top_tokens_per_setting.get(setting_idx, []):
+            grouped.append((setting_idx, token_id))
+
+    if not grouped:
+        print("Warning: No tokens found. Skipping individual top-q lollipop.")
+        return
+
+    n_positions = len(grouped)
+    fig, ax = plt.subplots(figsize=(max(8, n_positions * 0.45), 5))
+
+    x_positions = np.arange(n_positions)
+
+    # Target means
+    target_means = np.full(n_positions, np.nan)
+    for pos_idx, (owner_setting, token_id) in enumerate(grouped):
+        all_target_vals = []
+        for vals in target_by_setting.get(token_id, {}).values():
+            all_target_vals.extend(vals)
+        if all_target_vals:
+            target_means[pos_idx] = np.mean(all_target_vals)
+
+    # Draw target dashes
+    dash_half_width = 0.35
+    target_label_added = False
+    for pos_idx in range(n_positions):
+        if np.isnan(target_means[pos_idx]):
+            continue
+        label = r"$\sigma$ (target)" if not target_label_added else None
+        ax.plot(
+            [x_positions[pos_idx] - dash_half_width, x_positions[pos_idx] + dash_half_width],
+            [target_means[pos_idx], target_means[pos_idx]],
+            color='black', linewidth=1.5, solid_capstyle='butt', label=label, zorder=3,
+        )
+        target_label_added = True
+
+    # Draw individual seed dots for each setting at every position
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+    rng = np.random.RandomState(42)
+
+    setting_label_added = [False] * n_settings
+    for setting_idx in range(n_settings):
+        for pos_idx, (owner_setting, token_id) in enumerate(grouped):
+            q_values = q_by_setting.get(token_id, {}).get(setting_idx, [])
+            if not q_values:
+                continue
+            x_base = x_positions[pos_idx] + setting_offsets[setting_idx]
+            jitter = rng.uniform(-0.03, 0.03, size=len(q_values))
+            label = labels[setting_idx] if not setting_label_added[setting_idx] else None
+            ax.scatter(
+                x_base + jitter, q_values,
+                color=color_list[setting_idx], s=15, alpha=0.7,
+                label=label, zorder=4,
+            )
+            setting_label_added[setting_idx] = True
+
+    # Colored tick labels matching the owner setting
+    tick_labels = []
+    tick_colors = []
+    for owner_setting, token_id in grouped:
+        tick_labels.append(str(token_id))
+        tick_colors.append(color_list[owner_setting])
+
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(tick_labels, fontsize=max(fontsize - 2, 4), rotation=90)
+    for tick_label, color in zip(ax.get_xticklabels(), tick_colors):
+        tick_label.set_color(color)
+
+    # Add setting separator lines between groups
+    pos = 0
+    for setting_idx in range(n_settings):
+        n_tokens_in_group = len(top_tokens_per_setting.get(setting_idx, []))
+        pos += n_tokens_in_group
+        if setting_idx < n_settings - 1 and pos < n_positions:
+            ax.axvline(x=pos - 0.5, color='gray', linewidth=0.8, linestyle='--', alpha=0.6)
+
+    ax.set_xlabel('Token ID (colored by owning setting)', fontsize=fontsize)
+    ax.set_ylabel('Log Probability', fontsize=fontsize)
+    ax.set_title(f'Per-Setting Top-{n_top_tokens} Tokens by Log q (individual seeds, final step)', fontsize=fontsize + 1)
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Individual top-q lollipop chart saved to {figname}")
 
 
 def plot_top_q_ranked_lollipop(
@@ -1442,3 +2263,215 @@ def plot_top_q_ranked_lollipop(
     plt.clf()
     plt.close(fig)
     print(f"Ranked lollipop chart saved to {figname}")
+
+
+def plot_top_q_ranked_lollipop_individual(
+    figname, labels, results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_ranks=10,
+):
+    """
+    Individual-seed version of plot_top_q_ranked_lollipop.
+
+    For each setting and seed, at the final timestep, sorts tokens by log q descending
+    and plots the log prob under q and target at each rank. Each seed is a separate dot
+    instead of bootstrap-aggregated means with CIs.
+    """
+    # Collect per-setting, per-seed, per-rank log probs (same as aggregated version)
+    rank_data = {i: [] for i in range(len(labels))}
+
+    for setting_idx in range(len(labels)):
+        tuple_list = results_list[setting_idx]
+        if not tuple_list:
+            continue
+
+        for t in tuple_list:
+            if not isinstance(t, tuple) or len(t) < 3:
+                continue
+            metrics_list = t[2]
+            if not isinstance(metrics_list, list) or len(metrics_list) == 0:
+                continue
+
+            last_metrics = metrics_list[-1]
+            if not isinstance(last_metrics, dict):
+                continue
+
+            log_probs_q_full = last_metrics.get('log_probs_q_full', None)
+            log_probs_target_full = last_metrics.get('log_probs_target_full', None)
+
+            if log_probs_q_full is not None and log_probs_target_full is not None:
+                import torch
+                top_q_vals, top_q_ids = torch.topk(log_probs_q_full, k=n_ranks)
+                q_by_rank = top_q_vals.tolist()
+                ids_by_rank = top_q_ids.tolist()
+                target_by_rank = [log_probs_target_full[tid].item() for tid in ids_by_rank]
+            else:
+                log_probs_q = last_metrics.get('log_probs_q', {})
+                log_probs_target = last_metrics.get('log_probs_target', {})
+                if not log_probs_q:
+                    continue
+
+                sorted_by_q = sorted(log_probs_q.items(), key=lambda x: x[1], reverse=True)
+
+                q_by_rank = []
+                target_by_rank = []
+                ids_by_rank = []
+                for token_id, log_q_val in sorted_by_q[:n_ranks]:
+                    q_by_rank.append(log_q_val)
+                    target_by_rank.append(log_probs_target.get(token_id, np.nan))
+                    ids_by_rank.append(token_id)
+
+            if q_by_rank:
+                rank_data[setting_idx].append((np.array(q_by_rank), np.array(target_by_rank), ids_by_rank))
+
+    has_data = any(len(seeds) > 0 for seeds in rank_data.values())
+    if not has_data:
+        print("Warning: No rank data found. Cannot create individual ranked lollipop chart.")
+        return
+
+    max_ranks = 0
+    for seeds in rank_data.values():
+        for q_by_rank, _, _ in seeds:
+            max_ranks = max(max_ranks, len(q_by_rank))
+    n_ranks_actual = min(n_ranks, max_ranks)
+    if n_ranks_actual == 0:
+        print("Warning: No ranks available. Skipping individual ranked lollipop chart.")
+        return
+
+    fig, ax = plt.subplots()
+
+    x_positions = np.arange(n_ranks_actual)
+    dot_spacing = 0.12
+    n_settings = len(labels)
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+
+    from matplotlib.lines import Line2D
+
+    rng = np.random.RandomState(42)
+
+    for setting_idx in range(n_settings):
+        seeds = rank_data[setting_idx]
+        if not seeds:
+            continue
+
+        x_pos = x_positions + setting_offsets[setting_idx]
+
+        for seed_j, (q_by_rank, tgt_by_rank, ids_by_rank) in enumerate(seeds):
+            n_this = min(n_ranks_actual, len(q_by_rank))
+            jitter = rng.uniform(-0.03, 0.03, size=n_this)
+
+            # q dots (filled circle)
+            ax.scatter(
+                x_pos[:n_this] + jitter, q_by_rank[:n_this],
+                color=color_list[setting_idx], s=20, alpha=0.7, zorder=4,
+            )
+
+            # target dots (diamond, hollow)
+            valid_tgt = ~np.isnan(tgt_by_rank[:n_this])
+            if valid_tgt.any():
+                ax.scatter(
+                    x_pos[:n_this][valid_tgt] + jitter[valid_tgt], tgt_by_rank[:n_this][valid_tgt],
+                    color=color_list[setting_idx], s=18, alpha=0.7,
+                    marker='D', facecolors='none', linewidths=1, zorder=3,
+                )
+
+    # Build consolidated legend
+    legend_handles = []
+    legend_handles.append(Line2D([], [], marker='o', color='black', markersize=5,
+                                 linestyle='None', label='q'))
+    legend_handles.append(Line2D([], [], marker='D', color='black', markersize=4,
+                                 markerfacecolor='none', markeredgewidth=1.2,
+                                 linestyle='None', label=r'$\sigma$ (target)'))
+    for setting_idx in range(n_settings):
+        if not rank_data[setting_idx]:
+            continue
+        legend_handles.append(Line2D([], [], color=color_list[setting_idx], linewidth=2,
+                                     label=labels[setting_idx]))
+
+    ax.set_xlabel('Rank under q', fontsize=fontsize)
+    ax.set_ylabel('Log Probability', fontsize=fontsize)
+    ax.set_title(f'Top {n_ranks_actual} Ranked Tokens under q: Log Prob (individual seeds)', fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([str(r + 1) for r in range(n_ranks_actual)], fontsize=fontsize - 1)
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(handles=legend_handles, fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Individual ranked lollipop chart saved to {figname}")
+
+
+def plot_max_sis_weight_over_time(
+    figname, labels, sis_weights_results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+):
+    """
+    Plot the max self-normalized importance weight over training episodes.
+
+    Each entry in sis_weights_results_list[setting_idx] is a loaded SIS weights history
+    (list of tensors of shape (num_prompts, samples_per_prompt), one per episode) for one seed.
+    For each episode, max_weight = tensor.max().item().
+    Aggregated across seeds with bootstrap CI.
+    """
+    n_settings = len(labels)
+
+    fig, ax = plt.subplots()
+
+    for setting_idx in range(n_settings):
+        seed_data = sis_weights_results_list[setting_idx]
+        if not seed_data:
+            continue
+
+        # Each seed's data is a list of tensors (one per episode)
+        seed_curves = []
+        for weights_history in seed_data:
+            if not isinstance(weights_history, list) or len(weights_history) == 0:
+                continue
+            curve = [w.max().item() for w in weights_history]
+            seed_curves.append(curve)
+
+        if not seed_curves:
+            continue
+
+        # Pad shorter curves with their last value
+        max_len = max(len(c) for c in seed_curves)
+        for c in seed_curves:
+            last_val = c[-1] if c else np.nan
+            while len(c) < max_len:
+                c.append(last_val)
+
+        timesteps = np.arange(max_len)
+        means = np.full(max_len, np.nan)
+        ci_lo = np.full(max_len, np.nan)
+        ci_hi = np.full(max_len, np.nan)
+
+        for t_idx in range(max_len):
+            vals = np.array([c[t_idx] for c in seed_curves])
+            valid_vals = vals[~np.isnan(vals)]
+            if len(valid_vals) > 0:
+                means[t_idx], ci_lo[t_idx], ci_hi[t_idx] = _bootstrap_mean_ci(valid_vals, n_bootstrap_draws)
+
+        valid = ~np.isnan(means)
+        if valid.any():
+            ax.plot(timesteps[valid], means[valid], color=color_list[setting_idx],
+                    label=labels[setting_idx], linewidth=1.5)
+            ax.fill_between(timesteps[valid], ci_lo[valid], ci_hi[valid],
+                            color=color_list[setting_idx], alpha=0.15)
+
+    ax.set_xlabel('Training Episode', fontsize=fontsize)
+    ax.set_ylabel('Max Normalized SIS Weight', fontsize=fontsize)
+    ax.set_title('Max Self-Normalized Importance Weight Over Time', fontsize=fontsize + 1)
+    ax.tick_params(axis='both', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Max SIS weight plot saved to {figname}")

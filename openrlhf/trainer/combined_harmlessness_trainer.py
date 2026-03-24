@@ -501,6 +501,8 @@ class CombinedHarmlessnessTrainer(ABC):
 
         # Cumulative count of tokens sampled by q (set from outside via set_cumulative_q_sample_counts)
         self.cumulative_q_sample_counts = None
+        self.latest_sis_weights = None
+        self.sis_weights_history = []  # Accumulated per-episode normalized SIS weights
 
     def set_cumulative_q_sample_counts(self, n_vocab: int):
         """Initialize the cumulative sample count tensor for tracking q's sampled tokens."""
@@ -1146,6 +1148,10 @@ class CombinedHarmlessnessTrainer(ABC):
             status["exploration_bonus_mean"] = bonus.mean().item()
             status["exploration_bonus_min"] = bonus.min().item()
             status["exploration_bonus_max"] = bonus.max().item()
+
+        # Save SIS weights history for later analysis
+        if self.latest_sis_weights is not None:
+            self.sis_weights_history.append(self.latest_sis_weights.clone())
 
         pbar.set_postfix(status)
 
@@ -1889,6 +1895,21 @@ class CombinedHarmlessnessTrainer(ABC):
                 base_action_log_probs,
                 **mixture_kwargs,
             )
+
+            # Compute and store the positive SIS weights: w_i = p(s)*phi(s) / q(s)
+            # log_phi includes exploration bonus (if any), so these weights reflect the bonus.
+            with torch.no_grad():
+                if mixture_seq_log_probs is not None:
+                    # Mixture proposal: denominator is q_mix
+                    log_w_pos = (base_action_log_probs * exper_action_mask).sum(dim=-1) + log_phi - mixture_seq_log_probs
+                else:
+                    # Standard: denominator is q_current
+                    log_w_pos = (base_action_log_probs * exper_action_mask).sum(dim=-1) + log_phi - (exper_action_log_probs * exper_action_mask).sum(dim=-1)
+                # Self-normalize per prompt: softmax over samples dimension
+                # Shape: (num_prompts, samples_per_prompt)
+                normalized_w_pos = F.softmax(log_w_pos, dim=-1)
+                self.latest_sis_weights = normalized_w_pos.detach().cpu()
+
         elif self.sampling_actor_loss_type in ["dpg"]:
             with torch.no_grad():
                 base_action_log_probs_all_vocab, base_action_log_probs = self.base_actor(

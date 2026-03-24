@@ -1516,6 +1516,81 @@ if __name__ == "__main__":
                 n_top_tokens=10,
             )
 
+            # Individual-seed lollipop plots (final step)
+            plot_top_tokens_lollipop_individual(
+                figname=f"{figname_modifier}_top_tokens_lollipop_final_individual",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                color_list=kl_color_list,
+                fontsize=fontsize,
+                legendfontsize=legendfontsize,
+                n_top_tokens=10,
+            )
+
+            plot_top_q_intersection_lollipop_individual(
+                figname=f"{figname_modifier}_top_q_lollipop_final_individual",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                color_list=kl_color_list,
+                fontsize=fontsize,
+                legendfontsize=legendfontsize,
+            )
+
+            plot_top_q_ranked_lollipop_individual(
+                figname=f"{figname_modifier}_top_q_ranked_lollipop_final_individual",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                color_list=kl_color_list,
+                fontsize=fontsize,
+                legendfontsize=legendfontsize,
+                n_ranks=10,
+            )
+
+            # Cumulative sample counts over time for top target tokens
+            plot_sample_counts_over_time(
+                figname=f"{figname_modifier}_sample_counts_over_time",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                color_list=kl_color_list,
+                n_frontiers=4,
+                fontsize=fontsize,
+                legendfontsize=legendfontsize,
+                n_bootstrap_draws=5000,
+                n_top_tokens=10,
+            )
+
+            # Coverage curve: fraction of top-K target tokens discovered over time
+            plot_coverage_curve(
+                figname=f"{figname_modifier}_coverage_curve",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                color_list=kl_color_list,
+                fontsize=fontsize,
+                legendfontsize=legendfontsize,
+                n_bootstrap_draws=5000,
+                n_top_tokens=10,
+            )
+
+            # Vocab coverage curve: fraction of all tokens discovered over time
+            plot_vocab_coverage_curve(
+                figname=f"{figname_modifier}_vocab_coverage_curve",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                color_list=kl_color_list,
+                fontsize=fontsize,
+                legendfontsize=legendfontsize,
+                n_bootstrap_draws=5000,
+            )
+
+            # Visitation heatmaps: 2D grid of per-token visit counts (incremental + cumulative)
+            plot_visitation_heatmaps(
+                figname_prefix=f"{figname_modifier}_visitation_heatmap",
+                labels=kl_labels,
+                results_list=kl_results_list,
+                n_frontiers=4,
+                fontsize=fontsize,
+            )
+
         raise SystemExit(0)
 
 

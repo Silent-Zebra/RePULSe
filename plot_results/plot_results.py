@@ -20,7 +20,11 @@ from plot_utils import (
     make_list, do_load_prefixes, generate_labels_from_prefixes, to_scalar,
     compute_global_logZ_from_iwae_bounds, compute_approx_kl_from_f_q_g_q,
     generate_visual_style_from_prefixes, plot_top_tokens_bar_chart, plot_top_tokens_lollipop,
-    plot_top_tokens_lollipop_over_time, plot_top_q_intersection_lollipop, plot_top_q_ranked_lollipop,
+    plot_top_tokens_lollipop_over_time, plot_sample_counts_over_time,
+    plot_top_q_intersection_lollipop, plot_top_q_ranked_lollipop,
+    plot_top_tokens_lollipop_individual, plot_top_q_intersection_lollipop_individual,
+    plot_top_q_ranked_lollipop_individual, plot_coverage_curve, plot_vocab_coverage_curve,
+    plot_visitation_heatmaps, plot_max_sis_weight_over_time,
     MARKER_NO_BONUS, MARKER_CFN, MARKER_MIXTURE, MARKER_EXACT_COUNT,
     MARKER_CTL, MARKER_CTLN, MARKER_LOSS_UNKNOWN,
 )
@@ -145,6 +149,24 @@ def transform_prefixes_for_file_type(load_prefixes_to_use, file_type_suffix):
         
         transformed.append(new_prefix_list)
     
+    return transformed
+
+
+def transform_prefixes_for_sis_weights(load_prefixes_to_use):
+    """
+    Transforms prefixes for SIS weights history files.
+
+    Returns:
+        Transformed list of lists of prefixes for sis_weights_history files.
+    """
+    transformed = []
+    for prefix_list in load_prefixes_to_use:
+        new_prefix_list = []
+        for old_prefix in prefix_list:
+            common_suffix = extract_common_suffix(old_prefix)
+            new_prefix = f"sis_weights_history_{common_suffix}"
+            new_prefix_list.append(new_prefix)
+        transformed.append(new_prefix_list)
     return transformed
 
 
@@ -563,7 +585,78 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
         import traceback
         traceback.print_exc()
 
-    # Lollipop chart for intersection of top-q tokens across all settings
+    # Cumulative sample counts over time for top target tokens
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_sample_counts_over_time(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_sample_counts_over_time.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            n_frontiers=n_frontiers,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+            n_bootstrap_draws=5000,
+            n_top_tokens=10,
+        )
+    except Exception as e:
+        print(f"Failed to generate sample counts over time chart for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Coverage curve: fraction of top-K target tokens discovered over time
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_coverage_curve(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_coverage_curve.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+            n_bootstrap_draws=5000,
+            n_top_tokens=10,
+        )
+    except Exception as e:
+        print(f"Failed to generate coverage curve for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Vocab coverage curve: fraction of all tokens discovered over time
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_vocab_coverage_curve(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_vocab_coverage_curve.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+            n_bootstrap_draws=5000,
+        )
+    except Exception as e:
+        print(f"Failed to generate vocab coverage curve for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Visitation heatmaps: 2D grid of per-token visit counts (incremental + cumulative)
+    try:
+        plot_visitation_heatmaps(
+            figname_prefix=os.path.join(output_dir, f"{file_type_suffix}_visitation_heatmap"),
+            labels=labels,
+            results_list=kl_results_list,
+            n_frontiers=n_frontiers,
+            fontsize=fontsize,
+        )
+    except Exception as e:
+        print(f"Failed to generate visitation heatmaps for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Per-setting top-q tokens lollipop
     try:
         if semantic_colors is None:
             semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
@@ -597,6 +690,80 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
         )
     except Exception as e:
         print(f"Failed to generate ranked lollipop chart for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Individual-seed versions of final-step lollipop plots
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_top_tokens_lollipop_individual(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_top_tokens_lollipop_final_individual.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+            n_top_tokens=10,
+        )
+    except Exception as e:
+        print(f"Failed to generate individual top tokens lollipop for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_top_q_intersection_lollipop_individual(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_top_q_lollipop_final_individual.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+        )
+    except Exception as e:
+        print(f"Failed to generate individual top-q lollipop for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    try:
+        if semantic_colors is None:
+            semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+        plot_top_q_ranked_lollipop_individual(
+            figname=os.path.join(output_dir, f"{file_type_suffix}_top_q_ranked_lollipop_final_individual.pdf"),
+            labels=labels,
+            results_list=kl_results_list,
+            color_list=semantic_colors,
+            fontsize=fontsize,
+            legendfontsize=fontsize,
+            n_ranks=10,
+        )
+    except Exception as e:
+        print(f"Failed to generate individual ranked lollipop for {file_type_suffix}: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Max SIS weight over time (loaded from separate sis_weights_history files)
+    try:
+        sis_prefixes = transform_prefixes_for_sis_weights(load_prefixes_to_use)
+        sis_results_list = [[] for _ in range(len(sis_prefixes))]
+        do_load_prefixes(sis_results_list, sis_prefixes)
+        has_sis = any(len(sis_results_list[i]) > 0 for i in range(len(sis_results_list)))
+        if has_sis:
+            if semantic_colors is None:
+                semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+            plot_max_sis_weight_over_time(
+                figname=os.path.join(output_dir, f"{file_type_suffix}_max_sis_weight_over_time.pdf"),
+                labels=labels,
+                sis_weights_results_list=sis_results_list,
+                color_list=semantic_colors,
+                fontsize=fontsize,
+                legendfontsize=fontsize,
+                n_bootstrap_draws=5000,
+            )
+    except Exception as e:
+        print(f"Failed to generate max SIS weight plot for {file_type_suffix}: {e}")
         import traceback
         traceback.print_exc()
 
@@ -3883,7 +4050,7 @@ make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_e
 
 ]
 threshold = -5
-figname_modifier = "probinflen1_exploretoyrlhfmulti03_03-20_v9"
+figname_modifier = "probinflen1_exploretoyrlhfmulti03_03-20_v11"
 target_samples_path = None
 individual_prompt_plots = False
 random_f_q_ylim_low = None
