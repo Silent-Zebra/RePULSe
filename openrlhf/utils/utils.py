@@ -1241,7 +1241,7 @@ def f_q_g_q_evaluation_mixture(trainer, experience_maker, args,
     f_q_mix_list.append(f_qs_mix.cpu())
     if total_g_qs_mix is not None:
         g_q_mix_list.append(total_g_qs_mix.cpu())
-    iwae_mix_lbs_list.append(iwae_lb)
+    iwae_mix_lbs_list.append(None)  # Recomputed post-gather in train_ppo.py
     iwae_mix_ubs_list.append(None)
 
     print_timestamp("eval - f_q_g_q_evaluation_mixture: done")

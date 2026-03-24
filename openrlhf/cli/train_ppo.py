@@ -983,6 +983,8 @@ def train(args):
     # Random set (coverage)
     f_q_by_prompt_list_random = []
     prompt_texts_random_per_timepoint = []
+    # SIS weights history: one snapshot per fit_step (matching other metrics' saving interval)
+    sis_weights_history = []
 
     # Initial point (before fit loop): heldout eval + f_q when each_fit_step + harmlessness
     _per_fit_step_heldout = (
@@ -1351,6 +1353,13 @@ def train(args):
                 )
 
         print_timestamp(f"fit_step {fit_step}: end harmlessness_trainer.fit()")
+
+        # Snapshot SIS weights once per fit_step (matches saving interval of other metrics)
+        if (args.do_harmlessness_training
+                and hasattr(harmlessness_trainer, 'latest_sis_weights')
+                and harmlessness_trainer.latest_sis_weights is not None):
+            sis_weights_history.append(harmlessness_trainer.latest_sis_weights.clone())
+
         # Lists are now passed into fit() and modified in place, so we can use them directly
         # The return value from fit() contains the same list objects for backward compatibility
         if estimates_list is not None:
@@ -1786,19 +1795,19 @@ def train(args):
         print(f"KL q_sigma list (analytic): {total_kl_q_sigma_list_analytic}")
         print(f"Metrics list (analytic): {metrics_list_analytic}")
 
-    # Save SIS weights history (per-episode normalized importance weights from CTL)
+    # Save SIS weights history (one snapshot per fit_step, matching other metrics' interval).
     # Each rank has SIS weights for its own shard of prompts, so we all_gather across ranks
     # before saving to get weights for all prompts.
-    if args.do_harmlessness_training and hasattr(harmlessness_trainer, 'sis_weights_history') and harmlessness_trainer.sis_weights_history:
+    if args.do_harmlessness_training and sis_weights_history:
         if strategy.world_size > 1:
             # Each entry is (num_prompts_per_rank, samples_per_prompt); gather along prompt dim
-            gathered_history = [strategy.all_gather(w) for w in harmlessness_trainer.sis_weights_history]
+            gathered_history = [strategy.all_gather(w) for w in sis_weights_history]
         else:
-            gathered_history = harmlessness_trainer.sis_weights_history
+            gathered_history = sis_weights_history
         if strategy.is_rank_0():
             save_str = f"{args.save_info_path}/sis_weights_history_{info_name_str}"
             torch.save(gathered_history, save_str)
-            print(f"Saved SIS weights history ({len(gathered_history)} episodes) to {save_str}")
+            print(f"Saved SIS weights history ({len(gathered_history)} fit_steps) to {save_str}")
 
     if args.do_harmlessness_training:
         actor_to_test = base_actor
