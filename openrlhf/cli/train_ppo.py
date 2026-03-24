@@ -39,6 +39,87 @@ bad_word_tokens_ids = [
                 31030, 47209, 18185, 29836
             ]
 
+
+def _distributed_all_reduce_scalar_list(strategy, scalar_list):
+    """All-reduce a list of Python scalars across ranks (mean). Returns the reduced list."""
+    if strategy.world_size <= 1 or len(scalar_list) == 0:
+        return scalar_list
+    t = torch.tensor(scalar_list, dtype=torch.float64)
+    t = strategy.all_reduce(t, op="mean")
+    return t.tolist()
+
+
+def _distributed_all_gather_tensor_list(strategy, tensor_list):
+    """All-gather each tensor in a list across ranks (concatenate along dim 0).
+    Handles None entries by skipping them. Returns the gathered list."""
+    if strategy.world_size <= 1 or len(tensor_list) == 0:
+        return tensor_list
+    gathered = []
+    for t in tensor_list:
+        if t is None:
+            gathered.append(None)
+        else:
+            gathered.append(strategy.all_gather(t))
+    return gathered
+
+
+def _distributed_all_gather_tensor(strategy, tensor):
+    """All-gather a single tensor across ranks (concatenate along dim 0)."""
+    if strategy.world_size <= 1:
+        return tensor
+    return strategy.all_gather(tensor)
+
+
+def _recompute_iwae_lb(f_qs):
+    """Recompute IWAE lower bound from f_q values: logsumexp(f_qs) - log(n)."""
+    if f_qs is None:
+        return None
+    return (torch.logsumexp(f_qs, dim=0) - math.log(f_qs.shape[0])).item()
+
+
+def _distributed_gather_f_q_g_q_lists(strategy, f_q_list, g_q_list, iwae_lbs_list, iwae_ubs_list):
+    """All-gather f_q/g_q tensor lists across ranks and recompute IWAE LB from gathered data.
+
+    Each entry in f_q_list/g_q_list is a 1D tensor of per-sample values (or None).
+    Gathering concatenates samples from all ranks, giving a larger sample set.
+    IWAE LB is recomputed from gathered f_q (simple logsumexp formula).
+    IWAE UB uses a complex construction mixing f_q and g_q samples (see f_q_g_q_evaluation),
+    so we keep the original per-rank values unchanged.
+    """
+    if strategy.world_size <= 1:
+        return f_q_list, g_q_list, iwae_lbs_list, iwae_ubs_list
+    gathered_f_q = _distributed_all_gather_tensor_list(strategy, f_q_list)
+    gathered_g_q = _distributed_all_gather_tensor_list(strategy, g_q_list)
+    new_iwae_lbs = [_recompute_iwae_lb(f) for f in gathered_f_q]
+    # UB construction is complex (mixes g_q target samples with f_q proposal samples);
+    # keep original values rather than incorrectly recomputing.
+    return gathered_f_q, gathered_g_q, new_iwae_lbs, iwae_ubs_list
+
+
+def _distributed_gather_f_q_g_q_by_prompt_lists(strategy, f_q_by_prompt_list, g_q_by_prompt_list,
+                                                  iwae_lbs_by_prompt_list, iwae_ubs_by_prompt_list):
+    """All-gather per-prompt f_q/g_q lists and recompute per-prompt IWAE LB.
+
+    Each entry in f_q_by_prompt_list is a list of tensors (one per prompt) at a given eval step.
+    For each eval step and each prompt, gather the per-sample tensor across ranks.
+    """
+    if strategy.world_size <= 1:
+        return f_q_by_prompt_list, g_q_by_prompt_list, iwae_lbs_by_prompt_list, iwae_ubs_by_prompt_list
+    gathered_f_q_bp = []
+    gathered_g_q_bp = []
+    new_iwae_lbs_bp = []
+    for step_idx in range(len(f_q_by_prompt_list)):
+        f_q_per_prompt = f_q_by_prompt_list[step_idx]  # list of tensors, one per prompt
+        g_q_per_prompt = g_q_by_prompt_list[step_idx] if g_q_by_prompt_list else None
+        gathered_f = _distributed_all_gather_tensor_list(strategy, f_q_per_prompt)
+        gathered_g = _distributed_all_gather_tensor_list(strategy, g_q_per_prompt) if g_q_per_prompt is not None else [None] * len(f_q_per_prompt)
+        gathered_f_q_bp.append(gathered_f)
+        gathered_g_q_bp.append(gathered_g)
+        new_iwae_lbs_bp.append([_recompute_iwae_lb(f) for f in gathered_f])
+    # UB: keep originals (complex construction)
+    return gathered_f_q_bp, gathered_g_q_bp, new_iwae_lbs_bp, iwae_ubs_by_prompt_list
+
+
 def train(args):
     # configure strategy
     strategy = get_strategy(args)
@@ -849,7 +930,6 @@ def train(args):
         # Compute threshold-based bad word list if analytic_bad_word_calc is enabled
         if args.analytic_bad_word_calc:
             bad_word_tokens_ids_threshold = torch.where(precomputed_toxicity_scores < args.threshold)[0].cpu().tolist()
-            strategy.print(f"Threshold-based bad word list (reward < {args.threshold}): {bad_word_tokens_ids_threshold}")
             strategy.print(f"Number of tokens with reward < {args.threshold}: {len(bad_word_tokens_ids_threshold)}")
 
     # Initialize cumulative q sample counts if analytic_calc is enabled
@@ -1357,42 +1437,64 @@ def train(args):
                 # print(g_q_estimates_list)
                 print("SAVING F_Q/G_Q/IWAE RESULTS", flush=True)
 
-                save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
-                if args.new_custom_single_prompt:
-                    # v1 tuple format (backward compat)
-                    target_to_save = (
-                        f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list
-                    )
-                else:
-                    # v2 dict format with per-prompt breakdowns
-                    target_to_save = {
-                        "version": 2,
-                        "prompt_texts_fixed": eval_prompts_fixed,
-                        "prompt_texts_random_per_timepoint": prompt_texts_random_per_timepoint,
-                        # Fixed set (per-prompt):
-                        "f_q_by_prompt_fixed": f_q_by_prompt_list_fixed,
-                        "g_q_by_prompt_fixed": g_q_by_prompt_list_fixed,
-                        "iwae_lbs_by_prompt_fixed": iwae_lbs_by_prompt_list_fixed,
-                        "iwae_ubs_by_prompt_fixed": iwae_ubs_by_prompt_list_fixed,
-                        # Random set (per-prompt):
-                        "f_q_by_prompt_random": f_q_by_prompt_list_random,
-                        # Aggregated (backward compat):
-                        "f_q_estimates_list": f_q_estimates_list,
-                        "g_q_estimates_list": g_q_estimates_list,
-                        "iwae_lbs_list": iwae_lbs_list,
-                        "iwae_ubs_list": iwae_ubs_list,
-                    }
-                torch.save(target_to_save, save_str)
+                # Gather f_q/g_q samples across ranks (each rank has independent MC samples).
+                # All gather calls are collective ops — all ranks must participate.
+                g_f_q, g_g_q, g_iwae_lbs, g_iwae_ubs = _distributed_gather_f_q_g_q_lists(
+                    strategy, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
+
+                if not args.new_custom_single_prompt:
+                    # Gather per-prompt breakdowns (must be outside rank-0 guard — collective ops)
+                    g_f_q_bp, g_g_q_bp, g_iwae_lbs_bp, g_iwae_ubs_bp = _distributed_gather_f_q_g_q_by_prompt_lists(
+                        strategy, f_q_by_prompt_list_fixed, g_q_by_prompt_list_fixed,
+                        iwae_lbs_by_prompt_list_fixed, iwae_ubs_by_prompt_list_fixed)
+                    # Random set: f_q only, gather per-prompt tensors
+                    g_f_q_bp_random = []
+                    if f_q_by_prompt_list_random:
+                        for step_data in f_q_by_prompt_list_random:
+                            g_f_q_bp_random.append(_distributed_all_gather_tensor_list(strategy, step_data))
+
+                if strategy.is_rank_0():
+                    save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
+                    if args.new_custom_single_prompt:
+                        # v1 tuple format (backward compat)
+                        target_to_save = (
+                            g_f_q, g_g_q, g_iwae_lbs, g_iwae_ubs
+                        )
+                    else:
+                        # v2 dict format with per-prompt breakdowns
+                        target_to_save = {
+                            "version": 2,
+                            "prompt_texts_fixed": eval_prompts_fixed,
+                            "prompt_texts_random_per_timepoint": prompt_texts_random_per_timepoint,
+                            # Fixed set (per-prompt):
+                            "f_q_by_prompt_fixed": g_f_q_bp,
+                            "g_q_by_prompt_fixed": g_g_q_bp,
+                            "iwae_lbs_by_prompt_fixed": g_iwae_lbs_bp,
+                            "iwae_ubs_by_prompt_fixed": g_iwae_ubs_bp,
+                            # Random set (per-prompt):
+                            "f_q_by_prompt_random": g_f_q_bp_random if g_f_q_bp_random else f_q_by_prompt_list_random,
+                            # Aggregated (backward compat):
+                            "f_q_estimates_list": g_f_q,
+                            "g_q_estimates_list": g_g_q,
+                            "iwae_lbs_list": g_iwae_lbs,
+                            "iwae_ubs_list": g_iwae_ubs,
+                        }
+                    torch.save(target_to_save, save_str)
 
                 # Save mixture eval results separately (if enabled and non-empty)
                 if getattr(args, 'mixture_eval', False) and len(f_q_mix_estimates_list) > 0:
-                    mix_save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_mixeval_OpenRLHF_{info_name_str}"
-                    mix_target = (
-                        f_q_mix_estimates_list, g_q_mix_estimates_list,
-                        iwae_mix_lbs_list, iwae_mix_ubs_list
-                    )
-                    torch.save(mix_target, mix_save_str)
-                    strategy.print(f"Saved mixture eval results to {mix_save_str}")
+                    # Collective ops — all ranks participate
+                    g_f_q_mix, g_g_q_mix, g_iwae_mix_lbs, g_iwae_mix_ubs = _distributed_gather_f_q_g_q_lists(
+                        strategy, f_q_mix_estimates_list, g_q_mix_estimates_list,
+                        iwae_mix_lbs_list, iwae_mix_ubs_list)
+                    if strategy.is_rank_0():
+                        mix_save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_mixeval_OpenRLHF_{info_name_str}"
+                        mix_target = (
+                            g_f_q_mix, g_g_q_mix,
+                            g_iwae_mix_lbs, g_iwae_mix_ubs
+                        )
+                        torch.save(mix_target, mix_save_str)
+                        strategy.print(f"Saved mixture eval results to {mix_save_str}")
 
             # Save the base metrics separately (always saved if not empty)
             if not args.neg_sample_only: # This stuff records it for p (base actor), so if skipping training p, this stuff will be empty
@@ -1406,11 +1508,17 @@ def train(args):
                 # print(untrans_ret_list)
                 print("SAVING BASE METRICS", flush=True)
 
-                target_to_save = (
-                    rewards_list, kl_vals_list, entropy_list, untrans_ret_list
-                )
-                save_str = f"{args.save_info_path}/rew_kltoprior_ent_untransret_{info_name_str}"
-                torch.save(target_to_save, save_str)
+                # Each rank has per-step means over its own prompt shard; average across ranks
+                g_rewards = _distributed_all_reduce_scalar_list(strategy, rewards_list)
+                g_kl_vals = _distributed_all_reduce_scalar_list(strategy, kl_vals_list)
+                g_entropy = _distributed_all_reduce_scalar_list(strategy, entropy_list)
+                g_untrans_ret = _distributed_all_reduce_scalar_list(strategy, untrans_ret_list)
+                if strategy.is_rank_0():
+                    target_to_save = (
+                        g_rewards, g_kl_vals, g_entropy, g_untrans_ret
+                    )
+                    save_str = f"{args.save_info_path}/rew_kltoprior_ent_untransret_{info_name_str}"
+                    torch.save(target_to_save, save_str)
 
                 inspect_rewards_list(rewards_list, label="untransformed reward")
 
@@ -1425,16 +1533,21 @@ def train(args):
                 #     print(bonus_vals_list_sampling)
                 print("SAVING SAMPLING METRICS", flush=True)
 
+                # Each rank has per-step means over its own prompt shard; average across ranks
+                g_rew_sampling = _distributed_all_reduce_scalar_list(strategy, rewards_list_sampling)
+                g_untrans_ret_sampling = _distributed_all_reduce_scalar_list(strategy, untrans_ret_list_sampling)
                 if bonus_vals_list_sampling is not None:
+                    g_bonus_vals_sampling = _distributed_all_reduce_scalar_list(strategy, bonus_vals_list_sampling)
                     target_to_save = (
-                        rewards_list_sampling, untrans_ret_list_sampling, bonus_vals_list_sampling
+                        g_rew_sampling, g_untrans_ret_sampling, g_bonus_vals_sampling
                     )
                 else:
                     target_to_save = (
-                        rewards_list_sampling, untrans_ret_list_sampling
+                        g_rew_sampling, g_untrans_ret_sampling
                     )
-                save_str = f"{args.save_info_path}/rew_untransret_sampling_{info_name_str}"
-                torch.save(target_to_save, save_str)
+                if strategy.is_rank_0():
+                    save_str = f"{args.save_info_path}/rew_untransret_sampling_{info_name_str}"
+                    torch.save(target_to_save, save_str)
 
         if args.save_negdata:
             strategy.print("SAVING NEG DATA")
@@ -1552,14 +1665,20 @@ def train(args):
                 bonus_vals_over_time_list_sampling.append(bonus_vals_tensor_sampling[-1].item())
 
     # Save per-fit-step heldout and f_q over time (when each_fit_step mode was used)
+    # Heldout rewards/returns and f_q are stochastic (different samples per rank); gather them.
+    # target_samples_logprob is deterministic (same model weights, same target samples).
     if len(heldout_reward_over_time_list) > 0:
-        f_q_mean_list = [t.mean().item() for t in f_q_over_time_list]
-        save_str = f"{args.save_info_path}/heldout_over_time_{info_name_str}"
-        if len(target_samples_logprob_over_time_list) > 0:
-            torch.save((heldout_reward_over_time_list, heldout_return_over_time_list, f_q_mean_list, target_samples_logprob_over_time_list), save_str)
-        else:
-            torch.save((heldout_reward_over_time_list, heldout_return_over_time_list, f_q_mean_list), save_str)
-        strategy.print(f"Saved heldout/f_q over time to {save_str}")
+        g_heldout_rew = _distributed_all_gather_tensor_list(strategy, heldout_reward_over_time_list)
+        g_heldout_ret = _distributed_all_gather_tensor_list(strategy, heldout_return_over_time_list)
+        g_f_q_over_time = _distributed_all_gather_tensor_list(strategy, f_q_over_time_list)
+        g_f_q_mean_list = [t.mean().item() if t is not None else None for t in g_f_q_over_time]
+        if strategy.is_rank_0():
+            save_str = f"{args.save_info_path}/heldout_over_time_{info_name_str}"
+            if len(target_samples_logprob_over_time_list) > 0:
+                torch.save((g_heldout_rew, g_heldout_ret, g_f_q_mean_list, target_samples_logprob_over_time_list), save_str)
+            else:
+                torch.save((g_heldout_rew, g_heldout_ret, g_f_q_mean_list), save_str)
+            strategy.print(f"Saved heldout/f_q over time to {save_str}")
 
     # Calculate KL divergence one more time after training loop to get 51st value
     # (matching the 51 reward/return values: initial + 50 from loop)
@@ -1580,66 +1699,52 @@ def train(args):
 
     if args.analytic_bad_word_calc:
         if args.do_harmlessness_training:
-            # Save both base_actor and sampling_actor results separately
-            save_str = f"{args.save_info_path}/analyticlogprob_rewsample_base_{info_name_str}"
-            torch.save((total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
-                       individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
-                       rew_over_time_list_base, untrans_ret_over_time_list_base,
-                       total_log_prob_bad_list_base_threshold, individual_bad_word_log_probs_t0_list_base_threshold,
-                       individual_bad_word_log_probs_t1_list_base_threshold, individual_bad_word_log_probs_combined_list_base_threshold), save_str)
+            # Analytic results are deterministic (same model weights, same tokens) — just rank-0 guard
+            if strategy.is_rank_0():
+                # Save both base_actor and sampling_actor results separately
+                save_str = f"{args.save_info_path}/analyticlogprob_rewsample_base_{info_name_str}"
+                torch.save((total_log_prob_bad_list_base, individual_bad_word_log_probs_t0_list_base,
+                           individual_bad_word_log_probs_t1_list_base, individual_bad_word_log_probs_combined_list_base,
+                           rew_over_time_list_base, untrans_ret_over_time_list_base,
+                           total_log_prob_bad_list_base_threshold, individual_bad_word_log_probs_t0_list_base_threshold,
+                           individual_bad_word_log_probs_t1_list_base_threshold, individual_bad_word_log_probs_combined_list_base_threshold), save_str)
             print("Base actor (p) results:")
             print(total_log_prob_bad_list_base)
-            print(individual_bad_word_log_probs_t0_list_base)
-            print(individual_bad_word_log_probs_t1_list_base)
-            print(individual_bad_word_log_probs_combined_list_base)
             print("Base actor (p) threshold-based results:")
             print(total_log_prob_bad_list_base_threshold)
-            print(individual_bad_word_log_probs_t0_list_base_threshold)
-            print(individual_bad_word_log_probs_t1_list_base_threshold)
-            print(individual_bad_word_log_probs_combined_list_base_threshold)
             
-            save_str = f"{args.save_info_path}/analyticlogprob_rewsample_sampling_{info_name_str}"
-            torch.save((total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
-                       individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                       rew_over_time_list_sampling, untrans_ret_over_time_list_sampling, bonus_vals_over_time_list_sampling,
-                       total_log_prob_bad_list_sampling_threshold, individual_bad_word_log_probs_t0_list_sampling_threshold,
-                       individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold), save_str)
+            if strategy.is_rank_0():
+                save_str = f"{args.save_info_path}/analyticlogprob_rewsample_sampling_{info_name_str}"
+                torch.save((total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
+                           individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
+                           rew_over_time_list_sampling, untrans_ret_over_time_list_sampling, bonus_vals_over_time_list_sampling,
+                           total_log_prob_bad_list_sampling_threshold, individual_bad_word_log_probs_t0_list_sampling_threshold,
+                           individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold), save_str)
             print("Sampling actor (q) results:")
             print(total_log_prob_bad_list_sampling)
-            print(individual_bad_word_log_probs_t0_list_sampling)
-            print(individual_bad_word_log_probs_t1_list_sampling)
-            print(individual_bad_word_log_probs_combined_list_sampling)
             print(rew_over_time_list_sampling)
             print(untrans_ret_over_time_list_sampling)
             print("Sampling actor (q) threshold-based results:")
             print(total_log_prob_bad_list_sampling_threshold)
-            print(individual_bad_word_log_probs_t0_list_sampling_threshold)
-            print(individual_bad_word_log_probs_t1_list_sampling_threshold)
-            print(individual_bad_word_log_probs_combined_list_sampling_threshold)
         else:
             # For non-harmlessness training, use the standard lists (which are now base lists)
-            save_str = f"{args.save_info_path}/analyticlogprob_rewsample_{info_name_str}"
-            torch.save((total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
-                       individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
-                       rew_over_time_list_base, untrans_ret_over_time_list_base,
-                       total_log_prob_bad_list_threshold, individual_bad_word_log_probs_t0_list_threshold,
-                       individual_bad_word_log_probs_t1_list_threshold, individual_bad_word_log_probs_combined_list_threshold), save_str)
+            if strategy.is_rank_0():
+                save_str = f"{args.save_info_path}/analyticlogprob_rewsample_{info_name_str}"
+                torch.save((total_log_prob_bad_list, individual_bad_word_log_probs_t0_list,
+                           individual_bad_word_log_probs_t1_list, individual_bad_word_log_probs_combined_list,
+                           rew_over_time_list_base, untrans_ret_over_time_list_base,
+                           total_log_prob_bad_list_threshold, individual_bad_word_log_probs_t0_list_threshold,
+                           individual_bad_word_log_probs_t1_list_threshold, individual_bad_word_log_probs_combined_list_threshold), save_str)
             print(total_log_prob_bad_list)
-            print(individual_bad_word_log_probs_t0_list)
-            print(individual_bad_word_log_probs_t1_list)
-            print(individual_bad_word_log_probs_combined_list)
             print(rew_over_time_list_base)
             print(untrans_ret_over_time_list_base)
             print("Threshold-based results:")
             print(total_log_prob_bad_list_threshold)
-            print(individual_bad_word_log_probs_t0_list_threshold)
-            print(individual_bad_word_log_probs_t1_list_threshold)
-            print(individual_bad_word_log_probs_combined_list_threshold)
         
-        if total_kl_sigma_q_list:
+        if total_kl_sigma_q_list and strategy.is_rank_0():
             save_str = f"{args.save_info_path}/analytic_kls_indicator_{info_name_str}"
-            torch.save((total_kl_sigma_q_list, total_kl_q_sigma_epsq_p_list, 
-                       diff_by_bad_word_case1_list, diff_by_bad_word_case2_list, diff_by_bad_word_list, 
+            torch.save((total_kl_sigma_q_list, total_kl_q_sigma_epsq_p_list,
+                       diff_by_bad_word_case1_list, diff_by_bad_word_case2_list, diff_by_bad_word_list,
                        max_q_exceeds_list, max_sigma_exceeds_list), save_str)
             print(f"KL sigma_q list: {total_kl_sigma_q_list}")
             print(f"KL q_sigma_epsq_p list: {total_kl_q_sigma_epsq_p_list}")
@@ -1649,7 +1754,7 @@ def train(args):
             print(f"Max q exceeds list: {max_q_exceeds_list}")
             print(f"Max sigma exceeds list: {max_sigma_exceeds_list}")
     
-    if args.analytic_calc:
+    if args.analytic_calc and strategy.is_rank_0():
         save_str = f"{args.save_info_path}/analytic_kls_toxicity_{info_name_str}"
         torch.save((total_kl_sigma_q_list_analytic, total_kl_q_sigma_list_analytic, metrics_list_analytic), save_str)
         print(f"KL sigma_q list (analytic): {total_kl_sigma_q_list_analytic}")
@@ -1657,10 +1762,18 @@ def train(args):
         print(f"Metrics list (analytic): {metrics_list_analytic}")
 
     # Save SIS weights history (per-episode normalized importance weights from CTL)
+    # Each rank has SIS weights for its own shard of prompts, so we all_gather across ranks
+    # before saving to get weights for all prompts.
     if args.do_harmlessness_training and hasattr(harmlessness_trainer, 'sis_weights_history') and harmlessness_trainer.sis_weights_history:
-        save_str = f"{args.save_info_path}/sis_weights_history_{info_name_str}"
-        torch.save(harmlessness_trainer.sis_weights_history, save_str)
-        print(f"Saved SIS weights history ({len(harmlessness_trainer.sis_weights_history)} episodes) to {save_str}")
+        if strategy.world_size > 1:
+            # Each entry is (num_prompts_per_rank, samples_per_prompt); gather along prompt dim
+            gathered_history = [strategy.all_gather(w) for w in harmlessness_trainer.sis_weights_history]
+        else:
+            gathered_history = harmlessness_trainer.sis_weights_history
+        if strategy.is_rank_0():
+            save_str = f"{args.save_info_path}/sis_weights_history_{info_name_str}"
+            torch.save(gathered_history, save_str)
+            print(f"Saved SIS weights history ({len(gathered_history)} episodes) to {save_str}")
 
     if args.do_harmlessness_training:
         actor_to_test = base_actor
@@ -2029,11 +2142,6 @@ def _calculate_bad_word_log_prob_from_precomputed(
         expected_total = torch.logsumexp(all_combined_values, dim=0).item()
         assert math.isclose(total_log_prob, expected_total, abs_tol=1e-5), \
             f"total_log_prob={total_log_prob}, expected={expected_total}"
-
-    print("Individual log prob breakdowns:")
-    print(individual_bad_word_log_probs_t0)
-    print(individual_bad_word_log_probs_t1)
-    print(individual_bad_word_log_probs_combined)
 
     return (
         total_log_prob,
@@ -2573,10 +2681,12 @@ def calculate_analytic_kl_toxicity_single_token(
     # Create metrics dictionary with full-vocab tensors, shape (n_vocab,)
     log_probs_q_cpu = log_probs_q.detach().cpu()
     log_probs_target_cpu = log_probs_target.detach().cpu()
+    log_probs_p_cpu = log_probs_p.detach().cpu()
 
     metrics_dict = {
         'log_probs_q_full': log_probs_q_cpu,
         'log_probs_target_full': log_probs_target_cpu,
+        'log_probs_base_full': log_probs_p_cpu,
     }
 
     # Include cumulative sample counts snapshot if available
@@ -3296,6 +3406,13 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         entropy = torch.cat(entropy)
         kls = torch.cat(kls)
 
+    # Gather heldout samples across ranks (different prompts via DistributedSampler,
+    # or different stochastic samples for same prompt in single-prompt mode)
+    rewards = _distributed_all_gather_tensor(strategy, rewards)
+    returns = _distributed_all_gather_tensor(strategy, returns)
+    entropy = _distributed_all_gather_tensor(strategy, entropy)
+    kls = _distributed_all_gather_tensor(strategy, kls)
+
     strategy.print(f"Average reward: {rewards.mean().item()}")
     total_samples = rewards.shape[0]
     strategy.print(f"Total number of samples drawn: {total_samples}")
@@ -3307,16 +3424,18 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
             f"Estimate of log probability of bad outputs: {(torch.log(outputs_below_threshold) - torch.log(torch.tensor(total_samples))).item()}")
 
     # Compute log probability of target samples if available (per-prompt, then averaged)
+    # This is deterministic (same model, same target samples) — identical across ranks.
     target_samples_logprob = _compute_multi_prompt_target_logprob(
         actor_to_test, tokenizer, strategy, args,
         true_target_samples_by_prompt, eval_prompts_for_logprob,
     )
 
-    save_str = f"{args.save_info_path}/info_eval_{info_name_str}"
-    if target_samples_logprob is not None:
-        torch.save((rewards, returns, kls, entropy, target_samples_logprob), save_str)
-    else:
-        torch.save((rewards, returns, kls, entropy), save_str)
+    if strategy.is_rank_0():
+        save_str = f"{args.save_info_path}/info_eval_{info_name_str}"
+        if target_samples_logprob is not None:
+            torch.save((rewards, returns, kls, entropy, target_samples_logprob), save_str)
+        else:
+            torch.save((rewards, returns, kls, entropy), save_str)
 
 
 def _run_per_fit_step_heldout_and_f_q(
@@ -3601,8 +3720,9 @@ def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokeni
     strategy.print("Averaging the total log prob for each prompt over prompts")
     strategy.print(torch.tensor(total_log_prob_by_prompt).mean().item())
 
-    save_str = f"{args.save_info_path}/neg_data_dict_{info_name_str}"
-    torch.save(detailed_dict, save_str)
+    if strategy.is_rank_0():
+        save_str = f"{args.save_info_path}/neg_data_dict_{info_name_str}"
+        torch.save(detailed_dict, save_str)
 
 
 def get_reward_model(args, strategy):
