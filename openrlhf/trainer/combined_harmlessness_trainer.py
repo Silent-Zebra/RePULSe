@@ -1899,6 +1899,7 @@ class CombinedHarmlessnessTrainer(ABC):
             # Compute and store the positive SIS weights: w_i = p(s)*phi(s) / q(s)
             # log_phi includes exploration bonus (if any), so these weights reflect the bonus.
             with torch.no_grad():
+                mixture_seq_log_probs = mixture_kwargs.get("mixture_seq_log_probs", None)
                 if mixture_seq_log_probs is not None:
                     # Mixture proposal: denominator is q_mix
                     log_w_pos = (base_action_log_probs * exper_action_mask).sum(dim=-1) + log_phi - mixture_seq_log_probs
