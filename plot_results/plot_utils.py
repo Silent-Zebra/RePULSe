@@ -2,6 +2,7 @@ import torch
 import re
 import numpy as np
 import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 
 
@@ -16,6 +17,19 @@ MARKER_CTL = "o"
 MARKER_CTLN = "x"
 MARKER_LOSS_UNKNOWN = "D"
 MARKER_EXACT_COUNT = "*"
+
+# Markers cycled across seeds in individual-seed plots
+SEED_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">", "p"]
+
+
+def _token_label(token_id, tokenizer=None):
+    """Format a token ID as a display label for plot axes."""
+    if tokenizer is None:
+        return str(token_id)
+    decoded = tokenizer.decode([token_id])
+    if not decoded.strip():
+        return repr(decoded)
+    return decoded
 
 
 def make_list(name, first_seed, last_seed):
@@ -737,6 +751,7 @@ def plot_top_tokens_bar_chart(
     n_top_tokens=10,
     final_only=False,
     precomputed_token_data=None,
+    tokenizer=None,
 ):
     """
     Plot bar chart of log probability differences (q - target) for top N tokens under target distribution.
@@ -844,11 +859,11 @@ def plot_top_tokens_bar_chart(
                            yerr=[[lower_err], [upper_err]],
                            fmt='none', color='black', capsize=3, linewidth=1)
 
-    plt.xlabel('Token ID', fontsize=fontsize)
+    plt.xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
     plt.ylabel('Log Probability Difference (model - target)', fontsize=fontsize)
     time_label = " (final step)" if final_only else " (avg over time)"
     plt.title(f'Top {n_top_tokens} Target Tokens: Log Prob Difference (model - target){time_label}', fontsize=fontsize+1)
-    plt.xticks(x_positions, [str(token_id) for token_id in top_n_tokens], fontsize=fontsize-1)
+    plt.xticks(x_positions, [_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize-1)
     plt.legend(fontsize=legendfontsize)
     plt.grid(axis='y', alpha=0.3, linestyle='--')
     plt.axhline(y=0, color='gray', linestyle='--', linewidth=0.5)
@@ -865,6 +880,7 @@ def plot_top_tokens_lollipop(
     n_top_tokens=10,
     final_only=False,
     precomputed_token_data=None,
+    tokenizer=None,
 ):
     """
     Lollipop/dumbbell chart showing absolute log probabilities under target and q for top N tokens.
@@ -1004,12 +1020,12 @@ def plot_top_tokens_lollipop(
                 capsize=3, linewidth=1, label=labels[setting_idx], zorder=4,
             )
 
-    ax.set_xlabel('Token ID', fontsize=fontsize)
+    ax.set_xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     time_label = " (final step)" if final_only else " (avg over time)"
     ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Prob (target vs q vs base){time_label}', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([str(token_id) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1026,6 +1042,7 @@ def plot_top_tokens_lollipop_individual(
     color_list, fontsize=7, legendfontsize=7,
     n_top_tokens=10,
     precomputed_token_data=None,
+    tokenizer=None,
 ):
     """
     Individual-seed version of plot_top_tokens_lollipop (final step only).
@@ -1076,8 +1093,7 @@ def plot_top_tokens_lollipop_individual(
         )
         target_label_added = True
 
-    # Draw individual seed dots for each setting
-    rng = np.random.RandomState(42)
+    # Draw individual seed dots for each setting, with per-seed markers
     for setting_idx in range(n_settings):
         label_added = False
         for token_idx, token_id in enumerate(top_n_tokens):
@@ -1085,21 +1101,21 @@ def plot_top_tokens_lollipop_individual(
             if not q_values:
                 continue
             x_base = x_positions[token_idx] + setting_offsets[setting_idx]
-            # Small jitter to avoid overlap
-            jitter = rng.uniform(-0.03, 0.03, size=len(q_values))
-            label = labels[setting_idx] if not label_added else None
-            ax.scatter(
-                x_base + jitter, q_values,
-                color=color_list[setting_idx], s=20, alpha=0.7,
-                label=label, zorder=4,
-            )
-            label_added = True
+            for seed_j, val in enumerate(q_values):
+                marker = SEED_MARKERS[seed_j % len(SEED_MARKERS)]
+                label = labels[setting_idx] if not label_added else None
+                ax.scatter(
+                    x_base, val,
+                    color=color_list[setting_idx], s=20, alpha=0.7,
+                    marker=marker, label=label, zorder=4,
+                )
+                label_added = True
 
-    ax.set_xlabel('Token ID', fontsize=fontsize)
+    ax.set_xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Prob (individual seeds, final step)', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([str(token_id) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1163,6 +1179,7 @@ def plot_top_tokens_lollipop_over_time(
     n_bootstrap_draws=5000,
     n_top_tokens=10,
     precomputed_token_data=None,
+    tokenizer=None,
 ):
     """
     Lollipop chart showing log q for top target tokens at multiple timesteps, with lines connecting
@@ -1297,11 +1314,11 @@ def plot_top_tokens_lollipop_over_time(
     ax.annotate(f"Timesteps: {time_str} (light→dark)", xy=(0.02, 0.02),
                 xycoords='axes fraction', fontsize=fontsize - 1, color='gray')
 
-    ax.set_xlabel('Token ID', fontsize=fontsize)
+    ax.set_xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     ax.set_title(f'Top {n_top_tokens} Target Tokens: Log q Over Time', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([str(token_id) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1353,6 +1370,7 @@ def plot_sample_counts_over_time(
     n_bootstrap_draws=5000,
     n_top_tokens=10,
     precomputed_token_data=None,
+    tokenizer=None,
 ):
     """
     Plot cumulative sample counts over time for the top tokens under the target distribution.
@@ -1469,11 +1487,11 @@ def plot_sample_counts_over_time(
                 xycoords='axes fraction', fontsize=fontsize - 1, color='gray',
                 verticalalignment='top')
 
-    ax.set_xlabel('Token ID', fontsize=fontsize)
+    ax.set_xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
     ax.set_ylabel('Cumulative Sample Count', fontsize=fontsize)
     ax.set_title(f'Top {n_top_tokens} Target Tokens: Cumulative q Sample Counts Over Time', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([str(token_id) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1483,6 +1501,109 @@ def plot_sample_counts_over_time(
     plt.clf()
     plt.close(fig)
     print(f"Sample counts over time chart saved to {figname}")
+
+
+def plot_sample_counts_final_individual(
+    figname, labels, results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_top_tokens=10,
+    precomputed_token_data=None,
+    tokenizer=None,
+):
+    """
+    Plot cumulative sample counts at the final timestep with individual seed points.
+
+    Same token selection as plot_sample_counts_over_time (top N by target log prob at final step),
+    but only shows the last timestep and plots each seed as a separate dot instead of
+    bootstrap-aggregated means.
+    """
+    if precomputed_token_data is not None:
+        _, _, _, all_sorted_tokens = precomputed_token_data
+        top_n_tokens = all_sorted_tokens[:n_top_tokens]
+    else:
+        _, _, _, top_n_tokens = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens, final_only=True)
+    if top_n_tokens is None:
+        print("Warning: Cannot create sample counts final individual plot.")
+        return
+
+    # Check if any data has cumulative_q_sample_counts
+    has_counts = False
+    for setting_data in results_list:
+        for t in setting_data:
+            if isinstance(t, tuple) and len(t) >= 3 and isinstance(t[2], list) and len(t[2]) > 0:
+                last = t[2][-1]
+                if isinstance(last, dict) and 'cumulative_q_sample_counts' in last:
+                    has_counts = True
+                    break
+        if has_counts:
+            break
+    if not has_counts:
+        print("Warning: No cumulative_q_sample_counts found. Skipping sample counts final individual plot.")
+        return
+
+    n_settings = len(labels)
+    n_tokens = len(top_n_tokens)
+
+    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+    x_positions = np.arange(n_tokens)
+
+    for setting_idx in range(n_settings):
+        tuple_list = results_list[setting_idx]
+        if not tuple_list:
+            continue
+
+        # Collect per-seed, per-token counts: list of (seed_j, token_idx, count)
+        seed_points = []
+        for seed_j, t in enumerate(tuple_list):
+            if not isinstance(t, tuple) or len(t) < 3:
+                continue
+            metrics_list = t[2]
+            if not isinstance(metrics_list, list) or len(metrics_list) == 0:
+                continue
+            last_metrics = metrics_list[-1]
+            if not isinstance(last_metrics, dict):
+                continue
+            counts = last_metrics.get('cumulative_q_sample_counts', None)
+            if counts is None:
+                continue
+            for token_idx, token_id in enumerate(top_n_tokens):
+                if token_id < len(counts):
+                    seed_points.append((seed_j, token_idx, counts[token_id].item()))
+
+        if not seed_points:
+            continue
+
+        label_added = False
+        for seed_j, token_idx, count_val in seed_points:
+            x_base = x_positions[token_idx] + setting_offsets[setting_idx]
+            marker = SEED_MARKERS[seed_j % len(SEED_MARKERS)]
+            label = labels[setting_idx] if not label_added else None
+            ax.scatter(
+                x_base, count_val,
+                color=color_list[setting_idx], s=20, alpha=0.7,
+                marker=marker, label=label, zorder=4,
+            )
+            label_added = True
+
+    ax.set_xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
+    ax.set_ylabel('Cumulative Sample Count', fontsize=fontsize)
+    ax.set_title(f'Top {n_top_tokens} Target Tokens: Final Cumulative q Sample Counts (individual seeds)', fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Sample counts final individual chart saved to {figname}")
 
 
 def plot_coverage_curve(
@@ -1709,6 +1830,215 @@ def plot_vocab_coverage_curve(
     print(f"Vocab coverage curve saved to {figname}")
 
 
+def plot_visitation_pca(
+    figname_prefix, labels, results_list,
+    pca_coords, color_list,
+    fontsize=7, legendfontsize=7,
+    n_top_tokens=10,
+    precomputed_token_data=None,
+    tokenizer=None,
+):
+    """
+    For each setting, produce a 2D scatter plot in PCA embedding space showing:
+      1. Target distribution density as yellow dots with alpha proportional to target probability.
+      2. Visited tokens as circles with size/darkness proportional to cumulative visitation count.
+      3. Top-N target distribution tokens as stars with darkness proportional to target probability.
+
+    One PDF per setting: {figname_prefix}_setting{idx}.pdf
+
+    Args:
+        pca_coords: (vocab_size, 2) numpy array of 2D PCA coordinates per token.
+    """
+    # Get top target tokens and their log probs (precomputed with n_top_tokens=999999 covers all tokens)
+    if precomputed_token_data is not None:
+        target_by_setting, _, _, all_sorted_tokens = precomputed_token_data
+        top_n_tokens_list = all_sorted_tokens[:n_top_tokens]
+    else:
+        target_by_setting, _, _, top_n_tokens_list = _collect_top_token_log_probs(
+            labels, results_list, n_top_tokens, final_only=True)
+    if top_n_tokens_list is None:
+        print("Warning: No token data for PCA visitation plot.")
+        return
+
+    # Compute average target log prob for ALL tokens (across all settings and seeds)
+    all_token_target_log_probs = {}
+    for token_id, setting_dict in target_by_setting.items():
+        all_values = []
+        for values in setting_dict.values():
+            all_values.extend(values)
+        if all_values:
+            all_token_target_log_probs[token_id] = np.mean(all_values)
+
+    # Build per-token alpha for the top-N target tokens (for the star overlay)
+    top_token_target_log_probs = {t: all_token_target_log_probs[t]
+                                  for t in top_n_tokens_list if t in all_token_target_log_probs}
+    target_alphas = {}
+    if top_token_target_log_probs:
+        log_probs_arr = np.array([top_token_target_log_probs[t] for t in top_n_tokens_list
+                                  if t in top_token_target_log_probs])
+        # Shift so max is 0 for numerical stability, then exponentiate
+        probs_arr = np.exp(log_probs_arr - log_probs_arr.max())
+        # Normalize to [0.2, 1.0] for alpha (so even the lowest-prob token is visible)
+        if probs_arr.max() > probs_arr.min():
+            alpha_arr = 0.2 + 0.8 * (probs_arr - probs_arr.min()) / (probs_arr.max() - probs_arr.min())
+        else:
+            alpha_arr = np.ones_like(probs_arr)
+        idx = 0
+        for token_id in top_n_tokens_list:
+            if token_id in top_token_target_log_probs:
+                target_alphas[token_id] = alpha_arr[idx]
+                idx += 1
+
+    # Check for cumulative_q_sample_counts
+    n_vocab = None
+    has_counts = False
+    for setting_data in results_list:
+        for t in setting_data:
+            if isinstance(t, tuple) and len(t) >= 3 and isinstance(t[2], list) and len(t[2]) > 0:
+                last = t[2][-1]
+                if isinstance(last, dict) and 'cumulative_q_sample_counts' in last:
+                    has_counts = True
+                    n_vocab = len(last['cumulative_q_sample_counts'])
+                    break
+        if has_counts:
+            break
+    if not has_counts or n_vocab is None:
+        print("Warning: No cumulative_q_sample_counts found. Skipping PCA visitation plot.")
+        return
+
+    assert pca_coords.shape[0] >= n_vocab, (
+        f"PCA coords have {pca_coords.shape[0]} tokens but data has {n_vocab} vocab entries"
+    )
+
+    n_settings = len(labels)
+
+    for setting_idx in range(n_settings):
+        tuple_list = results_list[setting_idx]
+        if not tuple_list:
+            continue
+
+        # Average final cumulative counts across seeds
+        seed_counts = []
+        for t in tuple_list:
+            if not isinstance(t, tuple) or len(t) < 3:
+                continue
+            metrics_list = t[2]
+            if not isinstance(metrics_list, list) or len(metrics_list) == 0:
+                continue
+            last_metrics = metrics_list[-1]
+            if not isinstance(last_metrics, dict):
+                continue
+            counts = last_metrics.get('cumulative_q_sample_counts', None)
+            if counts is None:
+                continue
+            counts_np = np.array([counts[i].item() if hasattr(counts[i], 'item') else float(counts[i])
+                                  for i in range(min(len(counts), n_vocab))])
+            if len(counts_np) < n_vocab:
+                counts_np = np.concatenate([counts_np, np.zeros(n_vocab - len(counts_np))])
+            seed_counts.append(counts_np)
+
+        if not seed_counts:
+            continue
+
+        avg_counts = np.mean(seed_counts, axis=0)
+
+        # --- Build the figure ---
+        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+        # 1. Target distribution density as yellow dots with alpha proportional to probability
+        # Build a full-vocab log prob array; tokens not in target_by_setting get -inf
+        bg_log_probs = np.full(n_vocab, -np.inf)
+        for token_id, lp in all_token_target_log_probs.items():
+            if token_id < n_vocab:
+                bg_log_probs[token_id] = lp
+        # Convert to relative probabilities (shift max to 0, exponentiate)
+        finite_mask = np.isfinite(bg_log_probs)
+        if finite_mask.any():
+            bg_max = bg_log_probs[finite_mask].max()
+            bg_probs = np.where(finite_mask, np.exp(bg_log_probs - bg_max), 0.0)
+            # Map to alpha in [0.02, 0.7] using log scale for better dynamic range
+            bg_log_scaled = np.where(bg_probs > 0, np.log1p(bg_probs * 1000), 0.0)  # log(1 + p*1000)
+            bg_log_max = bg_log_scaled.max()
+            if bg_log_max > 0:
+                bg_alpha = 0.02 + 0.68 * (bg_log_scaled / bg_log_max)
+            else:
+                bg_alpha = np.full(n_vocab, 0.02)
+            base_yellow = np.array(mcolors.to_rgba('#FFD700'))  # gold yellow
+            bg_rgba = np.tile(base_yellow, (n_vocab, 1))
+            bg_rgba[:, 3] = bg_alpha
+            ax.scatter(pca_coords[:n_vocab, 0], pca_coords[:n_vocab, 1],
+                       s=3, c=bg_rgba, zorder=1, rasterized=True)
+            # Proxy artist for legend with full-opacity gold
+            ax.scatter([], [], s=15, c='#FFD700', alpha=1.0, label=r'$\sigma$ density')
+        else:
+            # Fallback: uniform faint yellow if no target data
+            ax.scatter(pca_coords[:n_vocab, 0], pca_coords[:n_vocab, 1],
+                       s=1, c='#FFFACD', alpha=0.05, zorder=1, rasterized=True)
+
+        # 2. Visited tokens: fixed size, alpha via compositing formula so overlapping
+        #    dots visually sum — k visits looks the same as k overlapping single-visit dots.
+        #    alpha(k) = 1 - (1 - alpha_base)^k, with alpha_base chosen so max count -> ~0.9
+        visited_mask = avg_counts > 0
+        if visited_mask.any():
+            visited_ids = np.where(visited_mask)[0]
+            visited_counts = avg_counts[visited_ids]
+            max_count = visited_counts.max()
+
+            # Choose alpha_base so that max_count maps to ~0.9 opacity
+            # alpha_base = 1 - (1 - 0.9)^(1/max_count) = 1 - 0.1^(1/max_count)
+            alpha_base = 1.0 - 0.1 ** (1.0 / max_count) if max_count > 0 else 0.5
+            alphas = 1.0 - (1.0 - alpha_base) ** visited_counts
+            # Rescale from [0, 1] to [0.15, 1] so even single-visit tokens are visible
+            alphas = 0.15 + 0.85 * alphas
+
+            setting_color = color_list[setting_idx] if setting_idx < len(color_list) else 'blue'
+            base_rgba = np.array(mcolors.to_rgba(setting_color))
+            rgba_array = np.tile(base_rgba, (len(visited_ids), 1))
+            rgba_array[:, 3] = alphas
+
+            ax.scatter(pca_coords[visited_ids, 0], pca_coords[visited_ids, 1],
+                       s=10, c=rgba_array, marker='o', zorder=2,
+                       edgecolors='none', linewidths=0,
+                       label=f'q visits ({labels[setting_idx]})', rasterized=True)
+
+        # 3. Top target tokens as stars
+        top_ids_in_range = [t for t in top_n_tokens_list if t < n_vocab and t in target_alphas]
+        if top_ids_in_range:
+            top_coords = pca_coords[top_ids_in_range]
+            top_alpha_vals = np.array([target_alphas[t] for t in top_ids_in_range])
+
+            base_rgba_target = np.array(mcolors.to_rgba('red'))
+            rgba_target = np.tile(base_rgba_target, (len(top_ids_in_range), 1))
+            rgba_target[:, 3] = top_alpha_vals
+
+            ax.scatter(top_coords[:, 0], top_coords[:, 1],
+                       s=80, c=rgba_target, marker='*', zorder=3,
+                       edgecolors='darkred', linewidths=0.3,
+                       label=f'Top {n_top_tokens} target tokens')
+
+            # Annotate top tokens with their decoded string
+            for i, token_id in enumerate(top_ids_in_range):
+                token_str = _token_label(token_id, tokenizer)
+                ax.annotate(token_str, (top_coords[i, 0], top_coords[i, 1]),
+                            fontsize=max(fontsize - 2, 4), color='darkred',
+                            textcoords='offset points', xytext=(4, 4),
+                            alpha=float(top_alpha_vals[i]),
+                            zorder=4)
+
+        ax.set_xlabel('PC1', fontsize=fontsize)
+        ax.set_ylabel('PC2', fontsize=fontsize)
+        ax.set_title(f'Token Visitation in PCA Embedding Space: {labels[setting_idx]}', fontsize=fontsize + 1)
+        ax.tick_params(axis='both', labelsize=fontsize)
+        ax.legend(fontsize=legendfontsize, loc='best')
+        plt.tight_layout()
+
+        figname = f"{figname_prefix}_setting{setting_idx}.pdf"
+        plt.savefig(figname, dpi=150)
+        plt.clf()
+        plt.close(fig)
+        print(f"PCA visitation plot saved to {figname}")
+
+
 def plot_visitation_heatmaps(
     figname_prefix, labels, results_list,
     n_frontiers=4,
@@ -1912,6 +2242,7 @@ def plot_top_q_intersection_lollipop(
     n_bootstrap_draws=5000,
     n_top_tokens=10,
     precomputed_token_data=None,
+    tokenizer=None,
 ):
     """
     Lollipop chart showing per-setting top tokens ranked by average log q (across seeds).
@@ -2019,7 +2350,7 @@ def plot_top_q_intersection_lollipop(
     tick_labels = []
     tick_colors = []
     for owner_setting, token_id in grouped:
-        tick_labels.append(str(token_id))
+        tick_labels.append(_token_label(token_id, tokenizer))
         tick_colors.append(color_list[owner_setting])
 
     ax.set_xticks(x_positions)
@@ -2035,7 +2366,7 @@ def plot_top_q_intersection_lollipop(
         if setting_idx < n_settings - 1 and pos < n_positions:
             ax.axvline(x=pos - 0.5, color='gray', linewidth=0.8, linestyle='--', alpha=0.6)
 
-    ax.set_xlabel('Token ID (colored by owning setting)', fontsize=fontsize)
+    ax.set_xlabel('Token (colored by owning setting)' if tokenizer is not None else 'Token ID (colored by owning setting)', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     ax.set_title(f'Per-Setting Top-{n_top_tokens} Tokens by Log q (final step)', fontsize=fontsize + 1)
     ax.tick_params(axis='y', labelsize=fontsize)
@@ -2054,6 +2385,7 @@ def plot_top_q_intersection_lollipop_individual(
     color_list, fontsize=7, legendfontsize=7,
     n_top_tokens=10,
     precomputed_token_data=None,
+    tokenizer=None,
 ):
     """
     Individual-seed version of plot_top_q_intersection_lollipop.
@@ -2126,29 +2458,29 @@ def plot_top_q_intersection_lollipop_individual(
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
     setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
-    rng = np.random.RandomState(42)
 
-    setting_label_added = [False] * n_settings
     for setting_idx in range(n_settings):
+        label_added = False
         for pos_idx, (owner_setting, token_id) in enumerate(grouped):
             q_values = q_by_setting.get(token_id, {}).get(setting_idx, [])
             if not q_values:
                 continue
             x_base = x_positions[pos_idx] + setting_offsets[setting_idx]
-            jitter = rng.uniform(-0.03, 0.03, size=len(q_values))
-            label = labels[setting_idx] if not setting_label_added[setting_idx] else None
-            ax.scatter(
-                x_base + jitter, q_values,
-                color=color_list[setting_idx], s=15, alpha=0.7,
-                label=label, zorder=4,
-            )
-            setting_label_added[setting_idx] = True
+            for seed_j, val in enumerate(q_values):
+                marker = SEED_MARKERS[seed_j % len(SEED_MARKERS)]
+                label = labels[setting_idx] if not label_added else None
+                ax.scatter(
+                    x_base, val,
+                    color=color_list[setting_idx], s=15, alpha=0.7,
+                    marker=marker, label=label, zorder=4,
+                )
+                label_added = True
 
     # Colored tick labels matching the owner setting
     tick_labels = []
     tick_colors = []
     for owner_setting, token_id in grouped:
-        tick_labels.append(str(token_id))
+        tick_labels.append(_token_label(token_id, tokenizer))
         tick_colors.append(color_list[owner_setting])
 
     ax.set_xticks(x_positions)
@@ -2164,7 +2496,7 @@ def plot_top_q_intersection_lollipop_individual(
         if setting_idx < n_settings - 1 and pos < n_positions:
             ax.axvline(x=pos - 0.5, color='gray', linewidth=0.8, linestyle='--', alpha=0.6)
 
-    ax.set_xlabel('Token ID (colored by owning setting)', fontsize=fontsize)
+    ax.set_xlabel('Token (colored by owning setting)' if tokenizer is not None else 'Token ID (colored by owning setting)', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     ax.set_title(f'Per-Setting Top-{n_top_tokens} Tokens by Log q (individual seeds, final step)', fontsize=fontsize + 1)
     ax.tick_params(axis='y', labelsize=fontsize)
@@ -2461,8 +2793,6 @@ def plot_top_q_ranked_lollipop_individual(
 
     from matplotlib.lines import Line2D
 
-    rng = np.random.RandomState(42)
-
     for setting_idx in range(n_settings):
         seeds = rank_data[setting_idx]
         if not seeds:
@@ -2472,30 +2802,31 @@ def plot_top_q_ranked_lollipop_individual(
 
         for seed_j, (q_by_rank, tgt_by_rank, ids_by_rank) in enumerate(seeds):
             n_this = min(n_ranks_actual, len(q_by_rank))
-            jitter = rng.uniform(-0.03, 0.03, size=n_this)
+            marker = SEED_MARKERS[seed_j % len(SEED_MARKERS)]
 
-            # q dots (filled circle)
+            # q dots
             ax.scatter(
-                x_pos[:n_this] + jitter, q_by_rank[:n_this],
-                color=color_list[setting_idx], s=20, alpha=0.7, zorder=4,
+                x_pos[:n_this], q_by_rank[:n_this],
+                color=color_list[setting_idx], s=20, alpha=0.7,
+                marker=marker, zorder=4,
             )
 
-            # target dots (diamond, hollow)
+            # target dots (hollow version of same marker)
             valid_tgt = ~np.isnan(tgt_by_rank[:n_this])
             if valid_tgt.any():
                 ax.scatter(
-                    x_pos[:n_this][valid_tgt] + jitter[valid_tgt], tgt_by_rank[:n_this][valid_tgt],
+                    x_pos[:n_this][valid_tgt], tgt_by_rank[:n_this][valid_tgt],
                     color=color_list[setting_idx], s=18, alpha=0.7,
-                    marker='D', facecolors='none', linewidths=1, zorder=3,
+                    marker=marker, facecolors='none', linewidths=1, zorder=3,
                 )
 
     # Build consolidated legend
     legend_handles = []
     legend_handles.append(Line2D([], [], marker='o', color='black', markersize=5,
-                                 linestyle='None', label='q'))
-    legend_handles.append(Line2D([], [], marker='D', color='black', markersize=4,
+                                 linestyle='None', label='q (filled)'))
+    legend_handles.append(Line2D([], [], marker='o', color='black', markersize=4,
                                  markerfacecolor='none', markeredgewidth=1.2,
-                                 linestyle='None', label=r'$\sigma$ (target)'))
+                                 linestyle='None', label=r'$\sigma$ (target, hollow)'))
     for setting_idx in range(n_settings):
         if not rank_data[setting_idx]:
             continue

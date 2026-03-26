@@ -780,6 +780,29 @@ def train(args):
         strategy.print("Reward signal analysis complete. Exiting.")
         return
 
+    if args.generate_embedding_pca_only:
+        strategy.print("Running embedding PCA generation mode - skipping normal training")
+
+        assert args.new_custom_single_prompt, "--generate_embedding_pca_only requires --new_custom_single_prompt"
+        assert args.generate_max_len == 1, "--generate_embedding_pca_only requires --generate_max_len 1"
+        assert args.embedding_pca_save_path is not None, "--generate_embedding_pca_only requires --embedding_pca_save_path"
+
+        prompt_text = get_custom_prompt_with_chat_template(
+            tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
+        )
+        strategy.print(f"Using custom prompt: {args.custom_prompt}")
+        strategy.print(f"Tokenized prompt: {prompt_text}")
+
+        generate_embedding_pca(
+            model=base_actor.model,
+            tokenizer=tokenizer,
+            prompt_text=prompt_text,
+            batch_size=args.analytic_batch_size,
+            save_path=args.embedding_pca_save_path,
+        )
+        strategy.print(f"Embedding PCA saved to {args.embedding_pca_save_path}. Exiting.")
+        return
+
     estimates_list = None
     untrans_ret_list = None
 
@@ -2560,6 +2583,95 @@ def _get_vocab_size(config):
 
 
 @torch.no_grad()
+def generate_embedding_pca(
+    model,
+    tokenizer: AutoTokenizer,
+    prompt_text: str,
+    batch_size: int,
+    save_path: str,
+):
+    """
+    Generate 2D PCA embedding of the model's hidden states for all vocab tokens.
+
+    For each token in the vocabulary, constructs [prompt + token], passes through the model,
+    and extracts the final-layer hidden state at the last position. Then runs PCA on the
+    resulting (n_vocab, hidden_dim) matrix to produce 2D coordinates.
+
+    Args:
+        model: The language model (Actor.model after unwrapping)
+        tokenizer: Tokenizer for the model
+        prompt_text: The prompt text to prepend to each token
+        batch_size: Batch size for processing
+        save_path: Path to save the resulting .pt file
+    """
+    from sklearn.decomposition import PCA
+
+    device = torch.cuda.current_device() if torch.cuda.is_available() else torch.device("cpu")
+    if isinstance(device, int):
+        device = torch.device(f"cuda:{device}")
+
+    model.eval()
+    model.to(device)
+
+    # Tokenize prompt
+    inputs = tokenizer(prompt_text, return_tensors="pt")
+    prompt_ids = inputs["input_ids"].to(device)
+
+    n_vocab = _get_vocab_size(_get_model_config(model)) or tokenizer.vocab_size
+    all_token_ids = torch.arange(n_vocab, device=device)
+
+    print(f"Generating hidden-state embeddings for {n_vocab} tokens...")
+
+    # Collect final-layer hidden states for all tokens
+    hidden_states_list = []
+    for i in range(0, n_vocab, batch_size):
+        batch_token_ids = all_token_ids[i : i + batch_size]
+        current_batch_size = len(batch_token_ids)
+
+        # Construct input sequences: prompt + token
+        batch_inputs = torch.cat(
+            (prompt_ids.repeat(current_batch_size, 1), batch_token_ids.unsqueeze(1)),
+            dim=1
+        )
+        attention_mask = torch.ones_like(batch_inputs)
+
+        outputs = model(input_ids=batch_inputs, attention_mask=attention_mask, output_hidden_states=True)
+        # outputs.hidden_states is a tuple of (n_layers + 1) tensors, each (batch, seq_len, hidden_dim)
+        # Take the last layer's hidden state at the last token position
+        last_hidden = outputs.hidden_states[-1][:, -1, :]  # (batch_size, hidden_dim)
+        hidden_states_list.append(last_hidden.cpu().float())
+
+        if (i // batch_size) % 10 == 0:
+            print(f"  Processed {min(i + batch_size, n_vocab)}/{n_vocab} tokens")
+
+    hidden_states_all = torch.cat(hidden_states_list, dim=0)  # (n_vocab, hidden_dim)
+    assert hidden_states_all.shape[0] == n_vocab
+    print(f"Hidden states shape: {hidden_states_all.shape}")
+
+    # Run PCA
+    print("Running PCA...")
+    pca = PCA(n_components=2)
+    pca_coords = pca.fit_transform(hidden_states_all.numpy())
+    print(f"Explained variance ratio: PC1={pca.explained_variance_ratio_[0]:.4f}, PC2={pca.explained_variance_ratio_[1]:.4f}")
+
+    # Decode token strings
+    print("Decoding token strings...")
+    token_strings = [tokenizer.decode([i]) for i in range(n_vocab)]
+
+    result = {
+        "pca_coords": torch.tensor(pca_coords, dtype=torch.float32),
+        "token_strings": token_strings,
+        "model_name": tokenizer.name_or_path,
+        "explained_variance_ratio": pca.explained_variance_ratio_,
+        "prompt_text": prompt_text,
+    }
+    torch.save(result, save_path)
+    print(f"Saved PCA embedding to {save_path}")
+    print(f"  pca_coords shape: {result['pca_coords'].shape}")
+    print(f"  {len(token_strings)} token strings")
+
+
+@torch.no_grad()
 def precompute_toxicity_scores_for_all_tokens(
     reward_model,
     tokenizer: AutoTokenizer,
@@ -4229,6 +4341,12 @@ if __name__ == "__main__":
     parser.add_argument("--max_gen_per_prompt_rejection_first_pass", type=int, default=None, help="Max samples to generate per prompt in the first pass through the dataset during multi-prompt rejection sampling. If not set, defaults to max_gen_per_prompt_rejection. Use a smaller value to quickly scan all prompts before spending more budget on harder ones.")
     parser.add_argument("--batch_size_rejection_sample", type=int, default=None, help="Batch size (number of sequences generated per iteration) during rejection sampling. Defaults to duplicate_rollout_batch_by if not set.")
     parser.add_argument("--max_prompts_rejection_sample", type=int, default=2000, help="Maximum number of prompts to consider during multi-prompt rejection sampling at checkpoint saves. The first N prompts from the prompt list are used. Set to -1 to use all prompts.")
+    parser.add_argument("--generate_embedding_pca_only", action="store_true", default=False,
+                        help="Early-exit mode: for each vocab token, pass [prompt + token] through the model, "
+                             "extract final hidden state, run PCA to 2D, and save. Requires --new_custom_single_prompt "
+                             "and --generate_max_len 1.")
+    parser.add_argument("--embedding_pca_save_path", type=str, default=None,
+                        help="Path to save the embedding PCA .pt file (used with --generate_embedding_pca_only)")
     parser.add_argument("--reward_signal_analysis_only", action="store_true", default=False,
                         help="Early-exit mode: generate samples from the base model, score with reward model, "
                              "and compute reward signal metrics (stats, ESS, diversity). Exits before training.")
