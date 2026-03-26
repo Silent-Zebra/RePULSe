@@ -3332,7 +3332,11 @@ def do_reward_signal_analysis(args, base_actor, reward_model, tokenizer, strateg
 
 
 def _heldout_one_batch_make_experience(experience_maker, generate_kwargs, prompts_batch, samples_per_prompt, return_entropy_kl=False):
-    """Run make_experience on one batch of prompts; return reward and return tensors (and optionally entropy, kl)."""
+    """Run make_experience on one batch of prompts; return reward and return tensors (and optionally entropy, kl).
+
+    When return_entropy_kl=True, also returns untransformed_ret and untransformed_reward (pre-reward-transform
+    values stored in experience.info), useful for plotting when a reward transform is active.
+    """
     experience = experience_maker.make_experience(
         prompts_batch,
         samples_per_prompt=samples_per_prompt,
@@ -3345,6 +3349,8 @@ def _heldout_one_batch_make_experience(experience_maker, generate_kwargs, prompt
             experience.info["return"],
             experience.info["entropy"],
             experience.info["kl"],
+            experience.info["untransformed_ret"],
+            experience.info["untransformed_reward"],
         )
     return experience.info["reward"], experience.info["return"]
 
@@ -3509,17 +3515,21 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
                 tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
             )
         expanded_prompts = tile_prompts([prompt_text], n_heldout)
-        reward, return_, entropy, kls = _heldout_one_batch_make_experience(
+        reward, return_, entropy, kls, untransformed_ret, untransformed_rew = _heldout_one_batch_make_experience(
             experience_maker, generate_kwargs, expanded_prompts, samples_per_prompt=1, return_entropy_kl=True
         )
         rewards = reward
         returns = return_
+        untransformed_rets = untransformed_ret
+        untransformed_rewards = untransformed_rew
     else:
         # Prompt-data: use heldout dataloader, loop over batches (one make_experience per batch)
         rewards = []
         returns = []
         entropy = []
         kls = []
+        untransformed_rets_list = []
+        untransformed_rewards_list = []
         pretrain_dataset, prompts_dataset = get_prompts_data(args, strategy, tokenizer)
         prompts_dataloader = strategy.setup_dataloader(prompts_dataset, args.micro_rollout_batch_size, True, True)
         for i in range(args.sampling_iters):
@@ -3535,6 +3545,8 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
                 returns.append(experience.info["return"])
                 entropy.append(experience.info["entropy"])
                 kls.append(experience.info["kl"])
+                untransformed_rets_list.append(experience.info["untransformed_ret"])
+                untransformed_rewards_list.append(experience.info["untransformed_reward"])
                 reward_scores = experience.info["reward"]
                 for threshold in [0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10]:
                     below_threshold = reward_scores < threshold
@@ -3551,6 +3563,8 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
         returns = torch.cat(returns)
         entropy = torch.cat(entropy)
         kls = torch.cat(kls)
+        untransformed_rets = torch.cat(untransformed_rets_list)
+        untransformed_rewards = torch.cat(untransformed_rewards_list)
 
     # Gather heldout samples across ranks (different prompts via DistributedSampler,
     # or different stochastic samples for same prompt in single-prompt mode)
@@ -3558,6 +3572,8 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
     returns = _distributed_all_gather_tensor(strategy, returns)
     entropy = _distributed_all_gather_tensor(strategy, entropy)
     kls = _distributed_all_gather_tensor(strategy, kls)
+    untransformed_rets = _distributed_all_gather_tensor(strategy, untransformed_rets)
+    untransformed_rewards = _distributed_all_gather_tensor(strategy, untransformed_rewards)
 
     strategy.print(f"Average reward: {rewards.mean().item()}")
     total_samples = rewards.shape[0]
@@ -3578,10 +3594,11 @@ def do_evaluate_heldout_sampling(actor_optim, actor_scheduler, actor_to_test, ar
 
     if strategy.is_rank_0():
         save_str = f"{args.save_info_path}/info_eval_{info_name_str}"
-        if target_samples_logprob is not None:
-            torch.save((rewards, returns, kls, entropy, target_samples_logprob), save_str)
-        else:
-            torch.save((rewards, returns, kls, entropy), save_str)
+        # Always save 7-element tuple for consistent indexing.
+        # Indices: 0=rewards, 1=returns, 2=kls, 3=entropy, 4=target_samples_logprob (None if absent),
+        #          5=untransformed_rets, 6=untransformed_rewards.
+        # When no reward transform is active, indices 5/6 equal indices 1/0 respectively.
+        torch.save((rewards, returns, kls, entropy, target_samples_logprob, untransformed_rets, untransformed_rewards), save_str)
 
 
 def _run_per_fit_step_heldout_and_f_q(
