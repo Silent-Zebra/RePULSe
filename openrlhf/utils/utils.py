@@ -894,10 +894,18 @@ def f_q_estimate_batched(trainer, experience_maker, args, prompts):
     }
 
 
-def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_actions, attention_mask):
+def _compute_reward_from_log_phi(log_phi, beta):
+    """Return r(x) = log_phi / beta (the reward before beta-scaling). Returns zeros if beta≈0."""
+    if abs(beta) > 1e-9:
+        return log_phi / beta
+    return torch.zeros_like(log_phi)
+
+
+def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_actions, attention_mask,
+                 return_components=False):
     """
     Calculate g_q estimate: log(sigma) - log(q) for true sigma samples.
-    
+
     Args:
         trainer: Trainer instance (needed for shared_actorcritic and generate_kwargs)
         experience_maker: Experience maker instance
@@ -905,10 +913,10 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
         true_sigma_samples: True samples from sigma distribution
         num_actions: Number of actions
         attention_mask: Attention mask
-        condition_twist_on_tokens: Optional condition tokens
-        
+        return_components: If True, return (g_qs, log_q, log_p, log_phi) instead of just g_qs.
+
     Returns:
-        log_tilde_sigma - log_q
+        g_qs = log_tilde_sigma - log_q, or (g_qs, log_q, log_p, log_phi) if return_components=True.
     """
     experience_maker.set_all_eval()
     sequences = true_sigma_samples
@@ -933,14 +941,23 @@ def g_q_estimate(trainer, experience_maker, args, true_sigma_samples, num_action
         action_log_probs = action_log_probs.float() * action_mask
         log_q = action_log_probs.sum(dim=-1)
 
-        log_tilde_sigma = eval_log_p_plus_log_phi(trainer, experience_maker, args,
-                                attention_mask, action_mask,
-                                num_actions, sequences, force_no_exploration_bonus=True)
+        if return_components:
+            log_tilde_sigma, log_p, log_phi = eval_log_p_plus_log_phi(
+                trainer, experience_maker, args,
+                attention_mask, action_mask, num_actions, sequences,
+                return_extra_info=True, force_no_exploration_bonus=True)
+        else:
+            log_tilde_sigma = eval_log_p_plus_log_phi(trainer, experience_maker, args,
+                                    attention_mask, action_mask,
+                                    num_actions, sequences, force_no_exploration_bonus=True)
         log_tilde_sigma = log_tilde_sigma.float() # more precision
 
     experience_maker.set_all_policies_train()
 
-    return log_tilde_sigma - log_q
+    g_qs = log_tilde_sigma - log_q
+    if return_components:
+        return g_qs, log_q.float(), log_p.float(), log_phi.float()
+    return g_qs
 
 
 def _compute_num_actions_for_target_samples(target_samples, prompt_text, experience_maker):
@@ -965,7 +982,7 @@ def _compute_num_actions_for_target_samples(target_samples, prompt_text, experie
 
 
 def g_q_estimate_batched(trainer, experience_maker, args, target_samples_by_prompt,
-                         prompt_texts):
+                         prompt_texts, return_components=False):
     """
     Batched g_q estimation across multiple prompts' target samples.
     Processes each prompt's target samples with the correct num_actions
@@ -979,9 +996,13 @@ def g_q_estimate_batched(trainer, experience_maker, args, target_samples_by_prom
         target_samples_by_prompt: list of tensors, each shape (K_p, seq_len_p)
         prompt_texts: list of prompt strings (one per prompt, same length as
             target_samples_by_prompt)
+        return_components: If True, return (g_qs_per_prompt, log_q_per_prompt,
+            log_p_per_prompt, log_phi_per_prompt) instead of just g_qs_per_prompt.
 
     Returns:
         g_qs_per_prompt: list of tensors, each shape (K_p,)
+        Or if return_components=True: (g_qs_per_prompt, log_q_per_prompt,
+            log_p_per_prompt, log_phi_per_prompt)
     """
     assert len(target_samples_by_prompt) == len(prompt_texts)
     eos_token_id = trainer.generate_kwargs["eos_token_id"]
@@ -989,12 +1010,19 @@ def g_q_estimate_batched(trainer, experience_maker, args, target_samples_by_prom
     chunk_size = args.n_samples_for_f_q_g_q
 
     g_qs_per_prompt = []
+    log_q_per_prompt = []
+    log_p_per_prompt = []
+    log_phi_per_prompt = []
+
     for t, prompt_text in zip(target_samples_by_prompt, prompt_texts):
         num_actions = _compute_num_actions_for_target_samples(
             t, prompt_text, experience_maker)
 
         # Process this prompt's target samples in chunks
         prompt_g_qs = []
+        prompt_log_q = []
+        prompt_log_p = []
+        prompt_log_phi = []
         for start in range(0, t.shape[0], chunk_size):
             chunk = t[start:start + chunk_size]
             if chunk.shape[0] == 0:
@@ -1002,18 +1030,36 @@ def g_q_estimate_batched(trainer, experience_maker, args, target_samples_by_prom
             attention_mask_chunk = (
                 chunk.ne(eos_token_id) & chunk.ne(pad_token_id)
             ).to(dtype=torch.long)
-            g_qs_chunk = g_q_estimate(trainer, experience_maker, args, chunk,
-                                      num_actions, attention_mask_chunk)
+            if return_components:
+                g_qs_chunk, log_q_chunk, log_p_chunk, log_phi_chunk = g_q_estimate(
+                    trainer, experience_maker, args, chunk,
+                    num_actions, attention_mask_chunk, return_components=True)
+                prompt_log_q.append(log_q_chunk)
+                prompt_log_p.append(log_p_chunk)
+                prompt_log_phi.append(log_phi_chunk)
+            else:
+                g_qs_chunk = g_q_estimate(trainer, experience_maker, args, chunk,
+                                          num_actions, attention_mask_chunk)
             prompt_g_qs.append(g_qs_chunk)
 
         g_qs_per_prompt.append(torch.cat(prompt_g_qs, dim=0))
+        if return_components:
+            log_q_per_prompt.append(torch.cat(prompt_log_q, dim=0))
+            log_p_per_prompt.append(torch.cat(prompt_log_p, dim=0))
+            log_phi_per_prompt.append(torch.cat(prompt_log_phi, dim=0))
 
+    if return_components:
+        return g_qs_per_prompt, log_q_per_prompt, log_p_per_prompt, log_phi_per_prompt
     return g_qs_per_prompt
 
 
 def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_estimates_list,
                        iwae_lbs_list, iwae_ubs_list,
-                       prompt_text, true_target_samples):
+                       prompt_text, true_target_samples,
+                       # Optional: collect per-sample component tensors into these lists
+                       log_q_list=None, log_p_list=None, reward_list=None, target_list=None,
+                       log_q_g_q_list=None, log_p_g_q_list=None,
+                       reward_g_q_list=None, target_g_q_list=None):
     """
     Evaluate f_q, g_q, and IWAE bounds (single seed).
 
@@ -1027,6 +1073,10 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
         iwae_ubs_list: List to append IWAE upper bounds to (scalar floats)
         prompt_text: Prompt text for evaluation
         true_target_samples: True target samples
+        log_q_list, log_p_list, reward_list, target_list: Optional lists; when non-None,
+            per-sample components for q-drawn samples are appended (1 tensor per call).
+        log_q_g_q_list, log_p_g_q_list, reward_g_q_list, target_g_q_list: Optional lists;
+            when non-None, per-sample components for target samples are appended.
     """
     print_timestamp("eval - f_q_g_q_evaluation: start f_q_estimate")
     f_qs, attention_mask, num_actions, q_seqs, log_p, log_phi, log_q, action_mask = f_q_estimate(
@@ -1034,6 +1084,14 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
     print_timestamp("eval - f_q_g_q_evaluation: end f_q_estimate")
     print("Avg F_q Estimate (Learned Model)")
     print(f_qs.mean())
+
+    # Collect per-sample components for q-drawn samples when requested
+    if log_q_list is not None:
+        beta = args.target_dist_beta
+        log_q_list.append(log_q.float().cpu())
+        log_p_list.append(log_p.float().cpu())
+        reward_list.append(_compute_reward_from_log_phi(log_phi.float(), beta).cpu())
+        target_list.append((log_p.float() + log_phi.float()).cpu())
 
     # IWAE Lower Bound (per-rank estimate for logging only; recomputed from gathered samples in train_ppo.py)
     print("IWAE Lower Bound Estimate (Learned Model, per-rank only)")
@@ -1052,6 +1110,10 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
         true_target_samples, prompt_text, experience_maker)
     print_timestamp("eval - f_q_g_q_evaluation: start g_q loop")
     total_g_qs = None
+    total_log_q_g_q = None
+    total_log_p_g_q = None
+    total_log_phi_g_q = None
+    collect_g_q_components = log_q_g_q_list is not None
     range_val = math.ceil(true_target_samples.shape[0] / args.n_samples_for_f_q_g_q)
     print(range_val)
     for j in range(range_val):
@@ -1064,8 +1126,16 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
                     samples.ne(eos_token_id) & samples.ne(pad_token_id)).to(
                 dtype=torch.long)
 
-            g_qs = g_q_estimate(trainer, experience_maker, args, samples,
-                                 target_num_actions, attention_mask_g_q)
+            if collect_g_q_components:
+                g_qs, log_q_chunk, log_p_chunk, log_phi_chunk = g_q_estimate(
+                    trainer, experience_maker, args, samples,
+                    target_num_actions, attention_mask_g_q, return_components=True)
+                total_log_q_g_q = log_q_chunk if total_log_q_g_q is None else torch.cat((total_log_q_g_q, log_q_chunk))
+                total_log_p_g_q = log_p_chunk if total_log_p_g_q is None else torch.cat((total_log_p_g_q, log_p_chunk))
+                total_log_phi_g_q = log_phi_chunk if total_log_phi_g_q is None else torch.cat((total_log_phi_g_q, log_phi_chunk))
+            else:
+                g_qs = g_q_estimate(trainer, experience_maker, args, samples,
+                                     target_num_actions, attention_mask_g_q)
 
             print(g_qs)
             print("Avg G_q Estimate (Learned Model)")
@@ -1091,6 +1161,14 @@ def f_q_g_q_evaluation(trainer, experience_maker, args, f_q_estimates_list, g_q_
     print("Shapes")
     print(total_g_qs.shape if total_g_qs is not None else None)
     print(f_qs.shape)
+
+    # Collect per-sample components for target samples when requested
+    if collect_g_q_components and total_log_q_g_q is not None:
+        beta = args.target_dist_beta
+        log_q_g_q_list.append(total_log_q_g_q.cpu())
+        log_p_g_q_list.append(total_log_p_g_q.cpu())
+        reward_g_q_list.append(_compute_reward_from_log_phi(total_log_phi_g_q, beta).cpu())
+        target_g_q_list.append((total_log_p_g_q + total_log_phi_g_q).cpu())
 
     print_timestamp("eval - f_q_g_q_evaluation: done")
     if total_g_qs is not None:
@@ -1337,18 +1415,30 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
     # pad_token_id = trainer.generate_kwargs["pad_token_id"]
     # eos_token_id = trainer.generate_kwargs["eos_token_id"]
 
+    beta = args.target_dist_beta
+
     # --- f_q: batched generation ---
     f_q_result = f_q_estimate_batched(trainer, experience_maker, args, prompt_texts)
     f_qs_pp = f_q_result["f_qs_per_prompt"]       # P tensors, each (N,)
-    # q_seqs_pp = f_q_result["q_seqs_per_prompt"]    # P tensors, each (N, seq_len)
-    # num_actions = f_q_result["num_actions"]
-    # common_seq_len = f_q_result["common_seq_len"]
+    log_p_pp = f_q_result["log_p_per_prompt"]      # P tensors, each (N,)
+    log_phi_pp = f_q_result["log_phi_per_prompt"]  # P tensors, each (N,)
+    log_q_pp = f_q_result["log_q_per_prompt"]      # P tensors, each (N,)
 
     # Per-prompt results (IWAE bounds recomputed post-gather in train_ppo.py)
     f_q_by_prompt = [f_qs_pp[p].cpu() for p in range(P)]
     g_qs_per_prompt = [None] * P
     iwae_lbs_by_prompt = [None] * P
     iwae_ubs_by_prompt = [None] * P
+    # f_q per-sample components
+    log_q_by_prompt = [log_q_pp[p].float().cpu() for p in range(P)]
+    log_p_by_prompt = [log_p_pp[p].float().cpu() for p in range(P)]
+    reward_by_prompt = [_compute_reward_from_log_phi(log_phi_pp[p].float(), beta).cpu() for p in range(P)]
+    target_by_prompt = [(log_p_pp[p].float() + log_phi_pp[p].float()).cpu() for p in range(P)]
+    # g_q per-sample components (None for prompts without target samples)
+    log_q_g_q_by_prompt = [None] * P
+    log_p_g_q_by_prompt = [None] * P
+    reward_g_q_by_prompt = [None] * P
+    target_g_q_by_prompt = [None] * P
 
     # IWAE LB per prompt is recomputed post-gather in train_ppo.py using all ranks' samples.
     # (All ranks process the same prompts with independent stochastic draws → gathering gives more samples.)
@@ -1371,10 +1461,15 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
     if prompts_with_targets and true_target_samples_by_prompt is not None:
         target_tensors = [true_target_samples_by_prompt[p] for p in prompts_with_targets]
         target_prompt_texts = [prompt_texts[p] for p in prompts_with_targets]
-        g_qs_list = g_q_estimate_batched(
-            trainer, experience_maker, args, target_tensors, target_prompt_texts)
+        g_qs_list, log_q_g_q_list, log_p_g_q_list, log_phi_g_q_list = g_q_estimate_batched(
+            trainer, experience_maker, args, target_tensors, target_prompt_texts,
+            return_components=True)
         for i, p in enumerate(prompts_with_targets):
             g_qs_per_prompt[p] = g_qs_list[i].cpu()
+            log_q_g_q_by_prompt[p] = log_q_g_q_list[i].float().cpu()
+            log_p_g_q_by_prompt[p] = log_p_g_q_list[i].float().cpu()
+            reward_g_q_by_prompt[p] = _compute_reward_from_log_phi(log_phi_g_q_list[i].float(), beta).cpu()
+            target_g_q_by_prompt[p] = (log_p_g_q_list[i].float() + log_phi_g_q_list[i].float()).cpu()
             print(f"[batched] g_q prompt {p}: mean = {g_qs_list[i].mean().item()}")
 
     # IWAE UB per prompt is computed post-gather in train_ppo.py (after all-gathering
@@ -1408,6 +1503,15 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
         "g_q_agg": g_q_agg,
         "iwae_lbs_agg": iwae_lbs_agg,
         "iwae_ubs_agg": iwae_ubs_agg,
+        # Per-sample components
+        "log_q_by_prompt": log_q_by_prompt,
+        "log_p_by_prompt": log_p_by_prompt,
+        "reward_by_prompt": reward_by_prompt,
+        "target_by_prompt": target_by_prompt,
+        "log_q_g_q_by_prompt": log_q_g_q_by_prompt,
+        "log_p_g_q_by_prompt": log_p_g_q_by_prompt,
+        "reward_g_q_by_prompt": reward_g_q_by_prompt,
+        "target_g_q_by_prompt": target_g_q_by_prompt,
     }
 
 
@@ -1511,12 +1615,28 @@ def _merge_batched_results(chunk_results):
     g_q_by_prompt = []
     iwae_lbs_by_prompt = []
     iwae_ubs_by_prompt = []
+    log_q_by_prompt = []
+    log_p_by_prompt = []
+    reward_by_prompt = []
+    target_by_prompt = []
+    log_q_g_q_by_prompt = []
+    log_p_g_q_by_prompt = []
+    reward_g_q_by_prompt = []
+    target_g_q_by_prompt = []
 
     for result in chunk_results:
         f_q_by_prompt.extend(result["f_q_by_prompt"])
         g_q_by_prompt.extend(result["g_q_by_prompt"])
         iwae_lbs_by_prompt.extend(result["iwae_lbs_by_prompt"])
         iwae_ubs_by_prompt.extend(result["iwae_ubs_by_prompt"])
+        log_q_by_prompt.extend(result["log_q_by_prompt"])
+        log_p_by_prompt.extend(result["log_p_by_prompt"])
+        reward_by_prompt.extend(result["reward_by_prompt"])
+        target_by_prompt.extend(result["target_by_prompt"])
+        log_q_g_q_by_prompt.extend(result["log_q_g_q_by_prompt"])
+        log_p_g_q_by_prompt.extend(result["log_p_g_q_by_prompt"])
+        reward_g_q_by_prompt.extend(result["reward_g_q_by_prompt"])
+        target_g_q_by_prompt.extend(result["target_g_q_by_prompt"])
 
     # Re-aggregate across all prompts
     f_q_valid = [x for x in f_q_by_prompt if x is not None]
@@ -1540,6 +1660,15 @@ def _merge_batched_results(chunk_results):
         "g_q_agg": g_q_agg,
         "iwae_lbs_agg": iwae_lbs_agg,
         "iwae_ubs_agg": iwae_ubs_agg,
+        # Per-sample components (forwarded from chunk results)
+        "log_q_by_prompt": log_q_by_prompt,
+        "log_p_by_prompt": log_p_by_prompt,
+        "reward_by_prompt": reward_by_prompt,
+        "target_by_prompt": target_by_prompt,
+        "log_q_g_q_by_prompt": log_q_g_q_by_prompt,
+        "log_p_g_q_by_prompt": log_p_g_q_by_prompt,
+        "reward_g_q_by_prompt": reward_g_q_by_prompt,
+        "target_g_q_by_prompt": target_g_q_by_prompt,
     }
 
 
@@ -1550,6 +1679,18 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
     g_q_by_prompt = []
     iwae_lbs_by_prompt = []
     iwae_ubs_by_prompt = []
+    # Per-sample component tensors (f_q samples)
+    log_q_by_prompt = []
+    log_p_by_prompt = []
+    reward_by_prompt = []
+    target_by_prompt = []
+    # Per-sample component tensors (g_q target samples; None for prompts without target samples)
+    log_q_g_q_by_prompt = []
+    log_p_g_q_by_prompt = []
+    reward_g_q_by_prompt = []
+    target_g_q_by_prompt = []
+
+    beta = args.target_dist_beta
 
     for i, prompt_text in enumerate(prompt_texts):
         print_timestamp(f"eval - multi_prompt unbatched: prompt {i+1}/{len(prompt_texts)}")
@@ -1566,6 +1707,14 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
         g_q_list_prompt = []
         iwae_lbs_list_prompt = []
         iwae_ubs_list_prompt = []
+        log_q_list_prompt = []
+        log_p_list_prompt = []
+        reward_list_prompt = []
+        target_list_prompt = []
+        log_q_g_q_list_prompt = []
+        log_p_g_q_list_prompt = []
+        reward_g_q_list_prompt = []
+        target_g_q_list_prompt = []
 
         if has_target_samples:
             f_q_g_q_evaluation(
@@ -1573,18 +1722,35 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
                 f_q_list_prompt, g_q_list_prompt,
                 iwae_lbs_list_prompt, iwae_ubs_list_prompt,
                 prompt_text, target_samples_for_prompt,
+                log_q_list=log_q_list_prompt, log_p_list=log_p_list_prompt,
+                reward_list=reward_list_prompt, target_list=target_list_prompt,
+                log_q_g_q_list=log_q_g_q_list_prompt, log_p_g_q_list=log_p_g_q_list_prompt,
+                reward_g_q_list=reward_g_q_list_prompt, target_g_q_list=target_g_q_list_prompt,
             )
         else:
             # f_q only (no g_q/IWAE without target samples)
-            f_qs, *_ = f_q_estimate(trainer, experience_maker, args, prompt_text)
+            f_qs, _, _, _, log_p, log_phi, log_q, _ = f_q_estimate(trainer, experience_maker, args, prompt_text)
             f_q_list_prompt.append(f_qs.cpu())
+            log_q_list_prompt.append(log_q.float().cpu())
+            log_p_list_prompt.append(log_p.float().cpu())
+            reward_list_prompt.append(_compute_reward_from_log_phi(log_phi.float(), beta).cpu())
+            target_list_prompt.append((log_p.float() + log_phi.float()).cpu())
 
         # f_q_g_q_evaluation appends exactly one entry per call. Same for the f_q_estimate path above.
         assert len(f_q_list_prompt) == 1, f"Expected exactly 1 f_q entry per prompt, got {len(f_q_list_prompt)}"
+        assert len(log_q_list_prompt) == 1, f"Expected exactly 1 log_q entry per prompt, got {len(log_q_list_prompt)}"
         f_q_by_prompt.append(f_q_list_prompt[0])
         g_q_by_prompt.append(g_q_list_prompt[0] if g_q_list_prompt else None)
         iwae_lbs_by_prompt.append(iwae_lbs_list_prompt[0] if iwae_lbs_list_prompt else None)
         iwae_ubs_by_prompt.append(iwae_ubs_list_prompt[0] if iwae_ubs_list_prompt else None)
+        log_q_by_prompt.append(log_q_list_prompt[0])
+        log_p_by_prompt.append(log_p_list_prompt[0])
+        reward_by_prompt.append(reward_list_prompt[0])
+        target_by_prompt.append(target_list_prompt[0])
+        log_q_g_q_by_prompt.append(log_q_g_q_list_prompt[0] if log_q_g_q_list_prompt else None)
+        log_p_g_q_by_prompt.append(log_p_g_q_list_prompt[0] if log_p_g_q_list_prompt else None)
+        reward_g_q_by_prompt.append(reward_g_q_list_prompt[0] if reward_g_q_list_prompt else None)
+        target_g_q_by_prompt.append(target_g_q_list_prompt[0] if target_g_q_list_prompt else None)
 
     # Aggregate across prompts
     f_q_valid = [x for x in f_q_by_prompt if x is not None]
@@ -1608,6 +1774,15 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
         "g_q_agg": g_q_agg,
         "iwae_lbs_agg": iwae_lbs_agg,
         "iwae_ubs_agg": iwae_ubs_agg,
+        # Per-sample components
+        "log_q_by_prompt": log_q_by_prompt,
+        "log_p_by_prompt": log_p_by_prompt,
+        "reward_by_prompt": reward_by_prompt,
+        "target_by_prompt": target_by_prompt,
+        "log_q_g_q_by_prompt": log_q_g_q_by_prompt,
+        "log_p_g_q_by_prompt": log_p_g_q_by_prompt,
+        "reward_g_q_by_prompt": reward_g_q_by_prompt,
+        "target_g_q_by_prompt": target_g_q_by_prompt,
     }
 
 

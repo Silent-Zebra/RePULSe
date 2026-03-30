@@ -131,6 +131,21 @@ def _distributed_gather_f_q_g_q_by_prompt_lists(strategy, f_q_by_prompt_list, g_
     return gathered_f_q_bp, gathered_g_q_bp, new_iwae_lbs_bp, new_iwae_ubs_bp
 
 
+def _distributed_gather_by_prompt_list(strategy, by_prompt_list):
+    """All-gather a per-prompt tensor list across ranks (no recomputation).
+
+    Args:
+        by_prompt_list: List over eval steps, each a list of tensors (or Nones) per prompt.
+
+    Returns:
+        Same structure, with each per-prompt tensor concatenated across ranks.
+    """
+    gathered = []
+    for step_data in by_prompt_list:
+        gathered.append(_distributed_all_gather_tensor_list(strategy, step_data))
+    return gathered
+
+
 def train(args):
     # configure strategy
     strategy = get_strategy(args)
@@ -1037,6 +1052,16 @@ def train(args):
     g_q_by_prompt_list_fixed = []
     iwae_lbs_by_prompt_list_fixed = []
     iwae_ubs_by_prompt_list_fixed = []
+    # Per-sample component lists for fixed set (f_q samples)
+    log_q_by_prompt_list_fixed = []
+    log_p_by_prompt_list_fixed = []
+    reward_by_prompt_list_fixed = []
+    target_by_prompt_list_fixed = []
+    # Per-sample component lists for fixed set (g_q target samples; None for prompts without targets)
+    log_q_g_q_by_prompt_list_fixed = []
+    log_p_g_q_by_prompt_list_fixed = []
+    reward_g_q_by_prompt_list_fixed = []
+    target_g_q_by_prompt_list_fixed = []
     # Random set (coverage)
     f_q_by_prompt_list_random = []
     prompt_texts_random_per_timepoint = []
@@ -1224,6 +1249,14 @@ def train(args):
             g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
             iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
             iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
+            log_q_by_prompt_list_fixed=log_q_by_prompt_list_fixed,
+            log_p_by_prompt_list_fixed=log_p_by_prompt_list_fixed,
+            reward_by_prompt_list_fixed=reward_by_prompt_list_fixed,
+            target_by_prompt_list_fixed=target_by_prompt_list_fixed,
+            log_q_g_q_by_prompt_list_fixed=log_q_g_q_by_prompt_list_fixed,
+            log_p_g_q_by_prompt_list_fixed=log_p_g_q_by_prompt_list_fixed,
+            reward_g_q_by_prompt_list_fixed=reward_g_q_by_prompt_list_fixed,
+            target_g_q_by_prompt_list_fixed=target_g_q_by_prompt_list_fixed,
             eval_prompts_random_source=eval_prompts_random_source,
             n_eval_prompts=n_eval_prompts,
             f_q_by_prompt_list_random=f_q_by_prompt_list_random,
@@ -1252,6 +1285,13 @@ def train(args):
         def mid_fit_callback(n_new_prompts):
             _prompts_since_last_eval[0] += n_new_prompts
             if _prompts_since_last_eval[0] >= f_q_eval_interval:
+                # Snapshot SIS weights and bonus at each eval point (gives a time series
+                # aligned with f_q/g_q evaluations, rather than once per outer fit_step)
+                if (hasattr(harmlessness_trainer, 'latest_sis_weights')
+                        and harmlessness_trainer.latest_sis_weights is not None):
+                    sis_weights_history.append(harmlessness_trainer.latest_sis_weights.clone())
+                if harmlessness_trainer.latest_bonus_val is not None:
+                    bonus_history.append(harmlessness_trainer.latest_bonus_val)
                 strategy.print(f"[mid-fit eval] {_prompts_since_last_eval[0]} prompts "
                                f"(>= {f_q_eval_interval}), running f_q/g_q evaluation...")
                 _run_per_fit_step_heldout_and_f_q(
@@ -1285,6 +1325,14 @@ def train(args):
                     g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
                     iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
                     iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
+                    log_q_by_prompt_list_fixed=log_q_by_prompt_list_fixed,
+                    log_p_by_prompt_list_fixed=log_p_by_prompt_list_fixed,
+                    reward_by_prompt_list_fixed=reward_by_prompt_list_fixed,
+                    target_by_prompt_list_fixed=target_by_prompt_list_fixed,
+                    log_q_g_q_by_prompt_list_fixed=log_q_g_q_by_prompt_list_fixed,
+                    log_p_g_q_by_prompt_list_fixed=log_p_g_q_by_prompt_list_fixed,
+                    reward_g_q_by_prompt_list_fixed=reward_g_q_by_prompt_list_fixed,
+                    target_g_q_by_prompt_list_fixed=target_g_q_by_prompt_list_fixed,
                     eval_prompts_random_source=eval_prompts_random_source,
                     n_eval_prompts=n_eval_prompts,
                     f_q_by_prompt_list_random=f_q_by_prompt_list_random,
@@ -1493,6 +1541,14 @@ def train(args):
                     g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
                     iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
                     iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
+                    log_q_by_prompt_list_fixed=log_q_by_prompt_list_fixed,
+                    log_p_by_prompt_list_fixed=log_p_by_prompt_list_fixed,
+                    reward_by_prompt_list_fixed=reward_by_prompt_list_fixed,
+                    target_by_prompt_list_fixed=target_by_prompt_list_fixed,
+                    log_q_g_q_by_prompt_list_fixed=log_q_g_q_by_prompt_list_fixed,
+                    log_p_g_q_by_prompt_list_fixed=log_p_g_q_by_prompt_list_fixed,
+                    reward_g_q_by_prompt_list_fixed=reward_g_q_by_prompt_list_fixed,
+                    target_g_q_by_prompt_list_fixed=target_g_q_by_prompt_list_fixed,
                     eval_prompts_random_source=eval_prompts_random_source,
                     n_eval_prompts=n_eval_prompts,
                     f_q_by_prompt_list_random=f_q_by_prompt_list_random,
@@ -1536,6 +1592,15 @@ def train(args):
                     g_f_q_bp, g_g_q_bp, g_iwae_lbs_bp, g_iwae_ubs_bp = _distributed_gather_f_q_g_q_by_prompt_lists(
                         strategy, f_q_by_prompt_list_fixed, g_q_by_prompt_list_fixed,
                         iwae_lbs_by_prompt_list_fixed, iwae_ubs_by_prompt_list_fixed)
+                    # Gather per-sample component lists (same structure, no recomputation needed)
+                    g_log_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_by_prompt_list_fixed)
+                    g_log_p_bp = _distributed_gather_by_prompt_list(strategy, log_p_by_prompt_list_fixed)
+                    g_reward_bp = _distributed_gather_by_prompt_list(strategy, reward_by_prompt_list_fixed)
+                    g_target_bp = _distributed_gather_by_prompt_list(strategy, target_by_prompt_list_fixed)
+                    g_log_q_g_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_g_q_by_prompt_list_fixed)
+                    g_log_p_g_q_bp = _distributed_gather_by_prompt_list(strategy, log_p_g_q_by_prompt_list_fixed)
+                    g_reward_g_q_bp = _distributed_gather_by_prompt_list(strategy, reward_g_q_by_prompt_list_fixed)
+                    g_target_g_q_bp = _distributed_gather_by_prompt_list(strategy, target_g_q_by_prompt_list_fixed)
                     # Random set: f_q only, gather per-prompt tensors
                     g_f_q_bp_random = []
                     if f_q_by_prompt_list_random:
@@ -1572,6 +1637,16 @@ def train(args):
                             "g_q_by_prompt_fixed": g_g_q_bp,
                             "iwae_lbs_by_prompt_fixed": g_iwae_lbs_bp,
                             "iwae_ubs_by_prompt_fixed": g_iwae_ubs_bp,
+                            # Per-sample components for f_q samples (fixed set):
+                            "log_q_by_prompt_fixed": g_log_q_bp,
+                            "log_p_by_prompt_fixed": g_log_p_bp,
+                            "reward_by_prompt_fixed": g_reward_bp,
+                            "target_by_prompt_fixed": g_target_bp,
+                            # Per-sample components for g_q target samples (fixed set):
+                            "log_q_g_q_by_prompt_fixed": g_log_q_g_q_bp,
+                            "log_p_g_q_by_prompt_fixed": g_log_p_g_q_bp,
+                            "reward_g_q_by_prompt_fixed": g_reward_g_q_bp,
+                            "target_g_q_by_prompt_fixed": g_target_g_q_bp,
                             # Random set (per-prompt):
                             "f_q_by_prompt_random": g_f_q_bp_random if g_f_q_bp_random else f_q_by_prompt_list_random,
                             # Aggregated (backward compat):
@@ -3758,6 +3833,16 @@ def _run_per_fit_step_heldout_and_f_q(
     g_q_by_prompt_list_fixed=None,
     iwae_lbs_by_prompt_list_fixed=None,
     iwae_ubs_by_prompt_list_fixed=None,
+    # Per-sample component lists (f_q samples)
+    log_q_by_prompt_list_fixed=None,
+    log_p_by_prompt_list_fixed=None,
+    reward_by_prompt_list_fixed=None,
+    target_by_prompt_list_fixed=None,
+    # Per-sample component lists (g_q target samples)
+    log_q_g_q_by_prompt_list_fixed=None,
+    log_p_g_q_by_prompt_list_fixed=None,
+    reward_g_q_by_prompt_list_fixed=None,
+    target_g_q_by_prompt_list_fixed=None,
     eval_prompts_random_source=None,
     n_eval_prompts=None,
     f_q_by_prompt_list_random=None,
@@ -3859,6 +3944,23 @@ def _run_per_fit_step_heldout_and_f_q(
                 iwae_lbs_by_prompt_list_fixed.append(result_fixed["iwae_lbs_by_prompt"])
             if iwae_ubs_by_prompt_list_fixed is not None:
                 iwae_ubs_by_prompt_list_fixed.append(result_fixed["iwae_ubs_by_prompt"])
+            # Append per-sample component results
+            if log_q_by_prompt_list_fixed is not None:
+                log_q_by_prompt_list_fixed.append(result_fixed["log_q_by_prompt"])
+            if log_p_by_prompt_list_fixed is not None:
+                log_p_by_prompt_list_fixed.append(result_fixed["log_p_by_prompt"])
+            if reward_by_prompt_list_fixed is not None:
+                reward_by_prompt_list_fixed.append(result_fixed["reward_by_prompt"])
+            if target_by_prompt_list_fixed is not None:
+                target_by_prompt_list_fixed.append(result_fixed["target_by_prompt"])
+            if log_q_g_q_by_prompt_list_fixed is not None:
+                log_q_g_q_by_prompt_list_fixed.append(result_fixed["log_q_g_q_by_prompt"])
+            if log_p_g_q_by_prompt_list_fixed is not None:
+                log_p_g_q_by_prompt_list_fixed.append(result_fixed["log_p_g_q_by_prompt"])
+            if reward_g_q_by_prompt_list_fixed is not None:
+                reward_g_q_by_prompt_list_fixed.append(result_fixed["reward_g_q_by_prompt"])
+            if target_g_q_by_prompt_list_fixed is not None:
+                target_g_q_by_prompt_list_fixed.append(result_fixed["target_g_q_by_prompt"])
             # Append aggregated results (backward compat lists).
             # Always append (even None) to keep lists aligned with f_q_estimates_list,
             # so that index t in each list corresponds to the same eval step.
