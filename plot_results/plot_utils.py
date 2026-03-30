@@ -2747,6 +2747,7 @@ def plot_max_sis_weight_over_time(
 
     for setting_idx in range(n_settings):
         seed_data = sis_weights_results_list[setting_idx]
+
         if not seed_data:
             continue
 
@@ -2798,3 +2799,439 @@ def plot_max_sis_weight_over_time(
     plt.clf()
     plt.close(fig)
     print(f"Max SIS weight plot saved to {figname}")
+
+
+def plot_g_q_lollipop(figname, labels, g_q_per_sample_data, color_list, fontsize=7, legendfontsize=7):
+    """
+    Lollipop plot of final-timestep g_q values for each target sequence, one color per setting.
+
+    Target sequences (flattened across prompts) are sorted by descending mean g_q across settings,
+    so the sequences q covers worst (highest g_q) appear on the left. Multiple settings are shown
+    as offset colored dots + stems for easy comparison.
+
+    g_q(x) = log p0(x) + beta*r(x) - log q(x); lower = q covers x better.
+
+    Args:
+        g_q_per_sample_data: List (settings) of list (seeds) of list (T timesteps) of
+                             list (P prompts) of 1D numpy array (n_samples,) of g_q values.
+    """
+    n_settings = len(labels)
+
+    # For each setting, compute per-sample g_q at the final timestep, averaged across seeds
+    final_g_q = []  # list (settings) of 1D array (n_samples,) or None
+    for setting_idx in range(n_settings):
+        seed_list = g_q_per_sample_data[setting_idx]
+        if not seed_list:
+            final_g_q.append(None)
+            continue
+        seed_finals = []
+        for seed_data in seed_list:
+            if not seed_data:
+                continue
+            t_data = seed_data[-1]  # final timestep: list (P) of 1D array (n_samples,)
+            vals = []
+            for p_data in t_data:
+                if p_data is not None:
+                    vals.extend(np.asarray(p_data).ravel().tolist())
+            if vals:
+                seed_finals.append(np.array(vals))
+        if not seed_finals:
+            final_g_q.append(None)
+            continue
+        # Average across seeds; pad shorter arrays with NaN
+        max_n = max(len(a) for a in seed_finals)
+        padded = [np.concatenate([a, np.full(max_n - len(a), np.nan)]) for a in seed_finals]
+        final_g_q.append(np.nanmean(np.stack(padded, axis=0), axis=0))
+
+    valid_settings = [(i, arr) for i, arr in enumerate(final_g_q) if arr is not None]
+    if not valid_settings:
+        print(f"No data for g_q lollipop plot, skipping {figname}")
+        return
+
+    n_samples = max(len(arr) for _, arr in valid_settings)
+    # Sort by descending mean g_q (worst-covered sequences on the left)
+    all_arrs = np.full((len(valid_settings), n_samples), np.nan)
+    for plot_idx, (_, arr) in enumerate(valid_settings):
+        all_arrs[plot_idx, :len(arr)] = arr
+    sort_order = np.argsort(np.nanmean(all_arrs, axis=0))[::-1]
+
+    x_positions = np.arange(n_samples)
+    n_valid = len(valid_settings)
+    x_offsets = np.linspace(-0.25, 0.25, n_valid) if n_valid > 1 else np.array([0.0])
+
+    fig, ax = plt.subplots()
+    for plot_idx, (setting_idx, arr) in enumerate(valid_settings):
+        sorted_arr = arr[sort_order] if len(arr) == n_samples else np.pad(
+            arr, (0, n_samples - len(arr)), constant_values=np.nan)[sort_order]
+        x = x_positions + x_offsets[plot_idx]
+        valid = ~np.isnan(sorted_arr)
+        # Stems from y=0 to each g_q value
+        ax.vlines(x[valid], 0, sorted_arr[valid],
+                  color=color_list[setting_idx], alpha=0.6, linewidth=0.8)
+        ax.scatter(x[valid], sorted_arr[valid],
+                   color=color_list[setting_idx], s=12, zorder=3,
+                   label=labels[setting_idx])
+
+    ax.axhline(0, color='black', linewidth=0.5, linestyle='--', alpha=0.5)
+    ax.set_xlabel('Target Sequence Index (sorted by mean g_q, worst first)', fontsize=fontsize)
+    ax.set_ylabel(r'$g_q(x) = \log p_0(x) + \beta r(x) - \log q(x)$', fontsize=fontsize)
+    ax.set_title('g_q at Final Timestep Per Target Sequence (lower = better coverage)', fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(np.arange(1, n_samples + 1), fontsize=max(4, fontsize - 2))
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(alpha=0.3, linestyle='--', axis='y')
+    plt.tight_layout()
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"g_q lollipop plot saved to {figname}")
+
+
+def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
+                              series1_data, series2_data,
+                              color_list, fontsize=7, legendfontsize=7):
+    """
+    Lollipop plot comparing two per-sample quantities across target sequences, one color per setting.
+
+    For each setting and each target sequence, draws a vertical segment connecting the two series
+    values (series2 hollow circles, series1 filled circles), so the gap is immediately visible.
+    Sequences are sorted by descending mean series2 value (highest on left).
+
+    Intended for plots like:
+      A) log q (series1) vs log p (series2): reveals how the proposal probability relates to the prior.
+      B) log q (series1) vs log p + β·r (series2=target): reveals where q under/over-covers sigma.
+
+    Args:
+        series1_name: Short label for the first quantity (filled markers), e.g. r'$\\log q$'.
+        series2_name: Short label for the second quantity (hollow markers), e.g. r'$\\log p$'.
+        series1_data, series2_data: List (settings) of list (seeds) of list (T timesteps) of
+                                    list (P prompts) of 1D numpy array (n_samples,) or None.
+    """
+    n_settings = len(labels)
+
+    def _get_final_per_setting(data):
+        """For each setting, average per-sample values at the final timestep across seeds."""
+        finals = []
+        for setting_idx in range(n_settings):
+            seed_list = data[setting_idx] if setting_idx < len(data) else []
+            if not seed_list:
+                finals.append(None)
+                continue
+            seed_finals = []
+            for seed_data in seed_list:
+                if not seed_data:
+                    continue
+                t_data = seed_data[-1]  # final timestep: list (P) of arrays
+                vals = []
+                for p_data in t_data:
+                    if p_data is not None:
+                        vals.extend(np.asarray(p_data).ravel().tolist())
+                if vals:
+                    seed_finals.append(np.array(vals))
+            if not seed_finals:
+                finals.append(None)
+                continue
+            max_n = max(len(a) for a in seed_finals)
+            padded = [np.concatenate([a, np.full(max_n - len(a), np.nan)]) for a in seed_finals]
+            finals.append(np.nanmean(np.stack(padded, axis=0), axis=0))
+        return finals
+
+    final_s1 = _get_final_per_setting(series1_data)
+    final_s2 = _get_final_per_setting(series2_data)
+
+    valid_s2 = [(i, arr) for i, arr in enumerate(final_s2) if arr is not None]
+    if not valid_s2:
+        print(f"No series2 data for two-series lollipop plot, skipping {figname}")
+        return
+
+    n_samples = max(len(arr) for _, arr in valid_s2)
+
+    # Sort sequences by descending mean series2 (highest-density under series2 on the left)
+    s2_matrix = np.full((len(valid_s2), n_samples), np.nan)
+    for plot_idx, (_, arr) in enumerate(valid_s2):
+        s2_matrix[plot_idx, :len(arr)] = arr
+    sort_order = np.argsort(np.nanmean(s2_matrix, axis=0))[::-1]
+
+    x_positions = np.arange(n_samples)
+    x_offsets = np.linspace(-0.25, 0.25, n_settings) if n_settings > 1 else np.array([0.0])
+
+    fig, ax = plt.subplots()
+    legend_handles = []
+    for setting_idx in range(n_settings):
+        s1 = final_s1[setting_idx]
+        s2 = final_s2[setting_idx]
+        if s1 is None and s2 is None:
+            continue
+        color = color_list[setting_idx]
+        x = x_positions + x_offsets[setting_idx]
+
+        def _pad_and_sort(arr, _sort_order=sort_order, _n=n_samples):
+            if arr is None:
+                return np.full(_n, np.nan)
+            if len(arr) < _n:
+                arr = np.concatenate([arr, np.full(_n - len(arr), np.nan)])
+            return arr[_sort_order]
+
+        s1_sorted = _pad_and_sort(s1)
+        s2_sorted = _pad_and_sort(s2)
+
+        # Vertical segment from s2 (hollow) to s1 (filled)
+        both_valid = ~(np.isnan(s1_sorted) | np.isnan(s2_sorted))
+        if np.any(both_valid):
+            ax.vlines(x[both_valid], s2_sorted[both_valid], s1_sorted[both_valid],
+                      color=color, alpha=0.5, linewidth=0.8)
+
+        # Series2: hollow circles
+        valid_mask2 = ~np.isnan(s2_sorted)
+        if np.any(valid_mask2):
+            ax.scatter(x[valid_mask2], s2_sorted[valid_mask2],
+                       facecolors='none', edgecolors=color, s=14, zorder=3, linewidths=0.8)
+
+        # Series1: filled circles
+        valid_mask1 = ~np.isnan(s1_sorted)
+        if np.any(valid_mask1):
+            ax.scatter(x[valid_mask1], s1_sorted[valid_mask1],
+                       color=color, s=12, zorder=4)
+
+        legend_handles.append(plt.Line2D([0], [0], color=color, marker='o', linestyle='-',
+                                         linewidth=0.8, markersize=4, label=labels[setting_idx]))
+
+    # Shape-only legend entries to distinguish the two series
+    legend_handles.append(plt.Line2D([0], [0], marker='o', color='grey', linestyle='None',
+                                     markersize=5, label=f'{series1_name} (filled)'))
+    legend_handles.append(plt.Line2D([0], [0], marker='o', color='grey', linestyle='None',
+                                     markersize=5, markerfacecolor='none', markeredgewidth=0.8,
+                                     label=f'{series2_name} (hollow)'))
+
+    ax.set_xlabel(f'Target Sequence Index (sorted by descending mean {series2_name})',
+                  fontsize=fontsize)
+    ax.set_ylabel('Log probability', fontsize=fontsize)
+    ax.set_title(f'{series1_name} vs {series2_name} at Final Timestep (per target sequence)',
+                 fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(np.arange(1, n_samples + 1), fontsize=max(4, fontsize - 2))
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(handles=legend_handles, fontsize=legendfontsize)
+    ax.grid(alpha=0.3, linestyle='--', axis='y')
+    plt.tight_layout()
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Two-series lollipop plot saved to {figname}")
+
+
+def _collect_f_q_sample_rank_data(n_settings, log_q_data, log_p_data, log_phi_data, n_ranks):
+    """For each setting/seed, flatten f_q samples across prompts at the final timestep,
+    sort by log_q descending, and record (log_q, log_p, log_phi) at each rank.
+
+    Args:
+        log_q_data, log_p_data, log_phi_data: List (settings) of list (seeds) of
+            list (T timesteps) of list (P prompts) of 1D numpy array (n_samples,) or None.
+        n_ranks: Maximum number of rank positions to keep.
+
+    Returns:
+        rank_data: dict setting_idx -> list of (q_by_rank, p_by_rank, phi_by_rank) arrays,
+                   one tuple per seed. Arrays have length min(n_ranks, n_samples).
+        n_ranks_actual: int, maximum rank depth across all settings.
+    """
+    rank_data = {i: [] for i in range(n_settings)}
+
+    for setting_idx in range(n_settings):
+        q_seeds = log_q_data[setting_idx] if setting_idx < len(log_q_data) else []
+        p_seeds = log_p_data[setting_idx] if setting_idx < len(log_p_data) else []
+        phi_seeds = log_phi_data[setting_idx] if setting_idx < len(log_phi_data) else []
+
+        n_seeds = max(len(q_seeds), len(p_seeds), len(phi_seeds))
+        for seed_j in range(n_seeds):
+            q_seed = q_seeds[seed_j] if seed_j < len(q_seeds) else []
+            p_seed = p_seeds[seed_j] if seed_j < len(p_seeds) else []
+            phi_seed = phi_seeds[seed_j] if seed_j < len(phi_seeds) else []
+
+            # Take the final timestep from each seed's data
+            q_t = q_seed[-1] if q_seed else None
+            p_t = p_seed[-1] if p_seed else None
+            phi_t = phi_seed[-1] if phi_seed else None
+
+            if q_t is None:
+                continue
+
+            # Flatten across prompts
+            def _flatten(t_data):
+                if t_data is None:
+                    return None
+                vals = []
+                for p_data in t_data:
+                    if p_data is not None:
+                        vals.extend(np.asarray(p_data).ravel().tolist())
+                return np.array(vals) if vals else None
+
+            q_flat = _flatten(q_t)
+            p_flat = _flatten(p_t)
+            phi_flat = _flatten(phi_t)
+
+            if q_flat is None or len(q_flat) == 0:
+                continue
+
+            # Sort by log_q descending; all arrays must be co-sorted
+            sort_idx = np.argsort(q_flat)[::-1]
+            k = min(n_ranks, len(q_flat))
+            top_idx = sort_idx[:k]
+
+            q_by_rank = q_flat[top_idx]
+            p_by_rank = p_flat[top_idx] if p_flat is not None else np.full(k, np.nan)
+            phi_by_rank = phi_flat[top_idx] if phi_flat is not None else np.full(k, np.nan)
+
+            rank_data[setting_idx].append((q_by_rank, p_by_rank, phi_by_rank))
+
+    n_ranks_actual = max(
+        (len(tup[0]) for seeds in rank_data.values() for tup in seeds),
+        default=0
+    )
+    return rank_data, n_ranks_actual
+
+
+def plot_top_q_samples_ranked_lollipop(
+    figname, labels,
+    log_q_data, log_p_data, log_phi_data,
+    color_list, fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+    n_ranks=10,
+):
+    """
+    Lollipop chart of top-n q-drawn samples ranked by log_q, showing log_q, log_p, and log_phi.
+
+    For each setting and seed, flattens f_q samples across prompts at the final evaluation
+    timestep, sorts them by log_q (log probability under the proposal q) descending, and
+    records (log_q, log_p, log p + β·r) at each rank. Averages across seeds with bootstrap CIs.
+
+    Three markers per rank per setting:
+      - Filled circle: log q  (proposal log probability)
+      - Hollow square: log p  (prior log probability)
+      - Hollow diamond: log p + β·r  (= log tilde sigma, the unnormalized target log density)
+
+    Args:
+        log_q_data, log_p_data, log_phi_data: List (settings) of list (seeds) of
+            list (T timesteps) of list (P prompts) of 1D numpy array (n_samples,) or None.
+            log_phi_data should contain the target values (log_p + beta*r).
+    """
+    n_settings = len(labels)
+    rank_data, n_ranks_actual = _collect_f_q_sample_rank_data(
+        n_settings, log_q_data, log_p_data, log_phi_data, n_ranks)
+
+    if n_ranks_actual == 0:
+        print(f"No rank data for top-q samples ranked lollipop, skipping {figname}")
+        return
+
+    x_positions = np.arange(n_ranks_actual)
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+
+    from matplotlib.lines import Line2D
+
+    fig, ax = plt.subplots()
+
+    for setting_idx in range(n_settings):
+        seeds = rank_data[setting_idx]
+        if not seeds:
+            continue
+
+        q_means = np.full(n_ranks_actual, np.nan)
+        q_ci_lo = np.full(n_ranks_actual, np.nan)
+        q_ci_hi = np.full(n_ranks_actual, np.nan)
+        p_means = np.full(n_ranks_actual, np.nan)
+        p_ci_lo = np.full(n_ranks_actual, np.nan)
+        p_ci_hi = np.full(n_ranks_actual, np.nan)
+        phi_means = np.full(n_ranks_actual, np.nan)
+        phi_ci_lo = np.full(n_ranks_actual, np.nan)
+        phi_ci_hi = np.full(n_ranks_actual, np.nan)
+
+        for rank in range(n_ranks_actual):
+            q_vals = np.array([s[0][rank] for s in seeds if rank < len(s[0])])
+            p_vals = np.array([s[1][rank] for s in seeds
+                               if rank < len(s[1]) and not np.isnan(s[1][rank])])
+            phi_vals = np.array([s[2][rank] for s in seeds
+                                 if rank < len(s[2]) and not np.isnan(s[2][rank])])
+
+            q_means[rank], q_ci_lo[rank], q_ci_hi[rank] = _bootstrap_mean_ci(q_vals, n_bootstrap_draws)
+            if len(p_vals) > 0:
+                p_means[rank], p_ci_lo[rank], p_ci_hi[rank] = _bootstrap_mean_ci(p_vals, n_bootstrap_draws)
+            if len(phi_vals) > 0:
+                phi_means[rank], phi_ci_lo[rank], phi_ci_hi[rank] = _bootstrap_mean_ci(phi_vals, n_bootstrap_draws)
+
+        x_pos = x_positions + setting_offsets[setting_idx]
+        color = color_list[setting_idx]
+
+        # Vertical segments: phi (lowest anchor) to q (top anchor), passing through p
+        for rank in range(n_ranks_actual):
+            bot = phi_means[rank] if not np.isnan(phi_means[rank]) else (
+                p_means[rank] if not np.isnan(p_means[rank]) else None)
+            top = q_means[rank]
+            if bot is None or np.isnan(top):
+                continue
+            ax.plot([x_pos[rank], x_pos[rank]], [bot, top],
+                    color=color, linewidth=1, alpha=0.4, zorder=1)
+
+        # log phi: hollow diamond with CI
+        valid_phi = ~np.isnan(phi_means)
+        if valid_phi.any():
+            phi_lo = phi_means[valid_phi] - phi_ci_lo[valid_phi]
+            phi_hi = phi_ci_hi[valid_phi] - phi_means[valid_phi]
+            ax.errorbar(x_pos[valid_phi], phi_means[valid_phi],
+                        yerr=[phi_lo, phi_hi],
+                        fmt='D', color=color, markersize=4,
+                        markerfacecolor='none', markeredgewidth=1.2,
+                        capsize=2, linewidth=0.8, zorder=3)
+
+        # log p: hollow square with CI
+        valid_p = ~np.isnan(p_means)
+        if valid_p.any():
+            p_lo = p_means[valid_p] - p_ci_lo[valid_p]
+            p_hi = p_ci_hi[valid_p] - p_means[valid_p]
+            ax.errorbar(x_pos[valid_p], p_means[valid_p],
+                        yerr=[p_lo, p_hi],
+                        fmt='s', color=color, markersize=4,
+                        markerfacecolor='none', markeredgewidth=1.2,
+                        capsize=2, linewidth=0.8, zorder=3)
+
+        # log q: filled circle with CI
+        valid_q = ~np.isnan(q_means)
+        if valid_q.any():
+            q_lo = q_means[valid_q] - q_ci_lo[valid_q]
+            q_hi = q_ci_hi[valid_q] - q_means[valid_q]
+            ax.errorbar(x_pos[valid_q], q_means[valid_q],
+                        yerr=[q_lo, q_hi],
+                        fmt='o', color=color, markersize=5,
+                        capsize=3, linewidth=1, zorder=4)
+
+    # Legend: per-setting colored lines + marker-type key
+    legend_handles = []
+    legend_handles.append(Line2D([], [], marker='o', color='black', markersize=5,
+                                 linestyle='None', label=r'$\log q$'))
+    legend_handles.append(Line2D([], [], marker='s', color='black', markersize=4,
+                                 markerfacecolor='none', markeredgewidth=1.2,
+                                 linestyle='None', label=r'$\log p$'))
+    legend_handles.append(Line2D([], [], marker='D', color='black', markersize=4,
+                                 markerfacecolor='none', markeredgewidth=1.2,
+                                 linestyle='None', label=r'$\log \tilde{\sigma} = \log p + \beta r$'))
+    for setting_idx in range(n_settings):
+        if not rank_data[setting_idx]:
+            continue
+        legend_handles.append(Line2D([], [], color=color_list[setting_idx], linewidth=2,
+                                     label=labels[setting_idx]))
+
+    ax.set_xlabel('Rank under q (1 = highest log q)', fontsize=fontsize)
+    ax.set_ylabel('Log Probability', fontsize=fontsize)
+    ax.set_title(f'Top {n_ranks_actual} q Samples by Log q: log q, log p, log p + β·r',
+                 fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([str(r + 1) for r in range(n_ranks_actual)], fontsize=fontsize - 1)
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(handles=legend_handles, fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Top-q samples ranked lollipop saved to {figname}")

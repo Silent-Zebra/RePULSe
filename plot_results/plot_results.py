@@ -27,6 +27,7 @@ from plot_utils import (
     plot_top_q_intersection_lollipop, plot_top_q_ranked_lollipop,
     plot_coverage_curve, plot_vocab_coverage_curve,
     plot_visitation_heatmaps, plot_visitation_pca, plot_visitation_tsne, plot_max_sis_weight_over_time,
+    plot_g_q_lollipop, plot_two_series_lollipop, plot_top_q_samples_ranked_lollipop,
     MARKER_NO_BONUS, MARKER_CFN, MARKER_MIXTURE, MARKER_EXACT_COUNT,
     MARKER_CTL, MARKER_CTLN, MARKER_LOSS_UNKNOWN,
 )
@@ -101,6 +102,11 @@ def extract_common_suffix(prefix):
     if prefix.startswith("analyticlogprob_rewsample_"):
         return prefix[len("analyticlogprob_rewsample_"):]
     
+    # Try to match f_q_g_q_iwae_bounds_OpenRLHF_ prefix (non-analytic multi-token runs)
+    # The filename is f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str} where OpenRLHF is hardcoded.
+    if prefix.startswith("f_q_g_q_iwae_bounds_OpenRLHF_"):
+        return prefix[len("f_q_g_q_iwae_bounds_OpenRLHF_"):]
+
     # If no match, return the original (for backward compatibility)
     return prefix
 
@@ -1477,18 +1483,6 @@ def plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, 
     # Create output subfolder for plots
     output_dir = _make_output_dir(figname_modifier)
 
-    # Plot f_q over time (includes all timesteps, even those without g_q)
-    f_q_results_list = extract_f_q_over_time(loaded_data)
-    has_f_q = any(len(row) > 0 for row in f_q_results_list)
-    if has_f_q:
-        plot_results_over_time(f_q_results_list, labels, x_range, fontsize, figname_modifier,
-                              index_to_use=0, plot_name="f_q",
-                              ylabel=r"$f_q$ (ELBO)",
-                              file_type_suffix="", load_prefixes_to_use=load_prefixes_to_use,
-                              output_dir=output_dir, legendfontsize=legendfontsize)
-    else:
-        print("Warning: No f_q data found, skipping f_q plot")
-
     # Compute global log Z (needed for KL plots and frontiers)
     try:
         global_logZ = compute_global_logZ_from_iwae_bounds(loaded_data)
@@ -1592,6 +1586,65 @@ def _make_output_dir(figname_modifier):
     os.makedirs(output_dir, exist_ok=True)
     print(f"Plots will be saved to: {output_dir}/")
     return output_dir
+
+
+def _filter_prefixes_by_start(load_prefixes_to_use, labels, prefix_start):
+    """Return (filtered_prefixes, filtered_labels) for entries whose first prefix starts with prefix_start."""
+    filtered_prefixes = []
+    filtered_labels = []
+    for prefix_list, label in zip(load_prefixes_to_use, labels):
+        if prefix_list and isinstance(prefix_list[0], str) and prefix_list[0].startswith(prefix_start):
+            filtered_prefixes.append(prefix_list)
+            filtered_labels.append(label)
+    return filtered_prefixes, filtered_labels
+
+
+def _load_component_per_sample_data(key, load_prefixes_to_use, load_dir="./info"):
+    """Load raw per-sample values for any per-prompt component key from v2 f_q/g_q files.
+
+    Args:
+        key: Dict key in the v2 file (e.g. 'g_q_by_prompt_fixed', 'log_q_g_q_by_prompt_fixed').
+
+    Returns:
+        List (settings) of list (seeds) of list (T timesteps) of list (P prompts) of
+        1D numpy array (n_samples,). None entries indicate missing data for that prompt.
+    """
+    result = []
+    for prefix_list in load_prefixes_to_use:
+        setting_data = []
+        for fn in prefix_list:
+            path = os.path.join(load_dir, fn)
+            try:
+                data = torch.load(path, map_location='cpu')
+            except Exception as e:
+                print(f"Warning: failed to load {path}: {e}")
+                continue
+            if not (isinstance(data, dict) and data.get("version", 1) >= 2):
+                continue
+            by_prompt = data.get(key)
+            if by_prompt is None:
+                continue
+            # Convert per-prompt tensors to numpy arrays; keep None for missing prompts
+            seed_data = []
+            for t_data in by_prompt:
+                timestep_data = []
+                for p_data in t_data:
+                    if p_data is None:
+                        timestep_data.append(None)
+                    elif isinstance(p_data, torch.Tensor):
+                        timestep_data.append(p_data.cpu().numpy())
+                    else:
+                        # Scalar: already reduced (shouldn't happen for raw files)
+                        timestep_data.append(np.array([float(p_data)]))
+                seed_data.append(timestep_data)
+            setting_data.append(seed_data)
+        result.append(setting_data)
+    return result
+
+
+def _load_g_q_per_sample_data(load_prefixes_to_use, load_dir="./info"):
+    """Load raw per-sample g_q values from v2 f_q/g_q files (bypassing to_scalar reduction)."""
+    return _load_component_per_sample_data("g_q_by_prompt_fixed", load_prefixes_to_use, load_dir)
 
 
 def _sanitize_for_filename(text, max_len=50):
@@ -4479,26 +4532,41 @@ embedding_tsne = "embedding_tsne_200_distilgpt2_2p2.pt"
 # embedding = "embedding_pca_distilgpt2_2p2.pt"
 
 
-#
-# load_prefixes_to_use = [
-# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl20v3 |  grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-0.3_hlr_a3.0rt3.0_b-0.3_ppq_ctl_ep1_e1_he4_scc_al0.0_bl1e-07_ppq_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-0.3_hlr_a3.0rt3.0_b-0.3_ppq_ctl_ep1_e1_he4_scc_al0.0_bl3e-07_ppq_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-1.0_hlr_a1.0rt1.0_b-1.0_ppq_ctl_ep1_e1_he4_scc_al0.0_bl1e-07_ppq_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
-#
-# ]
-# threshold = -7
-# figname_modifier = "repulselen100_rlhfmultikl20v3_03-24_v3"
-# target_samples_path = None
-# individual_prompt_plots = False
-# random_f_q_ylim_low = None
-# n_frontiers = 2
-# legendfontsize = 4
-#
+
+load_prefixes_to_use = [
+# for x in $(ls /scratch/zhaostep/OpenRLHF/info/rlhfmultikl20v3 |  grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-0.3_hlr_a3.0rt3.0_b-0.3_ppq_ctl_ep1_e1_he4_scc_al0.0_bl1e-07_ppq_tb80_s1", 1, 10),
+make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-0.3_hlr_a3.0rt3.0_b-0.3_ppq_ctl_ep1_e1_he4_scc_al0.0_bl3e-07_ppq_tb80_s1", 1, 10),
+make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-1.0_hlr_a1.0rt1.0_b-1.0_ppq_ctl_ep1_e1_he4_scc_al0.0_bl1e-07_ppq_tb80_s1", 1, 10),
+make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
+make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+]
+threshold = -7
+figname_modifier = "repulselen100_rlhfmultikl20v3_03-24_v4"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 2
+legendfontsize = 4
 
 
+
+
+load_prefixes_to_use = [
+# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/ittoxmultitest |  grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-05_bl0.0_ppq_tb250_s1", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-05_bl0.0_ppq_tb250_s1", 1, 10),
+
+]
+threshold = -7
+figname_modifier = "probinflen20_ittoxmulti_03-30_v2"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 4
+legendfontsize = 4
 
 
 
@@ -4588,6 +4656,125 @@ elif use_f_q_g_q:
     print("\nPlotting approximate KL divergences from f_q/g_q files (aggregated)...")
     aggregated_data = v2_data_to_aggregated(all_v2_data) if all_v2_data is not None else None
     plot_f_q_g_q_kl_divergences(load_prefixes_to_use, labels, figname_modifier, x_range=None, fontsize=fontsize, n_frontiers=n_frontiers, legendfontsize=legendfontsize, preloaded_data=aggregated_data)
+
+    import traceback
+    _lfs = legendfontsize if legendfontsize is not None else fontsize
+    _output_dir = _make_output_dir(figname_modifier)
+    _semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+
+    # Max SIS weight over time: derive sis_weights_history_* filenames from f_q_g_q prefixes
+    # (extract_common_suffix strips f_q_g_q_iwae_bounds_OpenRLHF_, then transform prepends
+    # sis_weights_history_)
+    try:
+        sis_prefixes = transform_prefixes_for_sis_weights(load_prefixes_to_use)
+        sis_results_list = [[] for _ in sis_prefixes]
+        do_load_prefixes(sis_results_list, sis_prefixes)
+        has_sis = any(len(x) > 0 for x in sis_results_list)
+        if has_sis:
+            plot_max_sis_weight_over_time(
+                figname=os.path.join(_output_dir, "sampling_max_sis_weight_over_time.pdf"),
+                labels=labels, sis_weights_results_list=sis_results_list,
+                color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+                n_bootstrap_draws=5000,
+            )
+    except Exception as e:
+        print(f"Failed to generate max SIS weight plot: {e}")
+        traceback.print_exc()
+
+    # Mean unscaled exploration bonus over time: derive rew_untransret_sampling_* filenames
+    try:
+        rew_prefixes = transform_prefixes_for_rew_untransret_sampling(load_prefixes_to_use)
+        rew_results_list = [[] for _ in rew_prefixes]
+        do_load_prefixes(rew_results_list, rew_prefixes)
+        has_bonus = any(
+            isinstance(item, tuple) and len(item) >= 3
+            for group in rew_results_list for item in group
+        )
+        if has_bonus:
+            _unscale_bonus_in_results(rew_results_list, load_prefixes_to_use, bonus_index=2)
+            plot_results_over_time(
+                rew_results_list, labels, None, fontsize, figname_modifier,
+                index_to_use=2, plot_name="unscaled_bonus",
+                ylabel=r"Mean Unscaled Exploration Bonus",
+                file_type_suffix="sampling", load_prefixes_to_use=load_prefixes_to_use,
+                output_dir=_output_dir, legendfontsize=_lfs,
+            )
+    except Exception as e:
+        print(f"Failed to generate bonus plot: {e}")
+        traceback.print_exc()
+
+    # g_q lollipop: final-timestep g_q per target sequence, one lollipop per setting
+    try:
+        g_q_per_sample = _load_g_q_per_sample_data(load_prefixes_to_use)
+        has_g_q = any(seed_data for setting_data in g_q_per_sample for seed_data in setting_data)
+        if has_g_q:
+            plot_g_q_lollipop(
+                figname=os.path.join(_output_dir, "sampling_g_q_lollipop.pdf"),
+                labels=labels, g_q_per_sample_data=g_q_per_sample,
+                color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+            )
+    except Exception as e:
+        print(f"Failed to generate g_q lollipop plot: {e}")
+        traceback.print_exc()
+
+    # Component lollipop A: log q vs log p (proposal vs prior) on target sequences
+    try:
+        log_q_tgt = _load_component_per_sample_data("log_q_g_q_by_prompt_fixed", load_prefixes_to_use)
+        log_p_tgt = _load_component_per_sample_data("log_p_g_q_by_prompt_fixed", load_prefixes_to_use)
+        has_data = any(seed_data for setting_data in log_q_tgt for seed_data in setting_data)
+        if has_data:
+            plot_two_series_lollipop(
+                figname=os.path.join(_output_dir, "sampling_target_samples_logq_logp_lollipop.pdf"),
+                labels=labels,
+                series1_name=r'$\log q$',
+                series2_name=r'$\log p$',
+                series1_data=log_q_tgt,
+                series2_data=log_p_tgt,
+                color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+            )
+    except Exception as e:
+        print(f"Failed to generate log q vs log p lollipop plot: {e}")
+        traceback.print_exc()
+
+    # Component lollipop B: log q vs log p + beta*r (proposal vs unnormalized target density)
+    try:
+        log_q_tgt2 = _load_component_per_sample_data("log_q_g_q_by_prompt_fixed", load_prefixes_to_use)
+        target_tgt = _load_component_per_sample_data("target_g_q_by_prompt_fixed", load_prefixes_to_use)
+        has_data = any(seed_data for setting_data in log_q_tgt2 for seed_data in setting_data)
+        if has_data:
+            plot_two_series_lollipop(
+                figname=os.path.join(_output_dir, "sampling_target_samples_logq_logtildesigma_lollipop.pdf"),
+                labels=labels,
+                series1_name=r'$\log q$',
+                series2_name=r'$\log \tilde{\sigma} = \log p + \beta r$',
+                series1_data=log_q_tgt2,
+                series2_data=target_tgt,
+                color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+            )
+    except Exception as e:
+        print(f"Failed to generate log q vs log tilde sigma lollipop plot: {e}")
+        traceback.print_exc()
+
+    # Top-q samples ranked lollipop: q-drawn samples sorted by log_q, showing log_q / log_p / log_tilde_sigma
+    try:
+        log_q_fq = _load_component_per_sample_data("log_q_by_prompt_fixed", load_prefixes_to_use)
+        log_p_fq = _load_component_per_sample_data("log_p_by_prompt_fixed", load_prefixes_to_use)
+        target_fq = _load_component_per_sample_data("target_by_prompt_fixed", load_prefixes_to_use)
+        has_data = any(seed_data for setting_data in log_q_fq for seed_data in setting_data)
+        if has_data:
+            plot_top_q_samples_ranked_lollipop(
+                figname=os.path.join(_output_dir, "sampling_top_q_samples_ranked_lollipop.pdf"),
+                labels=labels,
+                log_q_data=log_q_fq,
+                log_p_data=log_p_fq,
+                log_phi_data=target_fq,
+                color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+                n_ranks=n_top_tokens,
+            )
+    except Exception as e:
+        print(f"Failed to generate top-q samples ranked lollipop plot: {e}")
+        traceback.print_exc()
+
 else:
     # Process both base and sampling file types
     for file_type_suffix in ["base", "sampling"]:
