@@ -502,6 +502,7 @@ class CombinedHarmlessnessTrainer(ABC):
         # Cumulative count of tokens sampled by q (set from outside via set_cumulative_q_sample_counts)
         self.cumulative_q_sample_counts = None
         self.latest_sis_weights = None
+        self.latest_bonus_val = None  # Most recent per-step mean bonus; snapshotted per fit_step in train_ppo.py
 
     def set_cumulative_q_sample_counts(self, n_vocab: int):
         """Initialize the cumulative sample count tensor for tracking q's sampled tokens."""
@@ -1196,12 +1197,14 @@ class CombinedHarmlessnessTrainer(ABC):
                 # print(f"[Reward Diagnostic] max-to-2nd reward gap: {_stats(rew_gaps)} "
                 #       f"(ratio to std: {gap_over_std_mean:.4f}, normal theory: ~0.67)")
                 # print(f"[Reward Diagnostic] |beta|*gap: {_stats(beta_r_gaps)}")
-            # Extract exploration bonus if available (only for sampling actor for now)
+            # Track latest exploration bonus (only for sampling actor for now).
             # TODO: Add support for base_actor bonus tracking
-            if bonus_vals_list_sampling is not None and "exploration_bonus" in experience_neg_sampling.info:
+            # We overwrite self.latest_bonus_val each step rather than accumulating a list;
+            # train_ppo.py snapshots it into bonus_history once per fit_step (like SIS weights).
+            if "exploration_bonus" in experience_neg_sampling.info:
                 exploration_bonus = experience_neg_sampling.info["exploration_bonus"]
                 if exploration_bonus is not None:
-                    bonus_vals_list_sampling.append(exploration_bonus.mean().item())
+                    self.latest_bonus_val = exploration_bonus.mean().item()
                     # Diagnostic: within-prompt vs. across-prompt bonus variance
                     # samples_per_prompt = args.duplicate_rollout_batch_by
                     # num_prompts = exploration_bonus.shape[0] // samples_per_prompt
@@ -1222,7 +1225,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     #     # print(f"[Bonus Diagnostic] within-prompt range: {_stats(bonus_ranges)}")
                     #     # print(f"[Bonus Diagnostic] delta_raw (range/alpha): {_stats(delta_raws)}")
                 else:
-                    bonus_vals_list_sampling.append(0.0)  # No bonus when not enabled
+                    self.latest_bonus_val = 0.0  # No bonus when not enabled
 
     def train(self, global_steps=0, custom_prompt=None, neg_sample_only=False):
         if not neg_sample_only:

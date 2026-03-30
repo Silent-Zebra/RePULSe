@@ -964,7 +964,7 @@ def train(args):
     untrans_ret_over_time_list_base = []
     rew_over_time_list_sampling = []
     untrans_ret_over_time_list_sampling = []
-    bonus_vals_over_time_list_sampling = []  # TODO: Add support for base_actor bonus tracking
+    bonus_history = []  # One snapshot per fit_step (like sis_weights_history); TODO: Add support for base_actor
     
     # Lists for analytic_calc results
     total_kl_sigma_q_list_analytic = []
@@ -992,10 +992,18 @@ def train(args):
             bad_word_tokens_ids_threshold = torch.where(precomputed_toxicity_scores < args.threshold)[0].cpu().tolist()
             strategy.print(f"Number of tokens with reward < {args.threshold}: {len(bad_word_tokens_ids_threshold)}")
 
-    # Initialize cumulative q sample counts if analytic_calc is enabled
+    # Initialize cumulative q sample counts for all harmlessness training runs.
+    # Tracks unigram token frequency across all q-generated sequences (for vocab coverage analysis,
+    # checking presence of indicator tokens like swear words, etc.).
     cumulative_q_sample_counts = None
-    if args.analytic_calc and args.do_harmlessness_training and precomputed_toxicity_scores is not None:
-        n_vocab = precomputed_toxicity_scores.shape[0]
+    if args.do_harmlessness_training:
+        n_vocab = len(tokenizer)
+        if args.analytic_calc and precomputed_toxicity_scores is not None:
+            # Sanity check: toxicity score tensor should cover exactly the model's vocab
+            assert precomputed_toxicity_scores.shape[0] == n_vocab, (
+                f"precomputed_toxicity_scores vocab size {precomputed_toxicity_scores.shape[0]} "
+                f"!= tokenizer vocab size {n_vocab}"
+            )
         harmlessness_trainer.set_cumulative_q_sample_counts(n_vocab)
         # Reference for passing to do_analytic_kl_calc
         cumulative_q_sample_counts = harmlessness_trainer.cumulative_q_sample_counts
@@ -1034,6 +1042,7 @@ def train(args):
     prompt_texts_random_per_timepoint = []
     # SIS weights history: one snapshot per fit_step (matching other metrics' saving interval)
     sis_weights_history = []
+    token_counts_history = []  # One snapshot per fit_step of cumulative_q_sample_counts
 
     # Initial point (before fit loop): heldout eval + f_q when each_fit_step + harmlessness
     _per_fit_step_heldout = (
@@ -1409,6 +1418,15 @@ def train(args):
                 and harmlessness_trainer.latest_sis_weights is not None):
             sis_weights_history.append(harmlessness_trainer.latest_sis_weights.clone())
 
+        # Snapshot token counts once per fit_step (cumulative running total at this point in training)
+        if args.do_harmlessness_training and harmlessness_trainer.cumulative_q_sample_counts is not None:
+            token_counts_history.append(harmlessness_trainer.cumulative_q_sample_counts.clone())
+
+        # Snapshot exploration bonus once per fit_step (mirrors SIS weights pattern)
+        if (args.do_harmlessness_training
+                and harmlessness_trainer.latest_bonus_val is not None):
+            bonus_history.append(harmlessness_trainer.latest_bonus_val)
+
         # Lists are now passed into fit() and modified in place, so we can use them directly
         # The return value from fit() contains the same list objects for backward compatibility
         if estimates_list is not None:
@@ -1619,10 +1637,10 @@ def train(args):
                 # Each rank has per-step means over its own prompt shard; average across ranks
                 g_rew_sampling = _distributed_all_reduce_scalar_list(strategy, rewards_list_sampling)
                 g_untrans_ret_sampling = _distributed_all_reduce_scalar_list(strategy, untrans_ret_list_sampling)
-                if bonus_vals_list_sampling is not None:
-                    g_bonus_vals_sampling = _distributed_all_reduce_scalar_list(strategy, bonus_vals_list_sampling)
+                if bonus_history:
+                    g_bonus_history = _distributed_all_reduce_scalar_list(strategy, bonus_history)
                     target_to_save = (
-                        g_rew_sampling, g_untrans_ret_sampling, g_bonus_vals_sampling
+                        g_rew_sampling, g_untrans_ret_sampling, g_bonus_history
                     )
                 else:
                     target_to_save = (
@@ -1738,14 +1756,6 @@ def train(args):
                     untrans_ret_over_time_list_sampling.append(untrans_ret_tensor_sampling[0].item()) # Get value at start of training
                 untrans_ret_over_time_list_sampling.append(untrans_ret_tensor_sampling[-1].item())
         
-        # Track sampling actor exploration bonus values
-        # TODO: Add support for base_actor bonus tracking
-        if args.do_harmlessness_training and bonus_vals_list_sampling is not None:
-            if len(bonus_vals_list_sampling) > 0:
-                bonus_vals_tensor_sampling = torch.tensor(bonus_vals_list_sampling)
-                if fit_step == 0:
-                    bonus_vals_over_time_list_sampling.append(bonus_vals_tensor_sampling[0].item()) # Get value at start of training
-                bonus_vals_over_time_list_sampling.append(bonus_vals_tensor_sampling[-1].item())
 
     # Save per-fit-step heldout and f_q over time (when each_fit_step mode was used)
     # Heldout rewards/returns and f_q are stochastic (different samples per rank); gather them.
@@ -1800,7 +1810,7 @@ def train(args):
                 save_str = f"{args.save_info_path}/analyticlogprob_rewsample_sampling_{info_name_str}"
                 torch.save((total_log_prob_bad_list_sampling, individual_bad_word_log_probs_t0_list_sampling,
                            individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
-                           rew_over_time_list_sampling, untrans_ret_over_time_list_sampling, bonus_vals_over_time_list_sampling,
+                           rew_over_time_list_sampling, untrans_ret_over_time_list_sampling, bonus_history,
                            total_log_prob_bad_list_sampling_threshold, individual_bad_word_log_probs_t0_list_sampling_threshold,
                            individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold), save_str)
             print("Sampling actor (q) results:")
@@ -1857,6 +1867,23 @@ def train(args):
             save_str = f"{args.save_info_path}/sis_weights_history_{info_name_str}"
             torch.save(gathered_history, save_str)
             print(f"Saved SIS weights history ({len(gathered_history)} fit_steps) to {save_str}")
+
+    # Save cumulative q token frequency counts history (one snapshot per fit_step).
+    # Each rank counted its own generated tokens independently, so sum across ranks.
+    if args.do_harmlessness_training and token_counts_history:
+        if strategy.world_size > 1:
+            gathered_counts_history = [strategy.all_reduce(c.float(), op="sum").long()
+                                       for c in token_counts_history]
+        else:
+            gathered_counts_history = token_counts_history
+        if strategy.is_rank_0():
+            save_str = f"{args.save_info_path}/token_counts_history_{info_name_str}"
+            torch.save(gathered_counts_history, save_str)
+            final_counts = gathered_counts_history[-1]
+            total_tokens = final_counts.sum().item()
+            n_unique = (final_counts > 0).sum().item()
+            print(f"Saved q token counts history ({len(gathered_counts_history)} fit_steps): {save_str} "
+                  f"(final: total tokens={total_tokens}, unique tokens={n_unique}/{len(final_counts)})")
 
     if args.do_harmlessness_training:
         actor_to_test = base_actor
