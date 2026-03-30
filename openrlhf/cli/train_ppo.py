@@ -823,7 +823,7 @@ def train(args):
             batch_size=args.analytic_batch_size,
             save_path=args.embedding_tsne_save_path,
             perplexity=args.tsne_perplexity,
-            n_iter=args.tsne_n_iter,
+            max_iter=args.tsne_max_iter,
             random_state=args.tsne_random_state,
         )
         strategy.print(f"Embedding t-SNE saved to {args.embedding_tsne_save_path}. Exiting.")
@@ -2725,7 +2725,7 @@ def generate_embedding_tsne(
     batch_size: int,
     save_path: str,
     perplexity: float = 30.0,
-    n_iter: int = 1000,
+    max_iter: int = 1000,
     random_state: int = 1,
 ):
     """
@@ -2742,7 +2742,7 @@ def generate_embedding_tsne(
         batch_size: Batch size for processing
         save_path: Path to save the resulting .pt file
         perplexity: t-SNE perplexity parameter (default 30.0)
-        n_iter: Number of t-SNE optimization iterations (default 1000)
+        max_iter: Number of t-SNE optimization iterations (default 1000)
         random_state: Random seed for reproducibility (default 1)
     """
     from sklearn.manifold import TSNE
@@ -2750,8 +2750,8 @@ def generate_embedding_tsne(
     hidden_states_all, token_strings = _collect_hidden_states(model, tokenizer, prompt_text, batch_size)
 
     # Run t-SNE
-    print(f"Running t-SNE (perplexity={perplexity}, n_iter={n_iter}, random_state={random_state})...")
-    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=random_state)
+    print(f"Running t-SNE (perplexity={perplexity}, max_iter={max_iter}, random_state={random_state})...")
+    tsne = TSNE(n_components=2, perplexity=perplexity, max_iter=max_iter, random_state=random_state)
     tsne_coords = tsne.fit_transform(hidden_states_all.numpy())
 
     result = {
@@ -2759,7 +2759,7 @@ def generate_embedding_tsne(
         "token_strings": token_strings,
         "model_name": tokenizer.name_or_path,
         "perplexity": perplexity,
-        "n_iter": n_iter,
+        "max_iter": max_iter,
         "random_state": random_state,
         "prompt_text": prompt_text,
     }
@@ -4470,7 +4470,7 @@ if __name__ == "__main__":
                         help="Path to save the embedding t-SNE .pt file (used with --generate_embedding_tsne_only)")
     parser.add_argument("--tsne_perplexity", type=float, default=30.0,
                         help="t-SNE perplexity parameter (used with --generate_embedding_tsne_only)")
-    parser.add_argument("--tsne_n_iter", type=int, default=1000,
+    parser.add_argument("--tsne_max_iter", type=int, default=1000,
                         help="Number of t-SNE optimization iterations (used with --generate_embedding_tsne_only)")
     parser.add_argument("--tsne_random_state", type=int, default=1,
                         help="Random seed for t-SNE (used with --generate_embedding_tsne_only)")
