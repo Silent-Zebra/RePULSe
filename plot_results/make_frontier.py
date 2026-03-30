@@ -297,51 +297,9 @@ def make_frontier_exact_kl_bootstrap(
 
         else:  # results_list[i] is a list of tuples (per-seed data)
             tuple_list = results_list[i]
-            x_results_per_seed = []
-            y_results_per_seed = []
-
-            if not tuple_list:  # Handle empty tuple_list
-                print(f"Warning: Empty tuple_list for {labels[i]}. Skipping.")
+            x_values_all_seeds, y_values_all_seeds = _parse_kl_seed_data(tuple_list, labels[i])
+            if x_values_all_seeds is None:
                 continue
-
-            for t_idx, t in enumerate(tuple_list):
-                # t should be a tuple: (kl_sigma_q_list, kl_q_sigma_list, metrics_list)
-                if not isinstance(t, tuple) or len(t) < 2:
-                    print(f"Warning: Expected tuple with at least 2 elements for {labels[i]}, seed {t_idx+1}. Got {type(t)}. Skipping.")
-                    continue
-
-                kl_sigma_q_list = t[0]  # KL(sigma_p || q)
-                kl_q_sigma_list = t[1]  # KL(q || sigma_p)
-
-                # Convert to numpy arrays if they're lists/tensors
-                if isinstance(kl_sigma_q_list, list):
-                    kl_sigma_q_array = np.array(kl_sigma_q_list)
-                elif isinstance(kl_sigma_q_list, torch.Tensor):
-                    kl_sigma_q_array = kl_sigma_q_list.float().cpu().numpy()
-                else:
-                    kl_sigma_q_array = np.array([kl_sigma_q_list])
-
-                if isinstance(kl_q_sigma_list, list):
-                    kl_q_sigma_array = np.array(kl_q_sigma_list)
-                elif isinstance(kl_q_sigma_list, torch.Tensor):
-                    kl_q_sigma_array = kl_q_sigma_list.float().cpu().numpy()
-                else:
-                    kl_q_sigma_array = np.array([kl_q_sigma_list])
-
-                # Take the mean across all prompts/evaluations for this seed
-                x_results_per_seed.append(kl_sigma_q_array.mean())
-                y_results_per_seed.append(kl_q_sigma_array.mean())
-
-            # Convert lists of per-seed results to numpy arrays
-            x_values_all_seeds = np.array(x_results_per_seed)
-            y_values_all_seeds = np.array(y_results_per_seed)
-
-            if y_values_all_seeds.shape[0] < x_values_all_seeds.shape[0]:
-                print("WARNING: IGNORING ADDITIONAL X VALUES")
-                x_values_all_seeds = x_values_all_seeds[: y_values_all_seeds.shape[0]]
-            elif y_values_all_seeds.shape[0] > x_values_all_seeds.shape[0]:
-                print("WARNING: IGNORING ADDITIONAL Y VALUES")
-                y_values_all_seeds = y_values_all_seeds[: x_values_all_seeds.shape[0]]
 
             if compare_to_reference:
                 print("Warning: compare_to_reference not tested in quite a while")
@@ -473,6 +431,172 @@ def make_frontier_exact_kl_bootstrap(
 
     plt.savefig(figname)
     print(f"Figure saved to {figname}")
+
+
+def make_frontier_exact_kl_individual(
+    xlabel, ylabel, figname, labels, results_list,
+    color_list, marker_list, xlimlow=None, xlimhigh=None, fontsize=7, legendfontsize=7,
+    ylimlow=None, ylimhigh=None,
+    size_list=None,
+    connect_groups=None,
+    line_alpha=0.25,
+):
+    """
+    Individual-seed version of the combined KL frontier plot.
+
+    Instead of bootstrap-aggregated means with CIs, each seed is plotted as a separate point
+    with a per-seed marker (from SEED_MARKERS). Seeds of the same setting share a color;
+    one legend entry per setting.
+
+    If connect_groups is provided, each seed's trajectory across time steps within the same
+    group is connected by a low-opacity line.
+
+    The results_list / connect_groups structure is the same as make_frontier_exact_kl_bootstrap's
+    combined frontier: one entry per (time_step, experiment) pair.
+    """
+    plt.clf()
+    plt.xlabel(xlabel, fontsize=fontsize)
+    plt.ylabel(ylabel, fontsize=fontsize)
+
+    # Reorganize data: group by (experiment, seed) to enable per-seed trajectories
+    # connect_groups maps each entry in results_list to an experiment index.
+    # Within each experiment, entries appear once per time step (in order).
+    # Each entry's results_list[i] is a list of per-seed tuples.
+
+    # First, figure out unique experiments and their time-ordered entries
+    if connect_groups is not None:
+        # Collect entries per experiment in order
+        exp_entries = {}  # exp_id -> list of indices into results_list
+        for idx, gid in enumerate(connect_groups):
+            if gid not in exp_entries:
+                exp_entries[gid] = []
+            exp_entries[gid].append(idx)
+    else:
+        # No grouping: each entry is its own experiment
+        exp_entries = {i: [i] for i in range(len(results_list))}
+
+    # Track which settings have been added to legend
+    legend_added = set()
+
+    for exp_id, entry_indices in exp_entries.items():
+        # Determine the setting color from the first entry
+        first_idx = entry_indices[0]
+        setting_color = color_list[first_idx]
+        setting_label = labels[first_idx]
+
+        # Parse all time steps for this experiment: list of (x_per_seed, y_per_seed) arrays
+        timestep_data = []
+        for idx in entry_indices:
+            tuple_list = results_list[idx]
+            if isinstance(tuple_list, tuple):
+                raise NotImplementedError
+            x_vals, y_vals = _parse_kl_seed_data(tuple_list, labels[idx])
+            timestep_data.append((x_vals, y_vals))
+
+        # Determine the number of seeds (use the max across time steps)
+        n_seeds = max((len(xv) for xv, yv in timestep_data if xv is not None), default=0)
+        if n_seeds == 0:
+            continue
+
+        # Plot each seed
+        for seed_idx in range(n_seeds):
+            seed_marker = SEED_MARKERS[seed_idx % len(SEED_MARKERS)]
+
+            # Collect this seed's (x, y) across time steps
+            seed_xs = []
+            seed_ys = []
+            for t_pos, (x_vals, y_vals) in enumerate(timestep_data):
+                if x_vals is None or seed_idx >= len(x_vals):
+                    continue
+                sx, sy = x_vals[seed_idx], y_vals[seed_idx]
+                seed_xs.append(sx)
+                seed_ys.append(sy)
+
+                # Determine point size
+                entry_idx = entry_indices[t_pos]
+                point_size = size_list[entry_idx] if size_list is not None else None
+
+                # Only first seed, first time step of this experiment gets a legend entry
+                if exp_id not in legend_added and seed_idx == 0 and t_pos == 0:
+                    use_label = setting_label
+                    legend_added.add(exp_id)
+                else:
+                    use_label = '_nolegend_'
+
+                scatter_kwargs = dict(c=setting_color, marker=seed_marker, alpha=0.8, label=use_label)
+                if point_size is not None:
+                    scatter_kwargs['s'] = point_size
+                plt.scatter(sx, sy, **scatter_kwargs)
+
+            # Connect this seed's trajectory across time steps
+            if len(seed_xs) > 1:
+                plt.plot(seed_xs, seed_ys, color=setting_color, linewidth=0.8,
+                         linestyle='-', alpha=line_alpha, zorder=1)
+
+    if (xlimlow is not None) or (xlimhigh is not None):
+        plt.xlim(xlimlow, xlimhigh)
+    if (ylimlow is not None) or (ylimhigh is not None):
+        plt.ylim(ylimlow, ylimhigh)
+    plt.tick_params(axis='x', labelsize=fontsize)
+    plt.tick_params(axis='y', labelsize=fontsize)
+    plt.tight_layout()
+    plt.legend(fontsize=legendfontsize)
+
+    plt.savefig(figname)
+    print(f"Figure saved to {figname}")
+
+
+def _parse_kl_seed_data(tuple_list, label):
+    """Parse per-seed KL data from a tuple_list into x/y arrays.
+
+    Each element of tuple_list should be a tuple: (kl_sigma_q_list, kl_q_sigma_list, ...).
+    Returns (x_values_all_seeds, y_values_all_seeds) as numpy arrays, where
+    x = mean KL(sigma||q) per seed and y = mean KL(q||sigma) per seed.
+    Returns (None, None) if the list is empty or has no valid data.
+    """
+    x_results_per_seed = []
+    y_results_per_seed = []
+
+    if not tuple_list:
+        print(f"Warning: Empty tuple_list for {label}. Skipping.")
+        return None, None
+
+    for t_idx, t in enumerate(tuple_list):
+        if not isinstance(t, tuple) or len(t) < 2:
+            print(f"Warning: Expected tuple with at least 2 elements for {label}, seed {t_idx+1}. Got {type(t)}. Skipping.")
+            continue
+
+        kl_sigma_q_list = t[0]
+        kl_q_sigma_list = t[1]
+
+        if isinstance(kl_sigma_q_list, list):
+            kl_sigma_q_array = np.array(kl_sigma_q_list)
+        elif isinstance(kl_sigma_q_list, torch.Tensor):
+            kl_sigma_q_array = kl_sigma_q_list.float().cpu().numpy()
+        else:
+            kl_sigma_q_array = np.array([kl_sigma_q_list])
+
+        if isinstance(kl_q_sigma_list, list):
+            kl_q_sigma_array = np.array(kl_q_sigma_list)
+        elif isinstance(kl_q_sigma_list, torch.Tensor):
+            kl_q_sigma_array = kl_q_sigma_list.float().cpu().numpy()
+        else:
+            kl_q_sigma_array = np.array([kl_q_sigma_list])
+
+        x_results_per_seed.append(kl_sigma_q_array.mean())
+        y_results_per_seed.append(kl_q_sigma_array.mean())
+
+    if not x_results_per_seed:
+        return None, None
+
+    x_values = np.array(x_results_per_seed)
+    y_values = np.array(y_results_per_seed)
+
+    # Truncate to matching lengths
+    min_len = min(len(x_values), len(y_values))
+    if len(x_values) != len(y_values):
+        print(f"WARNING: x/y length mismatch for {label}, truncating to {min_len}")
+    return x_values[:min_len], y_values[:min_len]
 
 
 def load_f_q_g_q_iwae_and_compute_approx_kl(load_dir, f_q_load_prefixes_to_use, map_location='cpu'):
@@ -1466,7 +1590,7 @@ if __name__ == "__main__":
                     final_only=final_only,
                 )
 
-            # Lollipop chart of absolute log probabilities (avg over time + final step)
+            # Lollipop chart of absolute log probabilities (avg over time + final step w/ individual seeds)
             for final_only, suffix in [(False, "_top_tokens_lollipop_avg"), (True, "_top_tokens_lollipop_final")]:
                 plot_top_tokens_lollipop(
                     figname=f"{figname_modifier}{suffix}",
@@ -1478,9 +1602,10 @@ if __name__ == "__main__":
                     n_bootstrap_draws=5000,
                     n_top_tokens=10,
                     final_only=final_only,
+                    figname_individual=f"{figname_modifier}_top_tokens_lollipop_final_individual" if final_only else None,
                 )
 
-            # Lollipop chart for intersection of top-q tokens across settings
+            # Lollipop chart for intersection of top-q tokens across settings (+ individual seeds)
             plot_top_q_intersection_lollipop(
                 figname=f"{figname_modifier}_top_q_lollipop_final",
                 labels=kl_labels,
@@ -1489,9 +1614,10 @@ if __name__ == "__main__":
                 fontsize=fontsize,
                 legendfontsize=legendfontsize,
                 n_bootstrap_draws=5000,
+                figname_individual=f"{figname_modifier}_top_q_lollipop_final_individual",
             )
 
-            # Ranked lollipop chart (rank-ordered log probs under q, with target at same tokens)
+            # Ranked lollipop chart (+ individual seeds)
             plot_top_q_ranked_lollipop(
                 figname=f"{figname_modifier}_top_q_ranked_lollipop_final",
                 labels=kl_labels,
@@ -1501,6 +1627,7 @@ if __name__ == "__main__":
                 legendfontsize=legendfontsize,
                 n_bootstrap_draws=5000,
                 n_ranks=10,
+                figname_individual=f"{figname_modifier}_top_q_ranked_lollipop_final_individual",
             )
 
             # Lollipop chart of top token log q over time
@@ -1514,36 +1641,6 @@ if __name__ == "__main__":
                 legendfontsize=legendfontsize,
                 n_bootstrap_draws=5000,
                 n_top_tokens=10,
-            )
-
-            # Individual-seed lollipop plots (final step)
-            plot_top_tokens_lollipop_individual(
-                figname=f"{figname_modifier}_top_tokens_lollipop_final_individual",
-                labels=kl_labels,
-                results_list=kl_results_list,
-                color_list=kl_color_list,
-                fontsize=fontsize,
-                legendfontsize=legendfontsize,
-                n_top_tokens=10,
-            )
-
-            plot_top_q_intersection_lollipop_individual(
-                figname=f"{figname_modifier}_top_q_lollipop_final_individual",
-                labels=kl_labels,
-                results_list=kl_results_list,
-                color_list=kl_color_list,
-                fontsize=fontsize,
-                legendfontsize=legendfontsize,
-            )
-
-            plot_top_q_ranked_lollipop_individual(
-                figname=f"{figname_modifier}_top_q_ranked_lollipop_final_individual",
-                labels=kl_labels,
-                results_list=kl_results_list,
-                color_list=kl_color_list,
-                fontsize=fontsize,
-                legendfontsize=legendfontsize,
-                n_ranks=10,
             )
 
             # Cumulative sample counts over time for top target tokens
