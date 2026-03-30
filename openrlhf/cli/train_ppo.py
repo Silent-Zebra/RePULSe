@@ -803,6 +803,32 @@ def train(args):
         strategy.print(f"Embedding PCA saved to {args.embedding_pca_save_path}. Exiting.")
         return
 
+    if args.generate_embedding_tsne_only:
+        strategy.print("Running embedding t-SNE generation mode - skipping normal training")
+
+        assert args.new_custom_single_prompt, "--generate_embedding_tsne_only requires --new_custom_single_prompt"
+        assert args.generate_max_len == 1, "--generate_embedding_tsne_only requires --generate_max_len 1"
+        assert args.embedding_tsne_save_path is not None, "--generate_embedding_tsne_only requires --embedding_tsne_save_path"
+
+        prompt_text = get_custom_prompt_with_chat_template(
+            tokenizer, args.custom_prompt, getattr(args, "apply_chat_template", False), strategy
+        )
+        strategy.print(f"Using custom prompt: {args.custom_prompt}")
+        strategy.print(f"Tokenized prompt: {prompt_text}")
+
+        generate_embedding_tsne(
+            model=base_actor.model,
+            tokenizer=tokenizer,
+            prompt_text=prompt_text,
+            batch_size=args.analytic_batch_size,
+            save_path=args.embedding_tsne_save_path,
+            perplexity=args.tsne_perplexity,
+            n_iter=args.tsne_n_iter,
+            random_state=args.tsne_random_state,
+        )
+        strategy.print(f"Embedding t-SNE saved to {args.embedding_tsne_save_path}. Exiting.")
+        return
+
     estimates_list = None
     untrans_ret_list = None
 
@@ -2583,29 +2609,20 @@ def _get_vocab_size(config):
 
 
 @torch.no_grad()
-def generate_embedding_pca(
+def _collect_hidden_states(
     model,
     tokenizer: AutoTokenizer,
     prompt_text: str,
     batch_size: int,
-    save_path: str,
 ):
     """
-    Generate 2D PCA embedding of the model's hidden states for all vocab tokens.
-
     For each token in the vocabulary, constructs [prompt + token], passes through the model,
-    and extracts the final-layer hidden state at the last position. Then runs PCA on the
-    resulting (n_vocab, hidden_dim) matrix to produce 2D coordinates.
+    and extracts the final-layer hidden state at the last position.
 
-    Args:
-        model: The language model (Actor.model after unwrapping)
-        tokenizer: Tokenizer for the model
-        prompt_text: The prompt text to prepend to each token
-        batch_size: Batch size for processing
-        save_path: Path to save the resulting .pt file
+    Returns:
+        hidden_states_all: (n_vocab, hidden_dim) float32 CPU tensor
+        token_strings: list of n_vocab decoded token strings
     """
-    from sklearn.decomposition import PCA
-
     device = torch.cuda.current_device() if torch.cuda.is_available() else torch.device("cpu")
     if isinstance(device, int):
         device = torch.device(f"cuda:{device}")
@@ -2648,15 +2665,44 @@ def generate_embedding_pca(
     assert hidden_states_all.shape[0] == n_vocab
     print(f"Hidden states shape: {hidden_states_all.shape}")
 
+    # Decode token strings
+    print("Decoding token strings...")
+    token_strings = [tokenizer.decode([i]) for i in range(n_vocab)]
+
+    return hidden_states_all, token_strings
+
+
+@torch.no_grad()
+def generate_embedding_pca(
+    model,
+    tokenizer: AutoTokenizer,
+    prompt_text: str,
+    batch_size: int,
+    save_path: str,
+):
+    """
+    Generate 2D PCA embedding of the model's hidden states for all vocab tokens.
+
+    For each token in the vocabulary, constructs [prompt + token], passes through the model,
+    and extracts the final-layer hidden state at the last position. Then runs PCA on the
+    resulting (n_vocab, hidden_dim) matrix to produce 2D coordinates.
+
+    Args:
+        model: The language model (Actor.model after unwrapping)
+        tokenizer: Tokenizer for the model
+        prompt_text: The prompt text to prepend to each token
+        batch_size: Batch size for processing
+        save_path: Path to save the resulting .pt file
+    """
+    from sklearn.decomposition import PCA
+
+    hidden_states_all, token_strings = _collect_hidden_states(model, tokenizer, prompt_text, batch_size)
+
     # Run PCA
     print("Running PCA...")
     pca = PCA(n_components=2)
     pca_coords = pca.fit_transform(hidden_states_all.numpy())
     print(f"Explained variance ratio: PC1={pca.explained_variance_ratio_[0]:.4f}, PC2={pca.explained_variance_ratio_[1]:.4f}")
-
-    # Decode token strings
-    print("Decoding token strings...")
-    token_strings = [tokenizer.decode([i]) for i in range(n_vocab)]
 
     result = {
         "pca_coords": torch.tensor(pca_coords, dtype=torch.float32),
@@ -2668,6 +2714,58 @@ def generate_embedding_pca(
     torch.save(result, save_path)
     print(f"Saved PCA embedding to {save_path}")
     print(f"  pca_coords shape: {result['pca_coords'].shape}")
+    print(f"  {len(token_strings)} token strings")
+
+
+@torch.no_grad()
+def generate_embedding_tsne(
+    model,
+    tokenizer: AutoTokenizer,
+    prompt_text: str,
+    batch_size: int,
+    save_path: str,
+    perplexity: float = 30.0,
+    n_iter: int = 1000,
+    random_state: int = 1,
+):
+    """
+    Generate 2D t-SNE embedding of the model's hidden states for all vocab tokens.
+
+    For each token in the vocabulary, constructs [prompt + token], passes through the model,
+    and extracts the final-layer hidden state at the last position. Then runs t-SNE on the
+    resulting (n_vocab, hidden_dim) matrix to produce 2D coordinates.
+
+    Args:
+        model: The language model (Actor.model after unwrapping)
+        tokenizer: Tokenizer for the model
+        prompt_text: The prompt text to prepend to each token
+        batch_size: Batch size for processing
+        save_path: Path to save the resulting .pt file
+        perplexity: t-SNE perplexity parameter (default 30.0)
+        n_iter: Number of t-SNE optimization iterations (default 1000)
+        random_state: Random seed for reproducibility (default 1)
+    """
+    from sklearn.manifold import TSNE
+
+    hidden_states_all, token_strings = _collect_hidden_states(model, tokenizer, prompt_text, batch_size)
+
+    # Run t-SNE
+    print(f"Running t-SNE (perplexity={perplexity}, n_iter={n_iter}, random_state={random_state})...")
+    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=random_state)
+    tsne_coords = tsne.fit_transform(hidden_states_all.numpy())
+
+    result = {
+        "tsne_coords": torch.tensor(tsne_coords, dtype=torch.float32),
+        "token_strings": token_strings,
+        "model_name": tokenizer.name_or_path,
+        "perplexity": perplexity,
+        "n_iter": n_iter,
+        "random_state": random_state,
+        "prompt_text": prompt_text,
+    }
+    torch.save(result, save_path)
+    print(f"Saved t-SNE embedding to {save_path}")
+    print(f"  tsne_coords shape: {result['tsne_coords'].shape}")
     print(f"  {len(token_strings)} token strings")
 
 
@@ -4364,6 +4462,18 @@ if __name__ == "__main__":
                              "and --generate_max_len 1.")
     parser.add_argument("--embedding_pca_save_path", type=str, default=None,
                         help="Path to save the embedding PCA .pt file (used with --generate_embedding_pca_only)")
+    parser.add_argument("--generate_embedding_tsne_only", action="store_true", default=False,
+                        help="Early-exit mode: for each vocab token, pass [prompt + token] through the model, "
+                             "extract final hidden state, run t-SNE to 2D, and save. Requires --new_custom_single_prompt "
+                             "and --generate_max_len 1.")
+    parser.add_argument("--embedding_tsne_save_path", type=str, default=None,
+                        help="Path to save the embedding t-SNE .pt file (used with --generate_embedding_tsne_only)")
+    parser.add_argument("--tsne_perplexity", type=float, default=30.0,
+                        help="t-SNE perplexity parameter (used with --generate_embedding_tsne_only)")
+    parser.add_argument("--tsne_n_iter", type=int, default=1000,
+                        help="Number of t-SNE optimization iterations (used with --generate_embedding_tsne_only)")
+    parser.add_argument("--tsne_random_state", type=int, default=1,
+                        help="Random seed for t-SNE (used with --generate_embedding_tsne_only)")
     parser.add_argument("--reward_signal_analysis_only", action="store_true", default=False,
                         help="Early-exit mode: generate samples from the base model, score with reward model, "
                              "and compute reward signal metrics (stats, ESS, diversity). Exits before training.")
