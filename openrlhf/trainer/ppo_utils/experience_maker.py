@@ -933,9 +933,9 @@ class BaseExperienceMaker(ABC):
         if self.coin_flip_network is None or self.coin_flip_optim is None:
             return
 
-        from openrlhf.utils.utils import print_timestamp
-        torch.cuda.synchronize()
-        print_timestamp("CF train: start")
+        # from openrlhf.utils.utils import print_timestamp
+        # torch.cuda.synchronize()
+        # print_timestamp("CF train: start")
 
         sequences, attention_mask = self._get_cf_token_ids(sequences, attention_mask)
 
@@ -1036,8 +1036,8 @@ class BaseExperienceMaker(ABC):
                 sampled_indices = None
             
             # Forward pass through coin flip network to get combined predictions
-            torch.cuda.synchronize()
-            print_timestamp(f"CF train: start forward (update_step={update_step})")
+            # torch.cuda.synchronize()
+            # print_timestamp(f"CF train: start forward (update_step={update_step})")
             if self.coin_flip_architecture in TOKEN_STORAGE_ARCHITECTURES:
                 # Use _predict() which does full forward pass from inputs
                 # This handles separate_nn and learning architectures (which store tokens, not embeddings)
@@ -1045,8 +1045,8 @@ class BaseExperienceMaker(ABC):
             else:
                 # Use _predict_from_embeddings() for static architecture (which stores embeddings)
                 final_predictions = self.coin_flip_network._predict_from_embeddings(sampled_embeddings)  # (B, d)
-            torch.cuda.synchronize()
-            print_timestamp(f"CF train: end forward (update_step={update_step})")
+            # torch.cuda.synchronize()
+            # print_timestamp(f"CF train: end forward (update_step={update_step})")
 
             # Compute MSE loss: L(x, c) = ||f_combined(x_final) - c||^2
             # where f_combined = coin_flip_head(x) + normalized_random_prior(x)
@@ -1090,12 +1090,12 @@ class BaseExperienceMaker(ABC):
             #   optimizer_step for proper gradient synchronization across all ranks.
             # For other architectures: coin_flip_head is a plain nn.Module; use manual
             #   backward / step. (AllReduce for non-separate_nn is a future TODO.)
-            torch.cuda.synchronize()
-            print_timestamp(f"CF train: start backward (update_step={update_step})")
+            # torch.cuda.synchronize()
+            # print_timestamp(f"CF train: start backward (update_step={update_step})")
             if self.strategy and self.coin_flip_architecture == "separate_nn":
                 self.strategy.backward(loss, self.coin_flip_network.trainable_engine, self.coin_flip_optim)
-                torch.cuda.synchronize()
-                print_timestamp(f"CF train: end backward, start optimizer_step (update_step={update_step})")
+                # torch.cuda.synchronize()
+                # print_timestamp(f"CF train: end backward, start optimizer_step (update_step={update_step})")
                 self.strategy.optimizer_step(
                     self.coin_flip_optim,
                     self.coin_flip_network.trainable_engine,
@@ -1105,16 +1105,16 @@ class BaseExperienceMaker(ABC):
             else:
                 # Manual backward/step for non-separate_nn or missing strategy
                 loss.backward()
-                torch.cuda.synchronize()
-                print_timestamp(f"CF train: end backward, start optimizer_step (update_step={update_step})")
+                # torch.cuda.synchronize()
+                # print_timestamp(f"CF train: end backward, start optimizer_step (update_step={update_step})")
                 self.coin_flip_optim.step()
                 if self.coin_flip_scheduler is not None:
                     self.coin_flip_scheduler.step()
                 self.coin_flip_optim.zero_grad()
-            torch.cuda.synchronize()
-            print_timestamp(f"CF train: end optimizer_step (update_step={update_step})")
-        torch.cuda.synchronize()
-        print_timestamp("CF train: end")
+            # torch.cuda.synchronize()
+            # print_timestamp(f"CF train: end optimizer_step (update_step={update_step})")
+        # torch.cuda.synchronize()
+        # print_timestamp("CF train: end")
 
     def _calculate_coin_flip_bonus(
         self,
@@ -1134,8 +1134,6 @@ class BaseExperienceMaker(ABC):
         if self.coin_flip_network is None:
             raise ValueError("coin_flip_network must be provided when exploration_bonus='coin_flip'")
 
-        from openrlhf.utils.utils import print_timestamp
-
         # Set network to eval mode for consistent reward computation
         # This ensures dropout and batch norm behave consistently
         self.coin_flip_network.eval()
@@ -1145,15 +1143,11 @@ class BaseExperienceMaker(ABC):
         # Compute intrinsic reward using coin flip network
         # The network expects full sequences and computes r_I(x) = sqrt((1/d) * ||f_φ(x)||^2)
         # For non-separate_nn architectures, forward pass uses torch.no_grad() internally
-        torch.cuda.synchronize()
-        print_timestamp("CF bonus: start compute_intrinsic_reward")
         intrinsic_reward = self.coin_flip_network.compute_intrinsic_reward(
             sequences,
             attention_mask,
             bonus_alpha=self.bonus_alpha,
         )
-        torch.cuda.synchronize()
-        print_timestamp("CF bonus: end compute_intrinsic_reward")
 
         return intrinsic_reward
 

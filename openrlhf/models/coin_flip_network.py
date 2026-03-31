@@ -20,6 +20,72 @@ def _get_param_dtype(module: nn.Module) -> torch.dtype:
     return torch.float32  # fallback if module has no parameters
 
 
+def _compute_position_ids(attention_mask: Optional[torch.Tensor] = None) -> Optional[torch.Tensor]:
+    """
+    Compute position_ids from attention_mask.
+
+    Args:
+        attention_mask: Attention mask, shape (batch_size, seq_len)
+
+    Returns:
+        Position IDs, shape (batch_size, seq_len), or None if attention_mask is None
+    """
+    if attention_mask is not None:
+        position_ids = attention_mask.long().cumsum(-1) - 1
+        position_ids.masked_fill_(attention_mask == 0, 1)
+        return position_ids
+    return None
+
+
+def _extract_hidden_states_from_outputs(outputs: dict) -> torch.Tensor:
+    """
+    Extract last-layer hidden states from model outputs dictionary.
+
+    Args:
+        outputs: Model outputs dictionary
+
+    Returns:
+        Hidden states tensor, shape (batch_size, seq_len, hidden_size)
+    """
+    if "hidden_states" in outputs:
+        return outputs["hidden_states"][-1]
+    elif "last_hidden_state" in outputs:
+        return outputs["last_hidden_state"]
+    else:
+        raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
+
+
+def _extract_final_hidden_states(
+    hidden_states: torch.Tensor,
+    attention_mask: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    Extract final token hidden states from sequence hidden states.
+
+    Args:
+        hidden_states: Hidden states for all positions, shape (batch_size, seq_len, hidden_size)
+        attention_mask: Attention mask, shape (batch_size, seq_len)
+
+    Returns:
+        Final hidden states, shape (batch_size, hidden_size)
+    """
+    if attention_mask is not None:
+        # Find the last valid position for each sequence
+        assert attention_mask.any(dim=1).all(), (
+            "attention_mask has all-zero rows — no valid tokens. "
+            "This would cause _extract_final_hidden_states to return hidden states at invalid positions."
+        )
+        eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
+        batch_size = hidden_states.size(0)
+        batch_indices = torch.arange(batch_size, device=hidden_states.device)
+        final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (batch_size, hidden_size)
+    else:
+        # Use last position
+        final_hidden_states = hidden_states[:, -1, :]  # (batch_size, hidden_size)
+
+    return final_hidden_states
+
+
 class CoinFlipTrainableModule(nn.Module):
     """
     Wraps a transformer backbone + trainable coin flip head into a single nn.Module,
@@ -91,11 +157,7 @@ class CoinFlipTrainableModule(nn.Module):
         Returns:
             Trainable coin flip predictions for final tokens, shape (batch_size, coin_flip_dim)
         """
-        if attention_mask is not None:
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-        else:
-            position_ids = None
+        position_ids = _compute_position_ids(attention_mask)
 
         outputs = self.backbone(
             input_ids,
@@ -105,23 +167,8 @@ class CoinFlipTrainableModule(nn.Module):
             return_dict=True,
         )
 
-        if "hidden_states" in outputs:
-            hidden_states = outputs["hidden_states"][-1]
-        elif "last_hidden_state" in outputs:
-            hidden_states = outputs["last_hidden_state"]
-        else:
-            raise ValueError("Backbone outputs must contain 'hidden_states' or 'last_hidden_state'")
-
-        if attention_mask is not None:
-            assert attention_mask.any(dim=1).all(), (
-                "attention_mask has all-zero rows — no valid tokens. "
-                "This would cause CoinFlipTrainableModule.forward to return hidden states at invalid positions."
-            )
-            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
-            batch_indices = torch.arange(hidden_states.size(0), device=hidden_states.device)
-            final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (B, hidden_size)
-        else:
-            final_hidden_states = hidden_states[:, -1, :]  # (B, hidden_size)
+        hidden_states = _extract_hidden_states_from_outputs(outputs)
+        final_hidden_states = _extract_final_hidden_states(hidden_states, attention_mask)
 
         return self.coin_flip_head(final_hidden_states)  # (B, coin_flip_dim)
 
@@ -511,22 +558,6 @@ class CoinFlipNetwork(nn.Module):
         # Fallback: use cuda if available, else cpu
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    def _compute_position_ids(self, attention_mask: Optional[torch.Tensor] = None) -> Optional[torch.Tensor]:
-        """
-        Compute position_ids from attention_mask.
-        
-        Args:
-            attention_mask: Attention mask, shape (batch_size, seq_len)
-            
-        Returns:
-            Position IDs, shape (batch_size, seq_len), or None if attention_mask is None
-        """
-        if attention_mask is not None:
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            return position_ids
-        return None
-    
     def _forward_through_model(
         self,
         model: nn.Module,
@@ -537,27 +568,27 @@ class CoinFlipNetwork(nn.Module):
     ) -> dict:
         """
         Forward pass through a model to get hidden states.
-        
+
         Args:
             model: The model to forward through (can be Actor or raw transformer)
             input_ids: Token IDs, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
             position_ids: Position IDs, shape (batch_size, seq_len). If None, computed from attention_mask
             apply_no_grad: If True, wrap forward pass in torch.no_grad()
-            
+
         Returns:
             Model outputs dictionary containing hidden_states or last_hidden_state
         """
         # Compute position_ids if not provided
         if position_ids is None:
-            position_ids = self._compute_position_ids(attention_mask)
-        
+            position_ids = _compute_position_ids(attention_mask)
+
         # Get the actual model (unwrap Actor if needed)
         if hasattr(model, 'model'):
             actual_model = model.model
         else:
             actual_model = model
-        
+
         # Forward pass
         if apply_no_grad:
             with torch.no_grad():
@@ -576,61 +607,9 @@ class CoinFlipNetwork(nn.Module):
                 output_hidden_states=True,
                 return_dict=True,
             )
-        
+
         return outputs
-    
-    def _extract_hidden_states_from_outputs(
-        self,
-        outputs: dict,
-    ) -> torch.Tensor:
-        """
-        Extract hidden states from model outputs dictionary.
-        
-        Args:
-            outputs: Model outputs dictionary
-            
-        Returns:
-            Hidden states tensor, shape (batch_size, seq_len, hidden_size)
-        """
-        if "hidden_states" in outputs:
-            return outputs["hidden_states"][-1]
-        elif "last_hidden_state" in outputs:
-            return outputs["last_hidden_state"]
-        else:
-            raise ValueError("Model outputs must contain either 'hidden_states' or 'last_hidden_state'")
-    
-    def _extract_final_hidden_states(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        """
-        Extract final token hidden states from sequence hidden states.
-        
-        Args:
-            hidden_states: Hidden states for all positions, shape (batch_size, seq_len, hidden_size)
-            attention_mask: Attention mask, shape (batch_size, seq_len)
-            
-        Returns:
-            Final hidden states, shape (batch_size, hidden_size)
-        """
-        if attention_mask is not None:
-            # Find the last valid position for each sequence
-            assert attention_mask.any(dim=1).all(), (
-                "attention_mask has all-zero rows — no valid tokens. "
-                "This would cause _extract_final_hidden_states to return hidden states at invalid positions."
-            )
-            eos_indices = attention_mask.size(1) - 1 - attention_mask.long().flip(dims=[1]).argmax(dim=1, keepdim=True)
-            # Use advanced indexing to extract final hidden states: (batch_size, hidden_size)
-            batch_size = hidden_states.size(0)
-            batch_indices = torch.arange(batch_size, device=hidden_states.device)
-            final_hidden_states = hidden_states[batch_indices, eos_indices.squeeze(1), :]  # (batch_size, hidden_size)
-        else:
-            # Use last position
-            final_hidden_states = hidden_states[:, -1, :]  # (batch_size, hidden_size)
-        
-        return final_hidden_states
-    
+
     def _get_final_hidden_states(
         self,
         input_ids: torch.LongTensor,
@@ -672,7 +651,7 @@ class CoinFlipNetwork(nn.Module):
         )
         
         # Extract hidden states using helper method
-        hidden_states = self._extract_hidden_states_from_outputs(outputs)
+        hidden_states = _extract_hidden_states_from_outputs(outputs)
         
         # Ensure hidden_states and coin_flip_head are on the same device
         coin_flip_head_device = next(self.coin_flip_head.parameters()).device
@@ -680,7 +659,7 @@ class CoinFlipNetwork(nn.Module):
             hidden_states = hidden_states.to(coin_flip_head_device)
         
         # Extract final token hidden states using helper method
-        final_hidden_states = self._extract_final_hidden_states(hidden_states, attention_mask)
+        final_hidden_states = _extract_final_hidden_states(hidden_states, attention_mask)
         
         if return_outputs:
             return final_hidden_states, outputs
@@ -792,12 +771,12 @@ class CoinFlipNetwork(nn.Module):
         trainable_predictions = self.trainable_engine(input_ids, attention_mask)  # (B, coin_flip_dim)
 
         # Frozen prior forward pass (always run; no caching).
-        position_ids = self._compute_position_ids(attention_mask)
+        position_ids = _compute_position_ids(attention_mask)
         frozen_outputs = self._forward_through_model(
             self.frozen_prior_network, input_ids, attention_mask, position_ids, apply_no_grad=True
         )
-        frozen_hidden_states = self._extract_hidden_states_from_outputs(frozen_outputs)
-        frozen_final = self._extract_final_hidden_states(frozen_hidden_states, attention_mask)
+        frozen_hidden_states = _extract_hidden_states_from_outputs(frozen_outputs)
+        frozen_final = _extract_final_hidden_states(frozen_hidden_states, attention_mask)
 
         # Move to the frozen prior head's device if needed
         coin_flip_head_device = next(self.frozen_prior_network.coin_flip_head.parameters()).device
@@ -848,7 +827,7 @@ class CoinFlipNetwork(nn.Module):
             All have shape (batch_size, coin_flip_dim)
         """
         # Compute position_ids using helper method
-        position_ids = self._compute_position_ids(attention_mask)
+        position_ids = _compute_position_ids(attention_mask)
         
         # Forward through backbone model (for trainable head)
         # Always use torch.no_grad() to prevent gradients from flowing through backbone
@@ -862,12 +841,12 @@ class CoinFlipNetwork(nn.Module):
         )
         
         # Extract hidden states using helper method
-        backbone_hidden_states = self._extract_hidden_states_from_outputs(backbone_outputs)
-        frozen_prior_hidden_states = self._extract_hidden_states_from_outputs(frozen_prior_outputs)
+        backbone_hidden_states = _extract_hidden_states_from_outputs(backbone_outputs)
+        frozen_prior_hidden_states = _extract_hidden_states_from_outputs(frozen_prior_outputs)
         
         # Extract final token hidden states using helper method
-        backbone_final = self._extract_final_hidden_states(backbone_hidden_states, attention_mask)
-        frozen_prior_final = self._extract_final_hidden_states(frozen_prior_hidden_states, attention_mask)
+        backbone_final = _extract_final_hidden_states(backbone_hidden_states, attention_mask)
+        frozen_prior_final = _extract_final_hidden_states(frozen_prior_hidden_states, attention_mask)
         
         # Ensure tensors are on the same device as coin_flip_head
         coin_flip_head_device = next(self.coin_flip_head.parameters()).device
@@ -1327,51 +1306,51 @@ class CoinFlipNetwork(nn.Module):
         normalized = (values - running_mean.unsqueeze(0)) / (torch.sqrt(variance.unsqueeze(0)) + 1e-8)
         return normalized
     
-    def _normalize_with_stats_update_per_dim(
-        self,
-        values: torch.Tensor,
-        running_mean: torch.Tensor,
-        running_var: torch.Tensor,
-        num_updates: torch.Tensor,
-        momentum: float
-    ) -> torch.Tensor:
-        """
-        Update running statistics and normalize values per dimension in one step.
-        
-        This normalizes each dimension independently to have mean 0, std 1.
-        Uses exponential moving average (for non-prior statistics).
-        
-        Args:
-            values: Values to normalize, shape (batch_size, num_dims)
-            running_mean: Buffer storing running mean per dimension, shape (num_dims,)
-            running_var: Buffer storing running variance per dimension, shape (num_dims,)
-            num_updates: Buffer storing number of updates
-            momentum: Momentum for exponential moving average
-            
-        Returns:
-            Normalized values with mean ~0, std ~1 per dimension, shape (batch_size, num_dims)
-        """
-        # Compute batch statistics per dimension
-        # Mean and var across first dimension (batch), keeping feature dimensions
-        batch_mean = values.mean(dim=0)  # (num_dims,)
-        batch_var = values.var(dim=0, unbiased=False)  # (num_dims,)
-        
-        # Update running statistics using exponential moving average
-        # For the first update, initialize with batch statistics
-        if num_updates.item() == 0:
-            running_mean.data = batch_mean
-            running_var.data = batch_var
-        else:
-            # Exponential moving average update per dimension
-            running_mean.data = momentum * running_mean + (1 - momentum) * batch_mean
-            running_var.data = momentum * running_var + (1 - momentum) * batch_var
-        
-        num_updates.data += 1
-        
-        # Normalize per dimension using updated running statistics
-        # Add small epsilon to avoid division by zero
-        normalized = (values - running_mean) / (torch.sqrt(running_var) + 1e-8)
-        return normalized
+    # def _normalize_with_stats_update_per_dim(
+    #     self,
+    #     values: torch.Tensor,
+    #     running_mean: torch.Tensor,
+    #     running_var: torch.Tensor,
+    #     num_updates: torch.Tensor,
+    #     momentum: float
+    # ) -> torch.Tensor:
+    #     """
+    #     Update running statistics and normalize values per dimension in one step.
+    #
+    #     This normalizes each dimension independently to have mean 0, std 1.
+    #     Uses exponential moving average (for non-prior statistics).
+    #
+    #     Args:
+    #         values: Values to normalize, shape (batch_size, num_dims)
+    #         running_mean: Buffer storing running mean per dimension, shape (num_dims,)
+    #         running_var: Buffer storing running variance per dimension, shape (num_dims,)
+    #         num_updates: Buffer storing number of updates
+    #         momentum: Momentum for exponential moving average
+    #
+    #     Returns:
+    #         Normalized values with mean ~0, std ~1 per dimension, shape (batch_size, num_dims)
+    #     """
+    #     # Compute batch statistics per dimension
+    #     # Mean and var across first dimension (batch), keeping feature dimensions
+    #     batch_mean = values.mean(dim=0)  # (num_dims,)
+    #     batch_var = values.var(dim=0, unbiased=False)  # (num_dims,)
+    #
+    #     # Update running statistics using exponential moving average
+    #     # For the first update, initialize with batch statistics
+    #     if num_updates.item() == 0:
+    #         running_mean.data = batch_mean
+    #         running_var.data = batch_var
+    #     else:
+    #         # Exponential moving average update per dimension
+    #         running_mean.data = momentum * running_mean + (1 - momentum) * batch_mean
+    #         running_var.data = momentum * running_var + (1 - momentum) * batch_var
+    #
+    #     num_updates.data += 1
+    #
+    #     # Normalize per dimension using updated running statistics
+    #     # Add small epsilon to avoid division by zero
+    #     normalized = (values - running_mean) / (torch.sqrt(running_var) + 1e-8)
+    #     return normalized
     
     def _normalize_bonus(self, bonus: torch.Tensor) -> torch.Tensor:
         """
