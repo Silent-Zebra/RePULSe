@@ -25,6 +25,7 @@ from openrlhf.utils.utils import (
     tile_prompts,
     inspect_rewards_list,
     log_sequence_for_negatives,
+    make_annealing_schedule,
     get_custom_prompt_with_chat_template,
     swap_actor,
 )
@@ -678,6 +679,14 @@ class CombinedHarmlessnessTrainer(ABC):
             print("ALPHA SCHEDULE:")
             print(alpha_schedule)
 
+        bonus_alpha_schedule = None
+        if getattr(args, 'start_bonus_alpha', None) is not None:
+            bonus_alpha_schedule = make_annealing_schedule(
+                args.start_bonus_alpha, args.bonus_alpha, total_update_steps,
+                schedule_type=getattr(args, 'bonus_alpha_schedule', 'log'))
+            print("BONUS_ALPHA SCHEDULE:")
+            print(bonus_alpha_schedule)
+
         # Extract prompt_text for new_custom_single_prompt case
         prompt_text = None
         if args.new_custom_single_prompt:
@@ -769,6 +778,15 @@ class CombinedHarmlessnessTrainer(ABC):
                     self.alpha = new_alpha
                     self.base_actor_loss_fn = self.get_base_actor_loss_fn()
                     print(f"Using new alpha: {new_alpha}")
+                if getattr(args, 'start_bonus_alpha', None) is not None:
+                    assert self.total_steps < len(bonus_alpha_schedule), (
+                        f"Schedule index out of bounds: total_steps={self.total_steps} >= "
+                        f"len(bonus_alpha_schedule)={len(bonus_alpha_schedule)}. "
+                        f"total_update_steps computation may not match actual iteration count."
+                    )
+                    new_bonus_alpha = bonus_alpha_schedule[self.total_steps]
+                    self.sampling_experience_maker_neg.bonus_alpha = new_bonus_alpha
+                    print(f"Using new bonus_alpha: {new_bonus_alpha}")
 
                 if args.new_custom_single_prompt:
                     rand_prompts = [prompt_text]

@@ -28,6 +28,8 @@ from plot_utils import (
     plot_coverage_curve, plot_vocab_coverage_curve,
     plot_visitation_heatmaps, plot_visitation_pca, plot_visitation_tsne, plot_max_sis_weight_over_time,
     plot_g_q_lollipop, plot_two_series_lollipop, plot_top_q_samples_ranked_lollipop,
+    plot_vocab_coverage_from_history, _extract_target_token_ids,
+    plot_target_token_counts_over_time, plot_target_token_counts_final_individual,
     MARKER_NO_BONUS, MARKER_CFN, MARKER_MIXTURE, MARKER_EXACT_COUNT,
     MARKER_CTL, MARKER_CTLN, MARKER_LOSS_UNKNOWN,
 )
@@ -184,6 +186,11 @@ def _transform_prefixes_with_format(load_prefixes_to_use, prefix_format):
 def transform_prefixes_for_sis_weights(load_prefixes_to_use):
     """Transforms prefixes for SIS weights history files."""
     return _transform_prefixes_with_format(load_prefixes_to_use, "sis_weights_history_{}")
+
+
+def transform_prefixes_for_token_counts(load_prefixes_to_use):
+    """Transforms prefixes for token counts history files."""
+    return _transform_prefixes_with_format(load_prefixes_to_use, "token_counts_history_{}")
 
 
 def extract_bonus_alpha_from_prefix(prefix):
@@ -4623,7 +4630,7 @@ make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-06_bl0.0_ppq_tb5_s3", 1,10),
 
 ]
-figname_modifier = "probinflen4_toytox_2p2_b10_03_31_v7"
+figname_modifier = "probinflen4_toytox_2p2_b10_03_31_v8"
 target_samples_path = None
 individual_prompt_plots = False
 random_f_q_ylim_low = None
@@ -4762,6 +4769,37 @@ elif use_f_q_g_q:
             )
     except Exception as e:
         print(f"Failed to generate bonus plot: {e}")
+        traceback.print_exc()
+
+    # Token counts history: vocab coverage + target token visitation plots
+    try:
+        counts_prefixes = transform_prefixes_for_token_counts(load_prefixes_to_use)
+        counts_results_list = [[] for _ in counts_prefixes]
+        do_load_prefixes(counts_results_list, counts_prefixes)
+        has_counts = any(len(x) > 0 for x in counts_results_list)
+        if has_counts:
+            plot_vocab_coverage_from_history(
+                figname=os.path.join(_output_dir, "sampling_vocab_coverage_curve.pdf"),
+                labels=labels, counts_results_list=counts_results_list,
+                color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+            )
+            # Target token visitation (requires target_samples_path)
+            if target_samples_path is not None:
+                target_token_ids, target_token_counts = _extract_target_token_ids(target_samples_path)
+                plot_target_token_counts_over_time(
+                    figname=os.path.join(_output_dir, "sampling_target_token_counts_over_time.pdf"),
+                    labels=labels, counts_results_list=counts_results_list,
+                    target_token_ids=target_token_ids, color_list=_semantic_colors,
+                    n_frontiers=n_frontiers, fontsize=fontsize, legendfontsize=_lfs,
+                )
+                plot_target_token_counts_final_individual(
+                    figname=os.path.join(_output_dir, "sampling_target_token_counts_final_individual.pdf"),
+                    labels=labels, counts_results_list=counts_results_list,
+                    target_token_ids=target_token_ids, color_list=_semantic_colors,
+                    fontsize=fontsize, legendfontsize=_lfs,
+                )
+    except Exception as e:
+        print(f"Failed to generate token counts plots: {e}")
         traceback.print_exc()
 
     # Extract per-sample component data from already-loaded v2 data (avoids re-loading files)

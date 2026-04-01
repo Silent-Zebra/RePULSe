@@ -334,10 +334,16 @@ def get_info_name_str(args):
 
     exploration_bonus_str = ""
     if hasattr(args, 'exploration_bonus_sampling_actor') and args.exploration_bonus_sampling_actor is not None:
+        start_bonus_alpha = getattr(args, 'start_bonus_alpha', None)
+        if start_bonus_alpha is not None:
+            sched_type = getattr(args, 'bonus_alpha_schedule', 'log')
+            bonus_alpha_str = f"{start_bonus_alpha}to{args.bonus_alpha}{sched_type}"
+        else:
+            bonus_alpha_str = str(args.bonus_alpha)
         if args.exploration_bonus_sampling_actor == "exact_count":
-            exploration_bonus_str = "_c" + str(args.bonus_alpha)
+            exploration_bonus_str = "_c" + bonus_alpha_str
         elif args.exploration_bonus_sampling_actor == "coin_flip":
-            exploration_bonus_str = "_cf" + str(args.bonus_alpha)
+            exploration_bonus_str = "_cf" + bonus_alpha_str
             # Add coin_flip parameters
             coin_flip_dim = getattr(args, 'coin_flip_dim', 64)
             coin_flip_lr = getattr(args, 'coin_flip_lr', None)
@@ -590,6 +596,30 @@ def log_sequence_for_negatives(start, end, steps):
     logs = np.linspace(np.log(start_abs), np.log(end_abs), steps)
     seq = np.exp(logs)
     return (sign * seq).tolist()
+
+
+def make_annealing_schedule(start, end, steps, schedule_type="log"):
+    """Create an annealing schedule from start to end over the given number of steps.
+
+    Args:
+        start: Starting value.
+        end: Ending value.
+        steps: Number of steps in the schedule.
+        schedule_type: "log" for logarithmic interpolation (via log_sequence_for_negatives),
+                       "linear" for linear interpolation. If either start or end is 0,
+                       schedule_type must be "linear" (log of 0 is undefined).
+    """
+    if start == 0 or end == 0:
+        assert schedule_type == "linear", (
+            f"schedule_type must be 'linear' when start ({start}) or end ({end}) is 0 "
+            f"(log interpolation is undefined at 0), but got '{schedule_type}'"
+        )
+    if schedule_type == "log":
+        return log_sequence_for_negatives(start, end, steps)
+    elif schedule_type == "linear":
+        return np.linspace(start, end, steps).tolist()
+    else:
+        raise ValueError(f"Unknown schedule_type: '{schedule_type}'. Must be 'log' or 'linear'.")
 
 
 def left_pad_sequences(tensor, target_seq_len, pad_value):

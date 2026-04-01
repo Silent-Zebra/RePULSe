@@ -1,5 +1,6 @@
 import torch
 import re
+from collections import Counter
 import numpy as np
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -1891,6 +1892,346 @@ def plot_vocab_coverage_curve(
     print(f"Vocab coverage curve saved to {figname}")
 
 
+def _extract_target_token_ids(target_samples_path):
+    """Load target samples file and extract unique token IDs sorted by descending frequency.
+
+    Handles both v1 (list of lists) and v2 (dict with samples_by_prompt) formats.
+
+    Args:
+        target_samples_path: Path to the target samples .pt file.
+
+    Returns:
+        (sorted_token_ids, token_counts): tuple of
+            sorted_token_ids: 1D numpy array of unique token IDs, sorted by descending count
+            token_counts: dict mapping token_id -> count in target sequences
+    """
+    raw = torch.load(target_samples_path, map_location='cpu')
+
+    # Collect all token IDs from all sequences
+    all_tokens = []
+    if isinstance(raw, dict) and raw.get("version", 1) >= 2:
+        for samples_list in raw["samples_by_prompt"]:
+            for seq in samples_list:
+                all_tokens.extend(seq if isinstance(seq, list) else seq.tolist())
+    elif isinstance(raw, list):
+        for prompt_samples in raw:
+            for seq in prompt_samples:
+                all_tokens.extend(seq if isinstance(seq, list) else seq.tolist())
+    else:
+        raise ValueError(f"Unexpected target samples format: {type(raw)}")
+
+    # Count occurrences of each token
+    token_counts = Counter(all_tokens)
+
+    # Sort by descending count
+    sorted_token_ids = np.array([tid for tid, _ in token_counts.most_common()])
+    print(f"Target sequences contain {len(sorted_token_ids)} unique token IDs "
+          f"(total tokens: {len(all_tokens)}, top-5 counts: "
+          f"{[token_counts[tid] for tid in sorted_token_ids[:5]]})")
+
+    return sorted_token_ids, dict(token_counts)
+
+
+def plot_vocab_coverage_from_history(
+    figname, labels, counts_results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+):
+    """Plot fraction of all vocab tokens discovered over time from token_counts_history files.
+
+    Args:
+        counts_results_list: List (settings) of list (seeds) of list-of-tensors
+            (one (n_vocab,) tensor per fit_step).
+    """
+    # Determine n_vocab from first available data
+    n_vocab = None
+    for setting_data in counts_results_list:
+        for seed_data in setting_data:
+            if isinstance(seed_data, list) and len(seed_data) > 0:
+                n_vocab = len(seed_data[0])
+                break
+        if n_vocab is not None:
+            break
+    if n_vocab is None:
+        print(f"No token counts data found, skipping {figname}")
+        return
+
+    n_settings = len(labels)
+    fig, ax = plt.subplots()
+
+    for setting_idx in range(n_settings):
+        setting_data = counts_results_list[setting_idx]
+        if not setting_data:
+            continue
+
+        seed_curves = []
+        for seed_data in setting_data:
+            if not isinstance(seed_data, list) or len(seed_data) == 0:
+                continue
+            curve = []
+            for counts_tensor in seed_data:
+                n_discovered = (counts_tensor > 0).sum().item()
+                curve.append(n_discovered / n_vocab)
+            seed_curves.append(curve)
+
+        if not seed_curves:
+            continue
+
+        # Pad shorter curves with their last value
+        max_len = max(len(c) for c in seed_curves)
+        for c in seed_curves:
+            last_val = c[-1] if c else np.nan
+            while len(c) < max_len:
+                c.append(last_val)
+
+        timesteps = np.arange(max_len)
+        means = np.full(max_len, np.nan)
+        ci_lo = np.full(max_len, np.nan)
+        ci_hi = np.full(max_len, np.nan)
+
+        for t_idx in range(max_len):
+            vals = np.array([c[t_idx] for c in seed_curves])
+            valid_vals = vals[~np.isnan(vals)]
+            if len(valid_vals) > 0:
+                means[t_idx], ci_lo[t_idx], ci_hi[t_idx] = _bootstrap_mean_ci(valid_vals, n_bootstrap_draws)
+
+        valid = ~np.isnan(means)
+        if valid.any():
+            ax.plot(timesteps[valid], means[valid], color=color_list[setting_idx],
+                    label=labels[setting_idx], linewidth=1.5)
+            ax.fill_between(timesteps[valid], ci_lo[valid], ci_hi[valid],
+                            color=color_list[setting_idx], alpha=0.15)
+
+    ax.set_xlabel('Fit Step', fontsize=fontsize)
+    ax.set_ylabel('Fraction of Vocab Tokens Discovered', fontsize=fontsize)
+    ax.set_title(f'Vocab Coverage: Fraction of All Tokens Sampled by q (n_vocab={n_vocab})', fontsize=fontsize + 1)
+    y_lo, y_hi = ax.get_ylim()
+    margin = (y_hi - y_lo) * 0.05 if y_hi > y_lo else 0.05
+    ax.set_ylim(max(0, y_lo - margin), y_hi + margin)
+    ax.tick_params(axis='both', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Vocab coverage curve (from history) saved to {figname}")
+
+
+def plot_target_token_counts_over_time(
+    figname, labels, counts_results_list,
+    target_token_ids, color_list,
+    n_frontiers=4, fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+    n_top_tokens=None,
+    tokenizer=None,
+):
+    """Plot cumulative q-sample counts over time for tokens from target sequences.
+
+    Analog of plot_sample_counts_over_time but using token_counts_history files.
+    Tokens are sorted by their frequency in the target sequences (descending).
+
+    Args:
+        counts_results_list: List (settings) of list (seeds) of list-of-tensors
+            (one (n_vocab,) tensor per fit_step).
+        target_token_ids: 1D numpy array of unique token IDs sorted by descending
+            target-sequence frequency.
+        n_top_tokens: If set, only show the top N most frequent target tokens.
+    """
+    if n_top_tokens is not None:
+        target_token_ids = target_token_ids[:n_top_tokens]
+
+    n_tokens = len(target_token_ids)
+    if n_tokens == 0:
+        print(f"No target tokens, skipping {figname}")
+        return
+
+    n_settings = len(labels)
+
+    # Determine max trajectory length
+    max_T = 0
+    for setting_data in counts_results_list:
+        for seed_data in setting_data:
+            if isinstance(seed_data, list):
+                max_T = max(max_T, len(seed_data))
+
+    if max_T == 0 or n_frontiers <= 0:
+        return
+
+    # Evenly-spaced timestep indices
+    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
+    seen = set()
+    unique_frontier_indices = []
+    for idx in frontier_indices:
+        if idx not in seen:
+            seen.add(idx)
+            unique_frontier_indices.append(idx)
+    frontier_indices = unique_frontier_indices
+    n_times = len(frontier_indices)
+
+    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+    x_positions = np.arange(n_tokens)
+
+    alphas = np.linspace(0.25, 1.0, n_times)
+
+    # Collect counts at each timestep
+    counts_over_time = np.full((n_settings, n_tokens, n_times), np.nan)
+    counts_ci_lo = np.full((n_settings, n_tokens, n_times), np.nan)
+    counts_ci_hi = np.full((n_settings, n_tokens, n_times), np.nan)
+
+    for time_i, t_idx in enumerate(frontier_indices):
+        for setting_idx in range(n_settings):
+            setting_data = counts_results_list[setting_idx]
+            # Collect per-seed counts for each target token at this timestep
+            per_token_seeds = {tid: [] for tid in target_token_ids}
+            for seed_data in setting_data:
+                if not isinstance(seed_data, list) or t_idx >= len(seed_data):
+                    continue
+                counts_tensor = seed_data[t_idx]
+                for tid in target_token_ids:
+                    if tid < len(counts_tensor):
+                        per_token_seeds[tid].append(counts_tensor[tid].item())
+
+            for token_idx, tid in enumerate(target_token_ids):
+                vals = np.array(per_token_seeds[tid])
+                if len(vals) > 0:
+                    m, lo, hi = _bootstrap_mean_ci(vals, n_bootstrap_draws)
+                    counts_over_time[setting_idx, token_idx, time_i] = m
+                    counts_ci_lo[setting_idx, token_idx, time_i] = lo
+                    counts_ci_hi[setting_idx, token_idx, time_i] = hi
+
+    # Draw dots for each setting
+    for setting_idx in range(n_settings):
+        x_base = x_positions + setting_offsets[setting_idx]
+        color = color_list[setting_idx]
+
+        setting_label_added = False
+        for time_i in range(n_times):
+            means_t = counts_over_time[setting_idx, :, time_i]
+            lo_t = counts_ci_lo[setting_idx, :, time_i]
+            hi_t = counts_ci_hi[setting_idx, :, time_i]
+            lower_err = means_t - lo_t
+            upper_err = hi_t - means_t
+            valid = ~np.isnan(means_t)
+            if not valid.any():
+                continue
+
+            label = labels[setting_idx] if not setting_label_added else None
+            ax.scatter(x_base[valid], means_t[valid], color=color, s=16, zorder=4,
+                       alpha=alphas[time_i], label=label)
+            ax.errorbar(x_base[valid], means_t[valid],
+                        yerr=[lower_err[valid], upper_err[valid]],
+                        fmt='', ecolor=color, alpha=alphas[time_i] * 0.2,
+                        capsize=2, linewidth=0.8, zorder=3)
+            setting_label_added = True
+
+    # Timestep annotation
+    time_str = ", ".join(str(idx) for idx in frontier_indices)
+    ax.annotate(f"Fit steps: {time_str} (light\u2192dark)", xy=(0.02, 0.98),
+                xycoords='axes fraction', fontsize=fontsize - 1, color='gray',
+                verticalalignment='top')
+
+    ax.set_xlabel('Token (sorted by target-sequence frequency)' if tokenizer is not None else
+                  'Token ID (sorted by target-sequence frequency)', fontsize=fontsize)
+    ax.set_ylabel('Cumulative q-Sample Count', fontsize=fontsize)
+    ax.set_title(f'Target Token Visitation: Cumulative q Sample Counts Over Time ({n_tokens} tokens)',
+                 fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([_token_label(int(tid), tokenizer) for tid in target_token_ids],
+                       fontsize=max(3, fontsize - 2), rotation=45, ha='right')
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Target token counts over time chart saved to {figname}")
+
+
+def plot_target_token_counts_final_individual(
+    figname, labels, counts_results_list,
+    target_token_ids, color_list,
+    fontsize=7, legendfontsize=7,
+    n_top_tokens=None,
+    tokenizer=None,
+):
+    """Plot cumulative q-sample counts at final timestep with individual seed markers.
+
+    Analog of plot_sample_counts_final_individual but using token_counts_history files.
+
+    Args:
+        counts_results_list: List (settings) of list (seeds) of list-of-tensors.
+        target_token_ids: 1D numpy array of unique token IDs sorted by descending
+            target-sequence frequency.
+        n_top_tokens: If set, only show the top N most frequent target tokens.
+    """
+    if n_top_tokens is not None:
+        target_token_ids = target_token_ids[:n_top_tokens]
+
+    n_tokens = len(target_token_ids)
+    if n_tokens == 0:
+        print(f"No target tokens, skipping {figname}")
+        return
+
+    n_settings = len(labels)
+
+    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+    x_positions = np.arange(n_tokens)
+
+    for setting_idx in range(n_settings):
+        setting_data = counts_results_list[setting_idx]
+        if not setting_data:
+            continue
+
+        label_added = False
+        for seed_j, seed_data in enumerate(setting_data):
+            if not isinstance(seed_data, list) or len(seed_data) == 0:
+                continue
+            # Final timestep
+            final_counts = seed_data[-1]
+            marker = SEED_MARKERS[seed_j % len(SEED_MARKERS)]
+            color = color_list[setting_idx]
+
+            for token_idx, tid in enumerate(target_token_ids):
+                if tid >= len(final_counts):
+                    continue
+                x_base = x_positions[token_idx] + setting_offsets[setting_idx]
+                label = labels[setting_idx] if not label_added else None
+                ax.scatter(x_base, final_counts[tid].item(),
+                           color=color, s=20, alpha=0.7,
+                           marker=marker, label=label, zorder=4)
+                label_added = True
+
+    ax.set_xlabel('Token (sorted by target-sequence frequency)' if tokenizer is not None else
+                  'Token ID (sorted by target-sequence frequency)', fontsize=fontsize)
+    ax.set_ylabel('Cumulative q-Sample Count', fontsize=fontsize)
+    ax.set_title(f'Target Token Visitation: Final Cumulative q Sample Counts (individual seeds, {n_tokens} tokens)',
+                 fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([_token_label(int(tid), tokenizer) for tid in target_token_ids],
+                       fontsize=max(3, fontsize - 2), rotation=45, ha='right')
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Target token counts final individual chart saved to {figname}")
+
+
 def _plot_visitation_2d(
     figname_prefix, labels, results_list,
     coords, color_list,
@@ -3015,7 +3356,7 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
             ax.scatter(x[valid1], s1_means[valid1], color=color, s=20, zorder=4,
                        label=labels[setting_idx])
             ax.errorbar(x[valid1], s1_means[valid1], yerr=[lo1, hi1],
-                        fmt='', ecolor=color, alpha=0.2,
+                        fmt='none', ecolor=color, alpha=0.2,
                         capsize=3, linewidth=1, zorder=3)
 
     ax.set_xlabel(f'Target Sequence Index (sorted by descending {series2_name})',
@@ -3260,7 +3601,7 @@ def plot_top_q_samples_ranked_lollipop(
                        marker='D', facecolors='none', edgecolors=color, linewidths=1.2)
             ax.errorbar(x_pos[valid_phi], phi_means[valid_phi],
                         yerr=[phi_lo, phi_hi],
-                        fmt='', ecolor=color, alpha=0.2,
+                        fmt='none', ecolor=color, alpha=0.2,
                         capsize=2, linewidth=0.8, zorder=2)
 
         # log p: hollow square with CI
@@ -3272,7 +3613,7 @@ def plot_top_q_samples_ranked_lollipop(
                        marker='s', facecolors='none', edgecolors=color, linewidths=1.2)
             ax.errorbar(x_pos[valid_p], p_means[valid_p],
                         yerr=[p_lo, p_hi],
-                        fmt='', ecolor=color, alpha=0.2,
+                        fmt='none', ecolor=color, alpha=0.2,
                         capsize=2, linewidth=0.8, zorder=2)
 
         # log q: filled circle with CI
@@ -3283,7 +3624,7 @@ def plot_top_q_samples_ranked_lollipop(
             ax.scatter(x_pos[valid_q], q_means[valid_q], color=color, s=20, zorder=4)
             ax.errorbar(x_pos[valid_q], q_means[valid_q],
                         yerr=[q_lo, q_hi],
-                        fmt='', ecolor=color, alpha=0.2,
+                        fmt='none', ecolor=color, alpha=0.2,
                         capsize=3, linewidth=1, zorder=3)
 
     # Legend: per-setting colored lines + marker-type key
