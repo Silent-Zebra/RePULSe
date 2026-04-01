@@ -992,25 +992,26 @@ class CoinFlipNetwork(nn.Module):
         self,
         sequences: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
-        bonus_alpha: float = 1.0,
     ) -> torch.Tensor:
         """
-        Compute intrinsic reward based on coin flip network output.
-        
-        The intrinsic reward is: r_I(x) = bonus_alpha * sqrt((1/d) * ||f_φ(x)||^2)
+        Compute raw intrinsic reward based on coin flip network output.
+
+        The intrinsic reward is: r_I(x) = sqrt((1/d) * ||f_φ(x)||^2)
         which approximates 1/sqrt(n_x) where n_x is the visitation count.
-        
+
+        Note: This returns the raw (unscaled) bonus. The caller is responsible
+        for applying bonus_alpha scaling.
+
         Uses only the final token output (final state) since reward is computed
         over the full sequence.
-        
+
         For non-separate_nn architectures, applies torch.no_grad() to prevent gradients
         from flowing through the backbone/base model.
-        
+
         Args:
             sequences: Input sequences, shape (batch_size, seq_len)
             attention_mask: Attention mask, shape (batch_size, seq_len)
-            bonus_alpha: Scaling factor for the intrinsic reward
-            
+
         Returns:
             Intrinsic rewards per sequence, shape (batch_size,)
         """
@@ -1041,8 +1042,6 @@ class CoinFlipNetwork(nn.Module):
         # Normalize the exploration bonus using running mean and variance (if enabled)
         if self.normalization_momentum is not None:
             intrinsic_reward = self._normalize_bonus(intrinsic_reward)
-
-        intrinsic_reward *= bonus_alpha
 
         return intrinsic_reward.detach()
     

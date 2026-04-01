@@ -1703,7 +1703,8 @@ def train(args):
                 if bonus_history:
                     g_bonus_history = _distributed_all_reduce_scalar_list(strategy, bonus_history)
                     target_to_save = (
-                        g_rew_sampling, g_untrans_ret_sampling, g_bonus_history
+                        g_rew_sampling, g_untrans_ret_sampling, g_bonus_history,
+                        True,  # bonus_unscaled: bonus values are raw (not multiplied by bonus_alpha)
                     )
                 else:
                     target_to_save = (
@@ -1875,7 +1876,9 @@ def train(args):
                            individual_bad_word_log_probs_t1_list_sampling, individual_bad_word_log_probs_combined_list_sampling,
                            rew_over_time_list_sampling, untrans_ret_over_time_list_sampling, bonus_history,
                            total_log_prob_bad_list_sampling_threshold, individual_bad_word_log_probs_t0_list_sampling_threshold,
-                           individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold), save_str)
+                           individual_bad_word_log_probs_t1_list_sampling_threshold, individual_bad_word_log_probs_combined_list_sampling_threshold,
+                           True,  # bonus_unscaled: bonus values are raw (not multiplied by bonus_alpha)
+                           ), save_str)
             print("Sampling actor (q) results:")
             print(total_log_prob_bad_list_sampling)
             print(rew_over_time_list_sampling)

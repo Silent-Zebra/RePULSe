@@ -717,19 +717,20 @@ class BaseExperienceMaker(ABC):
         # Get counts for each t=0 token (READ ONLY - no updates)
         counts_t0 = self.state_visitation_counts[t0_tokens_long]  # (B,)
         
-        # Calculate bonus for t=0: bonus_alpha * (1/sqrt(N(x)))
-        bonus_t0 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t0.float()))  # (B,)
-        
+        # Calculate raw bonus for t=0: 1/sqrt(N(x))
+        # bonus_alpha scaling is applied at the reward addition point
+        bonus_t0 = 1.0 / torch.sqrt(counts_t0.float())  # (B,)
+
         if track_both_positions:
             # Also track t=1 tokens
             t1_tokens = response_tokens[:, 1]  # Shape: (B,)
             t1_tokens_long = t1_tokens.long()  # Ensure integer type
-            
+
             # Get counts for each t=1 token (READ ONLY - no updates)
             counts_t1 = self.state_visitation_counts[t1_tokens_long]  # (B,)
-            
-            # Calculate bonus for t=1: bonus_alpha * (1/sqrt(N(x)))
-            bonus_t1 = self.bonus_alpha * (1.0 / torch.sqrt(counts_t1.float()))  # (B,)
+
+            # Calculate raw bonus for t=1: 1/sqrt(N(x))
+            bonus_t1 = 1.0 / torch.sqrt(counts_t1.float())  # (B,)
             
             # Average the bonuses from t=0 and t=1
             exploration_bonus = (bonus_t0 + bonus_t1) / 2.0  # (B,)
@@ -1140,13 +1141,13 @@ class BaseExperienceMaker(ABC):
 
         sequences, attention_mask = self._get_cf_token_ids(sequences, attention_mask)
 
-        # Compute intrinsic reward using coin flip network
+        # Compute raw intrinsic reward using coin flip network
         # The network expects full sequences and computes r_I(x) = sqrt((1/d) * ||f_φ(x)||^2)
+        # Returns the raw (unscaled) bonus; bonus_alpha is applied at the reward addition point
         # For non-separate_nn architectures, forward pass uses torch.no_grad() internally
         intrinsic_reward = self.coin_flip_network.compute_intrinsic_reward(
             sequences,
             attention_mask,
-            bonus_alpha=self.bonus_alpha,
         )
 
         return intrinsic_reward
@@ -1537,22 +1538,22 @@ class BaseExperienceMaker(ABC):
 
         result_no_bonus = result.clone()
         if exploration_bonus is not None:
-            # Scale bonus by |beta| so that:
-            # 1. The bonus magnitude scales with beta (alpha doesn't need to change when beta changes)
-            # 2. The bonus always has a POSITIVE contribution to log_phi regardless of beta's sign.
+            # exploration_bonus is the raw (unscaled) intrinsic reward.
+            # Scale by bonus_alpha (exploration coefficient) and |beta| so that:
+            # 1. bonus_alpha controls the exploration strength independently of beta
+            # 2. |beta| ensures the bonus magnitude scales with beta
+            # 3. The bonus always has a POSITIVE contribution to log_phi regardless of beta's sign.
             # For the twist path (multiply_by_beta=True): result IS log_phi.
-            #   log_phi = beta * r + |beta| * bonus.
-            #   The target distribution is sigma ~ p0 * exp(log_phi) = p0 * exp(beta*r + |beta|*bonus).
+            #   log_phi = beta * r + |beta| * bonus_alpha * raw_bonus.
+            #   The target distribution is sigma ~ p0 * exp(log_phi).
             #   With negative beta (targeting low-reward/harmful outputs):
             #     - beta*r term puts more mass on low-reward outputs (correct for targeting harmful)
-            #     - |beta|*bonus term increases log_phi for high-bonus outputs, putting more mass
-            #       on outputs with higher intrinsic reward (i.e., less-visited/novel outputs).
-            #   Using beta (not |beta|) would flip this, making the bonus DECREASE log_phi,
-            #   which would push sigma AWAY from high-bonus outputs — the opposite of exploration.
+            #     - |beta|*bonus_alpha*raw_bonus term increases log_phi for high-bonus outputs,
+            #       putting more mass on less-visited/novel outputs.
             # Note: The PPO path (multiply_by_beta=False) has a pre-existing f_q sign issue
             #   with negative beta (see NotImplementedError below in make_experience), so the
             #   interaction of this scaling with the PPO path is not addressed here.
-            result = result + abs(self.target_dist_beta) * exploration_bonus
+            result = result + abs(self.target_dist_beta) * self.bonus_alpha * exploration_bonus
         return result, untransformed_reward, exploration_bonus, result_no_bonus
 
     def set_all_eval(self):
