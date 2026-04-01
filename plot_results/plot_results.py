@@ -216,10 +216,31 @@ def extract_bonus_alpha_from_prefix(prefix):
     return None
 
 
+def _is_bonus_unscaled(item, bonus_index):
+    """Check if the loaded data indicates the bonus is already unscaled (raw).
+
+    New saves include a True flag after the bonus data:
+    - rew_untransret_sampling: (rew, untrans_ret, bonus, True) — flag at index 3
+    - analyticlogprob_rewsample_sampling: (..., bonus, ..., True) — flag at index 11
+
+    Old saves without the flag need bonus_alpha division.
+    """
+    if not isinstance(item, tuple):
+        return False
+    # rew_untransret_sampling format: bonus at index 2, flag at index 3
+    if bonus_index == 2 and len(item) >= 4 and item[3] is True:
+        return True
+    # analyticlogprob_rewsample_sampling format: bonus at index 6, flag at index 11
+    if bonus_index == 6 and len(item) >= 12 and item[11] is True:
+        return True
+    return False
+
+
 def _unscale_bonus_in_results(results_list, load_prefixes_to_use, bonus_index):
     """Divide bonus values in results_list by bonus_alpha extracted from prefixes.
 
     Modifies results_list in place by rebuilding tuples with unscaled bonus values.
+    Skips division for data that is already unscaled (detected via a flag in the saved tuple).
 
     Args:
         results_list: List of lists of tuples (one per setting, one per seed).
@@ -232,6 +253,9 @@ def _unscale_bonus_in_results(results_list, load_prefixes_to_use, bonus_index):
             for seed_idx in range(len(results_list[setting_idx])):
                 item = results_list[setting_idx][seed_idx]
                 if isinstance(item, tuple) and len(item) > bonus_index:
+                    # Skip division if the data is already unscaled (new format)
+                    if _is_bonus_unscaled(item, bonus_index):
+                        continue
                     bonus_list = item[bonus_index]
                     if isinstance(bonus_list, list):
                         scaled = [v / alpha for v in bonus_list]
@@ -1656,6 +1680,39 @@ def _extract_component_per_sample_from_v2_data(key, all_v2_data):
     return result
 
 
+def _subtract_log_Z_per_prompt(data, log_Z_by_prompt):
+    """Subtract per-prompt log Z from nested per-sample data to normalize.
+
+    Walks the 4-level structure (settings / seeds / timesteps / prompts)
+    and subtracts log_Z_by_prompt[prompt_idx] from each prompt's sample array.
+    Prompts without a log_Z entry become None.
+
+    Args:
+        data: List (settings) of list (seeds) of list (T timesteps) of
+              list (P prompts) of 1D numpy array (n_samples,) or None.
+        log_Z_by_prompt: dict mapping prompt_index -> log_Z value (float).
+
+    Returns:
+        New data in the same structure with log_Z subtracted per prompt.
+    """
+    result = []
+    for setting_data in data:
+        setting_result = []
+        for seed_data in setting_data:
+            seed_result = []
+            for t_data in seed_data:
+                t_result = []
+                for prompt_idx, p_data in enumerate(t_data):
+                    if p_data is None or prompt_idx not in log_Z_by_prompt:
+                        t_result.append(None)
+                    else:
+                        t_result.append(np.asarray(p_data) - log_Z_by_prompt[prompt_idx])
+                seed_result.append(t_result)
+            setting_result.append(seed_result)
+        result.append(setting_result)
+    return result
+
+
 def _sanitize_for_filename(text, max_len=50):
     """Sanitize a string for use in filenames."""
     import re as _re
@@ -1947,7 +2004,7 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
     has_data = any(len(exp_data) > 0 for exp_data in all_v2_data)
     if not has_data:
         print("Warning: No v2 f_q/g_q data found, skipping multiprompt KL plots")
-        return
+        return None, None
 
     # Load target samples to identify prompts with actual target samples
     if target_samples_path is not None:
@@ -2004,7 +2061,7 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
 
     if prompt_texts is None:
         print("Warning: No prompt texts found, skipping multiprompt plots")
-        return
+        return None, None
 
     # Determine common prompt indices (present across all seeds of first v2 experiment)
     # Use first experiment with v2 data as reference
@@ -2018,7 +2075,7 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
 
     if T == 0:
         print("Warning: No timesteps found, skipping multiprompt plots")
-        return
+        return None, None
 
     # Compute global max timesteps across ALL experiments and seeds (for truncation thresholds)
     global_max_T_fixed = 0
@@ -2355,7 +2412,7 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
 
     print(f"\nDone. All plots saved to {per_prompt_dir}/")
 
-    return all_v2_data
+    return all_v2_data, global_log_Z
 
 
 # Default: no target samples path (set in specific block to enable multiprompt plotting)
@@ -4629,9 +4686,13 @@ make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_tb5_s3", 1,10),
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-06_bl0.0_ppq_tb5_s3", 1,10),
 
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf3.0to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf10.0to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+
+
 ]
-figname_modifier = "probinflen4_toytox_2p2_b10_03_31_v8"
-target_samples_path = None
+figname_modifier = "probinflen4_toytox_2p2_b10_03_31_v11"
+# target_samples_path = "info/target_samples_di_To_rlhf_l4_b-10.0_rc9.0_2_tsa100.pt"
 individual_prompt_plots = False
 random_f_q_ylim_low = None
 n_frontiers = 4
@@ -4711,7 +4772,7 @@ elif use_heldout_over_time:
 elif use_f_q_g_q:
     # Try multiprompt v2 path first (works with or without target_samples_path)
     print("\nPlotting multiprompt per-prompt KL divergences from v2 f_q/g_q files...")
-    all_v2_data = plot_f_q_g_q_kl_divergences_multiprompt(
+    all_v2_data, global_log_Z = plot_f_q_g_q_kl_divergences_multiprompt(
         load_prefixes_to_use, labels, figname_modifier,
         target_samples_path=target_samples_path,
         x_range=None, fontsize=fontsize,
@@ -4824,61 +4885,56 @@ elif use_f_q_g_q:
         print(f"Failed to generate g_q lollipop plot: {e}")
         traceback.print_exc()
 
-    # Component lollipop A: log q vs log p (proposal vs prior) on target sequences
+    # Combined lollipop: log q vs log p vs log sigma on target sequences
     try:
         log_q_tgt = _get_component("log_q_g_q_by_prompt_fixed")
         log_p_tgt = _get_component("log_p_g_q_by_prompt_fixed")
+        target_tgt = _get_component("target_g_q_by_prompt_fixed")
         has_data = any(seed_data for setting_data in log_q_tgt for seed_data in setting_data)
         if has_data:
+            # Compute log sigma = log tilde sigma - log Z (normalized target density)
+            log_sigma_tgt = None
+            if global_log_Z is not None:
+                log_sigma_tgt = _subtract_log_Z_per_prompt(target_tgt, global_log_Z)
             plot_two_series_lollipop(
-                figname=os.path.join(_output_dir, "sampling_target_samples_logq_logp_lollipop.pdf"),
+                figname=os.path.join(_output_dir, "sampling_target_samples_logq_logp_logsigma_lollipop.pdf"),
                 labels=labels,
                 series1_name=r'$\log q$',
                 series2_name=r'$\log p$',
                 series1_data=log_q_tgt,
                 series2_data=log_p_tgt,
                 color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
-                figname_individual=os.path.join(_output_dir, "sampling_target_samples_logq_logp_lollipop_individual.pdf"),
+                figname_individual=os.path.join(_output_dir, "sampling_target_samples_logq_logp_logsigma_lollipop_individual.pdf"),
+                series3_name=r'$\log \sigma$ (log Z estimate)',
+                series3_data=log_sigma_tgt,
+                sort_by_series3=True,
             )
     except Exception as e:
-        print(f"Failed to generate log q vs log p lollipop plot: {e}")
+        print(f"Failed to generate log q vs log p vs log sigma lollipop plot: {e}")
         traceback.print_exc()
 
-    # Component lollipop B: log q vs log p + beta*r (proposal vs unnormalized target density)
-    try:
-        target_tgt = _get_component("target_g_q_by_prompt_fixed")
-        # Reuse log_q_tgt from lollipop A (same key: log_q_g_q_by_prompt_fixed)
-        has_data = any(seed_data for setting_data in log_q_tgt for seed_data in setting_data)
-        if has_data:
-            plot_two_series_lollipop(
-                figname=os.path.join(_output_dir, "sampling_target_samples_logq_logtildesigma_lollipop.pdf"),
-                labels=labels,
-                series1_name=r'$\log q$',
-                series2_name=r'$\log \tilde{\sigma} = \log p + \beta r$',
-                series1_data=log_q_tgt,
-                series2_data=target_tgt,
-                color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
-                figname_individual=os.path.join(_output_dir, "sampling_target_samples_logq_logtildesigma_lollipop_individual.pdf"),
-            )
-    except Exception as e:
-        print(f"Failed to generate log q vs log tilde sigma lollipop plot: {e}")
-        traceback.print_exc()
-
-    # Top-q samples ranked lollipop: q-drawn samples sorted by log_q, showing log_q / log_p / log_tilde_sigma
+    # Top-q samples ranked lollipop: q-drawn samples sorted by log_q, showing log_q / log_p / log_sigma
     try:
         log_q_fq = _get_component("log_q_by_prompt_fixed")
         log_p_fq = _get_component("log_p_by_prompt_fixed")
         target_fq = _get_component("target_by_prompt_fixed")
         has_data = any(seed_data for setting_data in log_q_fq for seed_data in setting_data)
         if has_data:
+            # Normalize: log sigma = log tilde sigma - log Z
+            log_phi_fq = target_fq
+            log_phi_fq_label = None  # default: log tilde sigma
+            if global_log_Z is not None:
+                log_phi_fq = _subtract_log_Z_per_prompt(target_fq, global_log_Z)
+                log_phi_fq_label = r'$\log \sigma$ (log Z estimate)'
             plot_top_q_samples_ranked_lollipop(
                 figname=os.path.join(_output_dir, "sampling_top_q_samples_ranked_lollipop.pdf"),
                 labels=labels,
                 log_q_data=log_q_fq,
                 log_p_data=log_p_fq,
-                log_phi_data=target_fq,
+                log_phi_data=log_phi_fq,
                 color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
                 n_ranks=n_top_tokens,
+                log_phi_label=log_phi_fq_label,
             )
     except Exception as e:
         print(f"Failed to generate top-q samples ranked lollipop plot: {e}")

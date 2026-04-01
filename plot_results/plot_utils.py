@@ -126,12 +126,16 @@ def _parse_experiment_properties(prefix):
     al_match = re.search(r'_al([\d.e-]+)', prefix)
     learning_rate = float(al_match.group(1)) if al_match else None
 
-    # CFN alpha (bonus_alpha)
+    # CFN alpha (bonus_alpha); for annealed runs, extract the start value
     cfn_alpha = None
     if bonus_type == "cfn":
-        cf_match = re.search(r'_cf([\d.]+)', prefix)
-        if cf_match:
-            cfn_alpha = float(cf_match.group(1))
+        cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)', prefix)
+        if cf_anneal_match:
+            cfn_alpha = float(cf_anneal_match.group(1))  # start value
+        else:
+            cf_match = re.search(r'_cf([\d.]+)', prefix)
+            if cf_match:
+                cfn_alpha = float(cf_match.group(1))
 
     return {
         "loss_type": loss_type,
@@ -357,9 +361,14 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             label_parts = [run_type_str]
 
             # Extract bonus_alpha from _cf pattern (encoded as _cf followed by value)
-            cf_match = re.search(r'_cf([\d.]+)', prefix)
-            if cf_match:
-                label_parts.append(f"alpha={cf_match.group(1)}")
+            # With annealing: _cf{start}to{end}{schedule} (e.g., _cf10to0linear)
+            cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
+            if cf_anneal_match:
+                label_parts.append(f"alpha={cf_anneal_match.group(1)}->{cf_anneal_match.group(2)} ({cf_anneal_match.group(3)})")
+            else:
+                cf_match = re.search(r'_cf([\d.]+)', prefix)
+                if cf_match:
+                    label_parts.append(f"alpha={cf_match.group(1)}")
 
             # Extract cfhis/cfh (coin flip head init std) - support both old and new
             cfhis_match = re.search(r'_cfhis([\d.e-]+)', prefix) or re.search(r'_cfh([\d.e-]+)', prefix)
@@ -404,9 +413,14 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             label_parts = ["EC"]
 
             # Extract bonus_alpha (encoded as _count or _c followed by value)
-            count_match = re.search(r'_count([\d.]+)', prefix) or re.search(r'_c([\d.]+)', prefix)
-            if count_match:
-                label_parts.append(f"alpha={count_match.group(1)}")
+            # With annealing: _c{start}to{end}{schedule} (e.g., _c10to0linear)
+            c_anneal_match = re.search(r'_c([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
+            if c_anneal_match:
+                label_parts.append(f"alpha={c_anneal_match.group(1)}->{c_anneal_match.group(2)} ({c_anneal_match.group(3)})")
+            else:
+                count_match = re.search(r'_count([\d.]+)', prefix) or re.search(r'_c([\d.]+)', prefix)
+                if count_match:
+                    label_parts.append(f"alpha={count_match.group(1)}")
 
             # Extract LR (q) / sampling actor LR from _al
             al_match = re.search(r'_al([\d.e-]+)', prefix)
@@ -768,11 +782,14 @@ def _compute_target_means_for_tokens(token_ids, target_by_setting):
     return target_means
 
 
-def _draw_target_dashes(ax, x_positions, target_means, dash_half_width, linewidth=2, label_text=None):
-    """Draw horizontal black dashes for target distribution at each position.
+def _draw_target_dashes(ax, x_positions, target_means, dash_half_width, linewidth=2, label_text=None,
+                        color='black', linestyle='-'):
+    """Draw horizontal dashes for a reference series at each position.
 
     Args:
         label_text: Legend label for the dashes. Defaults to "$\\sigma$ (target)" if None.
+        color: Line color (default 'black').
+        linestyle: Line style (default '-' solid).
     """
     if label_text is None:
         label_text = r"$\sigma$ (target)"
@@ -784,7 +801,8 @@ def _draw_target_dashes(ax, x_positions, target_means, dash_half_width, linewidt
         ax.plot(
             [x_positions[pos_idx] - dash_half_width, x_positions[pos_idx] + dash_half_width],
             [target_means[pos_idx], target_means[pos_idx]],
-            color='black', linewidth=linewidth, solid_capstyle='butt', label=label, zorder=3,
+            color=color, linewidth=linewidth, linestyle=linestyle, solid_capstyle='butt',
+            label=label, zorder=3,
         )
         target_label_added = True
 
@@ -3189,34 +3207,38 @@ def _pad_to_length(arr, n):
     return arr
 
 
-def plot_g_q_lollipop(figname, labels, g_q_per_sample_data, color_list, fontsize=7, legendfontsize=7):
+def plot_g_q_lollipop(figname, labels, g_q_per_sample_data, color_list, fontsize=7, legendfontsize=7,
+                      n_bootstrap_draws=5000):
     """
-    Lollipop plot of final-timestep g_q values for each target sequence, one color per setting.
+    Scatter plot of final-timestep g_q values for each target sequence, one color per setting.
 
     Target sequences (flattened across prompts) are sorted by descending mean g_q across settings,
     so the sequences q covers worst (highest g_q) appear on the left. Multiple settings are shown
-    as offset colored dots + stems for easy comparison.
+    as offset colored dots with translucent bootstrap confidence intervals.
 
     g_q(x) = log p0(x) + beta*r(x) - log q(x); lower = q covers x better.
 
     Args:
         g_q_per_sample_data: List (settings) of list (seeds) of list (T timesteps) of
                              list (P prompts) of 1D numpy array (n_samples,) of g_q values.
+        n_bootstrap_draws: Number of bootstrap resamples for CI computation.
     """
     n_settings = len(labels)
 
-    # For each setting, compute per-sample g_q at the final timestep, averaged across seeds
+    # For each setting, extract per-seed 1D arrays at final timestep
     per_seed = _extract_final_per_seed(g_q_per_sample_data, n_settings)
-    final_g_q = []  # list (settings) of 1D array (n_samples,) or None
+
+    # Compute mean across seeds for sorting
+    final_g_q_mean = []
     for seed_arrays in per_seed:
         if seed_arrays is None:
-            final_g_q.append(None)
+            final_g_q_mean.append(None)
             continue
         max_n = max(len(a) for a in seed_arrays)
         padded = [_pad_to_length(a, max_n) for a in seed_arrays]
-        final_g_q.append(np.nanmean(np.stack(padded, axis=0), axis=0))
+        final_g_q_mean.append(np.nanmean(np.stack(padded, axis=0), axis=0))
 
-    valid_settings = [(i, arr) for i, arr in enumerate(final_g_q) if arr is not None]
+    valid_settings = [(i, arr) for i, arr in enumerate(final_g_q_mean) if arr is not None]
     if not valid_settings:
         print(f"No data for g_q lollipop plot, skipping {figname}")
         return
@@ -3232,19 +3254,40 @@ def plot_g_q_lollipop(figname, labels, g_q_per_sample_data, color_list, fontsize
     n_valid = len(valid_settings)
     x_offsets = np.linspace(-0.25, 0.25, n_valid) if n_valid > 1 else np.array([0.0])
 
-    fig, ax = plt.subplots()
-    for plot_idx, (setting_idx, arr) in enumerate(valid_settings):
-        sorted_arr = _pad_to_length(arr, n_samples)[sort_order]
-        x = x_positions + x_offsets[plot_idx]
-        valid = ~np.isnan(sorted_arr)
-        # Stems from y=0 to each g_q value
-        ax.vlines(x[valid], 0, sorted_arr[valid],
-                  color=color_list[setting_idx], alpha=0.6, linewidth=0.8)
-        ax.scatter(x[valid], sorted_arr[valid],
-                   color=color_list[setting_idx], s=12, zorder=3,
-                   label=labels[setting_idx])
+    def _compute_sorted_ci(seed_arrays):
+        """Bootstrap mean + CI per sample position, sorted by sort_order."""
+        if seed_arrays is None:
+            return (np.full(n_samples, np.nan), np.full(n_samples, np.nan),
+                    np.full(n_samples, np.nan))
+        padded = np.stack([_pad_to_length(a, n_samples)[sort_order] for a in seed_arrays])
+        means = np.full(n_samples, np.nan)
+        ci_lo = np.full(n_samples, np.nan)
+        ci_hi = np.full(n_samples, np.nan)
+        for j in range(n_samples):
+            col = padded[:, j]
+            valid_col = col[~np.isnan(col)]
+            if len(valid_col) > 0:
+                means[j], ci_lo[j], ci_hi[j] = _bootstrap_mean_ci(valid_col, n_bootstrap_draws)
+        return means, ci_lo, ci_hi
 
-    ax.axhline(0, color='black', linewidth=0.5, linestyle='--', alpha=0.5)
+    fig, ax = plt.subplots()
+    for plot_idx, (setting_idx, _) in enumerate(valid_settings):
+        seed_arrays = per_seed[setting_idx]
+        color = color_list[setting_idx]
+        x = x_positions + x_offsets[plot_idx]
+
+        means, ci_lo, ci_hi = _compute_sorted_ci(seed_arrays)
+        valid = ~np.isnan(means)
+        if np.any(valid):
+            lo_err = means[valid] - ci_lo[valid]
+            hi_err = ci_hi[valid] - means[valid]
+            ax.scatter(x[valid], means[valid],
+                       color=color, s=12, zorder=4,
+                       label=labels[setting_idx])
+            ax.errorbar(x[valid], means[valid], yerr=[lo_err, hi_err],
+                        fmt='none', ecolor=color, alpha=0.2,
+                        capsize=3, linewidth=1, zorder=3)
+
     ax.set_xlabel('Target Sequence Index (sorted by mean g_q, worst first)', fontsize=fontsize)
     ax.set_ylabel(r'$g_q(x) = \log p_0(x) + \beta r(x) - \log q(x)$', fontsize=fontsize)
     ax.set_title('g_q at Final Timestep Per Target Sequence (lower = better coverage)', fontsize=fontsize + 1)
@@ -3263,37 +3306,41 @@ def plot_g_q_lollipop(figname, labels, g_q_per_sample_data, color_list, fontsize
 def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
                               series1_data, series2_data,
                               color_list, fontsize=7, legendfontsize=7,
-                              n_bootstrap_draws=5000, figname_individual=None):
+                              n_bootstrap_draws=5000, figname_individual=None,
+                              series3_name=None, series3_data=None,
+                              sort_by_series3=False):
     """
-    Lollipop plot comparing a per-seed quantity (series1) against a fixed reference (series2)
-    across target sequences.
+    Lollipop plot comparing a per-seed quantity (series1) against fixed references (series2,
+    and optionally series3) across target sequences.
 
-    Series2 (e.g. log p, or log tilde sigma) is treated as fixed across seeds and drawn as
-    black horizontal dashes (like target bars in the multiprompt lollipop plots).
+    Series2 (e.g. log p) is treated as fixed across seeds and drawn as black horizontal dashes.
+    Series3 (e.g. log sigma), if provided, is drawn as gray dashed horizontal lines.
     Series1 (e.g. log q) varies across seeds and is drawn as colored dots with bootstrap CIs.
-    Sequences are sorted by descending mean series2 value (highest on left).
+    Sequences are sorted by descending mean of the sort series (series3 if sort_by_series3
+    and series3 is provided, otherwise series2).
 
     If figname_individual is provided, also produces an individual-seed version with a
     different marker per seed.
 
-    Intended for plots like:
-      A) log q (series1) vs log p (series2): reveals how the proposal probability relates to the prior.
-      B) log q (series1) vs log p + β·r (series2=target): reveals where q under/over-covers sigma.
-
     Args:
         series1_name: Short label for the per-seed quantity (colored markers), e.g. r'$\\log q$'.
-        series2_name: Short label for the fixed reference (black dashes), e.g. r'$\\log p$'.
+        series2_name: Short label for the first fixed reference (black dashes), e.g. r'$\\log p$'.
         series1_data, series2_data: List (settings) of list (seeds) of list (T timesteps) of
                                     list (P prompts) of 1D numpy array (n_samples,) or None.
         n_bootstrap_draws: Number of bootstrap resamples for confidence intervals.
         figname_individual: If provided, save an individual-seed scatter plot to this path.
+        series3_name: Short label for an optional second fixed reference (gray dashes).
+        series3_data: Same structure as series2_data. If provided, drawn as gray dashed lines.
+        sort_by_series3: If True and series3_data is provided, sort x-axis by descending
+                         series3 mean instead of series2.
     """
     n_settings = len(labels)
 
     per_seed_s1 = _extract_final_per_seed(series1_data, n_settings)
     per_seed_s2 = _extract_final_per_seed(series2_data, n_settings)
+    per_seed_s3 = _extract_final_per_seed(series3_data, n_settings) if series3_data is not None else None
 
-    # Determine n_samples and sort order from series2 mean across seeds
+    # Determine n_samples and sort order from the sort series
     valid_s2_settings = [(i, arrs) for i, arrs in enumerate(per_seed_s2) if arrs is not None]
     if not valid_s2_settings:
         print(f"No series2 data for two-series lollipop plot, skipping {figname}")
@@ -3301,15 +3348,38 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
 
     n_samples = max(len(a) for _, arrs in valid_s2_settings for a in arrs)
 
-    # Sort by descending mean series2 (averaged across all settings and seeds)
+    # Decide which series to sort by: series3 if requested and available, else series2
+    if sort_by_series3 and per_seed_s3 is not None:
+        valid_sort_settings = [(i, arrs) for i, arrs in enumerate(per_seed_s3) if arrs is not None]
+        sort_series_name = series3_name
+    else:
+        valid_sort_settings = valid_s2_settings
+        sort_series_name = series2_name
+
+    # Sort by descending mean of the chosen sort series (averaged across all settings and seeds)
+    all_sort_padded = []
+    for _, arrs in valid_sort_settings:
+        for a in arrs:
+            all_sort_padded.append(_pad_to_length(a, n_samples))
+    sort_order = np.argsort(np.nanmean(np.stack(all_sort_padded), axis=0))[::-1]
+
+    # Compute series2 reference values: mean across all settings/seeds (fixed quantity)
     all_s2_padded = []
     for _, arrs in valid_s2_settings:
         for a in arrs:
             all_s2_padded.append(_pad_to_length(a, n_samples))
-    sort_order = np.argsort(np.nanmean(np.stack(all_s2_padded), axis=0))[::-1]
-
-    # Compute series2 reference values: mean across all settings/seeds (fixed quantity)
     s2_ref = np.nanmean(np.stack(all_s2_padded), axis=0)[sort_order]
+
+    # Compute series3 reference values if provided
+    s3_ref = None
+    if per_seed_s3 is not None:
+        valid_s3_settings = [(i, arrs) for i, arrs in enumerate(per_seed_s3) if arrs is not None]
+        if valid_s3_settings:
+            all_s3_padded = []
+            for _, arrs in valid_s3_settings:
+                for a in arrs:
+                    all_s3_padded.append(_pad_to_length(a, n_samples))
+            s3_ref = np.nanmean(np.stack(all_s3_padded), axis=0)[sort_order]
 
     x_positions = np.arange(n_samples)
     dot_spacing = 0.12
@@ -3336,8 +3406,13 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
     # --- Main plot (bootstrap CI) ---
     fig, ax = plt.subplots()
 
-    # Series2: black horizontal dashes (fixed reference, shared across settings)
+    # Series2: black solid horizontal dashes (fixed reference, shared across settings)
     _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2, label_text=series2_name)
+
+    # Series3: gray dashed horizontal lines (second fixed reference, if provided)
+    if s3_ref is not None:
+        _draw_target_dashes(ax, x_positions, s3_ref, dash_half_width, linewidth=2,
+                            label_text=series3_name, color='dimgray', linestyle='--')
 
     # Series1: colored dots with bootstrap CI, one color per setting
     for setting_idx in range(n_settings):
@@ -3359,10 +3434,12 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
                         fmt='none', ecolor=color, alpha=0.2,
                         capsize=3, linewidth=1, zorder=3)
 
-    ax.set_xlabel(f'Target Sequence Index (sorted by descending {series2_name})',
+    all_ref_names = [series2_name] + ([series3_name] if series3_name else [])
+    title_refs = ', '.join(all_ref_names)
+    ax.set_xlabel(f'Target Sequence Index (sorted by descending {sort_series_name})',
                   fontsize=fontsize)
     ax.set_ylabel('Log probability', fontsize=fontsize)
-    ax.set_title(f'{series1_name} vs {series2_name} at Final Timestep (per target sequence)',
+    ax.set_title(f'{series1_name} vs {title_refs} at Final Timestep (per target sequence)',
                  fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
     ax.set_xticklabels(np.arange(1, n_samples + 1), fontsize=max(4, fontsize - 2))
@@ -3373,7 +3450,7 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
     plt.savefig(figname)
     plt.clf()
     plt.close(fig)
-    print(f"Two-series lollipop plot saved to {figname}")
+    print(f"Lollipop plot saved to {figname}")
 
     # --- Individual-seed plot ---
     if figname_individual is not None:
@@ -3381,6 +3458,11 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
 
         # Series2: same black dashes
         _draw_target_dashes(ax_ind, x_positions, s2_ref, dash_half_width, linewidth=2, label_text=series2_name)
+
+        # Series3: same gray dashed lines (if provided)
+        if s3_ref is not None:
+            _draw_target_dashes(ax_ind, x_positions, s3_ref, dash_half_width, linewidth=2,
+                                label_text=series3_name, color='dimgray', linestyle='--')
 
         # Series1: per-seed scatter with different markers
         for setting_idx in range(n_settings):
@@ -3402,10 +3484,10 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
                                marker=marker, label=label, zorder=4)
                 label_added = True
 
-        ax_ind.set_xlabel(f'Target Sequence Index (sorted by descending {series2_name})',
+        ax_ind.set_xlabel(f'Target Sequence Index (sorted by descending {sort_series_name})',
                           fontsize=fontsize)
         ax_ind.set_ylabel('Log probability', fontsize=fontsize)
-        ax_ind.set_title(f'{series1_name} vs {series2_name} at Final Timestep (individual seeds)',
+        ax_ind.set_title(f'{series1_name} vs {title_refs} at Final Timestep (individual seeds)',
                          fontsize=fontsize + 1)
         ax_ind.set_xticks(x_positions)
         ax_ind.set_xticklabels(np.arange(1, n_samples + 1), fontsize=max(4, fontsize - 2))
@@ -3526,6 +3608,7 @@ def plot_top_q_samples_ranked_lollipop(
     color_list, fontsize=7, legendfontsize=7,
     n_bootstrap_draws=5000,
     n_ranks=10,
+    log_phi_label=None,
 ):
     """
     Lollipop chart of top-n q-drawn samples ranked by log_q, showing log_q, log_p, and log_phi.
@@ -3537,13 +3620,17 @@ def plot_top_q_samples_ranked_lollipop(
     Three markers per rank per setting:
       - Filled circle: log q  (proposal log probability)
       - Hollow square: log p  (prior log probability)
-      - Hollow diamond: log p + β·r  (= log tilde sigma, the unnormalized target log density)
+      - Hollow diamond: log_phi_label  (defaults to log tilde sigma)
 
     Args:
         log_q_data, log_p_data, log_phi_data: List (settings) of list (seeds) of
             list (T timesteps) of list (P prompts) of 1D numpy array (n_samples,) or None.
-            log_phi_data should contain the target values (log_p + beta*r).
+            log_phi_data should contain the target values (log_p + beta*r, or normalized log sigma).
+        log_phi_label: Legend label for the diamond markers. Defaults to
+            r'$\\log \\tilde{\\sigma} = \\log p + \\beta r$'.
     """
+    if log_phi_label is None:
+        log_phi_label = r'$\log \tilde{\sigma} = \log p + \beta r$'
     n_settings = len(labels)
     rank_data, n_ranks_actual, prompt_boundaries = _collect_f_q_sample_rank_data(
         n_settings, log_q_data, log_p_data, log_phi_data, n_ranks)
@@ -3636,7 +3723,7 @@ def plot_top_q_samples_ranked_lollipop(
                                  linestyle='None', label=r'$\log p$'))
     legend_handles.append(Line2D([], [], marker='D', color='black', markersize=4,
                                  markerfacecolor='none', markeredgewidth=1.2,
-                                 linestyle='None', label=r'$\log \tilde{\sigma} = \log p + \beta r$'))
+                                 linestyle='None', label=log_phi_label))
     for setting_idx in range(n_settings):
         if not rank_data[setting_idx]:
             continue
