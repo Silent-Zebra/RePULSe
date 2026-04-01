@@ -1599,52 +1599,54 @@ def _filter_prefixes_by_start(load_prefixes_to_use, labels, prefix_start):
     return filtered_prefixes, filtered_labels
 
 
-def _load_component_per_sample_data(key, load_prefixes_to_use, load_dir="./info"):
-    """Load raw per-sample values for any per-prompt component key from v2 f_q/g_q files.
+def _convert_by_prompt_to_numpy(by_prompt):
+    """Convert a per-prompt nested list of tensors/scalars to numpy arrays.
+
+    Args:
+        by_prompt: List (T timesteps) of list (P prompts) of tensor/scalar/None.
+
+    Returns:
+        List (T) of list (P) of 1D numpy array or None.
+    """
+    seed_data = []
+    for t_data in by_prompt:
+        timestep_data = []
+        for p_data in t_data:
+            if p_data is None:
+                timestep_data.append(None)
+            elif isinstance(p_data, torch.Tensor):
+                timestep_data.append(p_data.cpu().numpy())
+            else:
+                # Scalar (e.g. from pre-reduced keys)
+                timestep_data.append(np.array([float(p_data)]))
+        seed_data.append(timestep_data)
+    return seed_data
+
+
+def _extract_component_per_sample_from_v2_data(key, all_v2_data):
+    """Extract raw per-sample values for a component key from already-loaded v2 data.
+
+    Avoids re-loading files from disk by extracting directly from all_v2_data
+    (as returned by _load_v2_f_q_g_q_files).
 
     Args:
         key: Dict key in the v2 file (e.g. 'g_q_by_prompt_fixed', 'log_q_g_q_by_prompt_fixed').
+        all_v2_data: List (experiments) of list (seeds) of v2 dicts.
 
     Returns:
         List (settings) of list (seeds) of list (T timesteps) of list (P prompts) of
         1D numpy array (n_samples,). None entries indicate missing data for that prompt.
     """
     result = []
-    for prefix_list in load_prefixes_to_use:
+    for exp_data in all_v2_data:
         setting_data = []
-        for fn in prefix_list:
-            path = os.path.join(load_dir, fn)
-            try:
-                data = torch.load(path, map_location='cpu')
-            except Exception as e:
-                print(f"Warning: failed to load {path}: {e}")
-                continue
-            if not (isinstance(data, dict) and data.get("version", 1) >= 2):
-                continue
-            by_prompt = data.get(key)
+        for v2_data in exp_data:
+            by_prompt = v2_data.get(key)
             if by_prompt is None:
                 continue
-            # Convert per-prompt tensors to numpy arrays; keep None for missing prompts
-            seed_data = []
-            for t_data in by_prompt:
-                timestep_data = []
-                for p_data in t_data:
-                    if p_data is None:
-                        timestep_data.append(None)
-                    elif isinstance(p_data, torch.Tensor):
-                        timestep_data.append(p_data.cpu().numpy())
-                    else:
-                        # Scalar: already reduced (shouldn't happen for raw files)
-                        timestep_data.append(np.array([float(p_data)]))
-                seed_data.append(timestep_data)
-            setting_data.append(seed_data)
+            setting_data.append(_convert_by_prompt_to_numpy(by_prompt))
         result.append(setting_data)
     return result
-
-
-def _load_g_q_per_sample_data(load_prefixes_to_use, load_dir="./info"):
-    """Load raw per-sample g_q values from v2 f_q/g_q files (bypassing to_scalar reduction)."""
-    return _load_component_per_sample_data("g_q_by_prompt_fixed", load_prefixes_to_use, load_dir)
 
 
 def _sanitize_for_filename(text, max_len=50):
@@ -1656,20 +1658,20 @@ def _sanitize_for_filename(text, max_len=50):
 
 
 def _load_and_reduce_v2_file(path):
-    """Load a single v2 f_q/g_q file and pre-reduce per-sample tensors to scalars.
+    """Load a single v2 f_q/g_q file and pre-reduce f_q per-sample tensors to scalars.
 
     The raw files store full (N,)-shaped tensors per prompt per timestep for f_q and g_q,
-    but the plotting code only needs the mean (scalar). Pre-reducing at load time avoids
-    keeping large tensors in memory and speeds up downstream computation.
+    but the KL plotting code only needs the mean (scalar) for f_q. Pre-reducing f_q at load
+    time avoids keeping large tensors in memory and speeds up downstream computation.
 
-    Also drops aggregated backward-compat keys that the multiprompt plotting path doesn't use.
+    g_q_by_prompt_fixed is NOT reduced because per-sample data is needed for lollipop plots.
     """
     data = torch.load(path, map_location='cpu')
     if not (isinstance(data, dict) and data.get("version", 1) >= 2):
         return None
 
-    # Pre-reduce f_q_by_prompt_fixed: list-of-lists of tensors -> list-of-lists of scalars
-    for key in ("f_q_by_prompt_fixed", "g_q_by_prompt_fixed", "f_q_by_prompt_random"):
+    # Pre-reduce f_q keys only (g_q kept raw for per-sample extraction downstream)
+    for key in ("f_q_by_prompt_fixed", "f_q_by_prompt_random"):
         if key in data:
             data[key] = [
                 [to_scalar(x) if x is not None else None for x in timestep_list]
@@ -1847,7 +1849,7 @@ def _compute_per_prompt_kl_over_time(v2_data, log_Z_by_prompt):
 
             if (t < len(g_q_by_prompt) and p < len(g_q_by_prompt[t])
                     and g_q_by_prompt[t][p] is not None):
-                kl_sigma_q[t] = g_q_by_prompt[t][p] - log_Z_p
+                kl_sigma_q[t] = to_scalar(g_q_by_prompt[t][p]) - log_Z_p
 
         result[p] = (kl_q_sigma, kl_sigma_q)
 
@@ -2027,11 +2029,16 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
         x_range = _extract_x_range(load_prefixes_to_use, global_max_T_fixed)
 
     # ---- 1. Per-prompt plots (subfolder) ----
-    if not individual_prompt_plots:
-        print("\nSkipping per-prompt KL plots (individual_prompt_plots=False)")
+    # Skip when only 1 prompt — per-prompt plots would be identical to summary plots.
+    _do_per_prompt_plots = individual_prompt_plots and len(common_prompt_indices) > 1
+    if not _do_per_prompt_plots:
+        if len(common_prompt_indices) <= 1:
+            print("\nSkipping per-prompt KL plots (only 1 prompt — identical to summary)")
+        else:
+            print("\nSkipping per-prompt KL plots (individual_prompt_plots=False)")
     else:
         print(f"\nGenerating per-prompt KL plots for {len(common_prompt_indices)} prompts...")
-    for p in common_prompt_indices if individual_prompt_plots else []:
+    for p in common_prompt_indices if _do_per_prompt_plots else []:
         prompt_text = prompt_texts[p]
         sanitized = _sanitize_for_filename(prompt_text)
 
@@ -2162,45 +2169,50 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
     # Different from the time-avg frontier in 2b: that one averages across prompts at each timestep
     # first, then averages over time. This one averages over time per prompt first, then averages
     # across prompts — giving equal weight to each prompt regardless of how many non-NaN timesteps it has.
-    print("\nGenerating 'average of per-prompt time-averages' frontier...")
-    avg_of_avg_results = []
-    for exp_i in range(len(all_kl_data)):
-        seed_data = []
-        for seed_j in range(len(all_kl_data[exp_i])):
-            kl_by_prompt = all_kl_data[exp_i][seed_j]
-            per_prompt_time_avg_q_sigma = []
-            per_prompt_time_avg_sigma_q = []
-            for p in common_prompt_indices:
-                if p not in kl_by_prompt:
-                    continue
-                kl_q_sigma_arr, kl_sigma_q_arr = kl_by_prompt[p]
-                avg_q_sigma = np.nanmean(kl_q_sigma_arr)
-                avg_sigma_q = np.nanmean(kl_sigma_q_arr)
-                if not np.isnan(avg_q_sigma):
-                    per_prompt_time_avg_q_sigma.append(avg_q_sigma)
-                if not np.isnan(avg_sigma_q):
-                    per_prompt_time_avg_sigma_q.append(avg_sigma_q)
-            if per_prompt_time_avg_q_sigma and per_prompt_time_avg_sigma_q:
-                seed_data.append((
-                    np.array([np.mean(per_prompt_time_avg_sigma_q)]),
-                    np.array([np.mean(per_prompt_time_avg_q_sigma)]),
-                ))
-        avg_of_avg_results.append(seed_data)
-
-    if any(len(sd) > 0 for sd in avg_of_avg_results):
-        make_frontier_exact_kl_bootstrap(
-            xlabel=r"KL($\sigma$|q)", ylabel=r"KL(q|$\sigma$)",
-            figname=os.path.join(per_prompt_dir, "frontier_kl_avg_of_prompt_avgs.pdf"),
-            labels=labels, results_list=avg_of_avg_results,
-            color_list=semantic_colors, marker_list=semantic_markers,
-            aggregate_seeds=True, fontsize=fontsize,
-            legendfontsize=legendfontsize if legendfontsize is not None else fontsize,
-        )
+    # Skip when only 1 prompt — identical to the time-avg frontier in 2b.
+    if len(common_prompt_indices) <= 1:
+        print("\nSkipping 'average of per-prompt time-averages' frontier (only 1 prompt — identical to 2b)")
     else:
-        print("Warning: No data for 'average of per-prompt time-averages' frontier")
+        print("\nGenerating 'average of per-prompt time-averages' frontier...")
+        avg_of_avg_results = []
+        for exp_i in range(len(all_kl_data)):
+            seed_data = []
+            for seed_j in range(len(all_kl_data[exp_i])):
+                kl_by_prompt = all_kl_data[exp_i][seed_j]
+                per_prompt_time_avg_q_sigma = []
+                per_prompt_time_avg_sigma_q = []
+                for p in common_prompt_indices:
+                    if p not in kl_by_prompt:
+                        continue
+                    kl_q_sigma_arr, kl_sigma_q_arr = kl_by_prompt[p]
+                    avg_q_sigma = np.nanmean(kl_q_sigma_arr)
+                    avg_sigma_q = np.nanmean(kl_sigma_q_arr)
+                    if not np.isnan(avg_q_sigma):
+                        per_prompt_time_avg_q_sigma.append(avg_q_sigma)
+                    if not np.isnan(avg_sigma_q):
+                        per_prompt_time_avg_sigma_q.append(avg_sigma_q)
+                if per_prompt_time_avg_q_sigma and per_prompt_time_avg_sigma_q:
+                    seed_data.append((
+                        np.array([np.mean(per_prompt_time_avg_sigma_q)]),
+                        np.array([np.mean(per_prompt_time_avg_q_sigma)]),
+                    ))
+            avg_of_avg_results.append(seed_data)
+
+        if any(len(sd) > 0 for sd in avg_of_avg_results):
+            make_frontier_exact_kl_bootstrap(
+                xlabel=r"KL($\sigma$|q)", ylabel=r"KL(q|$\sigma$)",
+                figname=os.path.join(per_prompt_dir, "frontier_kl_avg_of_prompt_avgs.pdf"),
+                labels=labels, results_list=avg_of_avg_results,
+                color_list=semantic_colors, marker_list=semantic_markers,
+                aggregate_seeds=True, fontsize=fontsize,
+                legendfontsize=legendfontsize if legendfontsize is not None else fontsize,
+            )
+        else:
+            print("Warning: No data for 'average of per-prompt time-averages' frontier")
 
     # ---- 2c. Per-prompt frontier plots ----
-    if individual_prompt_plots:
+    # Skip when only 1 prompt — identical to summary frontier plots in 2b.
+    if _do_per_prompt_plots:
         print(f"\nGenerating per-prompt frontier plots for {len(common_prompt_indices)} prompts...")
         for p in common_prompt_indices:
             per_prompt_kl_results = []
@@ -2232,6 +2244,8 @@ def plot_f_q_g_q_kl_divergences_multiprompt(
                 skip_combined_frontier=True,
                 skip_time_avg_halves=True,
             )
+    elif len(common_prompt_indices) <= 1:
+        print("\nSkipping per-prompt frontier plots (only 1 prompt — identical to summary)")
     else:
         print("\nSkipping per-prompt frontier plots (individual_prompt_plots=False)")
 
@@ -4381,6 +4395,7 @@ tokenizer_name = "distilbert/distilgpt2"
 
 load_prefixes_to_use = [
 # for x in $(ls info/exploretoyrlhfmulti03v5longer  | grep analy | grep b-30 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+
 make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-30.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs200_scc_al1e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
 # make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-30.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs200_scc_al1e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
 make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_2_l1_kl0.0_b-30.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs200_scc_al1e-05_bl0.0_ppq_tb5_s2", 1, 10),
@@ -4538,16 +4553,18 @@ load_prefixes_to_use = [
 make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-0.3_hlr_a3.0rt3.0_b-0.3_ppq_ctl_ep1_e1_he4_scc_al0.0_bl1e-07_ppq_tb80_s1", 1, 10),
 make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-0.3_hlr_a3.0rt3.0_b-0.3_ppq_ctl_ep1_e1_he4_scc_al0.0_bl3e-07_ppq_tb80_s1", 1, 10),
 make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-1.0_hlr_a1.0rt1.0_b-1.0_ppq_ctl_ep1_e1_he4_scc_al0.0_bl1e-07_ppq_tb80_s1", 1, 10),
+make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf0.3_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
 make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
 make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
 make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+
 ]
 threshold = -7
-figname_modifier = "repulselen100_rlhfmultikl20v3_03-24_v4"
+figname_modifier = "repulselen100_rlhfmultikl20v3_03-24_v5"
 target_samples_path = None
 individual_prompt_plots = False
 random_f_q_ylim_low = None
-n_frontiers = 2
+n_frontiers = 4
 legendfontsize = 4
 
 
@@ -4556,19 +4573,63 @@ legendfontsize = 4
 load_prefixes_to_use = [
 # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/ittoxmultitest |  grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
 make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al1e-05_bl0.0_ppq_tb250_s1", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-05_bl0.0_ppq_tb250_s1", 1, 10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s1", 1, 10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_20misi1_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he4_scc_al3e-05_bl0.0_ppq_tb250_s1", 1, 10),
+
 
 ]
 threshold = -7
-figname_modifier = "probinflen20_ittoxmulti_03-30_v2"
+figname_modifier = "probinflen20_ittoxmulti_03-30_v3"
 target_samples_path = None
 individual_prompt_plots = False
 random_f_q_ylim_low = None
 n_frontiers = 4
 legendfontsize = 4
+n_top_tokens = 1
 
 
+load_prefixes_to_use = [
+# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/ittoxmultitesttoy3 |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s1", 1, 10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al1e-05_bl0.0_ppq_tb200_s1", 1, 10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl0.0_ppq_cf0.5_cd64_cfr0.001_cfsn_af_fo_tb200_s1", 1, 10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc10.0_Sm13In_To_miprAL_l20_kl0.0_b-20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he10_fs100_scc_al3e-05_bl0.0_ppq_tb200_s1", 1, 10),
+
+]
+threshold = -7
+figname_modifier = "probinflen20_ittoxmultitesttoy3_03-31"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 4
+legendfontsize = 4
+n_top_tokens = 1
+
+
+
+
+load_prefixes_to_use = [
+# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/toy2p2len4/ | grep f_q | grep _s3); do echo make_list\(\"$x\", 1,10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_cf30.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_tb5_s3", 1,10),
+
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al1e-05_bl0.0_ppq_tb5_s3", 1,10),
+make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rc9.0_di_To_2_l4_kl0.0_b-10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-06_bl0.0_ppq_tb5_s3", 1,10),
+
+]
+figname_modifier = "probinflen4_toytox_2p2_b10_03_31_v7"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 4
+legendfontsize = 4
+n_top_tokens = 5
 
 
 
@@ -4703,9 +4764,17 @@ elif use_f_q_g_q:
         print(f"Failed to generate bonus plot: {e}")
         traceback.print_exc()
 
+    # Extract per-sample component data from already-loaded v2 data (avoids re-loading files)
+    # Cache extractions to avoid redundant iteration over all_v2_data
+    _component_cache = {}
+    def _get_component(key):
+        if key not in _component_cache:
+            _component_cache[key] = _extract_component_per_sample_from_v2_data(key, all_v2_data)
+        return _component_cache[key]
+
     # g_q lollipop: final-timestep g_q per target sequence, one lollipop per setting
     try:
-        g_q_per_sample = _load_g_q_per_sample_data(load_prefixes_to_use)
+        g_q_per_sample = _get_component("g_q_by_prompt_fixed")
         has_g_q = any(seed_data for setting_data in g_q_per_sample for seed_data in setting_data)
         if has_g_q:
             plot_g_q_lollipop(
@@ -4719,8 +4788,8 @@ elif use_f_q_g_q:
 
     # Component lollipop A: log q vs log p (proposal vs prior) on target sequences
     try:
-        log_q_tgt = _load_component_per_sample_data("log_q_g_q_by_prompt_fixed", load_prefixes_to_use)
-        log_p_tgt = _load_component_per_sample_data("log_p_g_q_by_prompt_fixed", load_prefixes_to_use)
+        log_q_tgt = _get_component("log_q_g_q_by_prompt_fixed")
+        log_p_tgt = _get_component("log_p_g_q_by_prompt_fixed")
         has_data = any(seed_data for setting_data in log_q_tgt for seed_data in setting_data)
         if has_data:
             plot_two_series_lollipop(
@@ -4731,6 +4800,7 @@ elif use_f_q_g_q:
                 series1_data=log_q_tgt,
                 series2_data=log_p_tgt,
                 color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+                figname_individual=os.path.join(_output_dir, "sampling_target_samples_logq_logp_lollipop_individual.pdf"),
             )
     except Exception as e:
         print(f"Failed to generate log q vs log p lollipop plot: {e}")
@@ -4738,18 +4808,19 @@ elif use_f_q_g_q:
 
     # Component lollipop B: log q vs log p + beta*r (proposal vs unnormalized target density)
     try:
-        log_q_tgt2 = _load_component_per_sample_data("log_q_g_q_by_prompt_fixed", load_prefixes_to_use)
-        target_tgt = _load_component_per_sample_data("target_g_q_by_prompt_fixed", load_prefixes_to_use)
-        has_data = any(seed_data for setting_data in log_q_tgt2 for seed_data in setting_data)
+        target_tgt = _get_component("target_g_q_by_prompt_fixed")
+        # Reuse log_q_tgt from lollipop A (same key: log_q_g_q_by_prompt_fixed)
+        has_data = any(seed_data for setting_data in log_q_tgt for seed_data in setting_data)
         if has_data:
             plot_two_series_lollipop(
                 figname=os.path.join(_output_dir, "sampling_target_samples_logq_logtildesigma_lollipop.pdf"),
                 labels=labels,
                 series1_name=r'$\log q$',
                 series2_name=r'$\log \tilde{\sigma} = \log p + \beta r$',
-                series1_data=log_q_tgt2,
+                series1_data=log_q_tgt,
                 series2_data=target_tgt,
                 color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+                figname_individual=os.path.join(_output_dir, "sampling_target_samples_logq_logtildesigma_lollipop_individual.pdf"),
             )
     except Exception as e:
         print(f"Failed to generate log q vs log tilde sigma lollipop plot: {e}")
@@ -4757,9 +4828,9 @@ elif use_f_q_g_q:
 
     # Top-q samples ranked lollipop: q-drawn samples sorted by log_q, showing log_q / log_p / log_tilde_sigma
     try:
-        log_q_fq = _load_component_per_sample_data("log_q_by_prompt_fixed", load_prefixes_to_use)
-        log_p_fq = _load_component_per_sample_data("log_p_by_prompt_fixed", load_prefixes_to_use)
-        target_fq = _load_component_per_sample_data("target_by_prompt_fixed", load_prefixes_to_use)
+        log_q_fq = _get_component("log_q_by_prompt_fixed")
+        log_p_fq = _get_component("log_p_by_prompt_fixed")
+        target_fq = _get_component("target_by_prompt_fixed")
         has_data = any(seed_data for setting_data in log_q_fq for seed_data in setting_data)
         if has_data:
             plot_top_q_samples_ranked_lollipop(
