@@ -1582,79 +1582,67 @@ def train(args):
 
                 # Gather f_q/g_q samples across ranks (each rank has independent MC samples).
                 # All gather calls are collective ops — all ranks must participate.
-                if args.new_custom_single_prompt:
-                    # Single-prompt: gather aggregate and recompute IWAE bounds from all gathered samples.
-                    g_f_q, g_g_q, g_iwae_lbs, g_iwae_ubs = _distributed_gather_f_q_g_q_lists(
-                        strategy, f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list)
-                else:
-                    # Multi-prompt: gather per-prompt data, then derive aggregate from it.
-                    # No separate aggregate-level gather — avoids duplicate communication over the same data.
-                    g_f_q_bp, g_g_q_bp, g_iwae_lbs_bp, g_iwae_ubs_bp = _distributed_gather_f_q_g_q_by_prompt_lists(
-                        strategy, f_q_by_prompt_list_fixed, g_q_by_prompt_list_fixed,
-                        iwae_lbs_by_prompt_list_fixed, iwae_ubs_by_prompt_list_fixed)
-                    # Gather per-sample component lists (same structure, no recomputation needed)
-                    g_log_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_by_prompt_list_fixed)
-                    g_log_p_bp = _distributed_gather_by_prompt_list(strategy, log_p_by_prompt_list_fixed)
-                    g_reward_bp = _distributed_gather_by_prompt_list(strategy, reward_by_prompt_list_fixed)
-                    g_target_bp = _distributed_gather_by_prompt_list(strategy, target_by_prompt_list_fixed)
-                    g_log_q_g_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_g_q_by_prompt_list_fixed)
-                    g_log_p_g_q_bp = _distributed_gather_by_prompt_list(strategy, log_p_g_q_by_prompt_list_fixed)
-                    g_reward_g_q_bp = _distributed_gather_by_prompt_list(strategy, reward_g_q_by_prompt_list_fixed)
-                    g_target_g_q_bp = _distributed_gather_by_prompt_list(strategy, target_g_q_by_prompt_list_fixed)
-                    # Random set: f_q only, gather per-prompt tensors
-                    g_f_q_bp_random = []
-                    if f_q_by_prompt_list_random:
-                        for step_data in f_q_by_prompt_list_random:
-                            g_f_q_bp_random.append(_distributed_all_gather_tensor_list(strategy, step_data))
-                    # Reconstruct aggregate lists from per-prompt gathered data (local — no extra communication).
-                    # g_f_q[t] / g_g_q[t]: concatenation of per-prompt gathered tensors at timestep t.
-                    # g_iwae_lbs[t] / g_iwae_ubs[t]: 1-D tensor of per-prompt scalar IWAE bounds at timestep t.
-                    # to_scalar() in plotting takes the mean, giving the average per-prompt bound.
-                    g_f_q = [torch.cat([f for f in step if f is not None]) if any(f is not None for f in step) else None
-                             for step in g_f_q_bp]
-                    g_g_q = [torch.cat([g for g in step if g is not None]) if any(g is not None for g in step) else None
-                             for step in g_g_q_bp]
-                    g_iwae_lbs = [torch.tensor([lb for lb in step if lb is not None]) if any(lb is not None for lb in step) else None
-                                  for step in g_iwae_lbs_bp]
-                    g_iwae_ubs = [torch.tensor([ub for ub in step if ub is not None]) if any(ub is not None for ub in step) else None
-                                  for step in g_iwae_ubs_bp]
+                # Unified path: always gather per-prompt data (works for single-prompt too).
+                g_f_q_bp, g_g_q_bp, g_iwae_lbs_bp, g_iwae_ubs_bp = _distributed_gather_f_q_g_q_by_prompt_lists(
+                    strategy, f_q_by_prompt_list_fixed, g_q_by_prompt_list_fixed,
+                    iwae_lbs_by_prompt_list_fixed, iwae_ubs_by_prompt_list_fixed)
+                # Gather per-sample component lists (same structure, no recomputation needed)
+                g_log_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_by_prompt_list_fixed)
+                g_log_p_bp = _distributed_gather_by_prompt_list(strategy, log_p_by_prompt_list_fixed)
+                g_reward_bp = _distributed_gather_by_prompt_list(strategy, reward_by_prompt_list_fixed)
+                g_target_bp = _distributed_gather_by_prompt_list(strategy, target_by_prompt_list_fixed)
+                g_log_q_g_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_g_q_by_prompt_list_fixed)
+                g_log_p_g_q_bp = _distributed_gather_by_prompt_list(strategy, log_p_g_q_by_prompt_list_fixed)
+                g_reward_g_q_bp = _distributed_gather_by_prompt_list(strategy, reward_g_q_by_prompt_list_fixed)
+                g_target_g_q_bp = _distributed_gather_by_prompt_list(strategy, target_g_q_by_prompt_list_fixed)
+                # Random set: f_q only, gather per-prompt tensors
+                g_f_q_bp_random = []
+                if f_q_by_prompt_list_random:
+                    for step_data in f_q_by_prompt_list_random:
+                        g_f_q_bp_random.append(_distributed_all_gather_tensor_list(strategy, step_data))
+                # Reconstruct aggregate lists from per-prompt gathered data (local — no extra communication).
+                # g_f_q[t] / g_g_q[t]: concatenation of per-prompt gathered tensors at timestep t.
+                # g_iwae_lbs[t] / g_iwae_ubs[t]: 1-D tensor of per-prompt scalar IWAE bounds at timestep t.
+                # to_scalar() in plotting takes the mean, giving the average per-prompt bound.
+                g_f_q = [torch.cat([f for f in step if f is not None]) if any(f is not None for f in step) else None
+                         for step in g_f_q_bp]
+                g_g_q = [torch.cat([g for g in step if g is not None]) if any(g is not None for g in step) else None
+                         for step in g_g_q_bp]
+                g_iwae_lbs = [torch.tensor([lb for lb in step if lb is not None]) if any(lb is not None for lb in step) else None
+                              for step in g_iwae_lbs_bp]
+                g_iwae_ubs = [torch.tensor([ub for ub in step if ub is not None]) if any(ub is not None for ub in step) else None
+                              for step in g_iwae_ubs_bp]
 
                 if strategy.is_rank_0():
                     save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
-                    if args.new_custom_single_prompt:
-                        # v1 tuple format (backward compat)
-                        target_to_save = (
-                            g_f_q, g_g_q, g_iwae_lbs, g_iwae_ubs
-                        )
-                    else:
-                        # v2 dict format with per-prompt breakdowns
-                        target_to_save = {
-                            "version": 2,
-                            "prompt_texts_fixed": eval_prompts_fixed,
-                            "prompt_texts_random_per_timepoint": prompt_texts_random_per_timepoint,
-                            # Fixed set (per-prompt):
-                            "f_q_by_prompt_fixed": g_f_q_bp,
-                            "g_q_by_prompt_fixed": g_g_q_bp,
-                            "iwae_lbs_by_prompt_fixed": g_iwae_lbs_bp,
-                            "iwae_ubs_by_prompt_fixed": g_iwae_ubs_bp,
-                            # Per-sample components for f_q samples (fixed set):
-                            "log_q_by_prompt_fixed": g_log_q_bp,
-                            "log_p_by_prompt_fixed": g_log_p_bp,
-                            "reward_by_prompt_fixed": g_reward_bp,
-                            "target_by_prompt_fixed": g_target_bp,
-                            # Per-sample components for g_q target samples (fixed set):
-                            "log_q_g_q_by_prompt_fixed": g_log_q_g_q_bp,
-                            "log_p_g_q_by_prompt_fixed": g_log_p_g_q_bp,
-                            "reward_g_q_by_prompt_fixed": g_reward_g_q_bp,
-                            "target_g_q_by_prompt_fixed": g_target_g_q_bp,
-                            # Random set (per-prompt):
-                            "f_q_by_prompt_random": g_f_q_bp_random if g_f_q_bp_random else f_q_by_prompt_list_random,
-                            # Aggregated (backward compat):
-                            "f_q_estimates_list": g_f_q,
-                            "g_q_estimates_list": g_g_q,
-                            "iwae_lbs_list": g_iwae_lbs,
-                            "iwae_ubs_list": g_iwae_ubs,
-                        }
+                    # Always save v2 dict format with per-prompt breakdowns
+                    target_to_save = {
+                        "version": 2,
+                        "prompt_texts_fixed": eval_prompts_fixed,
+                        "prompt_texts_random_per_timepoint": prompt_texts_random_per_timepoint,
+                        # Fixed set (per-prompt):
+                        "f_q_by_prompt_fixed": g_f_q_bp,
+                        "g_q_by_prompt_fixed": g_g_q_bp,
+                        "iwae_lbs_by_prompt_fixed": g_iwae_lbs_bp,
+                        "iwae_ubs_by_prompt_fixed": g_iwae_ubs_bp,
+                        # Per-sample components for f_q samples (fixed set):
+                        "log_q_by_prompt_fixed": g_log_q_bp,
+                        "log_p_by_prompt_fixed": g_log_p_bp,
+                        "reward_by_prompt_fixed": g_reward_bp,
+                        "target_by_prompt_fixed": g_target_bp,
+                        # Per-sample components for g_q target samples (fixed set):
+                        "log_q_g_q_by_prompt_fixed": g_log_q_g_q_bp,
+                        "log_p_g_q_by_prompt_fixed": g_log_p_g_q_bp,
+                        "reward_g_q_by_prompt_fixed": g_reward_g_q_bp,
+                        "target_g_q_by_prompt_fixed": g_target_g_q_bp,
+                        # Random set (per-prompt):
+                        "f_q_by_prompt_random": g_f_q_bp_random if g_f_q_bp_random else f_q_by_prompt_list_random,
+                        # Aggregated (backward compat):
+                        "f_q_estimates_list": g_f_q,
+                        "g_q_estimates_list": g_g_q,
+                        "iwae_lbs_list": g_iwae_lbs,
+                        "iwae_ubs_list": g_iwae_ubs,
+                    }
                     torch.save(target_to_save, save_str)
 
                 # Save mixture eval results separately (if enabled and non-empty)
@@ -3860,8 +3848,6 @@ def _run_per_fit_step_heldout_and_f_q(
     import random
     from openrlhf.utils.utils import print_timestamp
 
-    is_single_prompt = args.new_custom_single_prompt
-
     if getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step":
         print_timestamp("per-fit-step eval: start heldout evaluation")
         # For heldout sampling, use the first prompt for now (multi-prompt heldout looping is future work)
@@ -3885,126 +3871,92 @@ def _run_per_fit_step_heldout_and_f_q(
 
     if getattr(args, "f_q_g_q_eval", False):
         print_timestamp("per-fit-step eval: start f_q_g_q evaluation")
-        if is_single_prompt:
-            # Single-prompt: use original f_q_g_q_evaluation (backward compat)
-            single_prompt_target = eval_target_samples_fixed[0] if eval_target_samples_fixed else None
-            if single_prompt_target is not None:
-                f_q_g_q_evaluation(
-                    harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-                    f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list,
-                    eval_prompts_fixed[0], single_prompt_target,
-                )
-                f_q_over_time_list.append(f_q_estimates_list[-1].cpu())
-
-                # Print target sample text (up to 5 samples)
-                n_print = min(5, single_prompt_target.shape[0])
-                target_texts = tokenizer.batch_decode(single_prompt_target[:n_print], skip_special_tokens=True)
-                print(f"Target samples text ({n_print}/{single_prompt_target.shape[0]} shown):")
-                for i, txt in enumerate(target_texts):
-                    print(f"  [{i}] {txt}")
-
-                # Mixture proposal eval (only if --mixture_eval is explicitly enabled)
-                if (getattr(args, 'mixture_eval', False)
-                        and f_q_mix_estimates_list is not None
-                        and hasattr(harmlessness_trainer, 'q_best_model')
-                        and harmlessness_trainer.q_best_model is not None):
-                    f_q_g_q_evaluation_mixture(
-                        harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-                        f_q_mix_estimates_list, g_q_mix_estimates_list,
-                        iwae_mix_lbs_list, iwae_mix_ubs_list,
-                        eval_prompts_fixed[0], single_prompt_target,
-                        harmlessness_trainer.q_best_model,
-                        harmlessness_trainer.log_w_current, harmlessness_trainer.log_w_best,
-                    )
-            else:
-                # No target samples (e.g., trajectory replay without rejection samples for this step).
-                # Compute f_q only; skip g_q/IWAE (which require target samples).
-                f_qs, *_ = f_q_estimate(
-                    harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg,
-                    args, eval_prompts_fixed[0],
-                )
-                f_q_estimates_list.append(f_qs)
-                f_q_over_time_list.append(f_qs.cpu())
-                # Append None to g_q/IWAE lists for consistent indexing
-                g_q_estimates_list.append(None)
-                iwae_lbs_list.append(None)
-                iwae_ubs_list.append(None)
+        # Unified path: always use multi-prompt eval (works for single-prompt too,
+        # since eval_prompts_fixed is always a list, even with 1 element).
+        result_fixed = f_q_g_q_evaluation_multi_prompt(
+            harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+            eval_prompts_fixed, eval_target_samples_fixed,
+        )
+        # Append per-prompt results
+        if f_q_by_prompt_list_fixed is not None:
+            f_q_by_prompt_list_fixed.append(result_fixed["f_q_by_prompt"])
+        if g_q_by_prompt_list_fixed is not None:
+            g_q_by_prompt_list_fixed.append(result_fixed["g_q_by_prompt"])
+        if iwae_lbs_by_prompt_list_fixed is not None:
+            iwae_lbs_by_prompt_list_fixed.append(result_fixed["iwae_lbs_by_prompt"])
+        if iwae_ubs_by_prompt_list_fixed is not None:
+            iwae_ubs_by_prompt_list_fixed.append(result_fixed["iwae_ubs_by_prompt"])
+        # Append per-sample component results
+        if log_q_by_prompt_list_fixed is not None:
+            log_q_by_prompt_list_fixed.append(result_fixed["log_q_by_prompt"])
+        if log_p_by_prompt_list_fixed is not None:
+            log_p_by_prompt_list_fixed.append(result_fixed["log_p_by_prompt"])
+        if reward_by_prompt_list_fixed is not None:
+            reward_by_prompt_list_fixed.append(result_fixed["reward_by_prompt"])
+        if target_by_prompt_list_fixed is not None:
+            target_by_prompt_list_fixed.append(result_fixed["target_by_prompt"])
+        if log_q_g_q_by_prompt_list_fixed is not None:
+            log_q_g_q_by_prompt_list_fixed.append(result_fixed["log_q_g_q_by_prompt"])
+        if log_p_g_q_by_prompt_list_fixed is not None:
+            log_p_g_q_by_prompt_list_fixed.append(result_fixed["log_p_g_q_by_prompt"])
+        if reward_g_q_by_prompt_list_fixed is not None:
+            reward_g_q_by_prompt_list_fixed.append(result_fixed["reward_g_q_by_prompt"])
+        if target_g_q_by_prompt_list_fixed is not None:
+            target_g_q_by_prompt_list_fixed.append(result_fixed["target_g_q_by_prompt"])
+        # Append aggregated results (backward compat lists).
+        # Always append (even None) to keep lists aligned with f_q_estimates_list,
+        # so that index t in each list corresponds to the same eval step.
+        f_q_agg = result_fixed["f_q_agg"]
+        if f_q_agg is not None:
+            f_q_estimates_list.append(f_q_agg.cpu())
+            f_q_over_time_list.append(f_q_agg.cpu())
         else:
-            # Multi-prompt: Set A (fixed prompts)
-            result_fixed = f_q_g_q_evaluation_multi_prompt(
+            f_q_estimates_list.append(None)
+            f_q_over_time_list.append(None)
+        g_q_agg = result_fixed["g_q_agg"]
+        g_q_estimates_list.append(g_q_agg.cpu() if g_q_agg is not None else None)
+        iwae_lbs_agg = result_fixed["iwae_lbs_agg"]
+        iwae_lbs_list.append(iwae_lbs_agg)
+        iwae_ubs_agg = result_fixed["iwae_ubs_agg"]
+        iwae_ubs_list.append(iwae_ubs_agg)
+
+        # Print target sample text (up to 5 samples per prompt)
+        if eval_target_samples_fixed is not None:
+            for prompt_i, target_samples in enumerate(eval_target_samples_fixed):
+                if target_samples is not None and target_samples.numel() > 0:
+                    n_print = min(5, target_samples.shape[0])
+                    target_texts = tokenizer.batch_decode(target_samples[:n_print], skip_special_tokens=True)
+                    print(f"Target samples text for prompt {prompt_i} ({n_print}/{target_samples.shape[0]} shown):")
+                    for i, txt in enumerate(target_texts):
+                        print(f"  [{i}] {txt}")
+
+        print_timestamp("per-fit-step eval: end f_q_g_q evaluation (fixed set A)")
+        # Set B (random prompts) - f_q only, no g_q/IWAE
+        if eval_prompts_random_source is not None and f_q_by_prompt_list_random is not None:
+            n = n_eval_prompts if n_eval_prompts is not None else len(eval_prompts_random_source)
+            random_prompts = random.sample(eval_prompts_random_source, min(n, len(eval_prompts_random_source)))
+            if prompt_texts_random_per_timepoint is not None:
+                prompt_texts_random_per_timepoint.append(random_prompts)
+            result_random = f_q_g_q_evaluation_multi_prompt(
                 harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-                eval_prompts_fixed, eval_target_samples_fixed,
+                random_prompts, None,  # No target samples for random set
             )
-            # Append per-prompt results
-            if f_q_by_prompt_list_fixed is not None:
-                f_q_by_prompt_list_fixed.append(result_fixed["f_q_by_prompt"])
-            if g_q_by_prompt_list_fixed is not None:
-                g_q_by_prompt_list_fixed.append(result_fixed["g_q_by_prompt"])
-            if iwae_lbs_by_prompt_list_fixed is not None:
-                iwae_lbs_by_prompt_list_fixed.append(result_fixed["iwae_lbs_by_prompt"])
-            if iwae_ubs_by_prompt_list_fixed is not None:
-                iwae_ubs_by_prompt_list_fixed.append(result_fixed["iwae_ubs_by_prompt"])
-            # Append per-sample component results
-            if log_q_by_prompt_list_fixed is not None:
-                log_q_by_prompt_list_fixed.append(result_fixed["log_q_by_prompt"])
-            if log_p_by_prompt_list_fixed is not None:
-                log_p_by_prompt_list_fixed.append(result_fixed["log_p_by_prompt"])
-            if reward_by_prompt_list_fixed is not None:
-                reward_by_prompt_list_fixed.append(result_fixed["reward_by_prompt"])
-            if target_by_prompt_list_fixed is not None:
-                target_by_prompt_list_fixed.append(result_fixed["target_by_prompt"])
-            if log_q_g_q_by_prompt_list_fixed is not None:
-                log_q_g_q_by_prompt_list_fixed.append(result_fixed["log_q_g_q_by_prompt"])
-            if log_p_g_q_by_prompt_list_fixed is not None:
-                log_p_g_q_by_prompt_list_fixed.append(result_fixed["log_p_g_q_by_prompt"])
-            if reward_g_q_by_prompt_list_fixed is not None:
-                reward_g_q_by_prompt_list_fixed.append(result_fixed["reward_g_q_by_prompt"])
-            if target_g_q_by_prompt_list_fixed is not None:
-                target_g_q_by_prompt_list_fixed.append(result_fixed["target_g_q_by_prompt"])
-            # Append aggregated results (backward compat lists).
-            # Always append (even None) to keep lists aligned with f_q_estimates_list,
-            # so that index t in each list corresponds to the same eval step.
-            f_q_agg = result_fixed["f_q_agg"]
-            if f_q_agg is not None:
-                f_q_estimates_list.append(f_q_agg.cpu())
-                f_q_over_time_list.append(f_q_agg.cpu())
-            else:
-                f_q_estimates_list.append(None)
-                f_q_over_time_list.append(None)
-            g_q_agg = result_fixed["g_q_agg"]
-            g_q_estimates_list.append(g_q_agg.cpu() if g_q_agg is not None else None)
-            iwae_lbs_agg = result_fixed["iwae_lbs_agg"]
-            iwae_lbs_list.append(iwae_lbs_agg)
-            iwae_ubs_agg = result_fixed["iwae_ubs_agg"]
-            iwae_ubs_list.append(iwae_ubs_agg)
+            f_q_by_prompt_list_random.append(result_random["f_q_by_prompt"])
 
-            print_timestamp("per-fit-step eval: end f_q_g_q multi-prompt (fixed set A)")
-            # Set B (random prompts) - f_q only, no g_q/IWAE
-            if eval_prompts_random_source is not None and f_q_by_prompt_list_random is not None:
-                n = n_eval_prompts if n_eval_prompts is not None else len(eval_prompts_random_source)
-                random_prompts = random.sample(eval_prompts_random_source, min(n, len(eval_prompts_random_source)))
-                if prompt_texts_random_per_timepoint is not None:
-                    prompt_texts_random_per_timepoint.append(random_prompts)
-                result_random = f_q_g_q_evaluation_multi_prompt(
-                    harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-                    random_prompts, None,  # No target samples for random set
-                )
-                f_q_by_prompt_list_random.append(result_random["f_q_by_prompt"])
-
-            # Mixture proposal eval (only if --mixture_eval is explicitly enabled) — multi-prompt
-            if (getattr(args, 'mixture_eval', False)
-                    and f_q_mix_estimates_list is not None
-                    and hasattr(harmlessness_trainer, 'q_best_model')
-                    and harmlessness_trainer.q_best_model is not None):
-                print_timestamp("per-fit-step eval: start mixture proposal eval")
-                f_q_g_q_evaluation_mixture_multi_prompt(
-                    harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-                    f_q_mix_estimates_list, g_q_mix_estimates_list,
-                    iwae_mix_lbs_list, iwae_mix_ubs_list,
-                    eval_prompts_fixed, eval_target_samples_fixed,
-                    harmlessness_trainer.q_best_model,
-                    harmlessness_trainer.log_w_current, harmlessness_trainer.log_w_best,
-                )
+        # Mixture proposal eval (only if --mixture_eval is explicitly enabled)
+        if (getattr(args, 'mixture_eval', False)
+                and f_q_mix_estimates_list is not None
+                and hasattr(harmlessness_trainer, 'q_best_model')
+                and harmlessness_trainer.q_best_model is not None):
+            print_timestamp("per-fit-step eval: start mixture proposal eval")
+            f_q_g_q_evaluation_mixture_multi_prompt(
+                harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+                f_q_mix_estimates_list, g_q_mix_estimates_list,
+                iwae_mix_lbs_list, iwae_mix_ubs_list,
+                eval_prompts_fixed, eval_target_samples_fixed,
+                harmlessness_trainer.q_best_model,
+                harmlessness_trainer.log_w_current, harmlessness_trainer.log_w_best,
+            )
     else:
         # No f_q_g_q_eval, just do f_q_estimate on the first prompt
         prompt_for_f_q = eval_prompts_fixed[0] if eval_prompts_fixed else None
