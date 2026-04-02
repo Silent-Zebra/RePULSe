@@ -1285,13 +1285,15 @@ def train(args):
         def mid_fit_callback(n_new_prompts):
             _prompts_since_last_eval[0] += n_new_prompts
             if _prompts_since_last_eval[0] >= f_q_eval_interval:
-                # Snapshot SIS weights and bonus at each eval point (gives a time series
-                # aligned with f_q/g_q evaluations, rather than once per outer fit_step)
+                # Snapshot SIS weights, bonus, and token counts at each eval point (gives a
+                # time series aligned with f_q/g_q evaluations, rather than once per outer fit_step)
                 if (hasattr(harmlessness_trainer, 'latest_sis_weights')
                         and harmlessness_trainer.latest_sis_weights is not None):
                     sis_weights_history.append(harmlessness_trainer.latest_sis_weights.clone())
                 if harmlessness_trainer.latest_bonus_val is not None:
                     bonus_history.append(harmlessness_trainer.latest_bonus_val)
+                if harmlessness_trainer.cumulative_q_sample_counts is not None:
+                    token_counts_history.append(harmlessness_trainer.cumulative_q_sample_counts.clone())
                 strategy.print(f"[mid-fit eval] {_prompts_since_last_eval[0]} prompts "
                                f"(>= {f_q_eval_interval}), running f_q/g_q evaluation...")
                 _run_per_fit_step_heldout_and_f_q(
