@@ -26,6 +26,14 @@ def print_timestamp(label):
     # _last_timestamp[0] = t
     pass
 
+def tensor_summary(label: str, t: torch.Tensor, n_show: int = 5) -> str:
+    """Return a concise summary string for a tensor: first n_show values + mean/min/max."""
+    n = min(n_show, t.numel())
+    vals = t.flatten()[:n].tolist()
+    return (f"{label} (showing {n}/{t.numel()}): {vals}  "
+            f"mean: {t.mean().item():.4f}, min: {t.min().item():.4f}, max: {t.max().item():.4f}")
+
+
 from openrlhf.models import Actor
 from openrlhf.models.actor_custom import ActorCustom
 

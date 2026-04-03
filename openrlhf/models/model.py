@@ -15,6 +15,7 @@ from transformers.dynamic_module_utils import get_class_from_dynamic_module
 # from .packing_utils import patch_for_block_diag_attn
 from .utils import reset_position_ids
 from openrlhf.utils.logging_utils import init_logger
+from openrlhf.utils.utils import tensor_summary
 
 logger = init_logger(__name__)
 
@@ -446,8 +447,7 @@ def _get_reward_model_custom(
                     with torch.no_grad():
                         r = self.rm(**inputs).logits.squeeze(-1).detach()
 
-                print("reward:", r)
-                print("reward mean:", r.mean().item())
+                print(tensor_summary("reward", r))
                 # 1/0
 
             else:
@@ -476,6 +476,7 @@ def _get_reward_model_custom(
                 # print("--MEAN OF REWARDS--")
                 # print(rew.mean())
                 # print("--END FORWARD CALL--")
+                print(tensor_summary("reward", r))
 
 
             return r

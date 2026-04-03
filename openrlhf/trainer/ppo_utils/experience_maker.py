@@ -18,7 +18,7 @@ from openrlhf.models.ring_attn_utils import pad_sequences, unpad_sequences
 from openrlhf.models.utils import compute_approx_kl, compute_reward, masked_mean, masked_sum, unpacking_samples
 from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
-from openrlhf.utils.utils import tile_prompts
+from openrlhf.utils.utils import tile_prompts, tensor_summary
 from openrlhf.models.model import INDICATOR_REWARD_EPS
 from openrlhf.models.coin_flip_network import STATIC_ARCHITECTURES, LEARNING_ARCHITECTURES, TOKEN_STORAGE_ARCHITECTURES
 
@@ -1422,16 +1422,16 @@ class BaseExperienceMaker(ABC):
             print(self.alpha)
             print(self.reward_transform_beta)
             transformed_reward = r - self.alpha * torch.exp(self.reward_transform_beta * r)
-            print(r)
-            print(transformed_reward)
+            print(tensor_summary("  r", r))
+            print(tensor_summary("  transformed", transformed_reward))
             r = transformed_reward
         elif self.reward_transform == "minus_alpha_ind":
             print("REWARD TRANSFORM INSPECTION")
             print(self.alpha)
             print(self.threshold)
             transformed_reward = r - self.alpha * (r < self.threshold)
-            print(r)
-            print(transformed_reward)
+            print(tensor_summary("  r", r))
+            print(tensor_summary("  transformed", transformed_reward))
             r = transformed_reward
 
         else:
