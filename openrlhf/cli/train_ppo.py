@@ -1576,12 +1576,24 @@ def train(args):
                 )
 
                 print_timestamp(f"fit_step {fit_step}: end per-fit-step eval")
-                # Update q_best if mixture proposal is enabled with "best" strategy and g_q improved
+                # Update q_best if mixture proposal is enabled with "best" strategy and g_q improved.
+                # g_q is only computed on rank 0 (deterministic on fixed target samples).
+                # Broadcast the scalar so all ranks make the same update decision
+                # (maybe_update_q_best does load_state_dict which must be consistent).
                 if (getattr(args, 'mixture_proposal', False)
                         and getattr(args, 'mixture_other_model', 'best') == 'best'
-                        and g_q_estimates_list and g_q_estimates_list[-1] is not None):
-                    current_g_q = g_q_estimates_list[-1].mean().item()
-                    harmlessness_trainer.maybe_update_q_best(current_g_q)
+                        and g_q_estimates_list):
+                    # Rank 0 has the g_q value; other ranks have None
+                    if strategy.is_rank_0() and g_q_estimates_list[-1] is not None:
+                        current_g_q = g_q_estimates_list[-1].mean().item()
+                    else:
+                        current_g_q = None
+                    # Broadcast from rank 0 to all ranks
+                    g_q_broadcast = [current_g_q]
+                    dist.broadcast_object_list(g_q_broadcast, src=0)
+                    current_g_q = g_q_broadcast[0]
+                    if current_g_q is not None:
+                        harmlessness_trainer.maybe_update_q_best(current_g_q)
 
             # Save f_q/g_q/iwae stuff separately (only if f_q_g_q_eval was done and lists are not empty).
             # Indexing: f_q_estimates_list[0] = initial (before training), f_q_estimates_list[k+1] = after fit step k.
@@ -1596,38 +1608,43 @@ def train(args):
                 # print(g_q_estimates_list)
                 print("SAVING F_Q/G_Q/IWAE RESULTS", flush=True)
 
-                # Gather f_q/g_q samples across ranks (each rank has independent MC samples).
+                # Gather f_q samples across ranks (each rank has independent MC samples).
                 # All gather calls are collective ops — all ranks must participate.
-                # Unified path: always gather per-prompt data (works for single-prompt too).
-                g_f_q_bp, g_g_q_bp, g_iwae_lbs_bp, g_iwae_ubs_bp = _distributed_gather_f_q_g_q_by_prompt_lists(
-                    strategy, f_q_by_prompt_list_fixed, g_q_by_prompt_list_fixed,
-                    iwae_lbs_by_prompt_list_fixed, iwae_ubs_by_prompt_list_fixed)
-                # Gather per-sample component lists (same structure, no recomputation needed)
+                # f_q: gather across ranks (stochastic, each rank has independent samples)
+                g_f_q_bp = _distributed_gather_by_prompt_list(strategy, f_q_by_prompt_list_fixed)
+                # f_q per-sample components: gather across ranks
                 g_log_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_by_prompt_list_fixed)
                 g_log_p_bp = _distributed_gather_by_prompt_list(strategy, log_p_by_prompt_list_fixed)
                 g_reward_bp = _distributed_gather_by_prompt_list(strategy, reward_by_prompt_list_fixed)
                 g_target_bp = _distributed_gather_by_prompt_list(strategy, target_by_prompt_list_fixed)
-                g_log_q_g_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_g_q_by_prompt_list_fixed)
-                g_log_p_g_q_bp = _distributed_gather_by_prompt_list(strategy, log_p_g_q_by_prompt_list_fixed)
-                g_reward_g_q_bp = _distributed_gather_by_prompt_list(strategy, reward_g_q_by_prompt_list_fixed)
-                g_target_g_q_bp = _distributed_gather_by_prompt_list(strategy, target_g_q_by_prompt_list_fixed)
                 # Random set: f_q only, gather per-prompt tensors
                 g_f_q_bp_random = []
                 if f_q_by_prompt_list_random:
                     for step_data in f_q_by_prompt_list_random:
                         g_f_q_bp_random.append(_distributed_all_gather_tensor_list(strategy, step_data))
-                # Reconstruct aggregate lists from per-prompt gathered data (local — no extra communication).
-                # g_f_q[t] / g_g_q[t]: concatenation of per-prompt gathered tensors at timestep t.
-                # g_iwae_lbs[t] / g_iwae_ubs[t]: 1-D tensor of per-prompt scalar IWAE bounds at timestep t.
-                # to_scalar() in plotting takes the mean, giving the average per-prompt bound.
+
+                # g_q: deterministic on fixed target samples, only computed on rank 0.
+                # No gathering needed — use rank 0's local data directly.
+                g_g_q_bp = g_q_by_prompt_list_fixed
+                g_log_q_g_q_bp = log_q_g_q_by_prompt_list_fixed
+                g_log_p_g_q_bp = log_p_g_q_by_prompt_list_fixed
+                g_reward_g_q_bp = reward_g_q_by_prompt_list_fixed
+                g_target_g_q_bp = target_g_q_by_prompt_list_fixed
+
+                # Reconstruct aggregate lists from per-prompt data (local — no extra communication).
+                # g_f_q[t]: concatenation of per-prompt gathered f_q tensors at timestep t.
+                # g_g_q[t]: concatenation of per-prompt g_q tensors at timestep t (rank 0 only).
+                # IWAE bounds: recomputed from gathered f_q and rank 0's g_q.
                 g_f_q = [torch.cat([f for f in step if f is not None]) if any(f is not None for f in step) else None
                          for step in g_f_q_bp]
                 g_g_q = [torch.cat([g for g in step if g is not None]) if any(g is not None for g in step) else None
                          for step in g_g_q_bp]
-                g_iwae_lbs = [torch.tensor([lb for lb in step if lb is not None]) if any(lb is not None for lb in step) else None
-                              for step in g_iwae_lbs_bp]
-                g_iwae_ubs = [torch.tensor([ub for ub in step if ub is not None]) if any(ub is not None for ub in step) else None
-                              for step in g_iwae_ubs_bp]
+                g_iwae_lbs = [_recompute_iwae_lb(f) for f in g_f_q]
+                g_iwae_ubs = [_recompute_iwae_ub(f, g) for f, g in zip(g_f_q, g_g_q)]
+                # Per-prompt IWAE bounds
+                g_iwae_lbs_bp = [[_recompute_iwae_lb(f) for f in step] for step in g_f_q_bp]
+                g_iwae_ubs_bp = [[_recompute_iwae_ub(f, g) for f, g in zip(f_step, g_step)]
+                                 for f_step, g_step in zip(g_f_q_bp, g_g_q_bp)]
 
                 if strategy.is_rank_0():
                     save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
@@ -3948,6 +3965,7 @@ def _run_per_fit_step_heldout_and_f_q(
         result_fixed = f_q_g_q_evaluation_multi_prompt(
             harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
             eval_prompts_fixed, eval_target_samples_fixed,
+            is_rank_0=strategy.is_rank_0(),
         )
         # Append per-prompt results
         if f_q_by_prompt_list_fixed is not None:

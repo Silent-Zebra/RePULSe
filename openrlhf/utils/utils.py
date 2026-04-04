@@ -1431,7 +1431,8 @@ def f_q_g_q_evaluation_mixture_multi_prompt(
 
 
 def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
-                                true_target_samples_by_prompt=None):
+                                true_target_samples_by_prompt=None,
+                                is_rank_0=True):
     """
     Batched evaluation of f_q, g_q, IWAE bounds across multiple prompts (single seed).
 
@@ -1444,6 +1445,7 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
         args: Training arguments
         prompt_texts: List of P prompt strings
         true_target_samples_by_prompt: List of P tensors or Nones (one per prompt)
+        is_rank_0: If False, skip g_q computation (deterministic, only rank 0 needs it).
 
     Returns:
         dict with same format as f_q_g_q_evaluation_multi_prompt
@@ -1483,18 +1485,19 @@ def f_q_g_q_evaluation_batched(trainer, experience_maker, args, prompt_texts,
 
     print(f"[batched] mean f_q per prompt = {[f.mean().item() for f in f_qs_pp]}")
 
-    # --- g_q: only for prompts with target samples ---
+    # --- g_q: only for prompts with target samples, and only on rank 0 ---
     # Identify prompts with target samples
     prompts_with_targets = []
-    for p in range(P):
-        has_target = (
-            true_target_samples_by_prompt is not None
-            and p < len(true_target_samples_by_prompt)
-            and true_target_samples_by_prompt[p] is not None
-            and true_target_samples_by_prompt[p].numel() > 0
-        )
-        if has_target:
-            prompts_with_targets.append(p)
+    if is_rank_0:
+        for p in range(P):
+            has_target = (
+                true_target_samples_by_prompt is not None
+                and p < len(true_target_samples_by_prompt)
+                and true_target_samples_by_prompt[p] is not None
+                and true_target_samples_by_prompt[p].numel() > 0
+            )
+            if has_target:
+                prompts_with_targets.append(p)
 
     if prompts_with_targets and true_target_samples_by_prompt is not None:
         target_tensors = [true_target_samples_by_prompt[p] for p in prompts_with_targets]
@@ -1598,7 +1601,8 @@ def load_target_samples(path, device, strategy):
 
 
 def f_q_g_q_evaluation_multi_prompt(trainer, experience_maker, args,
-                                     prompt_texts, true_target_samples_by_prompt=None):
+                                     prompt_texts, true_target_samples_by_prompt=None,
+                                     is_rank_0=True):
     """
     Multi-prompt wrapper around f_q_g_q_evaluation. Loops over prompts, calls
     existing f_q_g_q_evaluation per-prompt, and collects per-prompt + aggregated results.
@@ -1611,11 +1615,14 @@ def f_q_g_q_evaluation_multi_prompt(trainer, experience_maker, args,
         true_target_samples_by_prompt: List of tensors (one per prompt) or None.
             If provided, must be same length as prompt_texts. Entries can be None for prompts
             without target samples (g_q/IWAE will be skipped for those).
+        is_rank_0: If False, skip g_q computation (deterministic on fixed target samples,
+            so only rank 0 needs to compute it). f_q is still computed on all ranks since
+            each rank generates independent MC samples.
 
     Returns:
         dict with keys:
             "f_q_by_prompt": list of tensors (one per prompt)
-            "g_q_by_prompt": list of tensors or Nones (one per prompt)
+            "g_q_by_prompt": list of tensors or Nones (one per prompt; all None if not rank 0)
             "iwae_lbs_by_prompt": list of scalar floats or Nones (one per prompt)
             "iwae_ubs_by_prompt": list of scalar floats or Nones (one per prompt)
             "f_q_agg": concatenated f_q across all prompts
@@ -1636,13 +1643,15 @@ def f_q_g_q_evaluation_multi_prompt(trainer, experience_maker, args,
             chunk_targets = (true_target_samples_by_prompt[start:end]
                             if true_target_samples_by_prompt is not None else None)
             result = f_q_g_q_evaluation_batched(
-                trainer, experience_maker, args, chunk_prompts, chunk_targets)
+                trainer, experience_maker, args, chunk_prompts, chunk_targets,
+                is_rank_0=is_rank_0)
             all_chunk_results.append(result)
         return _merge_batched_results(all_chunk_results)
     else:
         # Existing per-prompt for-loop (unchanged)
         result = _f_q_g_q_evaluation_multi_prompt_unbatched(
-            trainer, experience_maker, args, prompt_texts, true_target_samples_by_prompt)
+            trainer, experience_maker, args, prompt_texts, true_target_samples_by_prompt,
+            is_rank_0=is_rank_0)
         print_timestamp("eval - f_q_g_q_evaluation_multi_prompt: done")
         return result
 
@@ -1711,8 +1720,13 @@ def _merge_batched_results(chunk_results):
 
 
 def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
-                                                prompt_texts, true_target_samples_by_prompt=None):
-    """Original per-prompt for-loop implementation of f_q_g_q_evaluation_multi_prompt."""
+                                                prompt_texts, true_target_samples_by_prompt=None,
+                                                is_rank_0=True):
+    """Original per-prompt for-loop implementation of f_q_g_q_evaluation_multi_prompt.
+
+    Args:
+        is_rank_0: If False, skip g_q computation (deterministic, only rank 0 needs it).
+    """
     f_q_by_prompt = []
     g_q_by_prompt = []
     iwae_lbs_by_prompt = []
@@ -1754,7 +1768,7 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
         reward_g_q_list_prompt = []
         target_g_q_list_prompt = []
 
-        if has_target_samples:
+        if has_target_samples and is_rank_0:
             f_q_g_q_evaluation(
                 trainer, experience_maker, args,
                 f_q_list_prompt, g_q_list_prompt,
@@ -1766,7 +1780,7 @@ def _f_q_g_q_evaluation_multi_prompt_unbatched(trainer, experience_maker, args,
                 reward_g_q_list=reward_g_q_list_prompt, target_g_q_list=target_g_q_list_prompt,
             )
         else:
-            # f_q only (no g_q/IWAE without target samples)
+            # f_q only (no g_q/IWAE — either no target samples or not rank 0)
             f_qs, _, _, _, log_p, log_phi, log_q, _ = f_q_estimate(trainer, experience_maker, args, prompt_text)
             f_q_list_prompt.append(f_qs.cpu())
             log_q_list_prompt.append(log_q.float().cpu())
