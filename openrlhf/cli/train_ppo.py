@@ -8,6 +8,7 @@ from datetime import datetime
 import pickle
 
 import torch
+import torch.distributed as dist
 from transformers.trainer import get_scheduler
 
 from openrlhf.datasets import PromptDataset, SFTDataset
@@ -68,6 +69,19 @@ def _distributed_all_gather_tensor(strategy, tensor):
     if strategy.world_size <= 1:
         return tensor
     return strategy.all_gather(tensor)
+
+
+def _distributed_all_gather_object(strategy, obj):
+    """All-gather an arbitrary Python object across ranks using torch.distributed.all_gather_object.
+
+    Returns a list of length world_size, where element i is the object from rank i.
+    If world_size <= 1, returns [obj] for consistent interface.
+    """
+    if strategy.world_size <= 1:
+        return [obj]
+    output = [None] * strategy.world_size
+    dist.all_gather_object(output, obj)
+    return output
 
 
 def _recompute_iwae_lb(f_qs):
@@ -3147,7 +3161,15 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     max_gen_per_prompt = getattr(args, "max_gen_per_prompt_rejection", None)
 
     if args.new_custom_single_prompt:
-        # Single-prompt mode: collect true_target_sample_amount for each prompt
+        # Single-prompt mode: collect true_target_sample_amount for each prompt.
+        # Distribute work across ranks: each rank collects ceil(target / world_size)
+        # samples, then we all-gather and truncate to the exact target.
+        world_size = strategy.world_size
+        per_rank_target = math.ceil(args.true_target_sample_amount / world_size)
+        if world_size > 1:
+            strategy.print(f"Distributing rejection sampling across {world_size} ranks: "
+                           f"{per_rank_target} samples/rank (target: {args.true_target_sample_amount})")
+
         for prompt_idx, prompt in enumerate(prompts):
             strategy.print(f"\nProcessing prompt {prompt_idx + 1}/{len(prompts)}")
 
@@ -3164,10 +3186,26 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                 batch_size=rejection_batch_size,
                 max_gen=max_gen_per_prompt,
                 tile_prompts_fn=tile_prompts,
-                target_sample_amount=args.true_target_sample_amount,
+                target_sample_amount=per_rank_target,
                 rm_type=args.rm_type,
                 strategy=strategy,
             )
+
+            # All-gather accepted samples and stats across ranks
+            if world_size > 1:
+                all_rank_results = _distributed_all_gather_object(
+                    strategy, (accepted_samples, accepted_rewards, total_generated)
+                )
+                accepted_samples = []
+                accepted_rewards = []
+                total_generated = 0
+                for rank_samples, rank_rewards, rank_generated in all_rank_results:
+                    accepted_samples.extend(rank_samples)
+                    accepted_rewards.extend(rank_rewards)
+                    total_generated += rank_generated
+                # Truncate to the exact target (may overshoot since each rank collects ceil)
+                accepted_samples = accepted_samples[:args.true_target_sample_amount]
+                accepted_rewards = accepted_rewards[:args.true_target_sample_amount]
 
             strategy.print(f"\n--- Accepted samples for prompt {prompt_idx + 1} (decoded text and clamped reward) ---")
             for i, (tokens, rew) in enumerate(zip(accepted_samples, accepted_rewards)):
@@ -3184,6 +3222,15 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             total_accepted_all += total_accepted
     else:
         # Multi-prompt mode: at most 1 accepted sample per prompt, global budget.
+        # Each rank has a different shard of prompts (from DistributedSampler).
+        # Each rank works on its shard, then we all-gather results across ranks.
+        world_size = strategy.world_size
+        per_rank_target = math.ceil(args.true_target_sample_amount / world_size)
+        if world_size > 1:
+            strategy.print(f"Distributing multi-prompt rejection sampling across {world_size} ranks: "
+                           f"{per_rank_target} samples/rank (target: {args.true_target_sample_amount}), "
+                           f"{len(prompts)} prompts on this rank")
+
         first_pass_limit = getattr(args, "max_gen_per_prompt_rejection_first_pass", None)
         accepted_by_prompt, rewards_by_prompt, total_gen, total_acc = rejection_sample_multi_prompt(
             actor=base_actor,
@@ -3196,12 +3243,32 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             prompt_max_len=args.prompt_max_len,
             generate_kwargs=generate_kwargs,
             batch_size=rejection_batch_size,
-            total_target=args.true_target_sample_amount,
+            total_target=per_rank_target,
             max_gen_per_prompt=max_gen_per_prompt,
             first_pass_limit=first_pass_limit,
             rm_type=args.rm_type,
             strategy=strategy,
         )
+
+        # All-gather results across ranks: each rank contributes its shard of
+        # (prompts, accepted_by_prompt, rewards_by_prompt, total_gen, total_acc).
+        if world_size > 1:
+            all_rank_results = _distributed_all_gather_object(
+                strategy, (prompts, accepted_by_prompt, rewards_by_prompt, total_gen, total_acc)
+            )
+            # Combine all ranks' shards into global lists
+            prompts = []
+            accepted_by_prompt = []
+            rewards_by_prompt = []
+            total_gen = 0
+            total_acc = 0
+            for rank_prompts, rank_accepted, rank_rewards, rank_gen, rank_acc in all_rank_results:
+                prompts.extend(rank_prompts)
+                accepted_by_prompt.extend(rank_accepted)
+                rewards_by_prompt.extend(rank_rewards)
+                total_gen += rank_gen
+                total_acc += rank_acc
+
         total_generated_all += total_gen
         total_accepted_all += total_acc
 
