@@ -127,6 +127,19 @@ def compute_reward(
     return reward, kl
 
 
+def entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
+    """Per-token entropy: H_t = -sum_v p(v|ctx_t) log p(v|ctx_t).
+
+    Args:
+        logits: (B, S, V) raw logits from the model.
+
+    Returns:
+        (B, S) per-token entropy values (non-negative).
+    """
+    log_probs = F.log_softmax(logits, dim=-1)
+    return -(log_probs.exp() * log_probs).sum(dim=-1)
+
+
 def log_probs_from_logits(logits: torch.Tensor, labels: torch.Tensor, return_type: str = 'p', return_unnormalized=False) -> torch.Tensor:
     if return_unnormalized:
         return return_or_gather_then_return(labels, logits, return_type)

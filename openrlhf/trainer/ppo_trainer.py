@@ -617,6 +617,9 @@ class BasePPOTrainer(ABC):
         # status
         status = {"policy_loss": actor_loss.item(),
                   "actor_lr": self.actor_scheduler.get_last_lr()[0]}
+        if hasattr(self, '_last_actor_entropy'):
+            status["actor_entropy"] = self._last_actor_entropy
+            del self._last_actor_entropy
         if self.pretrain_dataloader is not None:
             raise NotImplementedError
             # status["ptx_loss"] = ptx_loss.item()
@@ -766,12 +769,21 @@ class BasePPOTrainer(ABC):
         batch_size = experience.sequences.size(0)
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
+        want_entropy = getattr(self.args, 'actor_loss_entropy_bonus', None) is not None
+        entropy = None
 
         if self.actor_loss_type == "ppo":
-            action_log_probs = self.actor(
-                experience.sequences, experience.action_mask.size(1),
-                attention_mask=experience.attention_mask, return_output=False
-            )
+            if want_entropy:
+                action_log_probs, entropy = self.actor(
+                    experience.sequences, experience.action_mask.size(1),
+                    attention_mask=experience.attention_mask, return_output=False,
+                    return_entropy=True
+                )
+            else:
+                action_log_probs = self.actor(
+                    experience.sequences, experience.action_mask.size(1),
+                    attention_mask=experience.attention_mask, return_output=False
+                )
 
             actor_loss = self.actor_loss_fn(
                 action_log_probs,
@@ -794,8 +806,13 @@ class BasePPOTrainer(ABC):
             # print("REWARD COMPARISON")
             # print(experience.returns[:, -1] - log_phi) # same
             if "policy" in self.parameterization:
-                log_psi = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, experience.action_mask.size(1), self.parameterization)
+                result = self.get_log_psi_policy_parameterization(base_action_log_probs, experience, experience.action_mask.size(1), self.parameterization, return_entropy=want_entropy)
+                if want_entropy:
+                    log_psi, entropy = result
+                else:
+                    log_psi = result
             else:
+                assert not want_entropy, "actor_loss_entropy_bonus requires policy parameterization for CTL"
                 log_psi = self.experience_maker.actor(experience.sequences, experience.action_mask.size(1), experience.attention_mask,
                                                       return_only_modulation=True)
 
@@ -816,6 +833,7 @@ class BasePPOTrainer(ABC):
                 # reduce_mean_per_prompt=True
             )
         elif self.actor_loss_type == "dpg":
+            assert not want_entropy, "actor_loss_entropy_bonus is not yet supported with DPG loss type"
             with torch.no_grad():
                 base_action_log_probs_all_vocab, base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, experience.action_mask.size(1),
@@ -869,6 +887,7 @@ class BasePPOTrainer(ABC):
 
 
         elif self.actor_loss_type in ["sixo", "sixo_approxneg"]:
+            assert not want_entropy, "actor_loss_entropy_bonus is not yet supported with SIXO loss type"
             num_actions = experience.action_mask.size(1)
             log_psi_on_base_samples = None
             with torch.no_grad():
@@ -924,9 +943,21 @@ class BasePPOTrainer(ABC):
         else:
             raise NotImplementedError
 
+        # Apply entropy bonus if configured: loss -= coef * mean_per_token_entropy
+        if want_entropy:
+            assert entropy is not None, "entropy was not computed — check that the loss type + parameterization supports it"
+            action_mask_float = experience.action_mask.float()
+            mean_entropy = (entropy * action_mask_float).sum() / action_mask_float.sum()
+            print(f"[entropy bonus] mean_per_token_entropy={mean_entropy.item():.4f}")
+            actor_loss = actor_loss - self.args.actor_loss_entropy_bonus * mean_entropy
+            self._last_actor_entropy = mean_entropy.item()
+
         return actor_loss
 
-    def get_log_psi_policy_parameterization(self, base_action_log_probs, experience, num_actions, parameterization, return_type: str = 'p', base_action_log_probs_all=None):
+    def get_log_psi_policy_parameterization(self, base_action_log_probs, experience, num_actions, parameterization, return_type: str = 'p', base_action_log_probs_all=None, return_entropy: bool = False):
+
+        if return_entropy:
+            assert return_type != "both", "return_entropy is not supported with return_type='both'"
 
         if return_type == "both":
 
@@ -963,14 +994,19 @@ class BasePPOTrainer(ABC):
             log_p_psi = self.experience_maker.actor(experience.sequences, num_actions,
                                                                    experience.attention_mask,
                                                                    return_type=return_type,
-                                                                   return_unnormalized=True)
+                                                                   return_unnormalized=True,
+                                                                   return_entropy=return_entropy)
         elif parameterization in ["policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]:
         # elif log_psi_parameterization_type in ["log_q_s_t_minus_log_p_s_t", "log_q_s_1_to_t_minus_log_p_s_1_to_t"]:
             log_p_psi = self.experience_maker.actor(experience.sequences, num_actions,
                                                                    experience.attention_mask,
-                                                                   return_type=return_type)
+                                                                   return_type=return_type,
+                                                                   return_entropy=return_entropy)
         else:
             raise NotImplementedError
+
+        if return_entropy:
+            log_p_psi, entropy = log_p_psi
 
         if parameterization == "policy_psi_q_p_s_1_to_t":
             log_p_psi = torch.cumsum(log_p_psi, dim=1)
@@ -979,6 +1015,8 @@ class BasePPOTrainer(ABC):
 
         log_psi = log_p_psi - base_action_log_probs.detach()  # In the policy formulation, the actor directly outputs log (p psi) = log_p + log_psi, so get log_psi by subtracting log_p
         # For gradients this subtraction does nothing, however it should be needed to get the correct importance weights
+        if return_entropy:
+            return log_psi, entropy
         return log_psi
 
     def training_step_critic(self, experience: Experience, custom_prompt=None) -> Dict[str, float]:

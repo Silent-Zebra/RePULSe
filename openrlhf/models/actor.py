@@ -11,7 +11,7 @@ from transformers import AutoModelForCausalLM, BitsAndBytesConfig
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 
 from .ring_attn_utils import convert_ring_attn_params
-from .utils import log_probs_from_logits, reset_position_ids
+from .utils import entropy_from_logits, log_probs_from_logits, reset_position_ids
 
 
 class Actor(nn.Module):
@@ -220,8 +220,15 @@ class Actor(nn.Module):
         return_output: bool = False,
         return_type: str = 'p',
         return_unnormalized: bool = False,
+        return_entropy: bool = False,
     ) -> torch.Tensor:
         """Returns action log probs"""
+        if return_entropy:
+            assert not return_output and return_type != "both", (
+                "return_entropy is not supported with return_output or return_type='both'"
+            )
+            assert num_actions is not None, "return_entropy requires num_actions"
+
         if not self.packing_samples:
             # https://github.com/OpenRLHF/OpenRLHF/issues/217
             position_ids = attention_mask.long().cumsum(-1) - 1
@@ -241,12 +248,20 @@ class Actor(nn.Module):
         output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
         output["logits"] = output["logits"].to(torch.float32)
 
+        # Compute per-token entropy from logits before they are discarded.
+        # Done here so the full (B, S, V) logits tensor is not returned to the caller.
+        if return_entropy:
+            entropy = entropy_from_logits(output["logits"][:, :-1, :][:, -num_actions:])
+
         if return_type == "both":
             assert not return_output
             log_probs_all, log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:], return_type=return_type, return_unnormalized=return_unnormalized)
             return log_probs_all[:, -num_actions:], log_probs[:, -num_actions:]
 
         log_probs = log_probs_from_logits(output["logits"][:, :-1, :], sequences[:, 1:], return_type=return_type, return_unnormalized=return_unnormalized)
+
+        if return_entropy:
+            return log_probs[:, -num_actions:], entropy
 
         if return_output:
             return output if num_actions is None else (log_probs[:, -num_actions:], output)

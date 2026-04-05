@@ -51,7 +51,8 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
     save_negdata_threshold = threshold = alpha = only_eval_neg = use_base_as_proposal = ""
     exploration_bonus_sa = exploration_bonus_ba = bonus_alpha = start_bonus_alpha = bonus_alpha_schedule = coin_flip_dim = coin_flip_lr = coin_flip_norm_momentum = coin_flip_update_steps = coin_flip_head_init_std = frozen_prior_init_std = coin_flip_linear_bias = coin_flip_architecture = coin_flip_pretrain = analytic_batch = train_coin_flip_before = coin_flip_first_online =     coin_flip_use_prioritization = coin_flip_warmup_steps = reward_clamp = reward_cap = rejection_sample_true_target_only = ""
     mixture_proposal = "" ; mixture_optimization = "" ; mixture_other_model = "" ; mixture_lag_steps = "" ; mixture_psi_use_mix = ""
-    
+    actor_loss_entropy_bonus = ""
+
     # Scan through all matches in the string
     for(i=1; i<=NF; i++) {
         if($i == "--micro_train_batch_size") micro_train = $(i+1)
@@ -221,6 +222,7 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
         if($i == "--mixture_lag_steps") mixture_lag_steps = "_mlagst"$(i+1)
         if($i == "--mixture_psi_use_mix") mixture_psi_use_mix = "_mpsi"
         if($i == "--load_base_actor_trajectory") load_traj = "_loadtraj"
+        if($i == "--actor_loss_entropy_bonus" && $(i+1) != "") actor_loss_entropy_bonus = "_entb"$(i+1)
     }
     # Build episode string: always include num_episodes, add harmlessness episodes if enabled
     epi_str = "_epi" num_episodes
@@ -234,13 +236,13 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
     print micro_train "|" train "|" micro_rollout "|" rollout "|" max_epochs "|" epi_str "|" \
           gen_max_len "|" actor_lr "|" critic_lr "|" baseactor_lr "|" target_beta "|" save_negdata_threshold "|" threshold "|" lr_sched "|" \
           actor_loss "|" custom_prompt "|" parameterization "|" adam_beta2 "|" rm_type "|" dup_rollout "|" pretrain "|" \
-          reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" kl "|" only_eval_neg "|" use_base_as_proposal "|" rta "|" rtb "|" startb "|" starta "|" sepb "|" uniw "|" exploration_bonus_sa "|" exploration_bonus_ba "|" bonus_alpha "|" start_bonus_alpha "|" bonus_alpha_schedule "|" coin_flip_dim "|" coin_flip_lr "|" coin_flip_norm_momentum "|" coin_flip_update_steps "|" coin_flip_head_init_std "|" frozen_prior_init_std "|" coin_flip_linear_bias "|"           coin_flip_architecture "|" coin_flip_pretrain "|" analytic_batch "|" train_coin_flip_before "|" coin_flip_first_online "|" coin_flip_use_prioritization "|" coin_flip_warmup_steps "|" reward_clamp "|" reward_cap "|" rejection_sample_true_target_only "|" mixture_proposal "|" mixture_optimization "|" mixture_other_model "|" mixture_lag_steps "|" mixture_psi_use_mix "|" load_traj \
+          reward_pretrain "|" prompt_data "|" init_head_from_base "|" sd_divider "|" harmloss "|" harmlossreinbaseline "|" hlrbval "|" alpha "|" kl "|" only_eval_neg "|" use_base_as_proposal "|" rta "|" rtb "|" startb "|" starta "|" sepb "|" uniw "|" exploration_bonus_sa "|" exploration_bonus_ba "|" bonus_alpha "|" start_bonus_alpha "|" bonus_alpha_schedule "|" coin_flip_dim "|" coin_flip_lr "|" coin_flip_norm_momentum "|" coin_flip_update_steps "|" coin_flip_head_init_std "|" frozen_prior_init_std "|" coin_flip_linear_bias "|"           coin_flip_architecture "|" coin_flip_pretrain "|" analytic_batch "|" train_coin_flip_before "|" coin_flip_first_online "|" coin_flip_use_prioritization "|" coin_flip_warmup_steps "|" reward_clamp "|" reward_cap "|" rejection_sample_true_target_only "|" mixture_proposal "|" mixture_optimization "|" mixture_other_model "|" mixture_lag_steps "|" mixture_psi_use_mix "|" load_traj "|" actor_loss_entropy_bonus \
 }')
 
 # Read using the special delimiter
 IFS='|' read MICRO_TRAIN TRAIN MICRO_ROLLOUT ROLLOUT MAX_EPOCHS EPI_STR GEN_MAX_LEN \
     ACTOR_LR CRITIC_LR BASEACTOR_LR TARGET_BETA SAVE_NEGDATA_THRESH THRESH LR_SCHED ACTOR_LOSS CUSTOM_PROMPT PARAMETERIZATION ADAM_BETA2 RM_TYPE DUP_ROLLOUT PRETRAIN REWARD_PRETRAIN PROMPT_DATA \
-    INITHEADBASE SD_DIVIDER HARMLOSS HARMLOSSREINBASELINE HLRBVAL ALPHA KL ONLY_EVAL_NEG BASE_PROP RTA RTB STARTB STARTA SEPB UNIW EXPLORATION_BONUS_SA EXPLORATION_BONUS_BA BONUS_ALPHA START_BONUS_ALPHA BONUS_ALPHA_SCHEDULE COIN_FLIP_DIM COIN_FLIP_LR COIN_FLIP_NORM_MOMENTUM COIN_FLIP_UPDATE_STEPS COIN_FLIP_HEAD_INIT_STD FROZEN_PRIOR_INIT_STD COIN_FLIP_LINEAR_BIAS COIN_FLIP_ARCHITECTURE COIN_FLIP_PRETRAIN ANALYTIC_BATCH TRAIN_COIN_FLIP_BEFORE COIN_FLIP_FIRST_ONLINE COIN_FLIP_USE_PRIORITIZATION COIN_FLIP_WARMUP_STEPS REWARD_CLAMP REWARD_CAP EXACTTARGET MIXTURE_PROPOSAL MIXTURE_OPTIMIZATION MIXTURE_OTHER_MODEL MIXTURE_LAG_STEPS MIXTURE_PSI_USE_MIX LOAD_TRAJ <<< "$PARAMS"
+    INITHEADBASE SD_DIVIDER HARMLOSS HARMLOSSREINBASELINE HLRBVAL ALPHA KL ONLY_EVAL_NEG BASE_PROP RTA RTB STARTB STARTA SEPB UNIW EXPLORATION_BONUS_SA EXPLORATION_BONUS_BA BONUS_ALPHA START_BONUS_ALPHA BONUS_ALPHA_SCHEDULE COIN_FLIP_DIM COIN_FLIP_LR COIN_FLIP_NORM_MOMENTUM COIN_FLIP_UPDATE_STEPS COIN_FLIP_HEAD_INIT_STD FROZEN_PRIOR_INIT_STD COIN_FLIP_LINEAR_BIAS COIN_FLIP_ARCHITECTURE COIN_FLIP_PRETRAIN ANALYTIC_BATCH TRAIN_COIN_FLIP_BEFORE COIN_FLIP_FIRST_ONLINE COIN_FLIP_USE_PRIORITIZATION COIN_FLIP_WARMUP_STEPS REWARD_CLAMP REWARD_CAP EXACTTARGET MIXTURE_PROPOSAL MIXTURE_OPTIMIZATION MIXTURE_OTHER_MODEL MIXTURE_LAG_STEPS MIXTURE_PSI_USE_MIX LOAD_TRAJ ACTOR_LOSS_ENTROPY_BONUS <<< "$PARAMS"
 
 # Suppress coin_flip_pretrain if it matches the main pretrain abbreviation (no new info)
 if [ "$COIN_FLIP_PRETRAIN" == "$PRETRAIN" ]; then COIN_FLIP_PRETRAIN=""; fi
@@ -251,7 +253,7 @@ if [ -n "$COIN_FLIP_PRETRAIN" ]; then COIN_FLIP_PRETRAIN="_cfp${COIN_FLIP_PRETRA
 CURRENT_DATE=$(date +%Y-%m-%d-%H-%M)
 
 # Generate output filename using dcs pattern (shortened)
-PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${BASE_PROP}${EXACTTARGET}${THRESH}${STARTB}${TARGET_BETA}${SEPB}${UNIW}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_b${MICRO_TRAIN}_${TRAIN}${ANALYTIC_BATCH}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_epo${MAX_EPOCHS}${EPI_STR}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${STARTA}${ALPHA}${RTA}${RTB}${BASEACTOR_LR}_${ACTOR_LOSS}${ACTOR_LR}${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}${EXPLORATION_BONUS_SA}${EXPLORATION_BONUS_BA}${BONUS_ALPHA}${START_BONUS_ALPHA}${BONUS_ALPHA_SCHEDULE}${COIN_FLIP_DIM}${COIN_FLIP_LR}${COIN_FLIP_NORM_MOMENTUM}${COIN_FLIP_UPDATE_STEPS}${COIN_FLIP_HEAD_INIT_STD}${FROZEN_PRIOR_INIT_STD}${COIN_FLIP_LINEAR_BIAS}${COIN_FLIP_ARCHITECTURE}${COIN_FLIP_PRETRAIN}${TRAIN_COIN_FLIP_BEFORE}${COIN_FLIP_FIRST_ONLINE}${COIN_FLIP_USE_PRIORITIZATION}${COIN_FLIP_WARMUP_STEPS}${REWARD_CLAMP}${REWARD_CAP}${MIXTURE_PROPOSAL}${MIXTURE_OPTIMIZATION}${MIXTURE_OTHER_MODEL}${MIXTURE_LAG_STEPS}${MIXTURE_PSI_USE_MIX}${LOAD_TRAJ}"
+PATTERN="${CURRENT_DATE}${ONLY_EVAL_NEG}_${PRETRAIN}_${REWARD_PRETRAIN}_${PROMPT_DATA}_${RM_TYPE}${BASE_PROP}${EXACTTARGET}${THRESH}${STARTB}${TARGET_BETA}${SEPB}${UNIW}${KL}_len${GEN_MAX_LEN}_${PARAMETERIZATION}${INITHEADBASE}${SD_DIVIDER}_b${MICRO_TRAIN}_${TRAIN}${ANALYTIC_BATCH}_${MICRO_ROLLOUT}_${ROLLOUT}${DUP_ROLLOUT}_epo${MAX_EPOCHS}${EPI_STR}${HARMLOSS}${HARMLOSSREINBASELINE}${HLRBVAL}${STARTA}${ALPHA}${RTA}${RTB}${BASEACTOR_LR}_${ACTOR_LOSS}${ACTOR_LR}${CRITIC_LR}_${LR_SCHED}${CUSTOM_PROMPT}${SAVE_NEGDATA_THRESH}${EXPLORATION_BONUS_SA}${EXPLORATION_BONUS_BA}${BONUS_ALPHA}${START_BONUS_ALPHA}${BONUS_ALPHA_SCHEDULE}${COIN_FLIP_DIM}${COIN_FLIP_LR}${COIN_FLIP_NORM_MOMENTUM}${COIN_FLIP_UPDATE_STEPS}${COIN_FLIP_HEAD_INIT_STD}${FROZEN_PRIOR_INIT_STD}${COIN_FLIP_LINEAR_BIAS}${COIN_FLIP_ARCHITECTURE}${COIN_FLIP_PRETRAIN}${TRAIN_COIN_FLIP_BEFORE}${COIN_FLIP_FIRST_ONLINE}${COIN_FLIP_USE_PRIORITIZATION}${COIN_FLIP_WARMUP_STEPS}${REWARD_CLAMP}${REWARD_CAP}${MIXTURE_PROPOSAL}${MIXTURE_OPTIMIZATION}${MIXTURE_OTHER_MODEL}${MIXTURE_LAG_STEPS}${MIXTURE_PSI_USE_MIX}${LOAD_TRAJ}${ACTOR_LOSS_ENTROPY_BONUS}"
 SBATCH_FILE="sbatch_${PATTERN}"
 OUTPUT_FILE="result_${PATTERN}_s1.txt"
 

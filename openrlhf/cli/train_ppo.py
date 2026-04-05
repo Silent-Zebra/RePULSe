@@ -4702,6 +4702,9 @@ if __name__ == "__main__":
         ]
     )
 
+    parser.add_argument("--actor_loss_entropy_bonus", type=float, default=None,
+        help="If set, subtract coef * mean_per_token_entropy from the actor loss to encourage higher entropy.")
+
     parser.add_argument(
         "--critic_loss_type", type=str, default="mse",
         choices=["mse", "ctl", "mixed_ctl_mse", "sixo", "sixo_approxneg"]
