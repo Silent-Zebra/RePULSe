@@ -128,10 +128,12 @@ def _parse_experiment_properties(prefix):
 
     # CFN alpha (bonus_alpha); for annealed runs, extract the start value
     cfn_alpha = None
+    cfn_annealed = False
     if bonus_type == "cfn":
         cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)', prefix)
         if cf_anneal_match:
             cfn_alpha = float(cf_anneal_match.group(1))  # start value
+            cfn_annealed = True
         else:
             cf_match = re.search(r'_cf([\d.]+)', prefix)
             if cf_match:
@@ -145,6 +147,7 @@ def _parse_experiment_properties(prefix):
         "mixture_lag_steps": mixture_lag_steps,
         "learning_rate": learning_rate,
         "cfn_alpha": cfn_alpha,
+        "cfn_annealed": cfn_annealed,
     }
 
 
@@ -283,9 +286,11 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             shade = lo + t * (hi - lo)
         color_list.append(cmap(shade))
 
-        # Marker: exact_count always gets a star; otherwise determined by loss type
+        # Marker: exact_count -> star; annealed CFN -> triangle; otherwise by loss type
         if props["bonus_type"] == "exact_count":
             marker_list.append(MARKER_EXACT_COUNT)
+        elif props["cfn_annealed"]:
+            marker_list.append("^")
         else:
             marker_list.append(loss_marker.get(props["loss_type"], MARKER_LOSS_UNKNOWN))
 
@@ -522,14 +527,36 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
 def to_scalar(x):
     """
     Convert list/tensor to a single float (mean over all elements).
-    
+
     Args:
         x: Input that can be converted to numpy array (list, tensor, array, etc.)
-    
+
     Returns:
         float: Mean value over all elements
     """
     return float(np.asarray(x).ravel().mean())
+
+
+def mean_of_per_prompt_bounds(per_prompt_list):
+    """Compute mean of per-prompt IWAE bounds at each timestep.
+
+    In multi-prompt settings, the aggregate IWAE bounds (computed by concatenating
+    samples across prompts into one logsumexp) are not meaningful — each prompt has
+    its own target distribution and log Z. This function returns the mean of the
+    per-prompt bounds at each timestep, which is a proper average of per-prompt log Z
+    estimates.
+
+    Args:
+        per_prompt_list: List of steps, each a list of per-prompt scalar values (or Nones).
+
+    Returns:
+        List of mean values (float), or None for timesteps with no valid values.
+    """
+    result = []
+    for per_prompt in per_prompt_list:
+        valid = [float(x) for x in per_prompt if x is not None]
+        result.append(sum(valid) / len(valid) if valid else None)
+    return result
 
 
 def compute_global_logZ_from_iwae_bounds(loaded_data):
@@ -1954,12 +1981,15 @@ def plot_vocab_coverage_from_history(
     figname, labels, counts_results_list,
     color_list, fontsize=7, legendfontsize=7,
     n_bootstrap_draws=5000,
+    marker_list=None, linestyle_list=None,
 ):
     """Plot fraction of all vocab tokens discovered over time from token_counts_history files.
 
     Args:
         counts_results_list: List (settings) of list (seeds) of list-of-tensors
             (one (n_vocab,) tensor per fit_step).
+        marker_list: Optional list of marker styles, one per setting.
+        linestyle_list: Optional list of linestyles, one per setting.
     """
     # Determine n_vocab from first available data
     n_vocab = None
@@ -2015,8 +2045,12 @@ def plot_vocab_coverage_from_history(
 
         valid = ~np.isnan(means)
         if valid.any():
+            marker = marker_list[setting_idx] if marker_list is not None else None
+            ls = linestyle_list[setting_idx] if linestyle_list is not None else 'solid'
             ax.plot(timesteps[valid], means[valid], color=color_list[setting_idx],
-                    label=labels[setting_idx], linewidth=1.5)
+                    label=labels[setting_idx], linewidth=1.5,
+                    marker=marker, markersize=4, markevery=max(1, len(timesteps[valid]) // 10),
+                    linestyle=ls)
             ax.fill_between(timesteps[valid], ci_lo[valid], ci_hi[valid],
                             color=color_list[setting_idx], alpha=0.15)
 
@@ -3099,11 +3133,12 @@ def plot_max_sis_weight_over_time(
     n_bootstrap_draws=5000,
 ):
     """
-    Plot the max self-normalized importance weight over training episodes.
+    Plot the mean per-prompt max self-normalized importance weight over training episodes.
 
     Each entry in sis_weights_results_list[setting_idx] is a loaded SIS weights history
     (list of tensors of shape (num_prompts, samples_per_prompt), one per episode) for one seed.
-    For each episode, max_weight = tensor.max().item().
+    For each episode, we compute the max weight within each prompt, then average across prompts.
+    This avoids saturation at 1.0 that occurs with the global max when many prompts are present.
     Aggregated across seeds with bootstrap CI.
     """
     n_settings = len(labels)
@@ -3121,7 +3156,8 @@ def plot_max_sis_weight_over_time(
         for weights_history in seed_data:
             if not isinstance(weights_history, list) or len(weights_history) == 0:
                 continue
-            curve = [w.max().item() for w in weights_history]
+            # Mean of per-prompt max weights (avoids saturation from global max)
+            curve = [w.max(dim=-1).values.mean().item() for w in weights_history]
             seed_curves.append(curve)
 
         if not seed_curves:
@@ -3153,8 +3189,8 @@ def plot_max_sis_weight_over_time(
                             color=color_list[setting_idx], alpha=0.15)
 
     ax.set_xlabel('Training Episode', fontsize=fontsize)
-    ax.set_ylabel('Max Normalized SIS Weight', fontsize=fontsize)
-    ax.set_title('Max Self-Normalized Importance Weight Over Time', fontsize=fontsize + 1)
+    ax.set_ylabel('Mean Per-Prompt Max SIS Weight', fontsize=fontsize)
+    ax.set_title('Mean Per-Prompt Max Self-Normalized Importance Weight Over Time', fontsize=fontsize + 1)
     ax.tick_params(axis='both', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(alpha=0.3, linestyle='--')
@@ -3164,6 +3200,240 @@ def plot_max_sis_weight_over_time(
     plt.clf()
     plt.close(fig)
     print(f"Max SIS weight plot saved to {figname}")
+
+
+def plot_sis_weight_histogram(
+    figname, labels, sis_weights_results_list,
+    color_list, fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000, n_bins=8,
+):
+    """
+    Grouped bar chart of per-prompt max self-normalized importance weight distribution.
+
+    Uses the final timestep from each seed. For each prompt, computes the max weight
+    across samples, then bins prompts by that max weight. Bars show the fraction of
+    prompts in each bin, averaged across seeds with bootstrap CIs.
+    """
+    n_settings = len(labels)
+
+    # Determine samples_per_prompt from first available tensor
+    samples_per_prompt = None
+    for seed_data in sis_weights_results_list:
+        for weights_history in seed_data:
+            if isinstance(weights_history, list) and len(weights_history) > 0:
+                samples_per_prompt = weights_history[0].shape[-1]
+                break
+        if samples_per_prompt is not None:
+            break
+    if samples_per_prompt is None:
+        print(f"Warning: No SIS weight data found, skipping histogram")
+        return
+
+    # Bin edges from uniform (1/n) to fully concentrated (1.0)
+    bin_lo = 1.0 / samples_per_prompt
+    bin_edges = np.linspace(bin_lo, 1.0, n_bins + 1)
+
+    # Collect per-bin fractions: fractions[bin_idx][setting_idx] = list of per-seed fractions
+    fractions = [[[] for _ in range(n_settings)] for _ in range(n_bins)]
+
+    for setting_idx in range(n_settings):
+        seed_data = sis_weights_results_list[setting_idx]
+        for weights_history in seed_data:
+            if not isinstance(weights_history, list) or len(weights_history) == 0:
+                continue
+            w = weights_history[-1]  # Final timestep: (num_prompts, samples_per_prompt)
+            max_weights = w.max(dim=-1).values.numpy()  # (num_prompts,)
+            counts, _ = np.histogram(max_weights, bins=bin_edges)
+            seed_fractions = counts / max_weights.shape[0]
+            for bin_idx in range(n_bins):
+                fractions[bin_idx][setting_idx].append(seed_fractions[bin_idx])
+
+    # Compute means and CIs
+    means = np.full((n_bins, n_settings), np.nan)
+    ci_lo = np.full((n_bins, n_settings), np.nan)
+    ci_hi = np.full((n_bins, n_settings), np.nan)
+    for bin_idx in range(n_bins):
+        for setting_idx in range(n_settings):
+            vals = np.array(fractions[bin_idx][setting_idx])
+            if len(vals) > 0:
+                means[bin_idx, setting_idx], ci_lo[bin_idx, setting_idx], ci_hi[bin_idx, setting_idx] = \
+                    _bootstrap_mean_ci(vals, n_bootstrap_draws)
+
+    # Plot grouped bars
+    fig, ax = plt.subplots()
+    bar_width = 0.8 / n_settings
+    x_positions = np.arange(n_bins)
+    group_offsets = np.linspace(-bar_width * (n_settings - 1) / 2,
+                                 bar_width * (n_settings - 1) / 2,
+                                 n_settings)
+
+    for setting_idx in range(n_settings):
+        x_pos = x_positions + group_offsets[setting_idx]
+        ax.bar(x_pos, means[:, setting_idx], bar_width,
+               label=labels[setting_idx],
+               color=color_list[setting_idx],
+               alpha=0.7)
+        for bin_idx in range(n_bins):
+            if not np.isnan(means[bin_idx, setting_idx]):
+                mean_val = means[bin_idx, setting_idx]
+                lower_err = mean_val - ci_lo[bin_idx, setting_idx]
+                upper_err = ci_hi[bin_idx, setting_idx] - mean_val
+                ax.errorbar(x_pos[bin_idx], mean_val,
+                            yerr=[[lower_err], [upper_err]],
+                            fmt='none', color='black', capsize=2, linewidth=0.8)
+
+    # X-tick labels: bin ranges
+    tick_labels = [f"{bin_edges[i]:.2f}–{bin_edges[i+1]:.2f}" for i in range(n_bins)]
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=fontsize - 1)
+
+    ax.set_xlabel('Per-Prompt Max SIS Weight', fontsize=fontsize)
+    ax.set_ylabel('Fraction of Prompts', fontsize=fontsize)
+    ax.set_title('Distribution of Per-Prompt Max Normalized SIS Weight (Final Step)', fontsize=fontsize + 1)
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"SIS weight histogram saved to {figname}")
+
+
+def plot_sis_weight_histogram_over_time(
+    figname, labels, sis_weights_results_list,
+    color_list, n_frontiers=4,
+    fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000, n_bins=8,
+):
+    """
+    Per-prompt max SIS weight distribution over time, shown as dots with alpha progression.
+
+    Like plot_sis_weight_histogram but at n_frontiers evenly-spaced timesteps.
+    Each timestep is a set of dots (one per bin) with increasing opacity (light=early, dark=late).
+    Settings are horizontally offset within each bin. Bootstrap CIs shown as error bars.
+    """
+    n_settings = len(labels)
+
+    # Determine samples_per_prompt and max trajectory length from data
+    samples_per_prompt = None
+    max_T = 0
+    for seed_data in sis_weights_results_list:
+        for weights_history in seed_data:
+            if isinstance(weights_history, list) and len(weights_history) > 0:
+                if samples_per_prompt is None:
+                    samples_per_prompt = weights_history[0].shape[-1]
+                max_T = max(max_T, len(weights_history))
+    if samples_per_prompt is None or max_T == 0:
+        print("Warning: No SIS weight data found, skipping histogram over time")
+        return
+
+    # Bin edges
+    bin_lo = 1.0 / samples_per_prompt
+    bin_edges = np.linspace(bin_lo, 1.0, n_bins + 1)
+
+    # Compute evenly-spaced timestep indices
+    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
+    seen = set()
+    unique_frontier_indices = []
+    for idx in frontier_indices:
+        if idx not in seen:
+            seen.add(idx)
+            unique_frontier_indices.append(idx)
+    frontier_indices = unique_frontier_indices
+    n_times = len(frontier_indices)
+
+    # Alpha progression: light (early) to dark (late)
+    alphas = np.linspace(0.25, 1.0, n_times)
+
+    # Collect bin fractions: shape (n_settings, n_bins, n_times)
+    means = np.full((n_settings, n_bins, n_times), np.nan)
+    ci_lo = np.full((n_settings, n_bins, n_times), np.nan)
+    ci_hi = np.full((n_settings, n_bins, n_times), np.nan)
+
+    for time_i, t_idx in enumerate(frontier_indices):
+        for setting_idx in range(n_settings):
+            # Collect per-seed bin fractions at this timestep
+            bin_fractions_by_seed = [[] for _ in range(n_bins)]
+            for weights_history in sis_weights_results_list[setting_idx]:
+                if not isinstance(weights_history, list) or len(weights_history) == 0:
+                    continue
+                # Clamp t_idx to available range
+                actual_t = min(t_idx, len(weights_history) - 1)
+                w = weights_history[actual_t]
+                max_weights = w.max(dim=-1).values.numpy()
+                counts, _ = np.histogram(max_weights, bins=bin_edges)
+                seed_fractions = counts / max_weights.shape[0]
+                for bin_idx in range(n_bins):
+                    bin_fractions_by_seed[bin_idx].append(seed_fractions[bin_idx])
+
+            for bin_idx in range(n_bins):
+                vals = np.array(bin_fractions_by_seed[bin_idx])
+                if len(vals) > 0:
+                    means[setting_idx, bin_idx, time_i], ci_lo[setting_idx, bin_idx, time_i], \
+                        ci_hi[setting_idx, bin_idx, time_i] = _bootstrap_mean_ci(vals, n_bootstrap_draws)
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(max(8, n_bins * 1.2), 5))
+
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+    x_positions = np.arange(n_bins)
+
+    for setting_idx in range(n_settings):
+        x_base = x_positions + setting_offsets[setting_idx]
+        setting_label_added = False
+
+        for time_i in range(n_times):
+            m = means[setting_idx, :, time_i]
+            lo = ci_lo[setting_idx, :, time_i]
+            hi = ci_hi[setting_idx, :, time_i]
+            lower_err = m - lo
+            upper_err = hi - m
+            valid = ~np.isnan(m)
+            if not valid.any():
+                continue
+
+            label = labels[setting_idx] if not setting_label_added else None
+            ax.scatter(
+                x_base[valid], m[valid],
+                color=color_list[setting_idx], s=25,
+                alpha=alphas[time_i], label=label, zorder=4,
+            )
+            ax.errorbar(
+                x_base[valid], m[valid],
+                yerr=[lower_err[valid], upper_err[valid]],
+                fmt='none', color=color_list[setting_idx],
+                capsize=2, linewidth=0.8, alpha=alphas[time_i] * 0.5,
+                zorder=3,
+            )
+            setting_label_added = True
+
+    # Timestep annotation
+    time_str = ", ".join(str(idx) for idx in frontier_indices)
+    ax.annotate(f"Timesteps: {time_str} (light\u2192dark)", xy=(0.02, 0.98),
+                xycoords='axes fraction', fontsize=fontsize - 1, color='gray',
+                verticalalignment='top')
+
+    # X-tick labels: bin ranges
+    tick_labels = [f"{bin_edges[i]:.2f}\u2013{bin_edges[i+1]:.2f}" for i in range(n_bins)]
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=fontsize - 1)
+
+    ax.set_xlabel('Per-Prompt Max SIS Weight', fontsize=fontsize)
+    ax.set_ylabel('Fraction of Prompts', fontsize=fontsize)
+    ax.set_title('Distribution of Per-Prompt Max SIS Weight Over Time', fontsize=fontsize + 1)
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"SIS weight histogram over time saved to {figname}")
 
 
 def _extract_final_per_seed(data, n_settings):
@@ -3406,13 +3676,16 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
     # --- Main plot (bootstrap CI) ---
     fig, ax = plt.subplots()
 
-    # Series2: black solid horizontal dashes (fixed reference, shared across settings)
-    _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2, label_text=series2_name)
-
-    # Series3: gray dashed horizontal lines (second fixed reference, if provided)
     if s3_ref is not None:
+        # When both references present: series3 = black solid (primary), series2 = gray dashed
         _draw_target_dashes(ax, x_positions, s3_ref, dash_half_width, linewidth=2,
-                            label_text=series3_name, color='dimgray', linestyle='--')
+                            label_text=series3_name)
+        _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
+                            label_text=series2_name, color='dimgray', linestyle='--')
+    else:
+        # Single reference: series2 = black solid
+        _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
+                            label_text=series2_name)
 
     # Series1: colored dots with bootstrap CI, one color per setting
     for setting_idx in range(n_settings):
@@ -3456,13 +3729,14 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
     if figname_individual is not None:
         fig_ind, ax_ind = plt.subplots()
 
-        # Series2: same black dashes
-        _draw_target_dashes(ax_ind, x_positions, s2_ref, dash_half_width, linewidth=2, label_text=series2_name)
-
-        # Series3: same gray dashed lines (if provided)
         if s3_ref is not None:
             _draw_target_dashes(ax_ind, x_positions, s3_ref, dash_half_width, linewidth=2,
-                                label_text=series3_name, color='dimgray', linestyle='--')
+                                label_text=series3_name)
+            _draw_target_dashes(ax_ind, x_positions, s2_ref, dash_half_width, linewidth=2,
+                                label_text=series2_name, color='dimgray', linestyle='--')
+        else:
+            _draw_target_dashes(ax_ind, x_positions, s2_ref, dash_half_width, linewidth=2,
+                                label_text=series2_name)
 
         # Series1: per-seed scatter with different markers
         for setting_idx in range(n_settings):

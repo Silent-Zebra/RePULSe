@@ -627,6 +627,14 @@ def load_f_q_g_q_iwae_and_compute_approx_kl(load_dir, f_q_load_prefixes_to_use, 
                 g_q_estimates_list = data.get("g_q_estimates_list", [])
                 iwae_lbs_list = data.get("iwae_lbs_list", [])
                 iwae_ubs_list = data.get("iwae_ubs_list", [])
+                # Prefer per-prompt averaged IWAE bounds (aggregate is not meaningful
+                # in multi-prompt settings — see mean_of_per_prompt_bounds docstring).
+                iwae_lbs_bp = data.get("iwae_lbs_by_prompt_fixed")
+                if iwae_lbs_bp is not None and len(iwae_lbs_bp) > 0:
+                    iwae_lbs_list = mean_of_per_prompt_bounds(iwae_lbs_bp)
+                iwae_ubs_bp = data.get("iwae_ubs_by_prompt_fixed")
+                if iwae_ubs_bp is not None and len(iwae_ubs_bp) > 0:
+                    iwae_ubs_list = mean_of_per_prompt_bounds(iwae_ubs_bp)
             elif isinstance(data, (tuple, list)) and len(data) >= 4:
                 f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list = data[:4]
             else:
