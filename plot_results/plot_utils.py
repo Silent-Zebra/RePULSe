@@ -12,6 +12,8 @@ MARKER_NO_BONUS = "x"
 MARKER_CFN = "P"
 MARKER_MIXTURE = "^"
 MARKER_EXACT_COUNT = "D"
+MARKER_ENTROPY = "d"  # diamond (thin)
+MARKER_ENTROPY_ANNEALED = "p"  # pentagon
 
 # Marker constants for loss types (used by semantic styling)
 MARKER_CTL = "o"
@@ -96,6 +98,8 @@ def _parse_experiment_properties(prefix):
         bonus_type = "exact_count"
     elif "_mix" in prefix:
         bonus_type = "mixture"
+    elif re.search(r'_entb([\d.e-]+)', prefix):
+        bonus_type = "entropy"
     else:
         bonus_type = "none"
 
@@ -139,6 +143,19 @@ def _parse_experiment_properties(prefix):
             if cf_match:
                 cfn_alpha = float(cf_match.group(1))
 
+    # Entropy bonus alpha; for annealed runs, extract the start value
+    entropy_alpha = None
+    entropy_annealed = False
+    if bonus_type == "entropy":
+        entb_anneal_match = re.search(r'_entb([\d.e-]+)to([\d.e-]+)', prefix)
+        if entb_anneal_match:
+            entropy_alpha = float(entb_anneal_match.group(1))  # start value
+            entropy_annealed = True
+        else:
+            entb_match = re.search(r'_entb([\d.e-]+)', prefix)
+            if entb_match:
+                entropy_alpha = float(entb_match.group(1))
+
     return {
         "loss_type": loss_type,
         "bonus_type": bonus_type,
@@ -148,6 +165,8 @@ def _parse_experiment_properties(prefix):
         "learning_rate": learning_rate,
         "cfn_alpha": cfn_alpha,
         "cfn_annealed": cfn_annealed,
+        "entropy_alpha": entropy_alpha,
+        "entropy_annealed": entropy_annealed,
     }
 
 
@@ -162,9 +181,10 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             - Mixture (q_independent): Oranges
             - Mixture (mixture / other): Reds
             - Exact count: Teals (cm.YlGnBu)
+            - Entropy bonus: warm palette (cm.YlOrBr / cm.Wistia / cm.copper) per alpha value
         - Color shade: learning rate rank (lighter=smaller LR, darker=larger LR; mid if only one)
-        - Marker shape: loss type (o=CTL, s=CTLN, D=unknown)
-        - Line style: CFN alpha value (solid=non-CFN or single alpha; distinct styles per unique alpha)
+        - Marker shape: loss type (o=CTL, s=CTLN, D=unknown); overridden to diamond for entropy bonus
+        - Line style: CFN/entropy alpha value (solid=non-bonus or single alpha; distinct styles per unique alpha)
 
     Args:
         load_prefixes_to_use: List of lists of prefixes (one inner list per experiment)
@@ -195,6 +215,14 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         cfn_alpha_cmap = {a: cfn_alpha_cmaps[i % len(cfn_alpha_cmaps)] for i, a in enumerate(unique_alphas)}
     else:
         cfn_alpha_cmap = {}
+
+    # 4a2. Entropy alpha -> color family: cycle through warm colormaps for distinct alphas
+    unique_entropy_alphas = sorted(set(p["entropy_alpha"] for p in props_list if p["entropy_alpha"] is not None))
+    entropy_alpha_cmaps = [cm.YlOrBr, cm.Wistia, cm.copper, cm.autumn, cm.hot]
+    if unique_entropy_alphas:
+        entropy_alpha_cmap = {a: entropy_alpha_cmaps[i % len(entropy_alpha_cmaps)] for i, a in enumerate(unique_entropy_alphas)}
+    else:
+        entropy_alpha_cmap = {}
 
     # 4b. Mixture lag_steps -> color: assign a fixed shade per (variant, lag_steps) key spread
     #     across 0.25-0.9 so different lag values are clearly distinguishable.
@@ -238,6 +266,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             return ("cfn", props["cfn_alpha"])
         elif bonus == "mixture":
             return ("mixture", props["mixture_variant"], props["mixture_lag_steps"])
+        elif bonus == "entropy":
+            return ("entropy", props["entropy_alpha"])
         else:
             return (bonus,)
 
@@ -260,6 +290,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             cmap = mixture_cmap_map.get(mix_key, cm.Oranges)
         elif bonus == "exact_count":
             cmap = cm.YlGnBu
+        elif bonus == "entropy":
+            cmap = entropy_alpha_cmap.get(props["entropy_alpha"], cm.YlOrBr)
         else:
             cmap = cm.Greys
 
@@ -286,9 +318,14 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             shade = lo + t * (hi - lo)
         color_list.append(cmap(shade))
 
-        # Marker: exact_count -> star; annealed CFN -> triangle; otherwise by loss type
+        # Marker: exact_count -> star; annealed entropy -> pentagon; entropy -> diamond;
+        # annealed CFN -> triangle; otherwise by loss type
         if props["bonus_type"] == "exact_count":
             marker_list.append(MARKER_EXACT_COUNT)
+        elif props.get("entropy_annealed"):
+            marker_list.append(MARKER_ENTROPY_ANNEALED)
+        elif props["bonus_type"] == "entropy":
+            marker_list.append(MARKER_ENTROPY)
         elif props["cfn_annealed"]:
             marker_list.append("^")
         else:
@@ -333,6 +370,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             "cfn": "Coin Flip Net",
             "exact_count": "Exact Count",
             "mixture": "Mixture",
+            "entropy": "Entropy Bonus",
             "none": "No Exploration Bonus",
         }
         run_type = _bonus_to_run_type[props["bonus_type"]]
@@ -460,6 +498,29 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
                 other_str = ""
 
             label_parts = [f"Mixture ({mix_variant}{other_str})"]
+
+            # Extract LR (q) / sampling actor LR from _al
+            al_match = re.search(r'_al([\d.e-]+)', prefix)
+            if al_match:
+                label_parts.append(f"{al_match.group(1)} LR (q)")
+
+            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
+            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
+            if tbs_match:
+                label_parts.append(f"batch={tbs_match.group(1)}")
+
+        elif run_type == "Entropy Bonus":
+            label_parts = ["Entropy"]
+
+            # Extract entropy bonus alpha from _entb pattern
+            # With annealing: _entb{start}to{end}{schedule} (e.g., _entb0.1to0linear)
+            entb_anneal_match = re.search(r'_entb([\d.e-]+)to([\d.e-]+)(linear|log)', prefix)
+            if entb_anneal_match:
+                label_parts.append(f"alpha={entb_anneal_match.group(1)}->{entb_anneal_match.group(2)} ({entb_anneal_match.group(3)})")
+            else:
+                entb_match = re.search(r'_entb([\d.e-]+)', prefix)
+                if entb_match:
+                    label_parts.append(f"alpha={entb_match.group(1)}")
 
             # Extract LR (q) / sampling actor LR from _al
             al_match = re.search(r'_al([\d.e-]+)', prefix)
@@ -3436,8 +3497,8 @@ def plot_sis_weight_histogram_over_time(
     print(f"SIS weight histogram over time saved to {figname}")
 
 
-def _extract_final_per_seed(data, n_settings):
-    """For each setting, extract per-seed 1D arrays at the final timestep.
+def _extract_per_seed_at_timestep(data, n_settings, t_idx=-1):
+    """For each setting, extract per-seed 1D arrays at a given timestep.
 
     Flattens across prompts within each seed.
 
@@ -3445,6 +3506,8 @@ def _extract_final_per_seed(data, n_settings):
         data: List (settings) of list (seeds) of list (T timesteps) of
               list (P prompts) of 1D numpy array (n_samples,) or None.
         n_settings: Number of settings.
+        t_idx: Timestep index to extract. Negative indices work as usual
+               (default -1 = final timestep). Clamped to valid range per seed.
 
     Returns:
         List (settings) of (list of 1D arrays, one per seed) or None if no data.
@@ -3459,7 +3522,12 @@ def _extract_final_per_seed(data, n_settings):
         for seed_data in seed_list:
             if not seed_data:
                 continue
-            t_data = seed_data[-1]  # final timestep: list (P) of arrays
+            # Resolve and clamp index
+            if t_idx < 0:
+                actual_t = max(0, len(seed_data) + t_idx)
+            else:
+                actual_t = min(t_idx, len(seed_data) - 1)
+            t_data = seed_data[actual_t]  # list (P) of arrays
             vals = []
             for p_data in t_data:
                 if p_data is not None:
@@ -3468,6 +3536,14 @@ def _extract_final_per_seed(data, n_settings):
                 seed_arrays.append(np.array(vals))
         all_settings.append(seed_arrays if seed_arrays else None)
     return all_settings
+
+
+def _extract_final_per_seed(data, n_settings):
+    """For each setting, extract per-seed 1D arrays at the final timestep.
+
+    Convenience wrapper around _extract_per_seed_at_timestep with t_idx=-1.
+    """
+    return _extract_per_seed_at_timestep(data, n_settings, t_idx=-1)
 
 
 def _pad_to_length(arr, n):
@@ -3773,6 +3849,177 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
         plt.clf()
         plt.close(fig_ind)
         print(f"Individual two-series lollipop plot saved to {figname_individual}")
+
+
+def plot_two_series_lollipop_over_time(
+    figname, labels, series1_name, series2_name,
+    series1_data, series2_data,
+    color_list, n_frontiers=4,
+    fontsize=7, legendfontsize=7,
+    n_bootstrap_draws=5000,
+    series3_name=None, series3_data=None,
+    sort_by_series3=False,
+):
+    """
+    Over-time version of plot_two_series_lollipop with alpha progression.
+
+    Series2 and series3 (fixed references like log p, log sigma) are drawn once.
+    Series1 (e.g. log q) is drawn at n_frontiers evenly-spaced timesteps with
+    increasing opacity (light=early, dark=late).
+
+    Args:
+        Same as plot_two_series_lollipop, plus:
+        n_frontiers: Number of evenly-spaced timesteps to show.
+    """
+    n_settings = len(labels)
+
+    # Determine max trajectory length from series1_data
+    max_T = 0
+    for setting_data in series1_data:
+        for seed_data in setting_data:
+            if seed_data:
+                max_T = max(max_T, len(seed_data))
+    if max_T == 0:
+        print(f"No series1 data for over-time lollipop plot, skipping {figname}")
+        return
+
+    # Compute evenly-spaced frontier indices (deduplicated)
+    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
+    seen = set()
+    unique_frontier_indices = []
+    for idx in frontier_indices:
+        if idx not in seen:
+            seen.add(idx)
+            unique_frontier_indices.append(idx)
+    frontier_indices = unique_frontier_indices
+    n_times = len(frontier_indices)
+    alphas = np.linspace(0.25, 1.0, n_times)
+
+    # Extract fixed references at final timestep
+    per_seed_s2 = _extract_final_per_seed(series2_data, n_settings)
+    per_seed_s3 = _extract_final_per_seed(series3_data, n_settings) if series3_data is not None else None
+
+    # Determine n_samples and sort order from the sort series (same logic as static version)
+    valid_s2_settings = [(i, arrs) for i, arrs in enumerate(per_seed_s2) if arrs is not None]
+    if not valid_s2_settings:
+        print(f"No series2 data for over-time lollipop plot, skipping {figname}")
+        return
+
+    n_samples = max(len(a) for _, arrs in valid_s2_settings for a in arrs)
+
+    if sort_by_series3 and per_seed_s3 is not None:
+        valid_sort_settings = [(i, arrs) for i, arrs in enumerate(per_seed_s3) if arrs is not None]
+        sort_series_name = series3_name
+    else:
+        valid_sort_settings = valid_s2_settings
+        sort_series_name = series2_name
+
+    all_sort_padded = []
+    for _, arrs in valid_sort_settings:
+        for a in arrs:
+            all_sort_padded.append(_pad_to_length(a, n_samples))
+    sort_order = np.argsort(np.nanmean(np.stack(all_sort_padded), axis=0))[::-1]
+
+    # Compute fixed reference values
+    all_s2_padded = []
+    for _, arrs in valid_s2_settings:
+        for a in arrs:
+            all_s2_padded.append(_pad_to_length(a, n_samples))
+    s2_ref = np.nanmean(np.stack(all_s2_padded), axis=0)[sort_order]
+
+    s3_ref = None
+    if per_seed_s3 is not None:
+        valid_s3_settings = [(i, arrs) for i, arrs in enumerate(per_seed_s3) if arrs is not None]
+        if valid_s3_settings:
+            all_s3_padded = []
+            for _, arrs in valid_s3_settings:
+                for a in arrs:
+                    all_s3_padded.append(_pad_to_length(a, n_samples))
+            s3_ref = np.nanmean(np.stack(all_s3_padded), axis=0)[sort_order]
+
+    x_positions = np.arange(n_samples)
+    dot_spacing = 0.12
+    total_width = dot_spacing * (n_settings - 1)
+    setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
+    dash_half_width = (total_width / 2 + dot_spacing * 0.6) if n_settings > 1 else 0.15
+
+    def _compute_sorted_ci(seed_arrays):
+        """Bootstrap mean + CI per sample position, sorted by sort_order."""
+        if seed_arrays is None:
+            return (np.full(n_samples, np.nan), np.full(n_samples, np.nan),
+                    np.full(n_samples, np.nan))
+        padded = np.stack([_pad_to_length(a, n_samples)[sort_order] for a in seed_arrays])
+        means = np.full(n_samples, np.nan)
+        ci_lo = np.full(n_samples, np.nan)
+        ci_hi = np.full(n_samples, np.nan)
+        for j in range(n_samples):
+            col = padded[:, j]
+            valid_col = col[~np.isnan(col)]
+            if len(valid_col) > 0:
+                means[j], ci_lo[j], ci_hi[j] = _bootstrap_mean_ci(valid_col, n_bootstrap_draws)
+        return means, ci_lo, ci_hi
+
+    # --- Plot ---
+    fig, ax = plt.subplots()
+
+    # Draw fixed references (full opacity, drawn once)
+    if s3_ref is not None:
+        _draw_target_dashes(ax, x_positions, s3_ref, dash_half_width, linewidth=2,
+                            label_text=series3_name)
+        _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
+                            label_text=series2_name, color='dimgray', linestyle='--')
+    else:
+        _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
+                            label_text=series2_name)
+
+    # Series1 at each frontier timestep with alpha progression
+    for time_i, t_idx in enumerate(frontier_indices):
+        per_seed_s1 = _extract_per_seed_at_timestep(series1_data, n_settings, t_idx=t_idx)
+
+        for setting_idx in range(n_settings):
+            s1_seeds = per_seed_s1[setting_idx]
+            if s1_seeds is None:
+                continue
+            color = color_list[setting_idx]
+            x = x_positions + setting_offsets[setting_idx]
+
+            s1_means, s1_ci_lo, s1_ci_hi = _compute_sorted_ci(s1_seeds)
+
+            valid1 = ~np.isnan(s1_means)
+            if np.any(valid1):
+                lo1 = s1_means[valid1] - s1_ci_lo[valid1]
+                hi1 = s1_ci_hi[valid1] - s1_means[valid1]
+                # Only add label for the last timestep (full opacity)
+                label = labels[setting_idx] if time_i == n_times - 1 else None
+                ax.scatter(x[valid1], s1_means[valid1], color=color, s=20,
+                           alpha=alphas[time_i], zorder=4, label=label)
+                ax.errorbar(x[valid1], s1_means[valid1], yerr=[lo1, hi1],
+                            fmt='none', ecolor=color, alpha=alphas[time_i] * 0.5,
+                            capsize=3, linewidth=1, zorder=3)
+
+    # Timestep annotation
+    time_str = ", ".join(str(idx) for idx in frontier_indices)
+    ax.annotate(f"Timesteps: {time_str} (light\u2192dark)", xy=(0.02, 0.98),
+                xycoords='axes fraction', fontsize=fontsize - 1, color='gray',
+                verticalalignment='top')
+
+    all_ref_names = [series2_name] + ([series3_name] if series3_name else [])
+    title_refs = ', '.join(all_ref_names)
+    ax.set_xlabel(f'Target Sequence Index (sorted by descending {sort_series_name})',
+                  fontsize=fontsize)
+    ax.set_ylabel('Log probability', fontsize=fontsize)
+    ax.set_title(f'{series1_name} vs {title_refs} Over Time (per target sequence)',
+                 fontsize=fontsize + 1)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(np.arange(1, n_samples + 1), fontsize=max(4, fontsize - 2))
+    ax.tick_params(axis='y', labelsize=fontsize)
+    ax.legend(fontsize=legendfontsize)
+    ax.grid(alpha=0.3, linestyle='--', axis='y')
+    plt.tight_layout()
+    plt.savefig(figname)
+    plt.clf()
+    plt.close(fig)
+    print(f"Over-time lollipop plot saved to {figname}")
 
 
 def _collect_f_q_sample_rank_data(n_settings, log_q_data, log_p_data, log_phi_data, n_ranks):
