@@ -4918,6 +4918,10 @@ figname_modifier = "probinflen20_disitremodev_b-20_04-05_v4"
 # legendfontsize = 4
 # n_top_tokens = 10
 
+# TODO try REINFORCE sampling actor loss now as well...
+# Then try entropy as well on other settings
+# Finally continue with the bigger experiments...
+
 
 
 random_f_q_ylim_low = random_f_q_ylim_low if 'random_f_q_ylim_low' in vars() else None

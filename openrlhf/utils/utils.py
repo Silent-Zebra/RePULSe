@@ -439,7 +439,8 @@ def get_info_name_str(args):
         "ctl_nosecondterm": "ctln",
         "sixo": "sixo",
         "sixo_approxneg": "sixoa",
-        "dpg": "dpg"
+        "dpg": "dpg",
+        "reinforce": "reinf",
     }
     if loss_type_short in loss_map:
         loss_type_short = loss_map[loss_type_short]
