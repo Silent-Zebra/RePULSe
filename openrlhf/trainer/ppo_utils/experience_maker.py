@@ -598,9 +598,13 @@ class BaseExperienceMaker(ABC):
 
         assert actor_loss_type is not None
 
-        if self.actor_loss_type == "ppo" or self.actor_loss_type == "reinforce":
+        if self.actor_loss_type == "ppo":
             self.multiply_by_beta = False
         else:
+            # For twist learning losses (CTL, SIXO, DPG) and sampling actor REINFORCE:
+            # r = beta * reward (= log_phi), so multiply_by_beta=True.
+            # Sampling actor REINFORCE uses info["return"] = log_phi - kl*KL(q||p),
+            # which requires r to already be log_phi.
             self.multiply_by_beta = True
 
         self.save_negdata = save_negdata
