@@ -343,6 +343,18 @@ class BasePPOTrainer(ABC):
         # Base estimates_list contains non-f_q_g_q metrics
         estimates_list = (rewards_list, kl_vals_list, entropy_list, untrans_ret_list)
 
+        # Pre-compute entropy bonus annealing schedule
+        entropy_bonus_schedule = None
+        if getattr(args, 'start_actor_loss_entropy_bonus', None) is not None:
+            from openrlhf.utils.utils import make_annealing_schedule
+            total_update_steps = self.prompts_dataloader.__len__() * args.num_episodes
+            entropy_bonus_schedule = make_annealing_schedule(
+                args.start_actor_loss_entropy_bonus, args.actor_loss_entropy_bonus,
+                total_update_steps,
+                schedule_type=getattr(args, 'actor_loss_entropy_bonus_schedule', 'log'))
+            print("ENTROPY_BONUS SCHEDULE:")
+            print(entropy_bonus_schedule)
+
         custom_prompt = None
         for episode in range(start_episode, args.num_episodes):
             print(f"PROPOSAL OR TWIST TRAINING EPISODE {episode}", flush=True)
@@ -416,6 +428,15 @@ class BasePPOTrainer(ABC):
 
                 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 #              profile_memory=True, record_shapes=True) as prof:
+
+                if entropy_bonus_schedule is not None:
+                    assert self.total_steps < len(entropy_bonus_schedule), (
+                        f"Schedule index out of bounds: total_steps={self.total_steps} >= "
+                        f"len(entropy_bonus_schedule)={len(entropy_bonus_schedule)}. "
+                        f"total_update_steps computation may not match actual iteration count."
+                    )
+                    args.actor_loss_entropy_bonus = entropy_bonus_schedule[self.total_steps]
+                    print(f"Using new actor_loss_entropy_bonus: {args.actor_loss_entropy_bonus}")
 
                 self.total_steps += 1 # do this update before the save_steps, so that saving does happen e.g. if you do 4 save_steps, then on the 4th step, saving will actually happen
                 # so far I modified self.save_logs_and_checkpoints, this should be the only place using self.total_steps

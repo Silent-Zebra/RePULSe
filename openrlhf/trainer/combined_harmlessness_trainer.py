@@ -71,6 +71,7 @@ class CombinedHarmlessnessTrainer(ABC):
         sampling_critic_scheduler,
         ema_beta: float = 0.992,
         init_kl_coef: float = 0.001,
+        sampling_actor_init_kl_coef: float = 0,
         kl_target: float = None,
         kl_horizon: int = 10000,
         ptx_coef: float = 0,
@@ -252,6 +253,11 @@ class CombinedHarmlessnessTrainer(ABC):
             self.sampling_actor_loss_fn = CTLLoss(no_second_term=True)
         elif self.sampling_actor_loss_type == "dpg":
             self.sampling_actor_loss_fn = DPGLoss()
+        elif self.sampling_actor_loss_type == "reinforce":
+            self.sampling_actor_loss_fn = REINFORCELoss(
+                baseline_type=self.baseline_type,
+                hardcoded_baseline=self.hardcoded_baseline
+            )
         else:
             raise NotImplementedError # others not yet tested
 
@@ -283,6 +289,8 @@ class CombinedHarmlessnessTrainer(ABC):
         else:
             self.kl_ctl = FixedKLController(init_kl_coef)
 
+        self.sampling_kl_ctl = FixedKLController(sampling_actor_init_kl_coef)
+
         assert not shared_actorcritic # Not yet implemented/tested here
         self.shared_actorcritic = shared_actorcritic
 
@@ -291,6 +299,19 @@ class CombinedHarmlessnessTrainer(ABC):
         self.separate_neg_samples = True
         if self.base_actor_loss_type == "reinforce" or self.use_base_as_proposal:
             self.separate_neg_samples = False
+        # REINFORCE sampling actor needs separate experience (uses its own KL controller).
+        # Two reasons this is required:
+        # 1. Correctness: REINFORCE uses info["return"] as its reward signal, which includes
+        #    kl_coef * KL(q||p). This must be computed by sampling_experience_maker_neg (which
+        #    uses sampling_kl_ctl with value=1). When separate_neg_samples=False, both actors
+        #    share experience from the base experience maker (which uses kl_ctl, potentially
+        #    a different value), giving the wrong return for the sampling actor's REINFORCE loss.
+        #    CTL/DPG don't have this problem because they use info["reward"] (log_phi) directly
+        #    and compute their own SIS weights — they never read info["return"].
+        # 2. Compatibility: base_actor_learning_rate=0 sets neg_sample_only=True, which requires
+        #    separate_neg_samples=True to have a dataloader to iterate.
+        if self.sampling_actor_loss_type == "reinforce":
+            self.separate_neg_samples = True
 
         assert not (self.mixture_proposal and not self.separate_neg_samples), (
             "mixture_proposal requires separate_neg_samples=True (mixture sampling code is inside the "
@@ -438,7 +459,7 @@ class CombinedHarmlessnessTrainer(ABC):
             base_actor, # use base_actor here as the initial model. But should not matter except for f_q calculation, and for the KL reward, which if I'm not using PPO, would not matter
             tokenizer,
             prompt_max_len,
-            self.kl_ctl,
+            self.sampling_kl_ctl,
             strategy,
             remote_rm_url,
             reward_fn,
@@ -688,6 +709,15 @@ class CombinedHarmlessnessTrainer(ABC):
             print("BONUS_ALPHA SCHEDULE:")
             print(bonus_alpha_schedule)
 
+        entropy_bonus_schedule = None
+        if getattr(args, 'start_actor_loss_entropy_bonus', None) is not None:
+            entropy_bonus_schedule = make_annealing_schedule(
+                args.start_actor_loss_entropy_bonus, args.actor_loss_entropy_bonus,
+                total_update_steps,
+                schedule_type=getattr(args, 'actor_loss_entropy_bonus_schedule', 'log'))
+            print("ENTROPY_BONUS SCHEDULE:")
+            print(entropy_bonus_schedule)
+
         # Extract prompt_text for new_custom_single_prompt case
         prompt_text = None
         if args.new_custom_single_prompt:
@@ -788,6 +818,15 @@ class CombinedHarmlessnessTrainer(ABC):
                     new_bonus_alpha = bonus_alpha_schedule[self.total_steps]
                     self.sampling_experience_maker_neg.bonus_alpha = new_bonus_alpha
                     print(f"Using new bonus_alpha: {new_bonus_alpha}")
+
+                if getattr(args, 'start_actor_loss_entropy_bonus', None) is not None:
+                    assert self.total_steps < len(entropy_bonus_schedule), (
+                        f"Schedule index out of bounds: total_steps={self.total_steps} >= "
+                        f"len(entropy_bonus_schedule)={len(entropy_bonus_schedule)}. "
+                        f"total_update_steps computation may not match actual iteration count."
+                    )
+                    args.actor_loss_entropy_bonus = entropy_bonus_schedule[self.total_steps]
+                    print(f"Using new actor_loss_entropy_bonus: {args.actor_loss_entropy_bonus}")
 
                 if args.new_custom_single_prompt:
                     rand_prompts = [prompt_text]
@@ -1778,7 +1817,35 @@ class CombinedHarmlessnessTrainer(ABC):
         want_entropy = getattr(self.args, 'actor_loss_entropy_bonus', None) is not None
         entropy = None
 
-        if self.sampling_actor_loss_type in ["ctl", "ctl_nosecondterm"]:
+        if self.sampling_actor_loss_type == "reinforce":
+            # REINFORCE/RLOO for sampling actor q: treat q as a standard RL policy.
+            # reward = log_phi, KL penalty against p with coef=1.
+            # info["return"] = log_phi - KL(q||p), whose REINFORCE optimum is q* ∝ p·φ = σ.
+            if want_entropy:
+                action_log_probs, entropy = self.sampling_actor(
+                    experience.sequences, experience.action_mask.size(1),
+                    attention_mask=experience.attention_mask, return_output=False,
+                    return_entropy=True
+                )
+            else:
+                action_log_probs = self.sampling_actor(
+                    experience.sequences, experience.action_mask.size(1),
+                    attention_mask=experience.attention_mask, return_output=False
+                )
+
+            action_log_probs = action_log_probs.view(num_prompts, samples_per_prompt, -1)
+
+            final_reward_including_kl = experience.info["return"].view(
+                num_prompts, samples_per_prompt).to(action_log_probs.device)
+            exper_action_mask = experience.action_mask.view(num_prompts, samples_per_prompt, -1)
+
+            sampling_actor_loss = self.sampling_actor_loss_fn(
+                action_log_probs,
+                final_reward_including_kl,
+                action_mask=exper_action_mask,
+            )
+
+        elif self.sampling_actor_loss_type in ["ctl", "ctl_nosecondterm"]:
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
 

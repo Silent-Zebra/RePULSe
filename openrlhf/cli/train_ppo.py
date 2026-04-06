@@ -891,6 +891,7 @@ def train(args):
             gamma=args.gamma,
             lambd=args.lambd,
             init_kl_coef=args.init_kl_coef,
+            sampling_actor_init_kl_coef=args.sampling_actor_init_kl_coef,
             kl_target=args.kl_target,
             target_dist_beta=args.target_dist_beta,
             ema_beta=0.992,
@@ -4500,6 +4501,9 @@ if __name__ == "__main__":
     parser.add_argument("--critic_learning_rate", type=float, default=9e-6)
     parser.add_argument("--kl_target", type=float, default=None)
     parser.add_argument("--init_kl_coef", type=float, default=1, help="KL penalty to prior/base model in PPO/REINFORCE")
+    parser.add_argument("--sampling_actor_init_kl_coef", type=float, default=0,
+        help="KL penalty coefficient for sampling actor experience maker. "
+             "Must be 1 when actor_loss_type='reinforce'. Default 0 for backward compat.")
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
 
 
@@ -4698,12 +4702,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--actor_loss_type", type=str, default="ppo",
         choices=[
-            "ppo", "ctl", "ctl_nosecondterm", "sixo", "sixo_approxneg", "dpg"
+            "ppo", "ctl", "ctl_nosecondterm", "sixo", "sixo_approxneg", "dpg", "reinforce"
         ]
     )
 
     parser.add_argument("--actor_loss_entropy_bonus", type=float, default=None,
         help="If set, subtract coef * mean_per_token_entropy from the actor loss to encourage higher entropy.")
+    parser.add_argument("--start_actor_loss_entropy_bonus", type=float, default=None,
+        help="If set, anneal actor_loss_entropy_bonus from this value to --actor_loss_entropy_bonus over training")
+    parser.add_argument("--actor_loss_entropy_bonus_schedule", type=str, default="log",
+        choices=["linear", "log"],
+        help="Schedule type for entropy bonus annealing: 'log' or 'linear'. Must be 'linear' if start or end is 0.")
 
     parser.add_argument(
         "--critic_loss_type", type=str, default="mse",
@@ -4837,7 +4846,22 @@ if __name__ == "__main__":
 
     if args.actor_loss_type == "ppo":
         assert args.parameterization not in ["policy_psi_unnorm", "policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]
-    else: # Not PPO
+    elif args.actor_loss_type == "reinforce":
+        # REINFORCE for sampling actor: treat q as a standard RL policy optimizing
+        # reward = log_phi with KL penalty against p. Optimum is q* ∝ p·φ = σ.
+        assert args.do_harmlessness_training, (
+            "actor_loss_type='reinforce' is for the sampling actor in probabilistic inference; "
+            "requires --do_harmlessness_training")
+        assert args.parameterization == "policy", (
+            f"actor_loss_type='reinforce' requires parameterization='policy' (raw log q output, "
+            f"not log_psi), got '{args.parameterization}'")
+        assert args.sampling_actor_init_kl_coef == 1, (
+            f"actor_loss_type='reinforce' requires sampling_actor_init_kl_coef=1 for probabilistic "
+            f"inference equivalence (q* = p·phi/Z), got {args.sampling_actor_init_kl_coef}")
+        args.no_critic = True
+        assert args.duplicate_rollout_batch_by > 1, (
+            "REINFORCE with RLOO baseline requires duplicate_rollout_batch_by > 1")
+    else: # Twist learning losses (CTL, SIXO, DPG)
         # assert args.actor_modulates_base # Need the twist formulation with the CustomActor for this # Now ok; can use policy parameterization directly outputting log(p psi), just need to subtract log_p then to get log_psi
         args.no_critic = True # No (PPO) critic when using the twist formulation
         if not args.do_harmlessness_training:
