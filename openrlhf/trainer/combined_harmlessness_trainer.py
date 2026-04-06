@@ -625,10 +625,11 @@ class CombinedHarmlessnessTrainer(ABC):
 
         assert start_episode < args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop # Otherwise no updates done; this might be ok depending on setup, but for now this would be unexpected behaviour.
 
-        # total_update_steps should match the total number of times self.total_steps is incremented
-        # (once per dataloader batch, across all episodes and fit_steps loops).
+        # total_update_steps should match the total number of times self.total_steps is incremented.
+        # Per dataloader batch: make_experience_and_do_update is called num_episodes times
+        # (num_episodes - 1 q-only steps + 1 main step), each incrementing total_steps by 1.
         # If this doesn't match, schedule indexing with self.total_steps will go out of bounds.
-        total_update_steps = self.prompts_dataloader.__len__() * args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop * args.fit_steps
+        total_update_steps = self.prompts_dataloader.__len__() * args.num_episodes * args.harmlessness_training_num_episodes * args.harmlessness_training_episodes_per_loop * args.fit_steps
 
         # --- Trajectory recording: metadata save and max_ckpt_num validation ---
         # Only initialize on the first fit() call to avoid resetting
