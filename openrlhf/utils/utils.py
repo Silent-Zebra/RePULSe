@@ -469,7 +469,11 @@ def get_info_name_str(args):
         else:
             entropy_bonus_str = f"_entb{args.actor_loss_entropy_bonus}"
 
-    info_name_str = f"{rm_type_str}{reward_clamp_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_l{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_b{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{param_short}_{loss_type_short}_ep{args.max_epochs}{epi_str}{fit_steps_str}{eval_str}_sc{scheduler_short}_{lr_str}{critic_loss_str}{adam_betas_str}_{param_short}{init_head_base_str}{sddiv_str}{exploration_bonus_str}{mixture_str}{entropy_bonus_str}_tb{args.train_batch_size}_s{args.seed}"
+    div_by_abs_beta_str = ""
+    if getattr(args, 'divide_actor_loss_by_abs_beta', False):
+        div_by_abs_beta_str = "_divab"
+
+    info_name_str = f"{rm_type_str}{reward_clamp_str}_{pretrain_str}_{reward_pretrain_str}_{prompt_data_str}_l{args.generate_max_len}_kl{args.init_kl_coef}{start_beta_str}_b{args.target_dist_beta}{sep_beta_str}{harmlessness_train_str}{rew_trans_str}_{param_short}_{loss_type_short}_ep{args.max_epochs}{epi_str}{fit_steps_str}{eval_str}_sc{scheduler_short}_{lr_str}{critic_loss_str}{adam_betas_str}_{param_short}{init_head_base_str}{sddiv_str}{exploration_bonus_str}{mixture_str}{entropy_bonus_str}{div_by_abs_beta_str}_tb{args.train_batch_size}_s{args.seed}"
 
     return info_name_str
 

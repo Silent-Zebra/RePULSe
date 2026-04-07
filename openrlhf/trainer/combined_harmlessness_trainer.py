@@ -2088,6 +2088,18 @@ class CombinedHarmlessnessTrainer(ABC):
         else:
             raise NotImplementedError
 
+        # Optionally rescale the sampling actor loss by 1/|target_dist_beta|.
+        # Mathematically, the current loss reflects the formulation beta*r - 1*KL_p (since log_phi
+        # absorbs the beta factor). Dividing by |beta| gives the equivalent formulation r - (1/|beta|)*KL_p.
+        # This is a wash on gradient direction but changes the gradient magnitude, which in turn
+        # changes Adam's optimizer dynamics (effective step size, second-moment estimates).
+        # We apply this BEFORE the entropy bonus so that the user-supplied entropy bonus coefficient
+        # has its intended absolute effect rather than being implicitly rescaled by 1/|beta|.
+        if getattr(self.args, 'divide_actor_loss_by_abs_beta', False):
+            assert self.args.target_dist_beta is not None and self.args.target_dist_beta != 0, (
+                "--divide_actor_loss_by_abs_beta requires a nonzero --target_dist_beta")
+            sampling_actor_loss = sampling_actor_loss / abs(self.args.target_dist_beta)
+
         # Apply entropy bonus if configured: loss -= coef * mean_per_token_entropy
         if want_entropy:
             assert entropy is not None, "entropy was not computed — check that the loss type + parameterization supports it"

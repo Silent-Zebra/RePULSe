@@ -4706,6 +4706,12 @@ if __name__ == "__main__":
         ]
     )
 
+    parser.add_argument("--divide_actor_loss_by_abs_beta", action="store_true",
+        help="If set, divide the sampling actor loss by abs(target_dist_beta). Mathematically a wash on "
+             "the gradient direction, but rescales the loss magnitude — equivalent to changing the "
+             "formulation from beta*reward - 1*KL to reward - (1/|beta|)*KL, which can change Adam's "
+             "optimizer dynamics (effective step size, second-moment estimates).")
+
     parser.add_argument("--actor_loss_entropy_bonus", type=float, default=None,
         help="If set, subtract coef * mean_per_token_entropy from the actor loss to encourage higher entropy.")
     parser.add_argument("--start_actor_loss_entropy_bonus", type=float, default=None,
