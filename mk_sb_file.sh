@@ -289,6 +289,32 @@ cd ~/OpenRLHF
 deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
 EOL
         ;;
+    "dcs_multinode")
+        cat > "$SBATCH_FILE" << EOL
+#!/bin/bash
+#SBATCH -J s1_$(($RANDOM % 100000))
+#SBATCH --ntasks=1
+#SBATCH --mem=192G
+#SBATCH -c 16
+#SBATCH --time=5:00:00
+#SBATCH --partition=ml
+#SBATCH --qos=ml
+#SBATCH --account=ml
+#SBATCH --nodelist=overture,quartet[1-5],concerto[1-3]
+#SBATCH --nodes=1
+#SBATCH --export=ALL
+#SBATCH --output=$OUTPUT_FILE
+#SBATCH --gres=gpu:4
+source /pkgs/anaconda310/etc/profile.d/conda.sh
+conda activate openrlhf
+export CUDA_HOME=/pkgs/cuda-12.4
+export PATH=\$CUDA_HOME/bin:\$PATH
+export LD_LIBRARY_PATH=\$CUDA_HOME/lib64:\$LD_LIBRARY_PATH
+export MAX_JOBS=1
+cd ~/OpenRLHF
+deepspeed --master_port $(($RANDOM % 1000 + 3000))1 $COMMAND
+EOL
+        ;;
     "deadline")
         cat > "$SBATCH_FILE" << EOL
 #!/bin/bash
