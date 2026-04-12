@@ -160,6 +160,108 @@ def _distributed_gather_by_prompt_list(strategy, by_prompt_list):
     return gathered
 
 
+def _make_f_q_tracking_lists():
+    """Create a fresh set of f_q/g_q tracking lists for one eval set (fixed or heldout)."""
+    return {
+        "f_q_by_prompt": [],
+        "g_q_by_prompt": [],
+        "iwae_lbs_by_prompt": [],
+        "iwae_ubs_by_prompt": [],
+        "log_q_by_prompt": [],
+        "log_p_by_prompt": [],
+        "reward_by_prompt": [],
+        "target_by_prompt": [],
+        "log_q_g_q_by_prompt": [],
+        "log_p_g_q_by_prompt": [],
+        "reward_g_q_by_prompt": [],
+        "target_g_q_by_prompt": [],
+    }
+
+
+def _append_f_q_result_to_tracking_lists(result, tracking_lists):
+    """Append one eval step's results to the tracking lists dict."""
+    for key in tracking_lists:
+        tracking_lists[key].append(result[key])
+
+
+def _run_f_q_g_q_eval_set(
+    harmlessness_trainer, args, strategy,
+    eval_prompts, eval_target_samples, tracking_lists,
+    eval_prompts_random_source, n_eval_prompts,
+    f_q_by_prompt_list_random, prompt_texts_random_per_timepoint,
+    label="train",
+):
+    """Run f_q/g_q eval on Set A (fixed prompts) and optionally Set B (random coverage).
+
+    Returns the Set A result dict (for caller to do aggregated backward-compat appends if needed).
+    """
+    import random as random_module
+    from openrlhf.utils.utils import print_timestamp
+
+    print_timestamp(f"per-fit-step eval: start f_q_g_q evaluation ({label} set A)")
+    result = f_q_g_q_evaluation_multi_prompt(
+        harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+        eval_prompts, eval_target_samples,
+        is_rank_0=strategy.is_rank_0(),
+    )
+    _append_f_q_result_to_tracking_lists(result, tracking_lists)
+    print_timestamp(f"per-fit-step eval: end f_q_g_q evaluation ({label} set A)")
+
+    # Set B (random prompts) - f_q only, no g_q/IWAE
+    if eval_prompts_random_source is not None and f_q_by_prompt_list_random is not None:
+        n = n_eval_prompts if n_eval_prompts is not None else len(eval_prompts_random_source)
+        random_prompts = random_module.sample(eval_prompts_random_source, min(n, len(eval_prompts_random_source)))
+        if prompt_texts_random_per_timepoint is not None:
+            prompt_texts_random_per_timepoint.append(random_prompts)
+        result_random = f_q_g_q_evaluation_multi_prompt(
+            harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
+            random_prompts, None,
+        )
+        f_q_by_prompt_list_random.append(result_random["f_q_by_prompt"])
+
+    return result
+
+
+def _gather_and_aggregate_tracking_lists(strategy, tracking_lists):
+    """Gather per-prompt tracking lists across ranks, compute aggregates and IWAE bounds.
+
+    Returns a dict with gathered per-prompt data, aggregated data, and per-prompt IWAE bounds.
+    """
+    # f_q: gather across ranks (stochastic, each rank has independent samples)
+    g_f_q_bp = _distributed_gather_by_prompt_list(strategy, tracking_lists["f_q_by_prompt"])
+    g_log_q_bp = _distributed_gather_by_prompt_list(strategy, tracking_lists["log_q_by_prompt"])
+    g_log_p_bp = _distributed_gather_by_prompt_list(strategy, tracking_lists["log_p_by_prompt"])
+    g_reward_bp = _distributed_gather_by_prompt_list(strategy, tracking_lists["reward_by_prompt"])
+    g_target_bp = _distributed_gather_by_prompt_list(strategy, tracking_lists["target_by_prompt"])
+    # g_q: deterministic on target samples, rank 0 only — no gathering needed
+    g_g_q_bp = tracking_lists["g_q_by_prompt"]
+    g_log_q_g_q_bp = tracking_lists["log_q_g_q_by_prompt"]
+    g_log_p_g_q_bp = tracking_lists["log_p_g_q_by_prompt"]
+    g_reward_g_q_bp = tracking_lists["reward_g_q_by_prompt"]
+    g_target_g_q_bp = tracking_lists["target_g_q_by_prompt"]
+    # Aggregated
+    g_f_q = [torch.cat([f for f in step if f is not None]) if any(f is not None for f in step) else None
+             for step in g_f_q_bp]
+    g_g_q = [torch.cat([g for g in step if g is not None]) if any(g is not None for g in step) else None
+             for step in g_g_q_bp]
+    g_iwae_lbs = [_recompute_iwae_lb(f) for f in g_f_q]
+    g_iwae_ubs = [_recompute_iwae_ub(f, g) for f, g in zip(g_f_q, g_g_q)]
+    # Per-prompt IWAE bounds
+    g_iwae_lbs_bp = [[_recompute_iwae_lb(f) for f in step] for step in g_f_q_bp]
+    g_iwae_ubs_bp = [[_recompute_iwae_ub(f, g) for f, g in zip(f_step, g_step)]
+                     for f_step, g_step in zip(g_f_q_bp, g_g_q_bp)]
+    return {
+        "f_q_by_prompt": g_f_q_bp, "g_q_by_prompt": g_g_q_bp,
+        "iwae_lbs_by_prompt": g_iwae_lbs_bp, "iwae_ubs_by_prompt": g_iwae_ubs_bp,
+        "log_q_by_prompt": g_log_q_bp, "log_p_by_prompt": g_log_p_bp,
+        "reward_by_prompt": g_reward_bp, "target_by_prompt": g_target_bp,
+        "log_q_g_q_by_prompt": g_log_q_g_q_bp, "log_p_g_q_by_prompt": g_log_p_g_q_bp,
+        "reward_g_q_by_prompt": g_reward_g_q_bp, "target_g_q_by_prompt": g_target_g_q_bp,
+        "f_q_agg": g_f_q, "g_q_agg": g_g_q,
+        "iwae_lbs_agg": g_iwae_lbs, "iwae_ubs_agg": g_iwae_ubs,
+    }
+
+
 def train(args):
     # configure strategy
     strategy = get_strategy(args)
@@ -1063,20 +1165,7 @@ def train(args):
     target_samples_logprob_over_time_list = []
     # Per-prompt tracking lists for multi-prompt f_q/g_q eval
     # Fixed set (stable tracking over time)
-    f_q_by_prompt_list_fixed = []
-    g_q_by_prompt_list_fixed = []
-    iwae_lbs_by_prompt_list_fixed = []
-    iwae_ubs_by_prompt_list_fixed = []
-    # Per-sample component lists for fixed set (f_q samples)
-    log_q_by_prompt_list_fixed = []
-    log_p_by_prompt_list_fixed = []
-    reward_by_prompt_list_fixed = []
-    target_by_prompt_list_fixed = []
-    # Per-sample component lists for fixed set (g_q target samples; None for prompts without targets)
-    log_q_g_q_by_prompt_list_fixed = []
-    log_p_g_q_by_prompt_list_fixed = []
-    reward_g_q_by_prompt_list_fixed = []
-    target_g_q_by_prompt_list_fixed = []
+    tracking_lists_fixed = _make_f_q_tracking_lists()
     # Random set (coverage)
     f_q_by_prompt_list_random = []
     prompt_texts_random_per_timepoint = []
@@ -1160,6 +1249,67 @@ def train(args):
 
             strategy.print(f"Eval prompt sets: Fixed={len(eval_prompts_fixed)} prompts"
                            + (f", Random source={len(eval_prompts_random_source)} prompts" if eval_prompts_random_source else ", No random set"))
+
+    # Build heldout eval prompt sets (for f_q/g_q evaluation on held-out data)
+    eval_prompts_heldout = None
+    eval_target_samples_heldout = None
+    tracking_lists_heldout = None
+    eval_prompts_random_source_heldout = None
+    f_q_by_prompt_list_random_heldout = []
+    prompt_texts_random_per_timepoint_heldout = []
+
+    if _per_fit_step_f_q_eval and not args.new_custom_single_prompt:
+        if getattr(args, 'heldout_target_samples_name', None) is not None:
+            # Load heldout target samples (Set A prompts come from the file)
+            heldout_samples, heldout_prompt_texts = load_target_samples(
+                args.heldout_target_samples_name, torch.cuda.current_device(), strategy)
+            assert heldout_prompt_texts is not None, (
+                "--heldout_target_samples_name must be a v2 target samples file with prompt texts")
+            eval_prompts_heldout = list(heldout_prompt_texts)
+            eval_target_samples_heldout = list(heldout_samples) if heldout_samples is not None else None
+            tracking_lists_heldout = _make_f_q_tracking_lists()
+
+            # Set B source: load from --heldout_prompt_data if provided
+            if getattr(args, 'heldout_prompt_data', None) is not None:
+                saved_args = (args.prompt_data, args.prompt_split, args.input_key, args.input_template)
+                args.prompt_data = args.heldout_prompt_data
+                args.prompt_split = args.heldout_prompt_split
+                args.input_key = args.heldout_input_key
+                args.input_template = args.heldout_input_template
+                _, heldout_random_dataset = get_prompts_data(args, strategy, tokenizer)
+                args.prompt_data, args.prompt_split, args.input_key, args.input_template = saved_args
+                all_heldout_prompts = [heldout_random_dataset[i] for i in range(len(heldout_random_dataset))]
+                # Set B only meaningful when heldout dataset is larger than Set A
+                if len(all_heldout_prompts) > len(eval_prompts_heldout):
+                    eval_prompts_random_source_heldout = all_heldout_prompts
+
+        elif getattr(args, 'heldout_prompt_data', None) is not None:
+            # No target samples — load prompts from dataset (f_q only for Set A)
+            saved_args = (args.prompt_data, args.prompt_split, args.input_key, args.input_template)
+            args.prompt_data = args.heldout_prompt_data
+            args.prompt_split = args.heldout_prompt_split
+            args.input_key = args.heldout_input_key
+            args.input_template = args.heldout_input_template
+            _, heldout_dataset = get_prompts_data(args, strategy, tokenizer)
+            args.prompt_data, args.prompt_split, args.input_key, args.input_template = saved_args
+            all_heldout_prompts = [heldout_dataset[i] for i in range(len(heldout_dataset))]
+            if n_eval_prompts is not None:
+                eval_prompts_heldout = all_heldout_prompts[:n_eval_prompts]
+            else:
+                eval_prompts_heldout = all_heldout_prompts
+            eval_target_samples_heldout = None
+            tracking_lists_heldout = _make_f_q_tracking_lists()
+            # Set B: use full dataset as random source (same logic as training set)
+            if n_eval_prompts is not None and len(all_heldout_prompts) > n_eval_prompts:
+                eval_prompts_random_source_heldout = all_heldout_prompts
+
+        if eval_prompts_heldout is not None:
+            strategy.print(
+                f"Heldout eval: {len(eval_prompts_heldout)} prompts (Set A)"
+                + (f", {sum(1 for t in eval_target_samples_heldout if t is not None and t.numel() > 0)} with target samples"
+                   if eval_target_samples_heldout else ", no target samples (f_q only)")
+                + (f", random source={len(eval_prompts_random_source_heldout)} prompts (Set B)"
+                   if eval_prompts_random_source_heldout else ", no random set"))
 
     # Wire rejection_sample_prompts onto the trainer so _attempt_rejection_sampling_at_checkpoint
     # can use them for multi-prompt rejection sampling at trajectory save time.
@@ -1260,22 +1410,17 @@ def train(args):
             f_q_over_time_list,
             target_samples_logprob_over_time_list,
             eval_target_samples_fixed=_get_eval_target_for_trajectory(),
-            f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
-            g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
-            iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
-            iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
-            log_q_by_prompt_list_fixed=log_q_by_prompt_list_fixed,
-            log_p_by_prompt_list_fixed=log_p_by_prompt_list_fixed,
-            reward_by_prompt_list_fixed=reward_by_prompt_list_fixed,
-            target_by_prompt_list_fixed=target_by_prompt_list_fixed,
-            log_q_g_q_by_prompt_list_fixed=log_q_g_q_by_prompt_list_fixed,
-            log_p_g_q_by_prompt_list_fixed=log_p_g_q_by_prompt_list_fixed,
-            reward_g_q_by_prompt_list_fixed=reward_g_q_by_prompt_list_fixed,
-            target_g_q_by_prompt_list_fixed=target_g_q_by_prompt_list_fixed,
+            tracking_lists_fixed=tracking_lists_fixed,
             eval_prompts_random_source=eval_prompts_random_source,
             n_eval_prompts=n_eval_prompts,
             f_q_by_prompt_list_random=f_q_by_prompt_list_random,
             prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
+            eval_prompts_heldout=eval_prompts_heldout,
+            eval_target_samples_heldout=eval_target_samples_heldout,
+            tracking_lists_heldout=tracking_lists_heldout,
+            eval_prompts_random_source_heldout=eval_prompts_random_source_heldout,
+            f_q_by_prompt_list_random_heldout=f_q_by_prompt_list_random_heldout,
+            prompt_texts_random_per_timepoint_heldout=prompt_texts_random_per_timepoint_heldout,
             f_q_mix_estimates_list=f_q_mix_estimates_list,
             g_q_mix_estimates_list=g_q_mix_estimates_list,
             iwae_mix_lbs_list=iwae_mix_lbs_list,
@@ -1338,22 +1483,17 @@ def train(args):
                     f_q_over_time_list,
                     target_samples_logprob_over_time_list,
                     eval_target_samples_fixed=_get_eval_target_for_trajectory(),
-                    f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
-                    g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
-                    iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
-                    iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
-                    log_q_by_prompt_list_fixed=log_q_by_prompt_list_fixed,
-                    log_p_by_prompt_list_fixed=log_p_by_prompt_list_fixed,
-                    reward_by_prompt_list_fixed=reward_by_prompt_list_fixed,
-                    target_by_prompt_list_fixed=target_by_prompt_list_fixed,
-                    log_q_g_q_by_prompt_list_fixed=log_q_g_q_by_prompt_list_fixed,
-                    log_p_g_q_by_prompt_list_fixed=log_p_g_q_by_prompt_list_fixed,
-                    reward_g_q_by_prompt_list_fixed=reward_g_q_by_prompt_list_fixed,
-                    target_g_q_by_prompt_list_fixed=target_g_q_by_prompt_list_fixed,
+                    tracking_lists_fixed=tracking_lists_fixed,
                     eval_prompts_random_source=eval_prompts_random_source,
                     n_eval_prompts=n_eval_prompts,
                     f_q_by_prompt_list_random=f_q_by_prompt_list_random,
                     prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
+                    eval_prompts_heldout=eval_prompts_heldout,
+                    eval_target_samples_heldout=eval_target_samples_heldout,
+                    tracking_lists_heldout=tracking_lists_heldout,
+                    eval_prompts_random_source_heldout=eval_prompts_random_source_heldout,
+                    f_q_by_prompt_list_random_heldout=f_q_by_prompt_list_random_heldout,
+                    prompt_texts_random_per_timepoint_heldout=prompt_texts_random_per_timepoint_heldout,
                     f_q_mix_estimates_list=f_q_mix_estimates_list,
                     g_q_mix_estimates_list=g_q_mix_estimates_list,
                     iwae_mix_lbs_list=iwae_mix_lbs_list,
@@ -1554,22 +1694,17 @@ def train(args):
                     f_q_over_time_list,
                     target_samples_logprob_over_time_list,
                     eval_target_samples_fixed=_get_eval_target_for_trajectory(),
-                    f_q_by_prompt_list_fixed=f_q_by_prompt_list_fixed,
-                    g_q_by_prompt_list_fixed=g_q_by_prompt_list_fixed,
-                    iwae_lbs_by_prompt_list_fixed=iwae_lbs_by_prompt_list_fixed,
-                    iwae_ubs_by_prompt_list_fixed=iwae_ubs_by_prompt_list_fixed,
-                    log_q_by_prompt_list_fixed=log_q_by_prompt_list_fixed,
-                    log_p_by_prompt_list_fixed=log_p_by_prompt_list_fixed,
-                    reward_by_prompt_list_fixed=reward_by_prompt_list_fixed,
-                    target_by_prompt_list_fixed=target_by_prompt_list_fixed,
-                    log_q_g_q_by_prompt_list_fixed=log_q_g_q_by_prompt_list_fixed,
-                    log_p_g_q_by_prompt_list_fixed=log_p_g_q_by_prompt_list_fixed,
-                    reward_g_q_by_prompt_list_fixed=reward_g_q_by_prompt_list_fixed,
-                    target_g_q_by_prompt_list_fixed=target_g_q_by_prompt_list_fixed,
+                    tracking_lists_fixed=tracking_lists_fixed,
                     eval_prompts_random_source=eval_prompts_random_source,
                     n_eval_prompts=n_eval_prompts,
                     f_q_by_prompt_list_random=f_q_by_prompt_list_random,
                     prompt_texts_random_per_timepoint=prompt_texts_random_per_timepoint,
+                    eval_prompts_heldout=eval_prompts_heldout,
+                    eval_target_samples_heldout=eval_target_samples_heldout,
+                    tracking_lists_heldout=tracking_lists_heldout,
+                    eval_prompts_random_source_heldout=eval_prompts_random_source_heldout,
+                    f_q_by_prompt_list_random_heldout=f_q_by_prompt_list_random_heldout,
+                    prompt_texts_random_per_timepoint_heldout=prompt_texts_random_per_timepoint_heldout,
                     f_q_mix_estimates_list=f_q_mix_estimates_list,
                     g_q_mix_estimates_list=g_q_mix_estimates_list,
                     iwae_mix_lbs_list=iwae_mix_lbs_list,
@@ -1609,43 +1744,22 @@ def train(args):
                 # print(g_q_estimates_list)
                 print("SAVING F_Q/G_Q/IWAE RESULTS", flush=True)
 
-                # Gather f_q samples across ranks (each rank has independent MC samples).
-                # All gather calls are collective ops — all ranks must participate.
-                # f_q: gather across ranks (stochastic, each rank has independent samples)
-                g_f_q_bp = _distributed_gather_by_prompt_list(strategy, f_q_by_prompt_list_fixed)
-                # f_q per-sample components: gather across ranks
-                g_log_q_bp = _distributed_gather_by_prompt_list(strategy, log_q_by_prompt_list_fixed)
-                g_log_p_bp = _distributed_gather_by_prompt_list(strategy, log_p_by_prompt_list_fixed)
-                g_reward_bp = _distributed_gather_by_prompt_list(strategy, reward_by_prompt_list_fixed)
-                g_target_bp = _distributed_gather_by_prompt_list(strategy, target_by_prompt_list_fixed)
+                # Gather tracking lists across ranks (collective ops — all ranks must participate).
+                gathered_fixed = _gather_and_aggregate_tracking_lists(strategy, tracking_lists_fixed)
                 # Random set: f_q only, gather per-prompt tensors
                 g_f_q_bp_random = []
                 if f_q_by_prompt_list_random:
                     for step_data in f_q_by_prompt_list_random:
                         g_f_q_bp_random.append(_distributed_all_gather_tensor_list(strategy, step_data))
 
-                # g_q: deterministic on fixed target samples, only computed on rank 0.
-                # No gathering needed — use rank 0's local data directly.
-                g_g_q_bp = g_q_by_prompt_list_fixed
-                g_log_q_g_q_bp = log_q_g_q_by_prompt_list_fixed
-                g_log_p_g_q_bp = log_p_g_q_by_prompt_list_fixed
-                g_reward_g_q_bp = reward_g_q_by_prompt_list_fixed
-                g_target_g_q_bp = target_g_q_by_prompt_list_fixed
-
-                # Reconstruct aggregate lists from per-prompt data (local — no extra communication).
-                # g_f_q[t]: concatenation of per-prompt gathered f_q tensors at timestep t.
-                # g_g_q[t]: concatenation of per-prompt g_q tensors at timestep t (rank 0 only).
-                # IWAE bounds: recomputed from gathered f_q and rank 0's g_q.
-                g_f_q = [torch.cat([f for f in step if f is not None]) if any(f is not None for f in step) else None
-                         for step in g_f_q_bp]
-                g_g_q = [torch.cat([g for g in step if g is not None]) if any(g is not None for g in step) else None
-                         for step in g_g_q_bp]
-                g_iwae_lbs = [_recompute_iwae_lb(f) for f in g_f_q]
-                g_iwae_ubs = [_recompute_iwae_ub(f, g) for f, g in zip(g_f_q, g_g_q)]
-                # Per-prompt IWAE bounds
-                g_iwae_lbs_bp = [[_recompute_iwae_lb(f) for f in step] for step in g_f_q_bp]
-                g_iwae_ubs_bp = [[_recompute_iwae_ub(f, g) for f, g in zip(f_step, g_step)]
-                                 for f_step, g_step in zip(g_f_q_bp, g_g_q_bp)]
+                # Heldout gathering (collective — all ranks participate even if heldout is None)
+                gathered_heldout = None
+                if tracking_lists_heldout is not None and len(tracking_lists_heldout["f_q_by_prompt"]) > 0:
+                    gathered_heldout = _gather_and_aggregate_tracking_lists(strategy, tracking_lists_heldout)
+                g_f_q_bp_random_heldout = []
+                if f_q_by_prompt_list_random_heldout:
+                    for step_data in f_q_by_prompt_list_random_heldout:
+                        g_f_q_bp_random_heldout.append(_distributed_all_gather_tensor_list(strategy, step_data))
 
                 if strategy.is_rank_0():
                     save_str = f"{args.save_info_path}/f_q_g_q_iwae_bounds_OpenRLHF_{info_name_str}"
@@ -1655,28 +1769,55 @@ def train(args):
                         "prompt_texts_fixed": eval_prompts_fixed,
                         "prompt_texts_random_per_timepoint": prompt_texts_random_per_timepoint,
                         # Fixed set (per-prompt):
-                        "f_q_by_prompt_fixed": g_f_q_bp,
-                        "g_q_by_prompt_fixed": g_g_q_bp,
-                        "iwae_lbs_by_prompt_fixed": g_iwae_lbs_bp,
-                        "iwae_ubs_by_prompt_fixed": g_iwae_ubs_bp,
+                        "f_q_by_prompt_fixed": gathered_fixed["f_q_by_prompt"],
+                        "g_q_by_prompt_fixed": gathered_fixed["g_q_by_prompt"],
+                        "iwae_lbs_by_prompt_fixed": gathered_fixed["iwae_lbs_by_prompt"],
+                        "iwae_ubs_by_prompt_fixed": gathered_fixed["iwae_ubs_by_prompt"],
                         # Per-sample components for f_q samples (fixed set):
-                        "log_q_by_prompt_fixed": g_log_q_bp,
-                        "log_p_by_prompt_fixed": g_log_p_bp,
-                        "reward_by_prompt_fixed": g_reward_bp,
-                        "target_by_prompt_fixed": g_target_bp,
+                        "log_q_by_prompt_fixed": gathered_fixed["log_q_by_prompt"],
+                        "log_p_by_prompt_fixed": gathered_fixed["log_p_by_prompt"],
+                        "reward_by_prompt_fixed": gathered_fixed["reward_by_prompt"],
+                        "target_by_prompt_fixed": gathered_fixed["target_by_prompt"],
                         # Per-sample components for g_q target samples (fixed set):
-                        "log_q_g_q_by_prompt_fixed": g_log_q_g_q_bp,
-                        "log_p_g_q_by_prompt_fixed": g_log_p_g_q_bp,
-                        "reward_g_q_by_prompt_fixed": g_reward_g_q_bp,
-                        "target_g_q_by_prompt_fixed": g_target_g_q_bp,
+                        "log_q_g_q_by_prompt_fixed": gathered_fixed["log_q_g_q_by_prompt"],
+                        "log_p_g_q_by_prompt_fixed": gathered_fixed["log_p_g_q_by_prompt"],
+                        "reward_g_q_by_prompt_fixed": gathered_fixed["reward_g_q_by_prompt"],
+                        "target_g_q_by_prompt_fixed": gathered_fixed["target_g_q_by_prompt"],
                         # Random set (per-prompt):
                         "f_q_by_prompt_random": g_f_q_bp_random if g_f_q_bp_random else f_q_by_prompt_list_random,
                         # Aggregated (backward compat):
-                        "f_q_estimates_list": g_f_q,
-                        "g_q_estimates_list": g_g_q,
-                        "iwae_lbs_list": g_iwae_lbs,
-                        "iwae_ubs_list": g_iwae_ubs,
+                        "f_q_estimates_list": gathered_fixed["f_q_agg"],
+                        "g_q_estimates_list": gathered_fixed["g_q_agg"],
+                        "iwae_lbs_list": gathered_fixed["iwae_lbs_agg"],
+                        "iwae_ubs_list": gathered_fixed["iwae_ubs_agg"],
                     }
+                    # Add heldout data if present
+                    if gathered_heldout is not None:
+                        target_to_save["prompt_texts_heldout"] = eval_prompts_heldout
+                        target_to_save["prompt_texts_random_per_timepoint_heldout"] = prompt_texts_random_per_timepoint_heldout
+                        # Heldout set (per-prompt):
+                        target_to_save["f_q_by_prompt_heldout"] = gathered_heldout["f_q_by_prompt"]
+                        target_to_save["g_q_by_prompt_heldout"] = gathered_heldout["g_q_by_prompt"]
+                        target_to_save["iwae_lbs_by_prompt_heldout"] = gathered_heldout["iwae_lbs_by_prompt"]
+                        target_to_save["iwae_ubs_by_prompt_heldout"] = gathered_heldout["iwae_ubs_by_prompt"]
+                        # Per-sample components for f_q samples (heldout):
+                        target_to_save["log_q_by_prompt_heldout"] = gathered_heldout["log_q_by_prompt"]
+                        target_to_save["log_p_by_prompt_heldout"] = gathered_heldout["log_p_by_prompt"]
+                        target_to_save["reward_by_prompt_heldout"] = gathered_heldout["reward_by_prompt"]
+                        target_to_save["target_by_prompt_heldout"] = gathered_heldout["target_by_prompt"]
+                        # Per-sample components for g_q target samples (heldout):
+                        target_to_save["log_q_g_q_by_prompt_heldout"] = gathered_heldout["log_q_g_q_by_prompt"]
+                        target_to_save["log_p_g_q_by_prompt_heldout"] = gathered_heldout["log_p_g_q_by_prompt"]
+                        target_to_save["reward_g_q_by_prompt_heldout"] = gathered_heldout["reward_g_q_by_prompt"]
+                        target_to_save["target_g_q_by_prompt_heldout"] = gathered_heldout["target_g_q_by_prompt"]
+                        # Random set (heldout):
+                        target_to_save["f_q_by_prompt_random_heldout"] = (
+                            g_f_q_bp_random_heldout if g_f_q_bp_random_heldout else f_q_by_prompt_list_random_heldout)
+                        # Aggregated (heldout):
+                        target_to_save["f_q_estimates_list_heldout"] = gathered_heldout["f_q_agg"]
+                        target_to_save["g_q_estimates_list_heldout"] = gathered_heldout["g_q_agg"]
+                        target_to_save["iwae_lbs_list_heldout"] = gathered_heldout["iwae_lbs_agg"]
+                        target_to_save["iwae_ubs_list_heldout"] = gathered_heldout["iwae_ubs_agg"]
                     torch.save(target_to_save, save_str)
 
                 # Save mixture eval results separately (if enabled and non-empty)
@@ -3907,24 +4048,18 @@ def _run_per_fit_step_heldout_and_f_q(
     target_samples_logprob_over_time_list,
     # Multi-prompt kwargs
     eval_target_samples_fixed=None,
-    f_q_by_prompt_list_fixed=None,
-    g_q_by_prompt_list_fixed=None,
-    iwae_lbs_by_prompt_list_fixed=None,
-    iwae_ubs_by_prompt_list_fixed=None,
-    # Per-sample component lists (f_q samples)
-    log_q_by_prompt_list_fixed=None,
-    log_p_by_prompt_list_fixed=None,
-    reward_by_prompt_list_fixed=None,
-    target_by_prompt_list_fixed=None,
-    # Per-sample component lists (g_q target samples)
-    log_q_g_q_by_prompt_list_fixed=None,
-    log_p_g_q_by_prompt_list_fixed=None,
-    reward_g_q_by_prompt_list_fixed=None,
-    target_g_q_by_prompt_list_fixed=None,
+    tracking_lists_fixed=None,
     eval_prompts_random_source=None,
     n_eval_prompts=None,
     f_q_by_prompt_list_random=None,
     prompt_texts_random_per_timepoint=None,
+    # Heldout eval kwargs
+    eval_prompts_heldout=None,
+    eval_target_samples_heldout=None,
+    tracking_lists_heldout=None,
+    eval_prompts_random_source_heldout=None,
+    f_q_by_prompt_list_random_heldout=None,
+    prompt_texts_random_per_timepoint_heldout=None,
     # Mixture proposal eval kwargs
     f_q_mix_estimates_list=None,
     g_q_mix_estimates_list=None,
@@ -3935,7 +4070,6 @@ def _run_per_fit_step_heldout_and_f_q(
 
     eval_prompts_fixed: list of prompt strings (even for single-prompt mode, wrapped in a list).
     """
-    import random
     from openrlhf.utils.utils import print_timestamp
 
     if getattr(args, "evaluate_heldout_sampling", None) == "each_fit_step":
@@ -3960,40 +4094,14 @@ def _run_per_fit_step_heldout_and_f_q(
         print_timestamp("per-fit-step eval: end heldout evaluation")
 
     if getattr(args, "f_q_g_q_eval", False):
-        print_timestamp("per-fit-step eval: start f_q_g_q evaluation")
-        # Unified path: always use multi-prompt eval (works for single-prompt too,
-        # since eval_prompts_fixed is always a list, even with 1 element).
-        result_fixed = f_q_g_q_evaluation_multi_prompt(
-            harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-            eval_prompts_fixed, eval_target_samples_fixed,
-            is_rank_0=strategy.is_rank_0(),
+        # Training set: Set A + Set B
+        result_fixed = _run_f_q_g_q_eval_set(
+            harmlessness_trainer, args, strategy,
+            eval_prompts_fixed, eval_target_samples_fixed, tracking_lists_fixed,
+            eval_prompts_random_source, n_eval_prompts,
+            f_q_by_prompt_list_random, prompt_texts_random_per_timepoint,
+            label="train",
         )
-        # Append per-prompt results
-        if f_q_by_prompt_list_fixed is not None:
-            f_q_by_prompt_list_fixed.append(result_fixed["f_q_by_prompt"])
-        if g_q_by_prompt_list_fixed is not None:
-            g_q_by_prompt_list_fixed.append(result_fixed["g_q_by_prompt"])
-        if iwae_lbs_by_prompt_list_fixed is not None:
-            iwae_lbs_by_prompt_list_fixed.append(result_fixed["iwae_lbs_by_prompt"])
-        if iwae_ubs_by_prompt_list_fixed is not None:
-            iwae_ubs_by_prompt_list_fixed.append(result_fixed["iwae_ubs_by_prompt"])
-        # Append per-sample component results
-        if log_q_by_prompt_list_fixed is not None:
-            log_q_by_prompt_list_fixed.append(result_fixed["log_q_by_prompt"])
-        if log_p_by_prompt_list_fixed is not None:
-            log_p_by_prompt_list_fixed.append(result_fixed["log_p_by_prompt"])
-        if reward_by_prompt_list_fixed is not None:
-            reward_by_prompt_list_fixed.append(result_fixed["reward_by_prompt"])
-        if target_by_prompt_list_fixed is not None:
-            target_by_prompt_list_fixed.append(result_fixed["target_by_prompt"])
-        if log_q_g_q_by_prompt_list_fixed is not None:
-            log_q_g_q_by_prompt_list_fixed.append(result_fixed["log_q_g_q_by_prompt"])
-        if log_p_g_q_by_prompt_list_fixed is not None:
-            log_p_g_q_by_prompt_list_fixed.append(result_fixed["log_p_g_q_by_prompt"])
-        if reward_g_q_by_prompt_list_fixed is not None:
-            reward_g_q_by_prompt_list_fixed.append(result_fixed["reward_g_q_by_prompt"])
-        if target_g_q_by_prompt_list_fixed is not None:
-            target_g_q_by_prompt_list_fixed.append(result_fixed["target_g_q_by_prompt"])
         # Append aggregated results (backward compat lists).
         # Always append (even None) to keep lists aligned with f_q_estimates_list,
         # so that index t in each list corresponds to the same eval step.
@@ -4021,18 +4129,15 @@ def _run_per_fit_step_heldout_and_f_q(
                     for i, txt in enumerate(target_texts):
                         print(f"  [{i}] {txt}")
 
-        print_timestamp("per-fit-step eval: end f_q_g_q evaluation (fixed set A)")
-        # Set B (random prompts) - f_q only, no g_q/IWAE
-        if eval_prompts_random_source is not None and f_q_by_prompt_list_random is not None:
-            n = n_eval_prompts if n_eval_prompts is not None else len(eval_prompts_random_source)
-            random_prompts = random.sample(eval_prompts_random_source, min(n, len(eval_prompts_random_source)))
-            if prompt_texts_random_per_timepoint is not None:
-                prompt_texts_random_per_timepoint.append(random_prompts)
-            result_random = f_q_g_q_evaluation_multi_prompt(
-                harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args,
-                random_prompts, None,  # No target samples for random set
+        # Heldout set: Set A + Set B
+        if eval_prompts_heldout is not None and tracking_lists_heldout is not None:
+            _run_f_q_g_q_eval_set(
+                harmlessness_trainer, args, strategy,
+                eval_prompts_heldout, eval_target_samples_heldout, tracking_lists_heldout,
+                eval_prompts_random_source_heldout, n_eval_prompts,
+                f_q_by_prompt_list_random_heldout, prompt_texts_random_per_timepoint_heldout,
+                label="heldout",
             )
-            f_q_by_prompt_list_random.append(result_random["f_q_by_prompt"])
 
         # Mixture proposal eval (only if --mixture_eval is explicitly enabled)
         if (getattr(args, 'mixture_eval', False)
@@ -4575,6 +4680,8 @@ if __name__ == "__main__":
     parser.add_argument("--heldout_prompt_split", type=str, default="train")
     parser.add_argument("--heldout_input_key", type=str, default="input", help="JSON dataset key")
     parser.add_argument("--heldout_input_template", type=str, default=None)
+    parser.add_argument("--heldout_target_samples_name", type=str, default=None,
+                        help="Path to target samples .pt file for held-out prompts (for f_q/g_q eval)")
     # parser.add_argument(
     #     "--apply_chat_template", action="store_true", default=False, help="Use HF tokenizer chat template"
     # )
