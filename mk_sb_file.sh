@@ -295,8 +295,8 @@ EOL
 #SBATCH -J s1_$(($RANDOM % 100000))
 #SBATCH --ntasks=1
 #SBATCH --mem=192G
-#SBATCH -c 16
-#SBATCH --time=5:00:00
+#SBATCH -c 4
+#SBATCH --time=6:00:00
 #SBATCH --partition=ml
 #SBATCH --qos=ml
 #SBATCH --account=ml
