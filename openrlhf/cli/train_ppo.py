@@ -4093,6 +4093,14 @@ def _run_per_fit_step_heldout_and_f_q(
         )
         print_timestamp("per-fit-step eval: end heldout evaluation")
 
+    # When annealing target_dist_beta, temporarily restore the final beta for f_q/g_q
+    # evaluation so that we always measure coverage of the final target distribution.
+    # (The target samples were generated with the final beta, so log_phi must match.)
+    _saved_beta = None
+    if getattr(args, 'anneal_target_dist_beta', False):
+        _saved_beta = harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta
+        harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta = args.target_dist_beta
+
     if getattr(args, "f_q_g_q_eval", False):
         # Training set: Set A + Set B
         result_fixed = _run_f_q_g_q_eval_set(
@@ -4161,6 +4169,10 @@ def _run_per_fit_step_heldout_and_f_q(
                 harmlessness_trainer, harmlessness_trainer.sampling_experience_maker_neg, args, prompt_for_f_q
             )
             f_q_over_time_list.append(f_qs.cpu())
+
+    # Restore annealed beta after f_q/g_q evaluation
+    if _saved_beta is not None:
+        harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta = _saved_beta
 
 
 def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy):
