@@ -12,12 +12,19 @@ MARKER_NO_BONUS = "x"
 MARKER_CFN = "P"
 MARKER_MIXTURE = "^"
 MARKER_EXACT_COUNT = "D"
-MARKER_ENTROPY = "d"  # diamond (thin)
-MARKER_ENTROPY_ANNEALED = "p"  # pentagon
+MARKER_ENTROPY = "d"  # diamond (thin) — used for CTL + entropy
+MARKER_ENTROPY_REINF = "H"  # hexagon — used for REINF + entropy
+MARKER_ENTROPY_ANNEALED = "p"  # pentagon — used for CTL + annealed entropy
+MARKER_ENTROPY_ANNEALED_REINF = "8"  # octagon — used for REINF + annealed entropy
+MARKER_CFN_ANNEALED = "^"  # triangle — used for CTL + annealed CFN
+MARKER_CFN_ANNEALED_REINF = "v"  # inverted triangle — used for REINF + annealed CFN
+MARKER_BETA_ANNEALED = "h"  # hexagon2 — used for CTL + annealed beta
+MARKER_BETA_ANNEALED_REINF = "<"  # left-pointing triangle — used for REINF + annealed beta
 
 # Marker constants for loss types (used by semantic styling)
 MARKER_CTL = "o"
 MARKER_CTLN = "x"
+MARKER_REINF = "s"  # square
 MARKER_LOSS_UNKNOWN = "D"
 MARKER_EXACT_COUNT = "*"
 
@@ -75,7 +82,7 @@ def _parse_experiment_properties(prefix):
     Extract semantic properties from a prefix string for visual styling.
 
     Returns a dict with:
-        loss_type: "CTL", "CTLN", or None
+        loss_type: "CTL", "CTLN", "RLOO", or None
         bonus_type: "cfn", "exact_count", "mixture", or "none"
         mixture_variant: "mixture", "q_independent", "q_half", or None (only set when bonus_type == "mixture")
         mixture_other_model: "best", "first", "lag", or None (only set when bonus_type == "mixture")
@@ -88,6 +95,8 @@ def _parse_experiment_properties(prefix):
         loss_type = "CTLN"
     elif "_ctl_" in prefix:
         loss_type = "CTL"
+    elif "_reinf_" in prefix:
+        loss_type = "RLOO"
     else:
         loss_type = None
 
@@ -156,6 +165,14 @@ def _parse_experiment_properties(prefix):
             if entb_match:
                 entropy_alpha = float(entb_match.group(1))
 
+    # Beta annealing: _s<start>_b<end> pattern (start_target_dist_beta -> target_dist_beta)
+    beta_annealed = False
+    beta_anneal_start = None
+    beta_anneal_match = re.search(r'_s([\d.]+)_b([\d.]+)', prefix)
+    if beta_anneal_match:
+        beta_annealed = True
+        beta_anneal_start = float(beta_anneal_match.group(1))
+
     return {
         "loss_type": loss_type,
         "bonus_type": bonus_type,
@@ -167,6 +184,8 @@ def _parse_experiment_properties(prefix):
         "cfn_annealed": cfn_annealed,
         "entropy_alpha": entropy_alpha,
         "entropy_annealed": entropy_annealed,
+        "beta_annealed": beta_annealed,
+        "beta_anneal_start": beta_anneal_start,
     }
 
 
@@ -177,14 +196,14 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     Visual encoding:
         - Color hue: bonus/experiment type
             - No bonus (baselines): Greys
-            - CFN: blue / green / purple depending on alpha value
+            - CFN: Blues colormap, shade encodes alpha value (lighter=smaller, darker=larger)
             - Mixture (q_independent): Oranges
             - Mixture (mixture / other): Reds
             - Exact count: Teals (cm.YlGnBu)
             - Entropy bonus: warm palette (cm.YlOrBr / cm.Wistia / cm.copper) per alpha value
-        - Color shade: learning rate rank (lighter=smaller LR, darker=larger LR; mid if only one)
+        - Color shade: for CFN, alpha rank; for mixture, lag_steps rank; for others, LR rank
         - Marker shape: loss type (o=CTL, s=CTLN, D=unknown); overridden to diamond for entropy bonus
-        - Line style: CFN/entropy alpha value (solid=non-bonus or single alpha; distinct styles per unique alpha)
+        - Line style: cycles within same-hue group (differentiates LR and other variants)
 
     Args:
         load_prefixes_to_use: List of lists of prefixes (one inner list per experiment)
@@ -208,21 +227,41 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     # 3. Linestyle options for cycling within same-hue groups
     linestyle_options = ["solid", "dashed", "dotted", "dashdot", (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))]
 
-    # 4a. CFN alpha -> color family: cycle through blue, green, purple for distinct alphas
+    # 4a. CFN alpha -> shade within a single colormap (Blues).
+    #     Shade encodes alpha rank: lighter = smaller alpha, darker = larger alpha.
+    #     LR differentiation comes from linestyle (handled by hue_group_counter below).
+    CFN_CMAP = cm.Blues
+    CFN_SHADE_LO, CFN_SHADE_HI = 0.30, 0.90
     unique_alphas = sorted(set(p["cfn_alpha"] for p in props_list if p["cfn_alpha"] is not None))
-    cfn_alpha_cmaps = [cm.Blues, cm.Greens, cm.Purples, cm.BuGn, cm.GnBu, cm.BuPu, cm.YlGnBu, cm.PuBuGn]
-    if unique_alphas:
-        cfn_alpha_cmap = {a: cfn_alpha_cmaps[i % len(cfn_alpha_cmaps)] for i, a in enumerate(unique_alphas)}
+    if len(unique_alphas) <= 1:
+        cfn_alpha_shade = {a: (CFN_SHADE_LO + CFN_SHADE_HI) / 2 for a in unique_alphas}
     else:
-        cfn_alpha_cmap = {}
+        cfn_alpha_shade = {a: CFN_SHADE_LO + (CFN_SHADE_HI - CFN_SHADE_LO) * i / (len(unique_alphas) - 1)
+                           for i, a in enumerate(unique_alphas)}
 
-    # 4a2. Entropy alpha -> color family: cycle through warm colormaps for distinct alphas
+    # 4a2. Entropy alpha -> color family: cycle through warm colormaps for distinct alphas.
+    # Entropy uses warm (YlOrBr / Wistia / copper / autumn / hot) and mixture uses cool
+    # (cool / PuBu) so the two bonus families are visually distinct.
     unique_entropy_alphas = sorted(set(p["entropy_alpha"] for p in props_list if p["entropy_alpha"] is not None))
     entropy_alpha_cmaps = [cm.YlOrBr, cm.Wistia, cm.copper, cm.autumn, cm.hot]
     if unique_entropy_alphas:
         entropy_alpha_cmap = {a: entropy_alpha_cmaps[i % len(entropy_alpha_cmaps)] for i, a in enumerate(unique_entropy_alphas)}
     else:
         entropy_alpha_cmap = {}
+
+    # 4a3. Beta annealing: Greens colormap, shade encodes start beta value.
+    BETA_ANNEAL_CMAP = cm.Greens
+    BETA_ANNEAL_SHADE_LO, BETA_ANNEAL_SHADE_HI = 0.30, 0.90
+    unique_beta_starts = sorted(set(
+        p["beta_anneal_start"] for p in props_list if p["beta_annealed"] and p["beta_anneal_start"] is not None
+    ))
+    if len(unique_beta_starts) <= 1:
+        beta_start_shade = {s: (BETA_ANNEAL_SHADE_LO + BETA_ANNEAL_SHADE_HI) / 2 for s in unique_beta_starts}
+    else:
+        beta_start_shade = {
+            s: BETA_ANNEAL_SHADE_LO + (BETA_ANNEAL_SHADE_HI - BETA_ANNEAL_SHADE_LO) * i / (len(unique_beta_starts) - 1)
+            for i, s in enumerate(unique_beta_starts)
+        }
 
     # 4b. Mixture lag_steps -> color: assign a fixed shade per (variant, lag_steps) key spread
     #     across 0.25-0.9 so different lag values are clearly distinguishable.
@@ -240,10 +279,11 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     for i, (variant, lag) in enumerate(unique_mixture_keys):
         shade = MIXTURE_SHADE_LO if n_mix == 1 else MIXTURE_SHADE_LO + (MIXTURE_SHADE_HI - MIXTURE_SHADE_LO) * i / (n_mix - 1)
         mixture_shade_map[(variant, lag)] = shade
+        # Cool palette: keeps mixture visually distinct from entropy (which uses warm YlOrBr/Wistia/etc.).
         if variant == "q_independent":
-            mixture_cmap_map[(variant, lag)] = cm.YlOrRd
+            mixture_cmap_map[(variant, lag)] = cm.cool
         else:
-            mixture_cmap_map[(variant, lag)] = cm.RdPu
+            mixture_cmap_map[(variant, lag)] = cm.Purples
 
     # 5. Colormap and shade range per bonus category
     #    Shade range [lo, hi] samples the colormap avoiding very light/very dark ends.
@@ -253,6 +293,7 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     loss_marker = {
         "CTL": MARKER_CTL,
         "CTLN": MARKER_CTLN,
+        "RLOO": MARKER_REINF,
         None: MARKER_LOSS_UNKNOWN,
     }
 
@@ -262,7 +303,9 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     #    still distinguishable in time-series plots where markers aren't shown.
     def _color_hue_key(props):
         bonus = props["bonus_type"]
-        if bonus == "cfn":
+        if props["beta_annealed"]:
+            return ("beta_annealed", props["beta_anneal_start"])
+        elif bonus == "cfn":
             return ("cfn", props["cfn_alpha"])
         elif bonus == "mixture":
             return ("mixture", props["mixture_variant"], props["mixture_lag_steps"])
@@ -280,14 +323,17 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
 
     for props in props_list:
         # Determine colormap based on bonus type (and variant / alpha)
+        # Beta annealing takes precedence (can combine with any bonus type)
         bonus = props["bonus_type"]
-        if bonus == "none":
+        if props["beta_annealed"]:
+            cmap = BETA_ANNEAL_CMAP
+        elif bonus == "none":
             cmap = cm.Greys
         elif bonus == "cfn":
-            cmap = cfn_alpha_cmap.get(props["cfn_alpha"], cm.Blues)
+            cmap = CFN_CMAP
         elif bonus == "mixture":
             mix_key = (props["mixture_variant"], props["mixture_lag_steps"])
-            cmap = mixture_cmap_map.get(mix_key, cm.Oranges)
+            cmap = mixture_cmap_map.get(mix_key, cm.cool)
         elif bonus == "exact_count":
             cmap = cm.YlGnBu
         elif bonus == "entropy":
@@ -304,7 +350,12 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         else:
             t = 0.5
 
-        if bonus == "mixture":
+        if props["beta_annealed"]:
+            shade = beta_start_shade.get(
+                props["beta_anneal_start"], (BETA_ANNEAL_SHADE_LO + BETA_ANNEAL_SHADE_HI) / 2)
+        elif bonus == "cfn":
+            shade = cfn_alpha_shade.get(props["cfn_alpha"], (CFN_SHADE_LO + CFN_SHADE_HI) / 2)
+        elif bonus == "mixture":
             mix_key = (props["mixture_variant"], props["mixture_lag_steps"])
             base_shade = mixture_shade_map.get(mix_key, 0.6)
             # Window = 35% of the gap between adjacent mixture keys, so LR ticks never
@@ -318,16 +369,30 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             shade = lo + t * (hi - lo)
         color_list.append(cmap(shade))
 
-        # Marker: exact_count -> star; annealed entropy -> pentagon; entropy -> diamond;
-        # annealed CFN -> triangle; otherwise by loss type
-        if props["bonus_type"] == "exact_count":
+        # Marker: beta_annealed -> hexagon; exact_count -> star; annealed entropy -> pentagon;
+        # entropy -> diamond; annealed CFN -> triangle; otherwise by loss type
+        if props["beta_annealed"]:
+            if props["loss_type"] == "RLOO":
+                marker_list.append(MARKER_BETA_ANNEALED_REINF)
+            else:
+                marker_list.append(MARKER_BETA_ANNEALED)
+        elif props["bonus_type"] == "exact_count":
             marker_list.append(MARKER_EXACT_COUNT)
         elif props.get("entropy_annealed"):
-            marker_list.append(MARKER_ENTROPY_ANNEALED)
+            if props["loss_type"] == "RLOO":
+                marker_list.append(MARKER_ENTROPY_ANNEALED_REINF)
+            else:
+                marker_list.append(MARKER_ENTROPY_ANNEALED)
         elif props["bonus_type"] == "entropy":
-            marker_list.append(MARKER_ENTROPY)
+            if props["loss_type"] == "RLOO":
+                marker_list.append(MARKER_ENTROPY_REINF)
+            else:
+                marker_list.append(MARKER_ENTROPY)
         elif props["cfn_annealed"]:
-            marker_list.append("^")
+            if props["loss_type"] == "RLOO":
+                marker_list.append(MARKER_CFN_ANNEALED_REINF)
+            else:
+                marker_list.append(MARKER_CFN_ANNEALED)
         else:
             marker_list.append(loss_marker.get(props["loss_type"], MARKER_LOSS_UNKNOWN))
 
@@ -363,7 +428,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
         prefix = a[0]
         # Use shared parsing for loss type and bonus type detection
         props = _parse_experiment_properties(prefix)
-        loss_type_str = props["loss_type"]  # "CTL", "CTLN", or None
+        loss_type_str = props["loss_type"]  # "CTL", "CTLN", "RLOO", or None
 
         # Map bonus_type to run_type string used below
         _bonus_to_run_type = {
@@ -556,6 +621,12 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             bl_val = float(bl_match.group(1))
             if bl_val != 0.0:
                 label_parts.append(f"{bl_match.group(1)} LR (p)")
+
+        # Append beta annealing info if present (_s<start>_b<end> pattern)
+        if props["beta_annealed"]:
+            beta_match = re.search(r'_s([\d.]+)_b([\d.]+)', prefix)
+            if beta_match:
+                label_parts.append(r"$\beta$: " + beta_match.group(1) + r"$\to$" + beta_match.group(2))
 
         # Prepend loss type label.
         # When a reward transform is present (rt<alpha>_b<beta> in prefix), the harmlessness
