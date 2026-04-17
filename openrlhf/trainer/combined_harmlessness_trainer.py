@@ -1594,7 +1594,9 @@ class CombinedHarmlessnessTrainer(ABC):
         batch_size = experience.sequences.size(0)
         samples_per_prompt = self.args.duplicate_rollout_batch_by
         num_prompts = batch_size // samples_per_prompt
-        want_entropy = getattr(self.args, 'actor_loss_entropy_bonus', None) is not None
+        # Base actor uses its own entropy bonus coefficient (distinct from the sampling actor's).
+        # Default 0 (disabled); only do the extra entropy forward pass when > 0.
+        want_entropy = getattr(self.args, 'base_actor_loss_entropy_bonus', 0.0) > 0
         entropy = None
 
         if self.base_actor_loss_type == "reinforce":
@@ -1802,7 +1804,7 @@ class CombinedHarmlessnessTrainer(ABC):
             action_mask_float = experience.action_mask.float()
             mean_entropy = (entropy * action_mask_float).sum() / action_mask_float.sum()
             print(f"[base actor entropy bonus] mean_per_token_entropy={mean_entropy.item():.4f}")
-            actor_loss = actor_loss - self.args.actor_loss_entropy_bonus * mean_entropy
+            actor_loss = actor_loss - self.args.base_actor_loss_entropy_bonus * mean_entropy
             self._last_base_actor_entropy = mean_entropy.item()
 
         return actor_loss

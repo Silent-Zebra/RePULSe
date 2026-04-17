@@ -468,6 +468,8 @@ def get_info_name_str(args):
             entropy_bonus_str = f"_entb{start_eb}to{args.actor_loss_entropy_bonus}{sched_type}"
         else:
             entropy_bonus_str = f"_entb{args.actor_loss_entropy_bonus}"
+    if getattr(args, 'base_actor_loss_entropy_bonus', 0.0) > 0:
+        entropy_bonus_str += f"_bentb{args.base_actor_loss_entropy_bonus}"
 
     div_by_abs_beta_str = ""
     if getattr(args, 'divide_actor_loss_by_abs_beta', False):

@@ -4832,12 +4832,17 @@ if __name__ == "__main__":
              "optimizer dynamics (effective step size, second-moment estimates).")
 
     parser.add_argument("--actor_loss_entropy_bonus", type=float, default=None,
-        help="If set, subtract coef * mean_per_token_entropy from the actor loss to encourage higher entropy.")
+        help="If set, subtract coef * mean_per_token_entropy from the SAMPLING actor loss to encourage higher entropy. "
+             "In the PPO-only (non-harmlessness) trainer, this applies to the single actor being trained. "
+             "For the base actor in combined harmlessness training, use --base_actor_loss_entropy_bonus instead.")
     parser.add_argument("--start_actor_loss_entropy_bonus", type=float, default=None,
         help="If set, anneal actor_loss_entropy_bonus from this value to --actor_loss_entropy_bonus over training")
     parser.add_argument("--actor_loss_entropy_bonus_schedule", type=str, default="log",
         choices=["linear", "log"],
         help="Schedule type for entropy bonus annealing: 'log' or 'linear'. Must be 'linear' if start or end is 0.")
+    parser.add_argument("--base_actor_loss_entropy_bonus", type=float, default=0.0,
+        help="If > 0, subtract coef * mean_per_token_entropy from the BASE actor loss (combined harmlessness "
+             "trainer only) to encourage higher entropy. Default 0 (disabled).")
 
     parser.add_argument(
         "--critic_loss_type", type=str, default="mse",
@@ -5013,6 +5018,29 @@ if __name__ == "__main__":
         assert args.duplicate_rollout_batch_by >= 2, (
             f"--mixture_proposal requires --duplicate_rollout_batch_by >= 2 (need at least 1 sample from each component), "
             f"but got {args.duplicate_rollout_batch_by}"
+        )
+
+        # Mixture is incompatible with sampling-actor exploration bonuses in the current
+        # implementation. In the mixture branch of make_experience_and_do_update
+        # (combined_harmlessness_trainer.py, `if self.mixture_proposal:` path), neither
+        # _update_exact_count_visits nor _train_coin_flip_network is invoked — those
+        # calls only exist in the non-mixture branch. As a result:
+        #   - exact_count: visit counts stay at their initial values, so the bonus
+        #     never changes.
+        #   - coin_flip (CFN): the coin flip head is never trained, so the bonus is
+        #     random-init noise rather than a meaningful pseudocount.
+        # In both cases the bonus still gets added to log_phi in compute_reward_no_kl,
+        # which is worse than useless — it adds noise without exploration signal. Fail
+        # loudly here rather than silently no-op the bonus. To lift this guard, add
+        # the missing _update_exact_count_visits / _train_coin_flip_network calls to
+        # the mixture branch and verify behavior end-to-end.
+        assert getattr(args, 'exploration_bonus_sampling_actor', None) is None, (
+            f"--mixture_proposal is incompatible with --exploration_bonus_sampling_actor "
+            f"('{args.exploration_bonus_sampling_actor}'): the mixture sampling path in "
+            f"combined_harmlessness_trainer.py does not update exact-count visits or train "
+            f"the coin-flip network, so the bonus would be silently broken (stale counts or "
+            f"untrained CFN). Disable one of the two, or wire the missing training/update calls "
+            f"into the mixture branch before removing this guard."
         )
 
         mixture_strategy = getattr(args, 'mixture_other_model', 'best')
