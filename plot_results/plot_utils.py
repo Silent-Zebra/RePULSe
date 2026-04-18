@@ -9,15 +9,17 @@ import matplotlib.pyplot as plt
 
 # Marker constants for bonus types (legacy, kept for backward compatibility)
 MARKER_NO_BONUS = "x"
-MARKER_CFN = "P"
-MARKER_MIXTURE = "^"
+MARKER_CFN = "P"  # filled plus — used for CTL + CFN (non-annealed)
+MARKER_CFN_REINF = "1"  # tri_down (unfilled) — used for REINF + CFN (non-annealed)
+MARKER_MIXTURE = "^"  # triangle up — used for CTL + mixture (non-annealed)
+MARKER_MIXTURE_REINF = "v"  # triangle down — used for REINF + mixture (non-annealed)
 MARKER_EXACT_COUNT = "D"
 MARKER_ENTROPY = "d"  # diamond (thin) — used for CTL + entropy
 MARKER_ENTROPY_REINF = "H"  # hexagon — used for REINF + entropy
 MARKER_ENTROPY_ANNEALED = "p"  # pentagon — used for CTL + annealed entropy
 MARKER_ENTROPY_ANNEALED_REINF = "8"  # octagon — used for REINF + annealed entropy
-MARKER_CFN_ANNEALED = "^"  # triangle — used for CTL + annealed CFN
-MARKER_CFN_ANNEALED_REINF = "v"  # inverted triangle — used for REINF + annealed CFN
+MARKER_CFN_ANNEALED = "X"  # filled X — used for CTL + annealed CFN (changed from "^" which now denotes mixture)
+MARKER_CFN_ANNEALED_REINF = ">"  # right triangle — used for REINF + annealed CFN (changed from "v" which now denotes REINF+mixture)
 MARKER_BETA_ANNEALED = "h"  # hexagon2 — used for CTL + annealed beta
 MARKER_BETA_ANNEALED_REINF = "<"  # left-pointing triangle — used for REINF + annealed beta
 
@@ -81,14 +83,32 @@ def _parse_experiment_properties(prefix):
     """
     Extract semantic properties from a prefix string for visual styling.
 
+    Every detector fires independently, so combined-setting runs (e.g. CFN + entropy,
+    entropy + annealed beta) carry data for every component. generate_visual_style_from_prefixes
+    uses this to blend colors from all detected modifications.
+
     Returns a dict with:
         loss_type: "CTL", "CTLN", "RLOO", or None
-        bonus_type: "cfn", "exact_count", "mixture", or "none"
-        mixture_variant: "mixture", "q_independent", "q_half", or None (only set when bonus_type == "mixture")
-        mixture_other_model: "best", "first", "lag", or None (only set when bonus_type == "mixture")
-        mixture_lag_steps: int or None (only set when mixture_other_model == "lag")
+        modifications: ordered list of detected modifications. Detection priority
+            (preserved from the legacy first-match chain): cfn, exact_count, mixture,
+            entropy, beta_annealed.
+        bonus_type: legacy field = first non-beta modification, or "none". Kept so
+            downstream code that branches on bonus_type (marker selection, label
+            generation) continues to work.
+        mixture_variant: "mixture", "q_independent", "q_half", or None (populated
+            whenever mixture is present, even as a secondary modification)
+        mixture_other_model: "best", "first", "lag", or None (populated whenever
+            mixture is present)
+        mixture_lag_steps: int or None (populated when mixture_other_model == "lag")
         learning_rate: float or None (sampling actor LR from _al pattern)
-        cfn_alpha: float or None (bonus_alpha from _cf<value> pattern)
+        cfn_alpha: float or None (bonus_alpha from _cf<value>; start value if
+            annealed; populated whenever cfn is present)
+        cfn_annealed: bool (populated whenever cfn is present)
+        entropy_alpha: float or None (start value if annealed; populated whenever
+            entropy is present)
+        entropy_annealed: bool (populated whenever entropy is present)
+        beta_annealed: bool
+        beta_anneal_start: float or None
     """
     # Loss type
     if "_ctln_" in prefix:
@@ -100,23 +120,50 @@ def _parse_experiment_properties(prefix):
     else:
         loss_type = None
 
-    # Bonus type (same order of specificity as generate_labels_from_prefixes)
-    if "cfn" in prefix or re.search(r'_cf([\d.]+)', prefix):
-        bonus_type = "cfn"
-    elif "_count" in prefix or re.search(r'_c([\d.]+)(?![a-z])', prefix):
-        bonus_type = "exact_count"
-    elif "_mix" in prefix:
-        bonus_type = "mixture"
-    elif re.search(r'_entb([\d.e-]+)', prefix):
-        bonus_type = "entropy"
-    else:
-        bonus_type = "none"
+    # Independent modification detection.
+    # The exact_count fuzzy regex `_c<digits>` is suppressed when cfn is present:
+    # a cfn prefix can contain `_c<digits>` positions that aren't genuine
+    # exact_count tokens (e.g. the `_c10` in a `_ctl_..._cf10` run has `f` not a
+    # digit after `_c`, so only explicit `_count` substrings were the real signal
+    # under the legacy if/elif chain).
+    has_cfn = ("cfn" in prefix) or bool(re.search(r'_cf([\d.]+)', prefix))
+    has_exact_count_explicit = "_count" in prefix
+    has_exact_count_fuzzy = bool(re.search(r'_c([\d.]+)(?![a-z])', prefix))
+    has_exact_count = has_exact_count_explicit or (has_exact_count_fuzzy and not has_cfn)
+    has_mixture = "_mix" in prefix
+    has_entropy = bool(re.search(r'_entb([\d.e-]+)', prefix))
 
-    # Mixture variant (only when bonus_type is mixture)
+    # CFN alpha / annealing — populated whenever CFN is detected
+    cfn_alpha = None
+    cfn_annealed = False
+    if has_cfn:
+        cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)', prefix)
+        if cf_anneal_match:
+            cfn_alpha = float(cf_anneal_match.group(1))  # start value
+            cfn_annealed = True
+        else:
+            cf_match = re.search(r'_cf([\d.]+)', prefix)
+            if cf_match:
+                cfn_alpha = float(cf_match.group(1))
+
+    # Entropy alpha / annealing — populated whenever entropy is detected
+    entropy_alpha = None
+    entropy_annealed = False
+    if has_entropy:
+        entb_anneal_match = re.search(r'_entb([\d.e-]+)to([\d.e-]+)', prefix)
+        if entb_anneal_match:
+            entropy_alpha = float(entb_anneal_match.group(1))  # start value
+            entropy_annealed = True
+        else:
+            entb_match = re.search(r'_entb([\d.e-]+)', prefix)
+            if entb_match:
+                entropy_alpha = float(entb_match.group(1))
+
+    # Mixture variant / strategy — populated whenever mixture is detected
     mixture_variant = None
     mixture_other_model = None
     mixture_lag_steps = None
-    if bonus_type == "mixture":
+    if has_mixture:
         mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
         mix_match = re.search(r'_mix([a-z]+)', prefix)
         if mix_match:
@@ -135,47 +182,49 @@ def _parse_experiment_properties(prefix):
             else:
                 mixture_other_model = "best"
 
-    # Learning rate (sampling actor LR)
-    al_match = re.search(r'_al([\d.e-]+)', prefix)
-    learning_rate = float(al_match.group(1)) if al_match else None
-
-    # CFN alpha (bonus_alpha); for annealed runs, extract the start value
-    cfn_alpha = None
-    cfn_annealed = False
-    if bonus_type == "cfn":
-        cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)', prefix)
-        if cf_anneal_match:
-            cfn_alpha = float(cf_anneal_match.group(1))  # start value
-            cfn_annealed = True
-        else:
-            cf_match = re.search(r'_cf([\d.]+)', prefix)
-            if cf_match:
-                cfn_alpha = float(cf_match.group(1))
-
-    # Entropy bonus alpha; for annealed runs, extract the start value
-    entropy_alpha = None
-    entropy_annealed = False
-    if bonus_type == "entropy":
-        entb_anneal_match = re.search(r'_entb([\d.e-]+)to([\d.e-]+)', prefix)
-        if entb_anneal_match:
-            entropy_alpha = float(entb_anneal_match.group(1))  # start value
-            entropy_annealed = True
-        else:
-            entb_match = re.search(r'_entb([\d.e-]+)', prefix)
-            if entb_match:
-                entropy_alpha = float(entb_match.group(1))
-
     # Beta annealing: _s<start>_b<end> pattern (start_target_dist_beta -> target_dist_beta)
     beta_annealed = False
     beta_anneal_start = None
-    beta_anneal_match = re.search(r'_s([\d.]+)_b([\d.]+)', prefix)
+    beta_anneal_match = re.search(r'_s(-?[\d.]+)_b(-?[\d.]+)', prefix)
     if beta_anneal_match:
         beta_annealed = True
         beta_anneal_start = float(beta_anneal_match.group(1))
 
+    # Ordered list of modifications. Priority (matches the legacy first-match chain):
+    # cfn > exact_count > mixture > entropy > beta_annealed. The first non-beta entry
+    # is what the legacy bonus_type field tracks.
+    modifications = []
+    if has_cfn:
+        modifications.append("cfn")
+    if has_exact_count:
+        modifications.append("exact_count")
+    if has_mixture:
+        modifications.append("mixture")
+    if has_entropy:
+        modifications.append("entropy")
+    if beta_annealed:
+        modifications.append("beta_annealed")
+
+    non_beta_mods = [m for m in modifications if m != "beta_annealed"]
+    bonus_type = non_beta_mods[0] if non_beta_mods else "none"
+
+    # Sanity: legacy bonus_type must agree with the ordered modifications list, or
+    # the refactor has drifted.
+    if non_beta_mods:
+        assert bonus_type == non_beta_mods[0], \
+            f"bonus_type ({bonus_type}) inconsistent with modifications ({modifications})"
+    else:
+        assert bonus_type == "none", \
+            f"bonus_type ({bonus_type}) should be 'none' when no non-beta modifications (modifications={modifications})"
+
+    # Learning rate (sampling actor LR)
+    al_match = re.search(r'_al([\d.e-]+)', prefix)
+    learning_rate = float(al_match.group(1)) if al_match else None
+
     return {
         "loss_type": loss_type,
         "bonus_type": bonus_type,
+        "modifications": modifications,
         "mixture_variant": mixture_variant,
         "mixture_other_model": mixture_other_model,
         "mixture_lag_steps": mixture_lag_steps,
@@ -194,22 +243,29 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     Generate semantically consistent (color, marker, linestyle) lists from prefix lists.
 
     Visual encoding:
-        - Color hue: bonus/experiment type
+        - Color hue: per-modification colormap
             - No bonus (baselines): Greys
             - CFN: Blues colormap, shade encodes alpha value (lighter=smaller, darker=larger)
-            - Mixture (q_independent): Oranges
-            - Mixture (mixture / other): Reds
-            - Exact count: Teals (cm.YlGnBu)
-            - Entropy bonus: warm palette (cm.YlOrBr / cm.Wistia / cm.copper) per alpha value
-        - Color shade: for CFN, alpha rank; for mixture, lag_steps rank; for others, LR rank
-        - Marker shape: loss type (o=CTL, s=CTLN, D=unknown); overridden to diamond for entropy bonus
-        - Line style: cycles within same-hue group (differentiates LR and other variants)
+            - Entropy bonus: Reds colormap, shade encodes alpha value
+            - Beta-annealed: Greens colormap, shade encodes start-beta value
+            - Mixture (q_independent): Purples; other mixture variants: RdPu
+            - Exact count: cm.YlGnBu, shade encodes LR rank
+        - Combined-setting runs: the final color is the RGBA average of every
+          detected modification's color, so a run that is (e.g.) CFN + entropy
+          lands visually between the Blues and Reds components. Single-mod runs
+          are unchanged (mean of a length-1 list is the value itself).
+        - Marker shape: selected from the legacy priority tree
+          (beta_annealed > exact_count > entropy_annealed > entropy > cfn_annealed
+          > cfn > mixture > loss_type fallback).
+        - Line style: cycles within same-hue group; the hue key includes every
+          detected modification so combined-setting runs form their own group.
 
     Args:
         load_prefixes_to_use: List of lists of prefixes (one inner list per experiment)
 
     Returns:
-        (color_list, marker_list, linestyle_list) — parallel lists, one entry per experiment
+        (color_list, marker_list, linestyle_list) — parallel lists, one entry per experiment.
+        color_list entries are RGBA tuples (floats in [0, 1], alpha forced to 1.0).
     """
     # 1. Parse all experiments
     props_list = []
@@ -239,15 +295,21 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         cfn_alpha_shade = {a: CFN_SHADE_LO + (CFN_SHADE_HI - CFN_SHADE_LO) * i / (len(unique_alphas) - 1)
                            for i, a in enumerate(unique_alphas)}
 
-    # 4a2. Entropy alpha -> color family: cycle through warm colormaps for distinct alphas.
-    # Entropy uses warm (YlOrBr / Wistia / copper / autumn / hot) and mixture uses cool
-    # (cool / PuBu) so the two bonus families are visually distinct.
+    # 4a2. Entropy alpha -> shade within a single colormap (Reds).
+    #      Mirrors the CFN scheme: shade encodes alpha rank (lighter = smaller alpha,
+    #      darker = larger alpha). Keeping entropy on a single hue (red) makes it
+    #      visually identifiable as a single "category" across runs, cleanly distinct
+    #      from CFN (blue), mixture qi (purple), beta-annealed (green) and base (grey).
+    ENTROPY_CMAP = cm.Reds
+    ENTROPY_SHADE_LO, ENTROPY_SHADE_HI = 0.30, 0.90
     unique_entropy_alphas = sorted(set(p["entropy_alpha"] for p in props_list if p["entropy_alpha"] is not None))
-    entropy_alpha_cmaps = [cm.YlOrBr, cm.Wistia, cm.copper, cm.autumn, cm.hot]
-    if unique_entropy_alphas:
-        entropy_alpha_cmap = {a: entropy_alpha_cmaps[i % len(entropy_alpha_cmaps)] for i, a in enumerate(unique_entropy_alphas)}
+    if len(unique_entropy_alphas) <= 1:
+        entropy_alpha_shade = {a: (ENTROPY_SHADE_LO + ENTROPY_SHADE_HI) / 2 for a in unique_entropy_alphas}
     else:
-        entropy_alpha_cmap = {}
+        entropy_alpha_shade = {
+            a: ENTROPY_SHADE_LO + (ENTROPY_SHADE_HI - ENTROPY_SHADE_LO) * i / (len(unique_entropy_alphas) - 1)
+            for i, a in enumerate(unique_entropy_alphas)
+        }
 
     # 4a3. Beta annealing: Greens colormap, shade encodes start beta value.
     BETA_ANNEAL_CMAP = cm.Greens
@@ -269,21 +331,29 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     #     Shade is spread by rank among all mixture keys, NOT by LR (LR uses linestyle instead).
     unique_mixture_keys = sorted(
         set((p["mixture_variant"], p["mixture_lag_steps"])
-            for p in props_list if p["bonus_type"] == "mixture"),
+            for p in props_list if "mixture" in p["modifications"]),
         key=lambda x: (x[0] or "", x[1] if x[1] is not None else -1),
     )
-    MIXTURE_SHADE_LO, MIXTURE_SHADE_HI = 0.25, 0.90
+    MIXTURE_SHADE_LO, MIXTURE_SHADE_HI = 0.55, 0.90
     n_mix = len(unique_mixture_keys)
     mixture_shade_map = {}
     mixture_cmap_map = {}
     for i, (variant, lag) in enumerate(unique_mixture_keys):
-        shade = MIXTURE_SHADE_LO if n_mix == 1 else MIXTURE_SHADE_LO + (MIXTURE_SHADE_HI - MIXTURE_SHADE_LO) * i / (n_mix - 1)
-        mixture_shade_map[(variant, lag)] = shade
-        # Cool palette: keeps mixture visually distinct from entropy (which uses warm YlOrBr/Wistia/etc.).
-        if variant == "q_independent":
-            mixture_cmap_map[(variant, lag)] = cm.cool
+        # Single mixture key uses the midpoint (mirrors CFN/entropy single-alpha behavior)
+        # so the color reads as a solid, saturated purple instead of a very light tint.
+        if n_mix == 1:
+            shade = (MIXTURE_SHADE_LO + MIXTURE_SHADE_HI) / 2
         else:
+            shade = MIXTURE_SHADE_LO + (MIXTURE_SHADE_HI - MIXTURE_SHADE_LO) * i / (n_mix - 1)
+        mixture_shade_map[(variant, lag)] = shade
+        # q_independent (the primary mixture variant shown in the main frontier comparison)
+        # gets Purples — maximally distinct from CFN's Blues, base's Greys, beta's Greens
+        # and entropy's Reds. Other mixture variants use RdPu (red-purple) to stay in the
+        # same hue family while remaining distinguishable from qi.
+        if variant == "q_independent":
             mixture_cmap_map[(variant, lag)] = cm.Purples
+        else:
+            mixture_cmap_map[(variant, lag)] = cm.RdPu
 
     # 5. Colormap and shade range per bonus category
     #    Shade range [lo, hi] samples the colormap avoiding very light/very dark ends.
@@ -298,64 +368,42 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     }
 
     # 6. Compute a "color hue key" for each experiment so we can cycle linestyles
-    #    within groups that share the same hue. This ensures experiments with
-    #    identical colors (same bonus type / CFN alpha / mixture variant) are
-    #    still distinguishable in time-series plots where markers aren't shown.
+    #    within groups that share the same hue. The key includes every detected
+    #    modification (with its params), so combined-setting runs get their own
+    #    group (distinct from single-mod runs of any component).
     def _color_hue_key(props):
-        bonus = props["bonus_type"]
-        if props["beta_annealed"]:
-            return ("beta_annealed", props["beta_anneal_start"])
-        elif bonus == "cfn":
-            return ("cfn", props["cfn_alpha"])
-        elif bonus == "mixture":
-            return ("mixture", props["mixture_variant"], props["mixture_lag_steps"])
-        elif bonus == "entropy":
-            return ("entropy", props["entropy_alpha"])
-        else:
-            return (bonus,)
+        parts = []
+        for mod in props["modifications"]:
+            if mod == "beta_annealed":
+                parts.append(("beta_annealed", props["beta_anneal_start"]))
+            elif mod == "cfn":
+                parts.append(("cfn", props["cfn_alpha"], props["cfn_annealed"]))
+            elif mod == "entropy":
+                parts.append(("entropy", props["entropy_alpha"], props["entropy_annealed"]))
+            elif mod == "mixture":
+                parts.append(("mixture", props["mixture_variant"], props["mixture_lag_steps"]))
+            elif mod == "exact_count":
+                parts.append(("exact_count",))
+        return tuple(parts) if parts else ("none",)
 
     hue_group_counter = {}  # hue_key -> running count of experiments seen
 
-    # 7. Build output lists
-    color_list = []
-    marker_list = []
-    linestyle_list = []
-
-    for props in props_list:
-        # Determine colormap based on bonus type (and variant / alpha)
-        # Beta annealing takes precedence (can combine with any bonus type)
-        bonus = props["bonus_type"]
-        if props["beta_annealed"]:
-            cmap = BETA_ANNEAL_CMAP
-        elif bonus == "none":
-            cmap = cm.Greys
-        elif bonus == "cfn":
-            cmap = CFN_CMAP
-        elif bonus == "mixture":
-            mix_key = (props["mixture_variant"], props["mixture_lag_steps"])
-            cmap = mixture_cmap_map.get(mix_key, cm.cool)
-        elif bonus == "exact_count":
-            cmap = cm.YlGnBu
-        elif bonus == "entropy":
-            cmap = entropy_alpha_cmap.get(props["entropy_alpha"], cm.YlOrBr)
-        else:
-            cmap = cm.Greys
-
-        # Shade by LR rank within the type's shade range.
-        # For mixture: base shade is set by mixture key rank; LR adjusts within a narrow
-        # window around the base so both dimensions are visible.
-        # For all others: shade spans the full default range by LR rank.
-        if props["learning_rate"] is not None and props["learning_rate"] in lr_position:
-            t = lr_position[props["learning_rate"]]
-        else:
-            t = 0.5
-
-        if props["beta_annealed"]:
+    # Per-modification color lookup. Each modification contributes one RGBA tuple;
+    # the experiment's final color is the RGBA average across every detected mod.
+    # Single-mod runs are unchanged (mean of a length-1 list is the value itself).
+    def _color_for_mod(mod, props, t):
+        if mod == "cfn":
+            shade = cfn_alpha_shade.get(props["cfn_alpha"], (CFN_SHADE_LO + CFN_SHADE_HI) / 2)
+            return CFN_CMAP(shade)
+        elif mod == "entropy":
+            shade = entropy_alpha_shade.get(
+                props["entropy_alpha"], (ENTROPY_SHADE_LO + ENTROPY_SHADE_HI) / 2)
+            return ENTROPY_CMAP(shade)
+        elif mod == "beta_annealed":
             shade = beta_start_shade.get(
                 props["beta_anneal_start"], (BETA_ANNEAL_SHADE_LO + BETA_ANNEAL_SHADE_HI) / 2)
-        elif bonus == "cfn":
-            shade = cfn_alpha_shade.get(props["cfn_alpha"], (CFN_SHADE_LO + CFN_SHADE_HI) / 2)
-        elif bonus == "mixture":
+            return BETA_ANNEAL_CMAP(shade)
+        elif mod == "mixture":
             mix_key = (props["mixture_variant"], props["mixture_lag_steps"])
             base_shade = mixture_shade_map.get(mix_key, 0.6)
             # Window = 35% of the gap between adjacent mixture keys, so LR ticks never
@@ -364,13 +412,46 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             lr_half_window = mix_spacing * 0.35
             # t in [0,1] -> adjustment in [-lr_half_window, +lr_half_window]
             shade = np.clip(base_shade + lr_half_window * (2 * t - 1), 0.10, 0.95)
-        else:
+            cmap = mixture_cmap_map.get(mix_key, cm.cool)
+            return cmap(shade)
+        elif mod == "exact_count":
             lo, hi = shade_range_default
             shade = lo + t * (hi - lo)
-        color_list.append(cmap(shade))
+            return cm.YlGnBu(shade)
+        else:
+            return cm.Greys(0.5)
+
+    # 7. Build output lists
+    color_list = []
+    marker_list = []
+    linestyle_list = []
+
+    for props in props_list:
+        # LR rank position for within-type shade adjustment
+        if props["learning_rate"] is not None and props["learning_rate"] in lr_position:
+            t = lr_position[props["learning_rate"]]
+        else:
+            t = 0.5
+
+        modifications = props["modifications"]
+        if modifications:
+            # Blend (RGBA average) across every detected modification.
+            component_colors = [_color_for_mod(m, props, t) for m in modifications]
+            blended = np.clip(np.mean(component_colors, axis=0), 0.0, 1.0)
+            # Force alpha = 1.0 to avoid fp drift from averaging.
+            color_list.append((float(blended[0]), float(blended[1]), float(blended[2]), 1.0))
+        else:
+            # Baseline (no modifications): Greys with LR-based shade.
+            lo, hi = shade_range_default
+            shade = lo + t * (hi - lo)
+            color_list.append(cm.Greys(shade))
 
         # Marker: beta_annealed -> hexagon; exact_count -> star; annealed entropy -> pentagon;
-        # entropy -> diamond; annealed CFN -> triangle; otherwise by loss type
+        # entropy -> diamond; annealed CFN -> filled X; non-annealed CFN -> filled plus;
+        # mixture -> triangle; otherwise by loss type.
+        # Non-annealed CFN and mixture get their own markers so they don't collide with
+        # the generic loss_type marker ("o" for CTL), which would otherwise make base
+        # CTL indistinguishable from CTL+CFN and CTL+mixture in the frontier plots.
         if props["beta_annealed"]:
             if props["loss_type"] == "RLOO":
                 marker_list.append(MARKER_BETA_ANNEALED_REINF)
@@ -393,6 +474,16 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
                 marker_list.append(MARKER_CFN_ANNEALED_REINF)
             else:
                 marker_list.append(MARKER_CFN_ANNEALED)
+        elif props["bonus_type"] == "cfn":
+            if props["loss_type"] == "RLOO":
+                marker_list.append(MARKER_CFN_REINF)
+            else:
+                marker_list.append(MARKER_CFN)
+        elif props["bonus_type"] == "mixture":
+            if props["loss_type"] == "RLOO":
+                marker_list.append(MARKER_MIXTURE_REINF)
+            else:
+                marker_list.append(MARKER_MIXTURE)
         else:
             marker_list.append(loss_marker.get(props["loss_type"], MARKER_LOSS_UNKNOWN))
 
@@ -406,214 +497,167 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     return color_list, marker_list, linestyle_list
 
 
+def _label_parts_for_mod(mod, prefix, props):
+    """Return the label fragments contributed by a single modification.
+
+    Combined-setting runs concatenate the fragments from every detected modification
+    (in detection priority order), so the legend shows each component. Parts that
+    are shared across all modifications (LR (q), batch_size, base LR, beta annealing)
+    are emitted once by the caller rather than per modification, to avoid duplication.
+    """
+    if mod == "cfn":
+        parts = ["CFN"]
+
+        # Extract bonus_alpha from _cf pattern. With annealing: _cf{start}to{end}{schedule}
+        cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
+        if cf_anneal_match:
+            parts.append(r"$\alpha$: " + cf_anneal_match.group(1) + r"$\to$" + cf_anneal_match.group(2) + f" ({cf_anneal_match.group(3)})")
+        else:
+            cf_match = re.search(r'_cf([\d.]+)', prefix)
+            if cf_match:
+                parts.append(r"$\alpha$=" + cf_match.group(1))
+
+        # Additional CFN detection details — commented out to keep the legend short.
+        # Preserved in case we want to bring them back later.
+        # paren_parts = []
+        # # Extract coin_flip_dim from _cd pattern
+        # cd_match = re.search(r'_cd(\d+)', prefix)
+        # if cd_match:
+        #     paren_parts.append(f"d{cd_match.group(1)}")
+        # # Extract cfus/cfu (updates) - support both old and new
+        # cfus_match = re.search(r'_cfus(\d+)', prefix) or re.search(r'_cfu(\d+)', prefix)
+        # paren_parts.append(f"{cfus_match.group(1)} upd." if cfus_match else "1 upd.")
+        # # Check for "after"/"before" or new abbreviations "af"/"bf"
+        # if "after" in prefix or "_af" in prefix:
+        #     paren_parts.append("after")
+        # elif "before" in prefix or "_bf" in prefix:
+        #     paren_parts.append("before")
+        # if "firstonline" in prefix or "_fo" in prefix:
+        #     paren_parts.append("online")
+        # if "pri" in prefix or "_pr" in prefix:
+        #     paren_parts.append("pri")
+        # if paren_parts:
+        #     parts[0] = f"CFN ({', '.join(paren_parts)})"
+        #
+        # # Extract cfhis/cfh (coin flip head init std) - support both old and new
+        # cfhis_match = re.search(r'_cfhis([\d.e-]+)', prefix) or re.search(r'_cfh([\d.e-]+)', prefix)
+        # if cfhis_match:
+        #     parts.append(f"head_std={cfhis_match.group(1)}")
+        #
+        # # Extract fpis/fp (frozen prior init std) - support both old and new
+        # fpis_match = re.search(r'_fpis([\d.e-]+)', prefix) or re.search(r'_fp([\d.e-]+)', prefix)
+        # if fpis_match:
+        #     parts.append(f"prior_std={fpis_match.group(1)}")
+        #
+        # # Check for coin_flip_linear_bias (old _cfbias or new _cfb)
+        # if "_cfbias" in prefix or "_cfb" in prefix:
+        #     parts.append("bias")
+        #
+        # # Extract cflr/cfr (coin flip learning rate) - support both old and new
+        # cflr_match = re.search(r'_cflr([\d.e-]+)', prefix) or re.search(r'_cfr([\d.e-]+)', prefix)
+        # if cflr_match:
+        #     parts.append(f"{cflr_match.group(1)} LR (CF)")
+        #
+        # # Architecture
+        # if "sepnn" in prefix or "_cfsn" in prefix:
+        #     parts.append("Sep. NN")
+        # elif "cflsib" in prefix or "_cfs" in prefix:
+        #     parts.append("Lin. Static Base")
+        # elif "cfllq" in prefix or "_cfq" in prefix:
+        #     parts.append("Lin. on q")
+        # elif "cfllp" in prefix or "_cfl" in prefix:
+        #     parts.append("Lin. on p")
+
+        return parts
+
+    elif mod == "exact_count":
+        parts = ["EC"]
+        # Extract bonus_alpha (encoded as _count or _c followed by value).
+        # With annealing: _c{start}to{end}{schedule} (e.g., _c10to0linear)
+        c_anneal_match = re.search(r'_c([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
+        if c_anneal_match:
+            parts.append(f"alpha={c_anneal_match.group(1)}->{c_anneal_match.group(2)} ({c_anneal_match.group(3)})")
+        else:
+            count_match = re.search(r'_count([\d.]+)', prefix) or re.search(r'_c([\d.]+)', prefix)
+            if count_match:
+                parts.append(f"alpha={count_match.group(1)}")
+        return parts
+
+    elif mod == "mixture":
+        mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
+        mix_match = re.search(r'_mix([a-z]+)', prefix)
+        mix_variant = mix_variant_map.get(mix_match.group(1), mix_match.group(1)) if mix_match else "unknown"
+
+        # Other-model strategy: _first, _lag<N>, or absent (= best, omitted for brevity)
+        other_model = props["mixture_other_model"]
+        if other_model == "first":
+            other_str = ", first"
+        elif other_model == "lag":
+            lag_steps = props["mixture_lag_steps"]
+            other_str = f", lag={lag_steps}" if lag_steps is not None else ", lag"
+        else:
+            other_str = ""
+
+        return [f"Mixture ({mix_variant}{other_str})"]
+
+    elif mod == "entropy":
+        parts = ["Entropy"]
+        # With annealing: _entb{start}to{end}{schedule} (e.g., _entb0.1to0linear)
+        entb_anneal_match = re.search(r'_entb([\d.e-]+)to([\d.e-]+)(linear|log)', prefix)
+        if entb_anneal_match:
+            parts.append(r"$\alpha$: " + entb_anneal_match.group(1) + r"$\to$" + entb_anneal_match.group(2) + f" ({entb_anneal_match.group(3)})")
+        else:
+            entb_match = re.search(r'_entb([\d.e-]+)', prefix)
+            if entb_match:
+                parts.append(r"$\alpha$=" + entb_match.group(1))
+        return parts
+
+    return []
+
+
 def generate_labels_from_prefixes(load_prefixes_to_use):
     """
     Generate labels from prefix lists based on the naming logic.
-    
-    This function extracts information from prefixes to create human-readable labels.
-    It handles different run types: "Exact Count", "Coin Flip Net", and "No Exploration Bonus".
-    For all run types, LR (q) (sampling actor / actor learning rate from _al) is included when present.
-    For Coin Flip Net runs, it also extracts coin flip LR, updates, head_std, prior_std, etc.
-    
+
+    Mirrors the `info_name_str` composition style: each modification contributes a
+    label fragment (via `_label_parts_for_mod`), and combined-setting runs
+    concatenate the fragments from every detected modification in detection order
+    (cfn > exact_count > mixture > entropy). Beta annealing and other shared fields
+    (LR (q), batch size, base LR, mixeval tag, info_eval beta) are appended once at
+    the end so they don't duplicate across modifications.
+
     Supports both old and new abbreviated naming conventions.
-    
+
     Args:
         load_prefixes_to_use: List of lists of prefixes (each inner list contains prefixes for one series)
-    
+
     Returns:
         List of label strings, one for each prefix list
     """
     labels = []
     for a in load_prefixes_to_use:
         prefix = a[0]
-        # Use shared parsing for loss type and bonus type detection
         props = _parse_experiment_properties(prefix)
         loss_type_str = props["loss_type"]  # "CTL", "CTLN", "RLOO", or None
 
-        # Map bonus_type to run_type string used below
-        _bonus_to_run_type = {
-            "cfn": "Coin Flip Net",
-            "exact_count": "Exact Count",
-            "mixture": "Mixture",
-            "entropy": "Entropy Bonus",
-            "none": "No Exploration Bonus",
-        }
-        run_type = _bonus_to_run_type[props["bonus_type"]]
-        
-        # If it's a coin flip net, extract additional parameters
-        if run_type == "Coin Flip Net":
-            # Build parenthetical descriptor: CFN (d<dim>, <n> upd., after/before, online, pri)
-            paren_parts = []
-
-            # Extract coin_flip_dim from _cd pattern
-            cd_match = re.search(r'_cd(\d+)', prefix)
-            if cd_match:
-                paren_parts.append(f"d{cd_match.group(1)}")
-
-            # Extract cfus/cfu (updates) - support both old and new
-            cfus_match = re.search(r'_cfus(\d+)', prefix) or re.search(r'_cfu(\d+)', prefix)
-            paren_parts.append(f"{cfus_match.group(1)} upd." if cfus_match else "1 upd.")
-
-            # Check for "after"/"before" or new abbreviations "af"/"bf"
-            if "after" in prefix or "_af" in prefix:
-                paren_parts.append("after")
-            elif "before" in prefix or "_bf" in prefix:
-                paren_parts.append("before")
-
-            if "firstonline" in prefix or "_fo" in prefix:
-                paren_parts.append("online")
-            if "pri" in prefix or "_pr" in prefix:
-                paren_parts.append("pri")
-
-            run_type_str = f"CFN ({', '.join(paren_parts)})" if paren_parts else "CFN"
-            label_parts = [run_type_str]
-
-            # Extract bonus_alpha from _cf pattern (encoded as _cf followed by value)
-            # With annealing: _cf{start}to{end}{schedule} (e.g., _cf10to0linear)
-            cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
-            if cf_anneal_match:
-                label_parts.append(f"alpha={cf_anneal_match.group(1)}->{cf_anneal_match.group(2)} ({cf_anneal_match.group(3)})")
-            else:
-                cf_match = re.search(r'_cf([\d.]+)', prefix)
-                if cf_match:
-                    label_parts.append(f"alpha={cf_match.group(1)}")
-
-            # Extract cfhis/cfh (coin flip head init std) - support both old and new
-            cfhis_match = re.search(r'_cfhis([\d.e-]+)', prefix) or re.search(r'_cfh([\d.e-]+)', prefix)
-            if cfhis_match:
-                label_parts.append(f"head_std={cfhis_match.group(1)}")
-
-            # Extract fpis/fp (frozen prior init std) - support both old and new
-            fpis_match = re.search(r'_fpis([\d.e-]+)', prefix) or re.search(r'_fp([\d.e-]+)', prefix)
-            if fpis_match:
-                label_parts.append(f"prior_std={fpis_match.group(1)}")
-
-            # Check for coin_flip_linear_bias (old _cfbias or new _cfb)
-            if "_cfbias" in prefix or "_cfb" in prefix:
-                label_parts.append("bias")
-
-            # Extract sampling actor LR from _al (actor_learning_rate in harmlessness = sampling_actor)
-            al_match = re.search(r'_al([\d.e-]+)', prefix)
-            if al_match:
-                label_parts.append(f"{al_match.group(1)} LR (q)")
-
-            # Extract cflr/cfr (learning rate) - support both old and new
-            cflr_match = re.search(r'_cflr([\d.e-]+)', prefix) or re.search(r'_cfr([\d.e-]+)', prefix)
-            if cflr_match:
-                label_parts.append(f"{cflr_match.group(1)} LR (CF)")
-
-            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
-            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
-            if tbs_match:
-                label_parts.append(f"batch={tbs_match.group(1)}")
-
-            # Architecture
-            if "sepnn" in prefix or "_cfsn" in prefix:
-                label_parts.append("Sep. NN")
-            elif "cflsib" in prefix or "_cfs" in prefix:
-                label_parts.append("Lin. Static Base")
-            elif "cfllq" in prefix or "_cfq" in prefix:
-                label_parts.append("Lin. on q")
-            elif "cfllp" in prefix or "_cfl" in prefix:
-                label_parts.append("Lin. on p")
-
-        elif run_type == "Exact Count":
-            label_parts = ["EC"]
-
-            # Extract bonus_alpha (encoded as _count or _c followed by value)
-            # With annealing: _c{start}to{end}{schedule} (e.g., _c10to0linear)
-            c_anneal_match = re.search(r'_c([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
-            if c_anneal_match:
-                label_parts.append(f"alpha={c_anneal_match.group(1)}->{c_anneal_match.group(2)} ({c_anneal_match.group(3)})")
-            else:
-                count_match = re.search(r'_count([\d.]+)', prefix) or re.search(r'_c([\d.]+)', prefix)
-                if count_match:
-                    label_parts.append(f"alpha={count_match.group(1)}")
-
-            # Extract LR (q) / sampling actor LR from _al
-            al_match = re.search(r'_al([\d.e-]+)', prefix)
-            if al_match:
-                label_parts.append(f"{al_match.group(1)} LR (q)")
-
-            # # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
-            # epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
-            # if epi_match:
-            #     label_parts.append(f"ep={epi_match.group(1)}")
-
-            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
-            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
-            if tbs_match:
-                label_parts.append(f"batch={tbs_match.group(1)}")
-
-        elif run_type == "Mixture":
-            # Extract mixture optimization variant from _mix abbreviation
-            mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
-            mix_match = re.search(r'_mix([a-z]+)', prefix)
-            mix_variant = mix_variant_map.get(mix_match.group(1), mix_match.group(1)) if mix_match else "unknown"
-
-            # Extract other-model strategy: _first, _lag<N>, or absent (= best)
-            other_model = props["mixture_other_model"]
-            if other_model == "first":
-                other_str = ", first"
-            elif other_model == "lag":
-                lag_steps = props["mixture_lag_steps"]
-                other_str = f", lag={lag_steps}" if lag_steps is not None else ", lag"
-            else:
-                # "best" is the original default; omit to keep labels short for backward compat
-                other_str = ""
-
-            label_parts = [f"Mixture ({mix_variant}{other_str})"]
-
-            # Extract LR (q) / sampling actor LR from _al
-            al_match = re.search(r'_al([\d.e-]+)', prefix)
-            if al_match:
-                label_parts.append(f"{al_match.group(1)} LR (q)")
-
-            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
-            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
-            if tbs_match:
-                label_parts.append(f"batch={tbs_match.group(1)}")
-
-        elif run_type == "Entropy Bonus":
-            label_parts = ["Entropy"]
-
-            # Extract entropy bonus alpha from _entb pattern
-            # With annealing: _entb{start}to{end}{schedule} (e.g., _entb0.1to0linear)
-            entb_anneal_match = re.search(r'_entb([\d.e-]+)to([\d.e-]+)(linear|log)', prefix)
-            if entb_anneal_match:
-                label_parts.append(f"alpha={entb_anneal_match.group(1)}->{entb_anneal_match.group(2)} ({entb_anneal_match.group(3)})")
-            else:
-                entb_match = re.search(r'_entb([\d.e-]+)', prefix)
-                if entb_match:
-                    label_parts.append(f"alpha={entb_match.group(1)}")
-
-            # Extract LR (q) / sampling actor LR from _al
-            al_match = re.search(r'_al([\d.e-]+)', prefix)
-            if al_match:
-                label_parts.append(f"{al_match.group(1)} LR (q)")
-
-            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
-            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
-            if tbs_match:
-                label_parts.append(f"batch={tbs_match.group(1)}")
-
+        # Per-modification fragments (beta annealing handled in the shared tail to
+        # preserve the legacy r"$\beta$: start$\to$end" suffix placement).
+        non_beta_mods = [m for m in props["modifications"] if m != "beta_annealed"]
+        label_parts = []
+        if not non_beta_mods:
+            label_parts.append("No Bonus")
         else:
-            label_parts = ["No Bonus"]
+            for mod in non_beta_mods:
+                label_parts.extend(_label_parts_for_mod(mod, prefix, props))
 
-            # Extract LR (q) / sampling actor LR from _al
-            al_match = re.search(r'_al([\d.e-]+)', prefix)
-            if al_match:
-                label_parts.append(f"{al_match.group(1)} LR (q)")
+        # Shared tail — appended once regardless of modification count.
+        al_match = re.search(r'_al([\d.e-]+)', prefix)
+        if al_match:
+            label_parts.append(f"{al_match.group(1)} LR (q)")
 
-            # # Extract num_episodes (encoded as _epi or _e followed by value) - support both old and new
-            # epi_match = re.search(r'_epi(\d+)', prefix) or re.search(r'_e(\d+)', prefix)
-            # if epi_match:
-            #     label_parts.append(f"ep={epi_match.group(1)}")
-
-            # Extract batch_size (encoded as _tbs or _tb followed by value) - support both old and new
-            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
-            if tbs_match:
-                label_parts.append(f"batch={tbs_match.group(1)}")
+        tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
+        if tbs_match:
+            label_parts.append(f"batch={tbs_match.group(1)}")
 
         # Append base actor LR if non-zero (encoded as _bl followed by value)
         bl_match = re.search(r'_bl([\d.e-]+)', prefix)
@@ -624,7 +668,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
 
         # Append beta annealing info if present (_s<start>_b<end> pattern)
         if props["beta_annealed"]:
-            beta_match = re.search(r'_s([\d.]+)_b([\d.]+)', prefix)
+            beta_match = re.search(r'_s(-?[\d.]+)_b(-?[\d.]+)', prefix)
             if beta_match:
                 label_parts.append(r"$\beta$: " + beta_match.group(1) + r"$\to$" + beta_match.group(2))
 
@@ -652,7 +696,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
                 label_parts.append(r"$\beta$=" + beta_match.group(1))
 
         labels.append(", ".join(label_parts))
-    
+
     return labels
 
 
