@@ -1088,7 +1088,7 @@ class BasePPOTrainer(ABC):
                 base_action_log_probs = self.experience_maker.initial_model(
                     experience.sequences, num_actions,
                     experience.attention_mask)
-            final_reward, _, _, _ = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
+            final_reward, _, _, _, _ = self.experience_maker.compute_reward_no_kl(experience.sequences, experience.attention_mask)
 
             print("FINAL RETURN COMPARISON")
             print(final_reward)

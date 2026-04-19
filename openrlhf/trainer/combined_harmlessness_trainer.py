@@ -1659,7 +1659,7 @@ class CombinedHarmlessnessTrainer(ABC):
             if reward_no_bonus is not None:
                 final_reward_neg = reward_no_bonus.view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device)
             else:
-                log_phi, _, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(
+                log_phi, _, _, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(
                     experience_neg_sampling.sequences, experience_neg_sampling.attention_mask,
                     multiply_by_beta=True, force_no_exploration_bonus=True
                 )
@@ -1672,12 +1672,17 @@ class CombinedHarmlessnessTrainer(ABC):
                 log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt)).to(action_log_probs.device)
                 normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=-1)
             elif self.separate_reweighting_beta is not None:
-                # Just use untransformed reward * the sampling beta. Keep the target_dist_beta as the one for training
-                # And use the separate beta for the reweighting of samples for the base actor loss
+                # Use the post-transform / post-clamp, pre-beta, pre-bonus reward times the
+                # separate beta. Keep the target_dist_beta as the one for training the proposal
+                # q; use this separate beta for the base actor SIS reweighting only.
+                # final_reward_pre_beta respects --reward_clamp / --reward_cap / --reward_transform,
+                # so the base-actor target distribution matches what would be produced at the
+                # alternative beta (modulo the exploration bonus, which is intentionally dropped
+                # here — consistent with the else branch using final_reward_neg = reward_no_bonus).
                 normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
                     action_log_probs_neg,
                     experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
-                    experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device) * self.separate_reweighting_beta
+                    experience_neg_sampling.info["final_reward_pre_beta"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device) * self.separate_reweighting_beta
                 )
             else:
                 normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
@@ -1730,7 +1735,7 @@ class CombinedHarmlessnessTrainer(ABC):
             # Use stored reward_no_bonus when available to avoid a duplicate reward model pass.
             reward_neg_no_bonus = experience_neg_sampling.info.get("reward_no_bonus")
             if reward_neg_no_bonus is None:
-                reward_neg_no_bonus, _, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(
+                reward_neg_no_bonus, _, _, _, _ = self.sampling_experience_maker_neg.compute_reward_no_kl(
                     experience_neg_sampling.sequences, experience_neg_sampling.attention_mask,
                     multiply_by_beta=self.sampling_experience_maker_neg.multiply_by_beta,
                     force_no_exploration_bonus=True
@@ -1761,12 +1766,17 @@ class CombinedHarmlessnessTrainer(ABC):
                 log_w_t_approx_sigma_samples = torch.zeros((num_prompts, samples_per_prompt)).to(action_log_probs.device)
                 normalized_w_t_approx_sigma_samples = F.softmax(log_w_t_approx_sigma_samples, dim=-1)
             elif self.separate_reweighting_beta is not None:
-                # Just use untransformed reward * the sampling beta. Keep the target_dist_beta as the one for training
-                # And use the separate beta for the reweighting of samples for the base actor loss
+                # Use the post-transform / post-clamp, pre-beta, pre-bonus reward times the
+                # separate beta. Keep the target_dist_beta as the one for training the proposal
+                # q; use this separate beta for the base actor SIS reweighting only.
+                # final_reward_pre_beta respects --reward_clamp / --reward_cap / --reward_transform,
+                # so the base-actor target distribution matches what would be produced at the
+                # alternative beta (modulo the exploration bonus, which is intentionally dropped
+                # here — consistent with the else branch using final_reward_neg = reward_no_bonus).
                 normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(
                     action_log_probs_neg,
                     experience_neg_sampling.action_log_probs.view(num_prompts, samples_per_prompt, -1),
-                    experience_neg_sampling.info["untransformed_reward"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device) * self.separate_reweighting_beta
+                    experience_neg_sampling.info["final_reward_pre_beta"].view(num_prompts, samples_per_prompt).to(action_log_probs_neg.device) * self.separate_reweighting_beta
                 )
             else:
                 normalized_w_t_approx_sigma_samples = get_normalized_positive_weights_detached(

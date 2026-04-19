@@ -819,7 +819,7 @@ def eval_log_p_plus_log_phi(trainer, experience_maker, args, attention_mask, act
     Returns:
         log_tilde_sigma or (log_tilde_sigma, log_p, log_phi) if return_extra_info
     """
-    log_phi, _, _, _ = experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True, force_no_exploration_bonus=force_no_exploration_bonus)
+    log_phi, _, _, _, _ = experience_maker.compute_reward_no_kl(sequences, attention_mask, multiply_by_beta=True, force_no_exploration_bonus=force_no_exploration_bonus)
 
     base_action_log_probs = experience_maker.initial_model(sequences,
                                                             num_actions,

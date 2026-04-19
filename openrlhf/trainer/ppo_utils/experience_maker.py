@@ -1230,10 +1230,14 @@ class BaseExperienceMaker(ABC):
             base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
 
         print_timestamp("make_experience: start reward model inference")
-        r, untransformed_reward, exploration_bonus, r_no_bonus = self.compute_reward_no_kl(
+        r, untransformed_reward, exploration_bonus, r_no_bonus, final_reward_pre_beta = self.compute_reward_no_kl(
             sequences, attention_mask,
             multiply_by_beta=self.multiply_by_beta,
             force_no_exploration_bonus=force_no_exploration_bonus
+        )
+        assert final_reward_pre_beta is not None, (
+            "compute_reward_no_kl must set final_reward (post-transform, post-clamp, pre-beta, "
+            "pre-bonus) for every supported rm_type; got None."
         )
         print_timestamp("make_experience: end reward model inference")
 
@@ -1297,6 +1301,10 @@ class BaseExperienceMaker(ABC):
             "f_q": f_q.detach(),
             "entropy": (-log_q).detach(),
             "untransformed_reward": untransformed_reward.detach(),
+            # Post-transform, post-clamp, pre-beta, pre-bonus reward. Equals log_phi / beta
+            # (sans exploration bonus). Used by separate_reweighting_beta so that the SIS
+            # weights respect reward_clamp / reward_cap / reward_transform at a different beta.
+            "final_reward_pre_beta": final_reward_pre_beta.detach(),
             "untransformed_ret": (untransformed_reward - self.kl_ctl.value * masked_sum(kl, action_mask, dim=-1)).detach(), # includes KL but uses untransformed reward
             "exploration_bonus": exploration_bonus.detach() if exploration_bonus is not None else None  # Shape (B,) or None if not enabled
         }
@@ -1558,7 +1566,10 @@ class BaseExperienceMaker(ABC):
             #   with negative beta (see NotImplementedError below in make_experience), so the
             #   interaction of this scaling with the PPO path is not addressed here.
             result = result + abs(self.target_dist_beta) * self.bonus_alpha * exploration_bonus
-        return result, untransformed_reward, exploration_bonus, result_no_bonus
+        # final_reward here is the post-transform, post-clamp, pre-beta, pre-bonus reward
+        # (i.e., log_phi / beta, without the exploration bonus). Every rm_type branch above
+        # sets this; asserted in make_experience caller.
+        return result, untransformed_reward, exploration_bonus, result_no_bonus, final_reward
 
     def set_all_eval(self):
         self.actor.eval()
