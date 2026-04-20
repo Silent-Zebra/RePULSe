@@ -1337,8 +1337,6 @@ class BaseExperienceMaker(ABC):
         if self.exploration_bonus and not force_no_exploration_bonus:
             if self.reward_pretrain == "indicator_bad_token":
                 raise NotImplementedError("Exploration bonus is not yet supported for reward_pretrain='indicator_bad_token'")
-            if self.rm_type == "indicator_below_threshold":
-                raise NotImplementedError("Exploration bonus is not yet supported for rm_type='indicator_below_threshold'")
             # exp_beta_toxicity_class_logprob also not supported; fail early before any side effects
             # (e.g. Welford stats updates from coin flip forward pass)
             if self.rm_type == "exp_beta_toxicity_class_logprob":
@@ -1502,20 +1500,16 @@ class BaseExperienceMaker(ABC):
             score = r
             # print("score")
             # print(score)
-            
-            # Calculate exploration bonus if enabled (and not forced off for e.g. f_q/g_q evaluation)
-            if not force_no_exploration_bonus:
-                exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
-            bonus_for_log = exploration_bonus if not force_no_exploration_bonus else torch.zeros(sequences.shape[0], device=sequences.device, dtype=torch.float32)
-            
+
+            # Bonus is additive to log φ (not inside the log): σ'∝ p0·φ·exp(α·r_I).
+            # Compute here so the post-branch application at line ~1560 adds it identically to rlhf.
             if self.exploration_bonus and not force_no_exploration_bonus:
-                raise NotImplementedError("Check sign on bonus")
-                print(f"Exploration bonus applied for indicator_below_threshold. Mean bonus: {exploration_bonus.mean().item():.4f}, "
-                      f"Min bonus: {exploration_bonus.min().item():.4f}, "
-                      f"Max bonus: {exploration_bonus.max().item():.4f}")
-            
-            # Add exploration bonus to the log argument: log((score < threshold) + eps + bonus)
-            final_reward = torch.log((score < self.threshold) + eps + bonus_for_log)            
+                exploration_bonus = self._calculate_exploration_bonus(sequences, attention_mask, track_both_positions=True)
+                print(f"Exploration bonus (indicator): mean={exploration_bonus.mean().item():.4f}, "
+                      f"min={exploration_bonus.min().item():.4f}, max={exploration_bonus.max().item():.4f}")
+            # else: exploration_bonus already initialized to zeros above
+
+            final_reward = torch.log((score < self.threshold) + eps)
         elif self.rm_type == "rlhf":
             score = r
             

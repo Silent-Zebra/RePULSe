@@ -2341,6 +2341,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 target_sample_amount=target_sample_amount,
                 tile_prompts_fn=tile_prompts,
                 rm_type=args.rm_type,
+                threshold=getattr(args, 'threshold', None),
                 strategy=self.strategy,
             )
             all_accepted_seqs = [accepted_seqs]
@@ -2374,6 +2375,7 @@ class CombinedHarmlessnessTrainer(ABC):
                     max_gen_per_prompt=max_gen,
                     first_pass_limit=first_pass_limit,
                     rm_type=args.rm_type,
+                    threshold=getattr(args, 'threshold', None),
                     strategy=self.strategy,
                 )
 

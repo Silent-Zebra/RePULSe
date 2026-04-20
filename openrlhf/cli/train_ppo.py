@@ -856,10 +856,10 @@ def train(args):
         strategy.print("Running rejection sampling mode - skipping normal training")
         
         # Validation
-        if args.rm_type != "rlhf":
-            raise NotImplementedError(f"Rejection sampling currently only supports rm_type='rlhf', got '{args.rm_type}'")
-        if args.reward_clamp is None and args.reward_cap is None:
-            raise ValueError("Either --reward_clamp or --reward_cap must be set when using --rejection_sample_true_target_only")
+        if args.rm_type not in ("rlhf", "indicator_below_threshold"):
+            raise NotImplementedError(f"Rejection sampling supports rm_type='rlhf' or 'indicator_below_threshold', got '{args.rm_type}'")
+        if args.rm_type == "rlhf" and args.reward_clamp is None and args.reward_cap is None:
+            raise ValueError("Either --reward_clamp or --reward_cap must be set when using --rejection_sample_true_target_only with rm_type='rlhf'")
         if args.target_dist_beta is None:
             raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
         
@@ -3254,23 +3254,28 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     """
     Perform rejection sampling to generate true target samples.
 
-    Target distribution: target(x) ∝ p(x) * e^(β * r(x))
-    Proposal distribution: p(x) (base actor)
-    Acceptance probability: e^(β * clamped_r) / M, where M = e^(|clamp * beta|)
+    For rm_type="rlhf":
+      Target distribution: target(x) ∝ p(x) * e^(β * r(x))
+      Acceptance probability: e^(β * clamped_r) / M, where M = e^(|clamp * beta|)
+
+    For rm_type="indicator_below_threshold":
+      Target distribution: target(x) ∝ p(x) * indicator(score < threshold)
+      Acceptance: deterministic — accept iff raw_score < threshold
     """
     # Validation
-    if args.rm_type != "rlhf":
-        raise NotImplementedError(f"Rejection sampling currently only supports rm_type='rlhf', got '{args.rm_type}'")
-    if args.reward_clamp is None and args.reward_cap is None:
-        raise ValueError("Either --reward_clamp or --reward_cap must be set when using --rejection_sample_true_target_only")
+    if args.rm_type not in ("rlhf", "indicator_below_threshold"):
+        raise NotImplementedError(f"Rejection sampling supports rm_type='rlhf' or 'indicator_below_threshold', got '{args.rm_type}'")
+    if args.rm_type == "rlhf":
+        if args.reward_clamp is None and args.reward_cap is None:
+            raise ValueError("Either --reward_clamp or --reward_cap must be set when using --rejection_sample_true_target_only with rm_type='rlhf'")
+        if args.reward_clamp is None and args.target_dist_beta < 0:
+            raise ValueError(
+                "Rejection sampling with --reward_cap (one-sided clamping) is not supported with negative "
+                "target_dist_beta because acceptance probabilities can exceed 1 (rewards below -reward_cap "
+                "are unbounded, so e^(beta * r) is unbounded). Use --reward_clamp (symmetric clamping) instead."
+            )
     if args.target_dist_beta is None:
         raise ValueError("--target_dist_beta must be set when using --rejection_sample_true_target_only")
-    if args.reward_clamp is None and args.target_dist_beta < 0:
-        raise ValueError(
-            "Rejection sampling with --reward_cap (one-sided clamping) is not supported with negative "
-            "target_dist_beta because acceptance probabilities can exceed 1 (rewards below -reward_cap "
-            "are unbounded, so e^(beta * r) is unbounded). Use --reward_clamp (symmetric clamping) instead."
-        )
     if args.true_target_sample_amount <= 0:
         raise ValueError(f"--true_target_sample_amount must be > 0, got {args.true_target_sample_amount}")
 
@@ -3284,16 +3289,19 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
     filename = get_target_samples_filename(args)
     strategy.print(f"Will save target samples to: {filename}")
 
-    # Calculate rejection bound in log space: log_M = |clamp/cap * beta|
-    if args.reward_clamp is not None:
-        clamp_val = args.reward_clamp
-        clamp_beta_product = args.reward_clamp * args.target_dist_beta
-    else:
-        clamp_val = args.reward_cap
-        clamp_beta_product = args.reward_cap * args.target_dist_beta
-    log_M = abs(clamp_beta_product)
-    strategy.print(f"Computing rejection bound in log space: log_M = |{clamp_val} * {args.target_dist_beta}| = |{clamp_beta_product}| = {log_M}")
-    strategy.print(f"  This corresponds to M = e^({log_M}) = {torch.exp(torch.tensor(log_M, dtype=torch.float32)).item():.4e} (for reference, may be inf)")
+    # For rlhf: calculate rejection bound in log space: log_M = |clamp/cap * beta|
+    if args.rm_type == "rlhf":
+        if args.reward_clamp is not None:
+            clamp_val = args.reward_clamp
+            clamp_beta_product = args.reward_clamp * args.target_dist_beta
+        else:
+            clamp_val = args.reward_cap
+            clamp_beta_product = args.reward_cap * args.target_dist_beta
+        log_M = abs(clamp_beta_product)
+        strategy.print(f"Computing rejection bound in log space: log_M = |{clamp_val} * {args.target_dist_beta}| = |{clamp_beta_product}| = {log_M}")
+        strategy.print(f"  This corresponds to M = e^({log_M}) = {torch.exp(torch.tensor(log_M, dtype=torch.float32)).item():.4e} (for reference, may be inf)")
+    elif args.rm_type == "indicator_below_threshold":
+        strategy.print(f"Indicator rejection sampling: accept iff raw_score < threshold={args.threshold}")
 
     # Handle prompts
     prompts = _extract_prompts_for_sampling(args, tokenizer, strategy, prompts_dataloader)
@@ -3347,6 +3355,7 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
                 tile_prompts_fn=tile_prompts,
                 target_sample_amount=per_rank_target,
                 rm_type=args.rm_type,
+                threshold=getattr(args, 'threshold', None),
                 strategy=strategy,
             )
 
@@ -3406,6 +3415,7 @@ def do_rejection_sampling_for_target_samples(args, base_actor, reward_model, tok
             max_gen_per_prompt=max_gen_per_prompt,
             first_pass_limit=first_pass_limit,
             rm_type=args.rm_type,
+            threshold=getattr(args, 'threshold', None),
             strategy=strategy,
         )
 

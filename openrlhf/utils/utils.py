@@ -510,6 +510,8 @@ def get_target_samples_filename(args):
         reward_clamp_str = f"_rc{args.reward_clamp}"
     elif args.rm_type == "rlhf" and hasattr(args, 'reward_cap') and args.reward_cap is not None:
         reward_clamp_str = f"_rcap{args.reward_cap}"
+    elif args.rm_type == "indicator_below_threshold" and hasattr(args, 'threshold') and args.threshold is not None:
+        reward_clamp_str = f"_thr{args.threshold}"
     
     # Get prompt abbreviation
     if hasattr(args, 'custom_prompt') and args.custom_prompt and args.custom_prompt != "This man is a":
@@ -1917,15 +1919,17 @@ def rejection_sample_for_prompt(
     tile_prompts_fn,
     target_sample_amount=None,
     rm_type="rlhf",
+    threshold=None,
     strategy=None,
 ):
     """Rejection sampling from sigma = p * exp(beta * r) for a single prompt.
 
-    The target distribution formulation sigma(x) propto p(x) * exp(beta * r(x)) assumes
-    rm_type="rlhf" (scalar reward model). Other reward types use different formulations.
+    Supports rm_type="rlhf" (probabilistic acceptance) and rm_type="indicator_below_threshold"
+    (deterministic acceptance: accept iff raw_score < threshold).
 
-    Generates sequences from `actor`, computes rewards, and accepts/rejects based on
-    the ratio exp(beta * clamped_reward) / M, where M = exp(|clamp * beta|).
+    Generates sequences from `actor`, computes rewards, and accepts/rejects. For rlhf,
+    acceptance probability = exp(beta * clamped_reward) / M where M = exp(|clamp * beta|).
+    For indicator, acceptance is deterministic: accept iff raw_score < threshold.
 
     Stops when either:
       - `target_sample_amount` accepted samples are collected (if set), OR
@@ -1939,30 +1943,32 @@ def rejection_sample_for_prompt(
         prompt: A single prompt string.
         target_dist_beta: Beta parameter for the target distribution.
         reward_clamp: Symmetric reward clamp value (or None).
-        reward_cap: Upper reward cap value (or None; one of reward_clamp/reward_cap must be set).
+        reward_cap: Upper reward cap value (or None; one of reward_clamp/reward_cap must be set for rlhf).
         prompt_max_len: Maximum prompt length for tokenization.
         generate_kwargs: Dict of generation kwargs (max_new_tokens, eos_token_id, etc.).
         batch_size: Number of sequences to generate per iteration.
         max_gen: Maximum total sequences to generate before stopping (None = no limit).
         tile_prompts_fn: Function to tile a prompt into a batch (e.g., tile_prompts).
         target_sample_amount: Stop after collecting this many accepted samples (None = no limit).
-        rm_type: Reward model type. Must be "rlhf" — the target distribution formulation
-                 sigma(x) propto p(x) * exp(beta * r(x)) assumes a scalar reward model.
+        rm_type: Reward model type. "rlhf" or "indicator_below_threshold".
+        threshold: Score threshold for indicator acceptance (required for indicator_below_threshold).
         strategy: Optional strategy object with .print() method.
 
     Returns:
         accepted_seqs: list of token ID lists (may be shorter than target_sample_amount
                        if max_gen was reached first; may be empty if none accepted)
-        accepted_rewards: list of float rewards (clamped)
+        accepted_rewards: list of float rewards (clamped for rlhf; raw scores for indicator)
         total_generated: int total sequences generated
     """
-    assert rm_type == "rlhf", (
-        f"Rejection sampling currently only supports rm_type='rlhf', got '{rm_type}'. "
-        f"The target distribution formulation sigma(x) propto p(x) * exp(beta * r(x)) "
-        f"assumes a scalar reward model."
+    assert rm_type in ("rlhf", "indicator_below_threshold"), (
+        f"Rejection sampling supports rm_type='rlhf' or 'indicator_below_threshold', got '{rm_type}'."
     )
-    assert reward_clamp is not None or reward_cap is not None, \
-        "Either reward_clamp or reward_cap must be set for rejection sampling"
+    if rm_type == "rlhf":
+        assert reward_clamp is not None or reward_cap is not None, \
+            "Either reward_clamp or reward_cap must be set for rejection sampling with rm_type='rlhf'"
+    elif rm_type == "indicator_below_threshold":
+        assert threshold is not None, \
+            "threshold must be provided for rejection sampling with rm_type='indicator_below_threshold'"
 
     def _print(msg):
         if strategy is not None:
@@ -1970,9 +1976,10 @@ def rejection_sample_for_prompt(
         else:
             print(msg)
 
-    # Compute log_M = |clamp_val * beta|
-    clamp_val = reward_clamp if reward_clamp is not None else reward_cap
-    log_M = abs(clamp_val * target_dist_beta)
+    # Compute log_M = |clamp_val * beta| (rlhf only)
+    if rm_type == "rlhf":
+        clamp_val = reward_clamp if reward_clamp is not None else reward_cap
+        log_M = abs(clamp_val * target_dist_beta)
 
     assert target_sample_amount is not None or max_gen is not None, (
         "At least one of target_sample_amount or max_gen must be set to prevent an infinite loop "
@@ -2001,23 +2008,31 @@ def rejection_sample_for_prompt(
                 prompt_max_len, reward_clamp, reward_cap, generate_kwargs,
             )
 
-        log_phi = target_dist_beta * clamped_rewards
-        log_ratio = log_phi - log_M
-        raw_accept_prob = torch.exp(log_ratio)
-        # Sanity check: acceptance probabilities must be in [0, 1] for valid rejection sampling.
-        assert (raw_accept_prob >= -1e-6).all(), (
-            f"Rejection sampling acceptance probability is negative (min={raw_accept_prob.min().item():.6f})."
-        )
-        assert (raw_accept_prob <= 1.0 + 1e-6).all(), (
-            f"Rejection sampling acceptance probability exceeds 1 (max={raw_accept_prob.max().item():.6f}). "
-            f"Check reward clamping and target_dist_beta settings."
-        )
-        accept_prob = raw_accept_prob.clamp(min=0.0, max=1.0)
-        u = torch.rand_like(accept_prob)
-        accept_mask = u < accept_prob
+        if rm_type == "rlhf":
+            log_phi = target_dist_beta * clamped_rewards
+            log_ratio = log_phi - log_M
+            raw_accept_prob = torch.exp(log_ratio)
+            # Sanity check: acceptance probabilities must be in [0, 1] for valid rejection sampling.
+            assert (raw_accept_prob >= -1e-6).all(), (
+                f"Rejection sampling acceptance probability is negative (min={raw_accept_prob.min().item():.6f})."
+            )
+            assert (raw_accept_prob <= 1.0 + 1e-6).all(), (
+                f"Rejection sampling acceptance probability exceeds 1 (max={raw_accept_prob.max().item():.6f}). "
+                f"Check reward clamping and target_dist_beta settings."
+            )
+            accept_prob = raw_accept_prob.clamp(min=0.0, max=1.0)
+            u = torch.rand_like(accept_prob)
+            accept_mask = u < accept_prob
+            rewards_to_save = clamped_rewards
+        elif rm_type == "indicator_below_threshold":
+            # sigma ∝ p0 * indicator(score < threshold): deterministic acceptance.
+            accept_mask = (unclamped_rewards < threshold)
+            rewards_to_save = unclamped_rewards
+        else:
+            raise NotImplementedError(f"Rejection sampling not supported for rm_type='{rm_type}'")
 
         batch_accepted_seqs = [seq.cpu().tolist() for seq in sequences[accept_mask]]
-        batch_accepted_rews = [rew.cpu().item() for rew in clamped_rewards[accept_mask]]
+        batch_accepted_rews = [rew.cpu().item() for rew in rewards_to_save[accept_mask]]
         accepted_seqs.extend(batch_accepted_seqs)
         accepted_rewards.extend(batch_accepted_rews)
         total_generated += sequences.shape[0]
@@ -2042,9 +2057,12 @@ def rejection_sample_multi_prompt(
     target_dist_beta, reward_clamp, reward_cap, prompt_max_len,
     generate_kwargs, batch_size, total_target,
     max_gen_per_prompt=None, first_pass_limit=None,
-    rm_type="rlhf", strategy=None,
+    rm_type="rlhf", threshold=None, strategy=None,
 ):
     """Multi-prompt rejection sampling: collect total_target samples across prompts.
+
+    Supports rm_type="rlhf" (probabilistic acceptance) and rm_type="indicator_below_threshold"
+    (deterministic acceptance: accept iff raw_score < threshold).
 
     Collects at most 1 accepted sample per prompt, cycling through prompts in multi-pass
     fashion until the global target is reached.
@@ -2069,7 +2087,8 @@ def rejection_sample_multi_prompt(
         total_target: Total number of accepted samples to collect across all prompts.
         max_gen_per_prompt: Maximum generations per prompt before giving up (None = no limit).
         first_pass_limit: Per-prompt generation limit for the first pass (None = use max_gen_per_prompt).
-        rm_type: Reward model type (must be "rlhf").
+        rm_type: Reward model type. "rlhf" or "indicator_below_threshold".
+        threshold: Score threshold for indicator acceptance (required for indicator_below_threshold).
         strategy: Optional strategy object with .print() method.
 
     Returns:
@@ -2078,9 +2097,12 @@ def rejection_sample_multi_prompt(
         total_generated: int total sequences generated across all prompts
         total_accepted: int total accepted samples
     """
-    assert rm_type == "rlhf", (
-        f"Multi-prompt rejection sampling only supports rm_type='rlhf', got '{rm_type}'"
+    assert rm_type in ("rlhf", "indicator_below_threshold"), (
+        f"Multi-prompt rejection sampling supports rm_type='rlhf' or 'indicator_below_threshold', got '{rm_type}'"
     )
+    if rm_type == "indicator_below_threshold":
+        assert threshold is not None, \
+            "threshold must be provided for rejection sampling with rm_type='indicator_below_threshold'"
 
     def _print(msg):
         if strategy is not None:
@@ -2151,23 +2173,31 @@ def rejection_sample_multi_prompt(
                         prompt_max_len, reward_clamp, reward_cap, generate_kwargs,
                     )
 
-                # Compute acceptance probability
-                clamp_val = reward_clamp if reward_clamp is not None else reward_cap
-                log_M = abs(clamp_val * target_dist_beta)
-                log_phi = target_dist_beta * clamped_rewards
-                log_ratio = log_phi - log_M
-                raw_accept_prob = torch.exp(log_ratio)
-                assert (raw_accept_prob >= -1e-6).all(), (
-                    f"Rejection sampling acceptance probability is negative (min={raw_accept_prob.min().item():.6f})."
-                )
-                assert (raw_accept_prob <= 1.0 + 1e-6).all(), (
-                    f"Rejection sampling acceptance probability exceeds 1 (max={raw_accept_prob.max().item():.6f})."
-                )
-                accept_prob = raw_accept_prob.clamp(min=0.0, max=1.0)
-                u = torch.rand_like(accept_prob)
-                accept_mask = u < accept_prob
+                # Compute acceptance
+                if rm_type == "rlhf":
+                    clamp_val = reward_clamp if reward_clamp is not None else reward_cap
+                    log_M = abs(clamp_val * target_dist_beta)
+                    log_phi = target_dist_beta * clamped_rewards
+                    log_ratio = log_phi - log_M
+                    raw_accept_prob = torch.exp(log_ratio)
+                    assert (raw_accept_prob >= -1e-6).all(), (
+                        f"Rejection sampling acceptance probability is negative (min={raw_accept_prob.min().item():.6f})."
+                    )
+                    assert (raw_accept_prob <= 1.0 + 1e-6).all(), (
+                        f"Rejection sampling acceptance probability exceeds 1 (max={raw_accept_prob.max().item():.6f})."
+                    )
+                    accept_prob = raw_accept_prob.clamp(min=0.0, max=1.0)
+                    u = torch.rand_like(accept_prob)
+                    accept_mask = u < accept_prob
+                    rewards_to_save = clamped_rewards
+                elif rm_type == "indicator_below_threshold":
+                    # sigma ∝ p0 * indicator(score < threshold): deterministic acceptance.
+                    accept_mask = (unclamped_rewards < threshold)
+                    rewards_to_save = unclamped_rewards
+                else:
+                    raise NotImplementedError(f"Rejection sampling not supported for rm_type='{rm_type}'")
                 seqs = [seq.cpu().tolist() for seq in sequences[accept_mask]]
-                rews = [rew.cpu().item() for rew in clamped_rewards[accept_mask]]
+                rews = [rew.cpu().item() for rew in rewards_to_save[accept_mask]]
                 n_gen = sequences.shape[0]
 
                 generated_per_prompt[prompt_idx] += n_gen
