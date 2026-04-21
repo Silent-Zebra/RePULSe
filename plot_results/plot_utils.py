@@ -672,6 +672,21 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             if beta_match:
                 label_parts.append(r"$\beta$: " + beta_match.group(1) + r"$\to$" + beta_match.group(2))
 
+        # When a separate reweighting beta (_sb<value>) is present, distinguish the two betas
+        # with subscripts: β_q for target_dist_beta (used to train q) and β_p for the separate
+        # reweighting beta (used for σ/p reweighting).
+        sb_match = re.search(r'_sb(-?[\d.]+)', prefix)
+        if sb_match:
+            sb_val = sb_match.group(1)
+            if props["beta_annealed"]:
+                # Rename the existing β: start→end label to β_q: start→end
+                for i, part in enumerate(label_parts):
+                    if r"$\beta$:" in part:
+                        label_parts[i] = part.replace(r"$\beta$:", r"$\beta_q$:")
+                        break
+            # β_q is clear from context; only show the distinct separate reweighting beta.
+            label_parts.append(r"$\beta_p$=" + sb_val)
+
         # Prepend loss type label.
         # When a reward transform is present (rt<alpha>_b<beta> in prefix), the harmlessness
         # training uses REINFORCE with a transformed reward — label that explicitly instead of CTL.
@@ -690,7 +705,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
         # For info_eval prefixes, include the beta value.
         # Prefixes use abbreviated _b<value> (e.g. _b-10.0); _beta<value> also supported.
         # Use negative lookahead to avoid matching _bl (base LR) or other _b<letter> patterns.
-        if prefix.startswith("info_eval"):
+        if prefix.startswith("info_eval") and not sb_match:
             beta_match = re.search(r'_beta([-\d.]+)', prefix) or re.search(r'_b(?![a-zA-Z])([-\d.]+)', prefix)
             if beta_match:
                 label_parts.append(r"$\beta$=" + beta_match.group(1))
@@ -4387,3 +4402,103 @@ def plot_top_q_samples_ranked_lollipop(
     plt.clf()
     plt.close(fig)
     print(f"Top-q samples ranked lollipop saved to {figname}")
+
+
+def compute_iwae_vs_n_curves(f_qs_by_prompt, g_qs_by_prompt, n_values, n_bootstrap=None, rng_seed=42):
+    """Compute IWAE lower and upper bounds as a function of N *total* samples, averaged over prompts.
+
+    N is the total sample count for both bounds:
+      LB(N): uses N proposal samples from q.
+        LB(N) = log(1/N * sum_{i=1}^{N} w_i)   where w_i = p0(x)*phi(x)/q(x)
+      UB(N): uses 1 exact target sample + (N-1) proposal samples from q.
+        UB(N) = log(1/N * (w_target + sum_{i=1}^{N-1} w_i))
+
+    Both are on the same x-axis in terms of total samples used, so at N=4 the UB uses
+    1 exact target + 3 proposal samples, and the LB uses 4 proposal samples.
+
+    For LB: M independent draws each pick N proposal samples (without replacement) from the saved
+    pool and compute IWAE LB; results are averaged. M = number of available target samples.
+
+    For UB: iterates over every target sample exactly once. For each target sample m, one
+    independent draw of (N-1) proposal samples is made; the M resulting UB values are averaged.
+    This gives every target sample equal weight with no random target selection.
+
+    Results are averaged across all valid prompts.
+
+    Args:
+        f_qs_by_prompt: list of numpy arrays of shape (N_max,), one per prompt.  Each entry is a
+            vector of log-importance-weights log(p0(x)*phi(x)/q(x)) for samples from q.
+        g_qs_by_prompt: list of numpy arrays of shape (M,), one per prompt.  M target samples'
+            log-weights; all M are used (each bootstrap draw picks one at random for the UB).
+        n_values: list of int total sample counts to evaluate (must all be >= 1).
+        n_bootstrap: number of independent draws used to estimate E[LB(N)] and E[UB(N)] at each N.
+            Each draw uses exactly N samples (x-axis value). Defaults to None, which sets it to
+            the number of available target samples M (so every target sample is represented in the
+            UB estimate). For N=1 UB, averages directly over all M target samples exactly.
+        rng_seed: base integer seed; each prompt uses rng_seed + prompt_index for independence.
+
+    Returns:
+        lb_curve: numpy array of shape (len(n_values),), mean LB across valid prompts.
+        ub_curve: numpy array of shape (len(n_values),), mean UB across valid prompts.
+        Both are None if no valid prompts are available.
+    """
+    from scipy.special import logsumexp
+
+    lb_curves_per_prompt = []
+    ub_curves_per_prompt = []
+
+    for p_idx, (f_qs, g_qs) in enumerate(zip(f_qs_by_prompt, g_qs_by_prompt)):
+        if f_qs is None or len(f_qs) == 0 or g_qs is None or len(g_qs) == 0:
+            continue
+        f_qs = np.asarray(f_qs, dtype=float)
+        g_qs = np.asarray(g_qs, dtype=float)
+        N_max = len(f_qs)
+        M = len(g_qs)   # number of available target samples
+        n_boot = M if n_bootstrap is None else n_bootstrap
+        rng = np.random.default_rng(rng_seed + p_idx)
+
+        lb_at_n = []
+        ub_at_n = []
+        for N in n_values:
+            # ---- LB: N proposal samples ----
+            if N >= N_max:
+                lb_val = float(logsumexp(f_qs) - np.log(N_max))
+            else:
+                lb_boot = []
+                for _ in range(n_boot):
+                    idx = rng.choice(N_max, size=N, replace=False)
+                    lb_boot.append(float(logsumexp(f_qs[idx]) - np.log(N)))
+                lb_val = float(np.mean(lb_boot))
+
+            # ---- UB: 1 exact target sample (drawn from all M) + (N-1) proposal samples ----
+            n_prop_ub = N - 1
+            if n_prop_ub <= 0:
+                # N=1: UB = each target sample's log-weight averaged over all M.
+                # No proposals needed; exact mean over all available target samples.
+                ub_val = float(np.mean(g_qs))
+            elif n_prop_ub >= N_max:
+                # All N_max proposals available; still average over all M target samples.
+                ub_boot = []
+                for m in range(M):
+                    all_w = np.concatenate([[g_qs[m]], f_qs])
+                    ub_boot.append(float(logsumexp(all_w) - np.log(N_max + 1)))
+                ub_val = float(np.mean(ub_boot))
+            else:
+                # One draw of (N-1) proposal samples per target sample; average over all M.
+                ub_boot = []
+                for m in range(M):
+                    idx = rng.choice(N_max, size=n_prop_ub, replace=False)
+                    all_w = np.concatenate([[g_qs[m]], f_qs[idx]])
+                    ub_boot.append(float(logsumexp(all_w) - np.log(N)))
+                ub_val = float(np.mean(ub_boot))
+
+            lb_at_n.append(lb_val)
+            ub_at_n.append(ub_val)
+
+        lb_curves_per_prompt.append(np.array(lb_at_n))
+        ub_curves_per_prompt.append(np.array(ub_at_n))
+
+    if not lb_curves_per_prompt:
+        return None, None
+
+    return np.mean(lb_curves_per_prompt, axis=0), np.mean(ub_curves_per_prompt, axis=0)
