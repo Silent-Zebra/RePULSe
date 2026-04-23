@@ -22,7 +22,8 @@ from plot_utils import (
     make_list, do_load_prefixes, generate_labels_from_prefixes, to_scalar,
     compute_global_logZ_from_iwae_bounds, compute_approx_kl_from_f_q_g_q,
     mean_of_per_prompt_bounds,
-    generate_visual_style_from_prefixes, _collect_top_token_log_probs,
+    generate_visual_style_from_prefixes, generate_method_linestyles_from_prefixes,
+    _collect_top_token_log_probs,
     plot_top_tokens_bar_chart, plot_top_tokens_lollipop,
     plot_top_tokens_lollipop_over_time, plot_sample_counts_over_time, plot_sample_counts_final_individual,
     plot_top_q_intersection_lollipop, plot_top_q_ranked_lollipop,
@@ -654,7 +655,12 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
         )
 
     # Compute semantic styling once for all plots in this function
-    semantic_colors, _, _ = generate_visual_style_from_prefixes(load_prefixes_to_use)
+    semantic_colors, semantic_markers, semantic_linestyles = generate_visual_style_from_prefixes(load_prefixes_to_use)
+    # Method-level linestyles: one linestyle per method category (CFN vs entropy vs
+    # mixture vs annealed beta vs baseline), distinct from the within-hue-group
+    # cycling above. Used for coverage curves where methods should be visually
+    # distinguishable by linestyle in addition to color.
+    method_linestyles = generate_method_linestyles_from_prefixes(load_prefixes_to_use)
 
     # Precompute token data to avoid redundant full-vocab iterations.
     # Use n_top_tokens=999999 to get all tokens sorted; individual plots slice to their own n_top_tokens.
@@ -711,6 +717,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             precomputed_token_data=token_data_final,
             tokenizer=tokenizer,
             figname_individual=os.path.join(output_dir, f"{file_type_suffix}_top_{n_top_tokens}_tokens_lollipop_final_individual.pdf"),
+            marker_list=semantic_markers,
         )
     except Exception as e:
         print(f"Failed to generate top tokens lollipop chart (final) for {file_type_suffix}: {e}")
@@ -730,6 +737,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             n_top_tokens=n_top_tokens,
             precomputed_token_data=token_data_final,
             tokenizer=tokenizer,
+            marker_list=semantic_markers,
         )
     except Exception as e:
         print(f"Failed to generate over-time lollipop chart for {file_type_suffix}: {e}")
@@ -749,6 +757,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             n_top_tokens=n_top_tokens,
             precomputed_token_data=token_data_final,
             tokenizer=tokenizer,
+            marker_list=semantic_markers,
         )
     except Exception as e:
         print(f"Failed to generate sample counts over time chart for {file_type_suffix}: {e}")
@@ -783,6 +792,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             n_bootstrap_draws=5000,
             n_top_tokens=n_top_tokens,
             precomputed_token_data=token_data_final,
+            linestyle_list=method_linestyles,
         )
     except Exception as e:
         print(f"Failed to generate coverage curve for {file_type_suffix}: {e}")
@@ -798,6 +808,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             fontsize=fontsize,
             legendfontsize=legendfontsize,
             n_bootstrap_draws=5000,
+            linestyle_list=method_linestyles,
         )
     except Exception as e:
         print(f"Failed to generate vocab coverage curve for {file_type_suffix}: {e}")
@@ -857,23 +868,26 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             traceback.print_exc()
 
     # Per-setting top-q tokens lollipop (+ individual seeds)
-    try:
-        plot_top_q_intersection_lollipop(
-            figname=os.path.join(output_dir, f"{file_type_suffix}_top_{n_top_tokens}_q_lollipop_final.pdf"),
-            labels=labels,
-            results_list=kl_results_list,
-            color_list=semantic_colors,
-            fontsize=fontsize,
-            legendfontsize=fontsize,
-            n_bootstrap_draws=5000,
-            n_top_tokens=n_top_tokens,
-            precomputed_token_data=token_data_final,
-            tokenizer=tokenizer,
-            figname_individual=os.path.join(output_dir, f"{file_type_suffix}_top_{n_top_tokens}_q_lollipop_final_individual.pdf"),
-        )
-    except Exception as e:
-        print(f"Failed to generate top-q intersection lollipop chart for {file_type_suffix}: {e}")
-        traceback.print_exc()
+    # Disabled for sampling file type to reduce output
+    if file_type_suffix != "sampling":
+        try:
+            plot_top_q_intersection_lollipop(
+                figname=os.path.join(output_dir, f"{file_type_suffix}_top_{n_top_tokens}_q_lollipop_final.pdf"),
+                labels=labels,
+                results_list=kl_results_list,
+                color_list=semantic_colors,
+                fontsize=fontsize,
+                legendfontsize=fontsize,
+                n_bootstrap_draws=5000,
+                n_top_tokens=n_top_tokens,
+                precomputed_token_data=token_data_final,
+                tokenizer=tokenizer,
+                figname_individual=os.path.join(output_dir, f"{file_type_suffix}_top_{n_top_tokens}_q_lollipop_final_individual.pdf"),
+                marker_list=semantic_markers,
+            )
+        except Exception as e:
+            print(f"Failed to generate top-q intersection lollipop chart for {file_type_suffix}: {e}")
+            traceback.print_exc()
 
     # Ranked lollipop chart (+ individual seeds)
     try:
@@ -887,6 +901,7 @@ def plot_kl_divergences(file_type_suffix, load_prefixes_to_use, labels, figname_
             n_bootstrap_draws=5000,
             n_ranks=n_top_tokens,
             figname_individual=os.path.join(output_dir, f"{file_type_suffix}_top_{n_top_tokens}_q_ranked_lollipop_final_individual.pdf"),
+            marker_list=semantic_markers,
         )
     except Exception as e:
         print(f"Failed to generate ranked lollipop chart for {file_type_suffix}: {e}")
@@ -3181,7 +3196,10 @@ if "final" not in figname_modifier:
 
 
         # Use the same naming code from make_frontier.py
-        labels = generate_labels_from_prefixes(load_prefixes_to_use)
+        labels = generate_labels_from_prefixes(
+            load_prefixes_to_use,
+            final_labels=final_labels if 'final_labels' in vars() else False,
+        )
         fontsize = 6
 
     else:
@@ -5532,14 +5550,14 @@ n_top_tokens = 1
 #
 # ]
 # threshold = -5
-# figname_modifier = "probinflen1_tox2p2_04-16_v3"
+# figname_modifier = "probinflen1_tox2p2_04-21"
 # target_samples_path = None
 # individual_prompt_plots = False
 # random_f_q_ylim_low = None
 # n_frontiers = 4
 # legendfontsize = 4
 # n_top_tokens = 10
-# # TODO get more seeds, and change the coloring and markers.
+
 #
 #
 #
@@ -5604,55 +5622,55 @@ n_top_tokens = 1
 
 
 
-load_prefixes_to_use = [
-# for x in $(ls info/itremodevmultitestposfixedeval/ |  grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl0.0_ppq_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl0.0_ppq_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf1.0to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0003_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.001_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.003_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.003to0.0linear_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.01to0.0linear_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_mixmx_lag10_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_mixqi_lag10_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
-
-
-# for x in $(ls info/itremodevmultitestposfixedevalannealbeta/ |  grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s0.3_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s1.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s3.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
-
-# for x in $(ls info/itremodevmultitestposfixedevalcombined/ | grep -v 0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_entb0.0003_ | grep -v s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.1 | grep -v s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.1 | grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.1_cd64_cfr0.001_cfsn_af_fo_entb0.0001_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_entb0.0003_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_entb0.0001_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0001_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0003_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0001_tb250_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0003_tb250_s2", 1, 10),
-
-
-
-]
-threshold = -5
-figname_modifier = "probinflen20_itremodevmultitestposfixedeval_b20_04-19_v4"
-# target_samples_path = "info/target_samples_Sm13In_remodev3lav2_rlhf_l20_b-20.0_rc6.0_20misi1_tsa20.pt"
-individual_prompt_plots = False
-random_f_q_ylim_low = None
-n_frontiers = 8
-legendfontsize = 4
-n_top_tokens = 1
+# load_prefixes_to_use = [
+# # for x in $(ls info/itremodevmultitestposfixedeval/ |  grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al1e-05_bl0.0_ppq_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl0.0_ppq_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf1.0to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0003_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.001_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.003_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.003to0.0linear_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.01to0.0linear_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_mixmx_lag10_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_mixqi_lag10_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
+#
+#
+# # for x in $(ls info/itremodevmultitestposfixedevalannealbeta/ |  grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s0.3_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s1.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s3.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_tb250_s2", 1, 10),
+#
+# # for x in $(ls info/itremodevmultitestposfixedevalcombined/ | grep -v 0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_entb0.0003_ | grep -v s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.1 | grep -v s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.1 | grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.1_cd64_cfr0.001_cfsn_af_fo_entb0.0001_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_entb0.0003_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_entb0.0001_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0001_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s10.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0003_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0001_tb250_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_s5.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_entb0.0003_tb250_s2", 1, 10),
+#
+#
+#
+# ]
+# threshold = -5
+# figname_modifier = "probinflen20_itremodevmultitestposfixedeval_b20_04-19_v4"
+# # target_samples_path = "info/target_samples_Sm13In_remodev3lav2_rlhf_l20_b-20.0_rc6.0_20misi1_tsa20.pt"
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 8
+# legendfontsize = 4
+# n_top_tokens = 1
 
 
 
@@ -5699,10 +5717,17 @@ make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_s-3.0_b-30.0_sb-
 # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_s-3.0_b-20.0_sb-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_tb250_s1", 1, 10),
 # make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_s-3.0_b-20.0_sb-30.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl3e-05_ppq_tb250_s1", 1, 10),
 
+# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/rlhfmultilen20kl2v2 | grep mix | grep b-20 | grep info_eval | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_mixqi_first_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_mixqi_lag30_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_mixqi_lag50_tb250_s2", 1, 10),
+# make_list("info_eval_rlhf_Sm13In_remodev3lav2_20misi1_l20_kl0.2_b-20.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al2e-05_bl3e-05_ppq_mixqi_lag80_tb250_s2", 1, 10),
+
+
 
 ]
 threshold = -5
-figname_modifier = "repulsemultilen20kl2v2_04-21_v2"
+figname_modifier = "repulsemultilen20kl2v2_04-21_v4"
 target_samples_path = None
 individual_prompt_plots = False
 random_f_q_ylim_low = None
@@ -5783,29 +5808,229 @@ legendfontsize = 4
 
 
 
+# load_prefixes_to_use = [
+#
+# # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/tinystoriesbounds | grep he100 | grep tb5 | grep f_q_ | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-05_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-05_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_tb5_s2", 1, 10),
+#
+# # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/tinystoriesbounds2 | grep f_q_ | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfsn_af_fo_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.003_cfsn_af_fo_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.0001_cfsn_af_fo_tb5_s2", 1, 10),
+#
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-06_bl0.0_ppq_mixqi_first_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-06_bl0.0_ppq_mixqi_lag100_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-06_bl0.0_ppq_mixqi_lag10_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-06_bl0.0_ppq_mixqi_lag200_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-06_bl0.0_ppq_mixqi_lag30_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-06_bl0.0_ppq_mixqi_lag400_tb5_s2", 1, 10),
+# # make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-06_bl0.0_ppq_mixqi_lag50_tb5_s2", 1, 10),
+#
+#
+# ]
+# threshold = -5
+# figname_modifier = "boundslen10_04-22_v3"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 4
+# legendfontsize = 4
+# do_iwae_vs_n_plot = True
+
+
+# load_prefixes_to_use = [
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/tox2p2len1 | grep analy |  grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.0003_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_entb0.01_tb5_s1", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_To_2_l1_kl0.0_b-1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs50_scc_al3e-05_bl0.0_ppq_tb5_s1", 1, 10),
+#
+# ]
+# threshold = -5
+# figname_modifier = "probinflen1_tox2p2_04-21"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 4
+# legendfontsize = 4
+# n_top_tokens = 10
+
+
+
 load_prefixes_to_use = [
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/probinflen1remodevpos | grep analy |  grep _s5 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_tb5_s1", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s3.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_tb5_s1", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s1", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_entb0.01_tb5_s1", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_tb5_s1", 1, 10),
 
-# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/tinystoriesbounds | grep he100 | grep tb5 | grep f_q_ | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al1e-05_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-05_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf10.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-# make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_cf3.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
-make_list("f_q_g_q_iwae_bounds_OpenRLHF_it-5.0_Ti33_To_O_l10_kl0.0_b1.0_hlnt_a0.0_ppq_ctl_ep1_e1_he100_fs50_scc_al3e-06_bl0.0_ppq_tb5_s2", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_mixqi_lag120_tb5_s2", 1, 10),
 
-# for x in $(ls /h/319/stephenzhao/OpenRLHF/info/tinystoriesbounds2 | grep f_q_ | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s3.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s3.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s3.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_entb0.01_tb5_s2", 1, 10),
 
 ]
 threshold = -5
-figname_modifier = "boundslen10_04-21_v3"
+figname_modifier = "probinflen1_remodevthis_04-22_v3"
 target_samples_path = None
 individual_prompt_plots = False
 random_f_q_ylim_low = None
-n_frontiers = 4
-legendfontsize = 4
-do_iwae_vs_n_plot = True
+n_frontiers = 8
+legendfontsize = 8
+fontsize = 8
+n_top_tokens = 20
+final_labels = True
+
+
+
+load_prefixes_to_use = [
+# # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/probinflen1remodevpos | grep analy | grep al3e-05 | grep b10.0 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.0001_tb5_s2", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.0003_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.001_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.01_tb5_s2", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s0.3_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s1.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+
+# # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/probinflen1remodevposb10 | grep analy | grep al3e-05 | grep b10.0 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_entb0.0003_tb5_s1",1,10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb3e-05_tb5_s1",1,10),
+
+# TODO: get more seeds for entb above and plot those results, see if any different/better.
+# Below results have already been gotten
+
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/probinflen1remodevposb10 | grep analy | grep -v cf3 | grep -v lag100 | grep -v lag30 | grep b10.0 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_mixqi_first_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_mixqi_lag10_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_mixqi_lag200_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_mixqi_first_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_mixqi_lag10_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_mixqi_lag200_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_mixqi_lag50_tb5_s2", 1, 10),
+
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf0.1_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf1.0to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
+
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf3.0to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb5_s1",1,10),
+
+]
+threshold = -5
+figname_modifier = "probinflen1_remodevthis_b10_04-23_v4"
+target_samples_path = None
+individual_prompt_plots = False
+random_f_q_ylim_low = None
+n_frontiers = 8
+legendfontsize = 8
+fontsize = 8
+n_top_tokens = 20
+final_labels = True
+
+# load_prefixes_to_use = [
+# # # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/probinflen1remodevpos | grep analy | grep b5.0 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_entb0.01_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_entb0.01_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s0.5_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s0.5_b5.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_tb5_s2", 1, 10),
+#
+# ]
+# threshold = -5
+# figname_modifier = "probinflen1_remodevthis_b5_04-22"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 8
+# legendfontsize = 8
+# fontsize = 8
+# n_top_tokens = 20
+# final_labels = True
+
+#
+# load_prefixes_to_use = [
+# # # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/probinflen1remodevpos | grep analy | grep b3 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b3.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_entb0.01_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b3.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b3.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_entb0.01_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b3.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s0.3_b3.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al1e-06_bl0.0_ppq_tb5_s2", 1, 10),
+# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s0.3_b3.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-06_bl0.0_ppq_tb5_s2", 1, 10),
+#
+# ]
+# threshold = -5
+# figname_modifier = "probinflen1_remodevthis_b3_04-22"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 8
+# legendfontsize = 8
+# fontsize = 8
+# n_top_tokens = 20
+# final_labels = True
+
+
+
+# load_prefixes_to_use = [
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/itremodevmultitestposfixedeval |  grep f_q | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.0001_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.0003_cfsn_af_fo_tb250_s2", 1, 10),
+# make_list("f_q_g_q_iwae_bounds_OpenRLHF_rlhf_rcap5.0_Sm13In_remodev3lav2_20misi1_l20_kl0.0_b20.0_hlnt_a0.0_ppq_ctl_ep1_e1_he2_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb250_s2", 1, 10),
+#
+#
+# ]
+# threshold = -5
+# figname_modifier = "probinflen20_itremodevmultitestposfixedeval_b20_04-21_v2"
+# # target_samples_path = "info/target_samples_Sm13In_remodev3lav2_rlhf_l20_b-20.0_rc6.0_20misi1_tsa20.pt"
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 8
+# legendfontsize = 4
+# n_top_tokens = 1
+
+
+# load_prefixes_to_use = [
+# # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-0.3_hlr_a3.0rt3.0_b-0.3_ppq_ctl_ep1_e1_he4_scc_al0.0_bl1e-07_ppq_tb80_s1", 1, 10),
+# # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-0.3_hlr_a3.0rt3.0_b-0.3_ppq_ctl_ep1_e1_he4_scc_al0.0_bl3e-07_ppq_tb80_s1", 1, 10),
+# # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-1.0_hlr_a1.0rt1.0_b-1.0_ppq_ctl_ep1_e1_he4_scc_al0.0_bl1e-07_ppq_tb80_s1", 1, 10),
+# # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf0.3_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
+# # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
+# # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+# # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+#
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/repulselen100 | grep info_ | grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.0003_tb80_s1", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.001_tb80_s1", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.003_tb80_s1", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_s-0.5_b-5.0_sb-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_s-0.5_b-5.0_sb-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
+#
+# ]
+# threshold = -7
+# figname_modifier = "repulselen100_04-22_v2"
+# target_samples_path = None
+# individual_prompt_plots = False
+# random_f_q_ylim_low = None
+# n_frontiers = 4
+# legendfontsize = 4
 
 
 # KEYWORDS
@@ -5814,7 +6039,8 @@ random_f_q_ylim_low = random_f_q_ylim_low if 'random_f_q_ylim_low' in vars() els
 n_frontiers = n_frontiers if 'n_frontiers' in vars() else 1
 legendfontsize = legendfontsize if 'legendfontsize' in vars() else None
 do_iwae_vs_n_plot = do_iwae_vs_n_plot if 'do_iwae_vs_n_plot' in vars() else False
-labels = generate_labels_from_prefixes(load_prefixes_to_use)
+final_labels = final_labels if 'final_labels' in vars() else False
+labels = generate_labels_from_prefixes(load_prefixes_to_use, final_labels=final_labels)
 
 
 # # --- Debug: check number of timesteps per seed ---
@@ -5898,6 +6124,8 @@ elif use_f_q_g_q:
     _lfs = legendfontsize if legendfontsize is not None else fontsize
     _output_dir = _make_output_dir(figname_modifier)
     _semantic_colors, _semantic_markers, _semantic_linestyles = generate_visual_style_from_prefixes(load_prefixes_to_use)
+    # Method-level linestyles for coverage curves (one per method category).
+    _method_linestyles = generate_method_linestyles_from_prefixes(load_prefixes_to_use)
 
     # Extract per-sample component data from already-loaded v2 data (avoids re-loading files)
     # Cache extractions to avoid redundant iteration over all_v2_data
@@ -6027,7 +6255,7 @@ elif use_f_q_g_q:
                 figname=os.path.join(_output_dir, "sampling_vocab_coverage_curve.pdf"),
                 labels=labels, counts_results_list=counts_results_list,
                 color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
-                marker_list=_semantic_markers, linestyle_list=_semantic_linestyles,
+                marker_list=_semantic_markers, linestyle_list=_method_linestyles,
             )
             # Target token visitation (requires target_samples_path)
             if target_samples_path is not None:
@@ -6037,6 +6265,7 @@ elif use_f_q_g_q:
                     labels=labels, counts_results_list=counts_results_list,
                     target_token_ids=target_token_ids, color_list=_semantic_colors,
                     n_frontiers=n_frontiers, fontsize=fontsize, legendfontsize=_lfs,
+                    marker_list=_semantic_markers,
                 )
                 plot_target_token_counts_final_individual(
                     figname=os.path.join(_output_dir, "sampling_target_token_counts_final_individual.pdf"),
@@ -6057,6 +6286,7 @@ elif use_f_q_g_q:
                 figname=os.path.join(_output_dir, "sampling_g_q_lollipop.pdf"),
                 labels=labels, g_q_per_sample_data=g_q_per_sample,
                 color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
+                marker_list=_semantic_markers,
             )
     except Exception as e:
         print(f"Failed to generate g_q lollipop plot: {e}")
@@ -6085,6 +6315,7 @@ elif use_f_q_g_q:
                 series3_name=r'$\log \sigma$ (log Z estimate)',
                 series3_data=log_sigma_tgt,
                 sort_by_series3=True,
+                marker_list=_semantic_markers,
             )
             plot_two_series_lollipop_over_time(
                 figname=os.path.join(_output_dir, "sampling_target_samples_logq_logp_logsigma_lollipop_over_time.pdf"),
@@ -6098,6 +6329,7 @@ elif use_f_q_g_q:
                 series3_name=r'$\log \sigma$ (log Z estimate)',
                 series3_data=log_sigma_tgt,
                 sort_by_series3=True,
+                marker_list=_semantic_markers,
             )
     except Exception as e:
         print(f"Failed to generate log q vs log p vs log sigma lollipop plot: {e}")
@@ -6125,6 +6357,7 @@ elif use_f_q_g_q:
                 color_list=_semantic_colors, fontsize=fontsize, legendfontsize=_lfs,
                 n_ranks=n_top_tokens,
                 log_phi_label=log_phi_fq_label,
+                marker_list=_semantic_markers,
             )
     except Exception as e:
         print(f"Failed to generate top-q samples ranked lollipop plot: {e}")

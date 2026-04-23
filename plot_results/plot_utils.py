@@ -497,13 +497,52 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     return color_list, marker_list, linestyle_list
 
 
-def _label_parts_for_mod(mod, prefix, props):
+def generate_method_linestyles_from_prefixes(load_prefixes_to_use):
+    """Generate per-method linestyles so different methods (CFN vs entropy vs mixture
+    vs annealed beta vs baseline) get visually distinct line patterns.
+
+    Unlike generate_visual_style_from_prefixes (which cycles linestyles within each
+    hue group — i.e., across runs that share the same method/params), this assigns
+    one linestyle per unique modification signature, so CFN is distinct from entropy,
+    etc., even though each already has a different color.
+
+    The method key is the sorted tuple of detected modifications (plus a flag for
+    CFN annealing so "CFN" and "annealed CFN" get different styles).
+
+    Returns:
+        linestyle_list: list parallel to load_prefixes_to_use with a matplotlib
+        linestyle per experiment.
+    """
+    linestyle_options = ["solid", "dashed", "dotted", "dashdot", (5, (10, 3)),
+                         (0, (3, 5, 1, 5)), (0, (1, 1)), (0, (5, 1)), (0, (1, 3))]
+    method_to_ls = {}
+    linestyle_list = []
+    for prefix_list in load_prefixes_to_use:
+        first_prefix = prefix_list[0] if prefix_list else ""
+        props = _parse_experiment_properties(first_prefix)
+        # Method key: sorted modifications, plus annealing flags that should get
+        # their own linestyle (annealed CFN vs. non-annealed CFN).
+        key = (
+            tuple(sorted(props["modifications"])),
+            props.get("cfn_annealed", False),
+            props.get("entropy_annealed", False),
+        )
+        if key not in method_to_ls:
+            method_to_ls[key] = linestyle_options[len(method_to_ls) % len(linestyle_options)]
+        linestyle_list.append(method_to_ls[key])
+    return linestyle_list
+
+
+def _label_parts_for_mod(mod, prefix, props, final_labels=False):
     """Return the label fragments contributed by a single modification.
 
     Combined-setting runs concatenate the fragments from every detected modification
     (in detection priority order), so the legend shows each component. Parts that
     are shared across all modifications (LR (q), batch_size, base LR, beta annealing)
     are emitted once by the caller rather than per modification, to avoid duplication.
+
+    When ``final_labels`` is True, mixture collapses to the bare "Mixture" tag
+    (variant/other-model details dropped) for a more compact legend.
     """
     if mod == "cfn":
         parts = ["CFN"]
@@ -584,6 +623,9 @@ def _label_parts_for_mod(mod, prefix, props):
         return parts
 
     elif mod == "mixture":
+        if final_labels:
+            return ["Mixture"]
+
         mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
         mix_match = re.search(r'_mix([a-z]+)', prefix)
         mix_variant = mix_variant_map.get(mix_match.group(1), mix_match.group(1)) if mix_match else "unknown"
@@ -615,21 +657,30 @@ def _label_parts_for_mod(mod, prefix, props):
     return []
 
 
-def generate_labels_from_prefixes(load_prefixes_to_use):
+def generate_labels_from_prefixes(load_prefixes_to_use, final_labels=False):
     """
     Generate labels from prefix lists based on the naming logic.
 
     Mirrors the `info_name_str` composition style: each modification contributes a
     label fragment (via `_label_parts_for_mod`), and combined-setting runs
     concatenate the fragments from every detected modification in detection order
-    (cfn > exact_count > mixture > entropy). Beta annealing and other shared fields
-    (LR (q), batch size, base LR, mixeval tag, info_eval beta) are appended once at
-    the end so they don't duplicate across modifications.
+    (cfn > exact_count > mixture > entropy). Shared fields (beta annealing,
+    LR (q), batch size, base LR, mixeval tag, info_eval beta) are appended once
+    at the end so they don't duplicate across modifications. Beta annealing is
+    emitted *before* the LR fragments in both modes.
+
+    When ``final_labels`` is True, produce a compact label suitable for final
+    figures: the "No Bonus" tag and batch-size fragment are dropped, "LR (q)"
+    shortens to "LR", annealed-beta gets a leading "Tempered " marker, and the
+    mixture fragment collapses to "Mixture".
 
     Supports both old and new abbreviated naming conventions.
 
     Args:
         load_prefixes_to_use: List of lists of prefixes (each inner list contains prefixes for one series)
+        final_labels: If True, use the compact label format described above.
+            Defaults to False (existing behavior preserved, except for the
+            beta-annealing ordering change noted above).
 
     Returns:
         List of label strings, one for each prefix list
@@ -640,24 +691,40 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
         props = _parse_experiment_properties(prefix)
         loss_type_str = props["loss_type"]  # "CTL", "CTLN", "RLOO", or None
 
-        # Per-modification fragments (beta annealing handled in the shared tail to
-        # preserve the legacy r"$\beta$: start$\to$end" suffix placement).
+        # Per-modification fragments. Beta annealing is still handled once in
+        # the shared tail (just before the LR fragments) so it doesn't duplicate
+        # across multiple modifications.
         non_beta_mods = [m for m in props["modifications"] if m != "beta_annealed"]
         label_parts = []
         if not non_beta_mods:
-            label_parts.append("No Bonus")
+            if not final_labels:
+                label_parts.append("No Bonus")
         else:
             for mod in non_beta_mods:
-                label_parts.extend(_label_parts_for_mod(mod, prefix, props))
+                label_parts.extend(
+                    _label_parts_for_mod(mod, prefix, props, final_labels=final_labels)
+                )
 
         # Shared tail — appended once regardless of modification count.
+        # Beta annealing is emitted before the LR fragments so the tempered
+        # schedule reads as a property of the run rather than a trailing note.
+        if props["beta_annealed"]:
+            beta_match = re.search(r'_s(-?[\d.]+)_b(-?[\d.]+)', prefix)
+            if beta_match:
+                beta_label = r"$\beta$: " + beta_match.group(1) + r"$\to$" + beta_match.group(2)
+                if final_labels:
+                    beta_label = "Tempered " + beta_label
+                label_parts.append(beta_label)
+
         al_match = re.search(r'_al([\d.e-]+)', prefix)
         if al_match:
-            label_parts.append(f"{al_match.group(1)} LR (q)")
+            lr_suffix = " LR" if final_labels else " LR (q)"
+            label_parts.append(f"{al_match.group(1)}{lr_suffix}")
 
-        tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
-        if tbs_match:
-            label_parts.append(f"batch={tbs_match.group(1)}")
+        if not final_labels:
+            tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
+            if tbs_match:
+                label_parts.append(f"batch={tbs_match.group(1)}")
 
         # Append base actor LR if non-zero (encoded as _bl followed by value)
         bl_match = re.search(r'_bl([\d.e-]+)', prefix)
@@ -665,12 +732,6 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             bl_val = float(bl_match.group(1))
             if bl_val != 0.0:
                 label_parts.append(f"{bl_match.group(1)} LR (p)")
-
-        # Append beta annealing info if present (_s<start>_b<end> pattern)
-        if props["beta_annealed"]:
-            beta_match = re.search(r'_s(-?[\d.]+)_b(-?[\d.]+)', prefix)
-            if beta_match:
-                label_parts.append(r"$\beta$: " + beta_match.group(1) + r"$\to$" + beta_match.group(2))
 
         # When a separate reweighting beta (_sb<value>) is present, distinguish the two betas
         # with subscripts: β_q for target_dist_beta (used to train q) and β_p for the separate
@@ -680,6 +741,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use):
             sb_val = sb_match.group(1)
             if props["beta_annealed"]:
                 # Rename the existing β: start→end label to β_q: start→end
+                # (also works when a "Tempered " prefix has been prepended).
                 for i, part in enumerate(label_parts):
                     if r"$\beta$:" in part:
                         label_parts[i] = part.replace(r"$\beta$:", r"$\beta_q$:")
@@ -1166,6 +1228,8 @@ def plot_top_tokens_bar_chart(
     n_tokens = len(top_n_tokens)
     has_base_data = len(base_by_setting) > 0
 
+    plt.figure(figsize=(max(8, n_tokens * 0.9), 5))
+
     # Number of bar groups: one per setting + optionally one for base
     n_groups = n_settings + (1 if has_base_data else 0)
     bar_width = 0.25
@@ -1269,6 +1333,7 @@ def plot_top_tokens_lollipop(
     precomputed_token_data=None,
     tokenizer=None,
     figname_individual=None,
+    marker_list=None,
 ):
     """
     Lollipop/dumbbell chart showing absolute log probabilities under target and q for top N tokens.
@@ -1326,7 +1391,7 @@ def plot_top_tokens_lollipop(
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
 
     # Horizontal spacing: settings are offset within each token position
     dot_spacing = 0.12
@@ -1385,10 +1450,11 @@ def plot_top_tokens_lollipop(
         # Mask NaN for errorbar
         valid = ~np.isnan(q_means)
         if valid.any():
+            marker = marker_list[setting_idx] if marker_list is not None else 'o'
             ax.errorbar(
                 x_pos[valid], q_means[valid],
                 yerr=[lower_err[valid], upper_err[valid]],
-                fmt='o', color=color_list[setting_idx], markersize=5,
+                fmt=marker, color=color_list[setting_idx], markersize=5,
                 capsize=3, linewidth=1, label=labels[setting_idx], zorder=4,
             )
 
@@ -1410,7 +1476,7 @@ def plot_top_tokens_lollipop(
 
     # --- Individual-seed plot (reuses precomputed data) ---
     if figname_individual is not None:
-        fig_ind, ax_ind = plt.subplots()
+        fig_ind, ax_ind = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
 
         _draw_target_dashes(ax_ind, x_positions, target_means, dash_half_width)
 
@@ -1500,6 +1566,7 @@ def plot_top_tokens_lollipop_over_time(
     n_top_tokens=10,
     precomputed_token_data=None,
     tokenizer=None,
+    marker_list=None,
 ):
     """
     Lollipop chart showing log q for top target tokens at multiple timesteps, with lines connecting
@@ -1620,10 +1687,11 @@ def plot_top_tokens_lollipop_over_time(
                 continue
 
             label = labels[setting_idx] if not setting_label_added else None
+            marker = marker_list[setting_idx] if marker_list is not None else 'o'
             ax.errorbar(
                 x_base[valid], means[valid],
                 yerr=[lower_err[valid], upper_err[valid]],
-                fmt='o', color=color_list[setting_idx], markersize=4,
+                fmt=marker, color=color_list[setting_idx], markersize=4,
                 capsize=2, linewidth=0.8, alpha=alphas[time_i],
                 label=label, zorder=4,
             )
@@ -1691,6 +1759,7 @@ def plot_sample_counts_over_time(
     n_top_tokens=10,
     precomputed_token_data=None,
     tokenizer=None,
+    marker_list=None,
 ):
     """
     Plot cumulative sample counts over time for the top tokens under the target distribution.
@@ -1781,10 +1850,11 @@ def plot_sample_counts_over_time(
                 continue
 
             label = labels[setting_idx] if not setting_label_added else None
+            marker = marker_list[setting_idx] if marker_list is not None else 'o'
             ax.errorbar(
                 x_base[valid], means[valid],
                 yerr=[lower_err[valid], upper_err[valid]],
-                fmt='o', color=color_list[setting_idx], markersize=4,
+                fmt=marker, color=color_list[setting_idx], markersize=4,
                 capsize=2, linewidth=0.8, alpha=alphas[time_i],
                 label=label, zorder=4,
             )
@@ -1910,6 +1980,7 @@ def plot_coverage_curve(
     n_bootstrap_draws=5000,
     n_top_tokens=10,
     precomputed_token_data=None,
+    linestyle_list=None,
 ):
     """
     Plot the fraction of top-K target tokens discovered (sampled at least once by q)
@@ -2002,8 +2073,9 @@ def plot_coverage_curve(
 
         valid = ~np.isnan(means)
         if valid.any():
+            ls = linestyle_list[setting_idx] if linestyle_list is not None else 'solid'
             ax.plot(timesteps[valid], means[valid], color=color_list[setting_idx],
-                    label=labels[setting_idx], linewidth=1.5)
+                    label=labels[setting_idx], linewidth=1.5, linestyle=ls)
             ax.fill_between(timesteps[valid], ci_lo[valid], ci_hi[valid],
                             color=color_list[setting_idx], alpha=0.15)
 
@@ -2026,6 +2098,7 @@ def plot_vocab_coverage_curve(
     figname, labels, results_list,
     color_list, fontsize=7, legendfontsize=7,
     n_bootstrap_draws=5000,
+    linestyle_list=None,
 ):
     """
     Plot the fraction of ALL vocab tokens discovered (sampled at least once by q)
@@ -2105,8 +2178,9 @@ def plot_vocab_coverage_curve(
 
         valid = ~np.isnan(means)
         if valid.any():
+            ls = linestyle_list[setting_idx] if linestyle_list is not None else 'solid'
             ax.plot(timesteps[valid], means[valid], color=color_list[setting_idx],
-                    label=labels[setting_idx], linewidth=1.5)
+                    label=labels[setting_idx], linewidth=1.5, linestyle=ls)
             ax.fill_between(timesteps[valid], ci_lo[valid], ci_hi[valid],
                             color=color_list[setting_idx], alpha=0.15)
 
@@ -2269,6 +2343,7 @@ def plot_target_token_counts_over_time(
     n_bootstrap_draws=5000,
     n_top_tokens=None,
     tokenizer=None,
+    marker_list=None,
 ):
     """Plot cumulative q-sample counts over time for tokens from target sequences.
 
@@ -2365,8 +2440,9 @@ def plot_target_token_counts_over_time(
                 continue
 
             label = labels[setting_idx] if not setting_label_added else None
+            marker = marker_list[setting_idx] if marker_list is not None else 'o'
             ax.scatter(x_base[valid], means_t[valid], color=color, s=16, zorder=4,
-                       alpha=alphas[time_i], label=label)
+                       alpha=alphas[time_i], label=label, marker=marker)
             ax.errorbar(x_base[valid], means_t[valid],
                         yerr=[lower_err[valid], upper_err[valid]],
                         fmt='', ecolor=color, alpha=alphas[time_i] * 0.2,
@@ -2964,6 +3040,7 @@ def plot_top_q_intersection_lollipop(
     precomputed_token_data=None,
     tokenizer=None,
     figname_individual=None,
+    marker_list=None,
 ):
     """
     Lollipop chart showing per-setting top tokens ranked by average log q (across seeds).
@@ -3053,10 +3130,11 @@ def plot_top_q_intersection_lollipop(
         valid = ~np.isnan(q_means)
         if valid.any():
             label = labels[setting_idx] if not setting_label_added[setting_idx] else None
+            marker = marker_list[setting_idx] if marker_list is not None else 'o'
             ax.errorbar(
                 x_pos[valid], q_means[valid],
                 yerr=[lower_err[valid], upper_err[valid]],
-                fmt='o', color=color_list[setting_idx], markersize=4,
+                fmt=marker, color=color_list[setting_idx], markersize=4,
                 capsize=2, linewidth=0.8, label=label, zorder=4,
             )
             setting_label_added[setting_idx] = True
@@ -3127,6 +3205,7 @@ def plot_top_q_ranked_lollipop(
     n_bootstrap_draws=5000,
     n_ranks=10,
     figname_individual=None,
+    marker_list=None,
 ):
     """
     Lollipop chart of rank-ordered log probabilities under q, with corresponding target log probs.
@@ -3219,30 +3298,37 @@ def plot_top_q_ranked_lollipop(
                 capsize=2, linewidth=0.8, zorder=3,
             )
 
-        # q markers with CI (filled circle)
+        # q markers with CI (filled setting-specific marker)
         valid_q = ~np.isnan(q_means)
         if valid_q.any():
             q_lower = q_means[valid_q] - q_ci_lo[valid_q]
             q_upper = q_ci_hi[valid_q] - q_means[valid_q]
+            q_marker = marker_list[setting_idx] if marker_list is not None else 'o'
             ax.errorbar(
                 x_pos[valid_q], q_means[valid_q],
                 yerr=[q_lower, q_upper],
-                fmt='o', color=color_list[setting_idx], markersize=5,
+                fmt=q_marker, color=color_list[setting_idx], markersize=5,
                 capsize=3, linewidth=1, zorder=4,
             )
 
-    # Build consolidated legend: one entry per setting (colored line), plus marker-type key
+    # Build consolidated legend: one entry per setting (colored line+marker), plus target marker-type key
     legend_handles = []
-    legend_handles.append(Line2D([], [], marker='o', color='black', markersize=5,
-                                 linestyle='None', label='q'))
+    if marker_list is None:
+        legend_handles.append(Line2D([], [], marker='o', color='black', markersize=5,
+                                     linestyle='None', label='q'))
     legend_handles.append(Line2D([], [], marker='D', color='black', markersize=4,
                                  markerfacecolor='none', markeredgewidth=1.2,
                                  linestyle='None', label=r'$\sigma$ (target)'))
     for setting_idx in range(n_settings):
         if not rank_data[setting_idx]:
             continue
-        legend_handles.append(Line2D([], [], color=color_list[setting_idx], linewidth=2,
-                                     label=labels[setting_idx]))
+        if marker_list is not None:
+            legend_handles.append(Line2D([], [], color=color_list[setting_idx], linewidth=2,
+                                         marker=marker_list[setting_idx], markersize=5,
+                                         label=labels[setting_idx]))
+        else:
+            legend_handles.append(Line2D([], [], color=color_list[setting_idx], linewidth=2,
+                                         label=labels[setting_idx]))
 
     ax.set_xlabel('Rank under q', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
@@ -3684,7 +3770,7 @@ def _pad_to_length(arr, n):
 
 
 def plot_g_q_lollipop(figname, labels, g_q_per_sample_data, color_list, fontsize=7, legendfontsize=7,
-                      n_bootstrap_draws=5000):
+                      n_bootstrap_draws=5000, marker_list=None):
     """
     Scatter plot of final-timestep g_q values for each target sequence, one color per setting.
 
@@ -3757,8 +3843,10 @@ def plot_g_q_lollipop(figname, labels, g_q_per_sample_data, color_list, fontsize
         if np.any(valid):
             lo_err = means[valid] - ci_lo[valid]
             hi_err = ci_hi[valid] - means[valid]
+            marker = marker_list[setting_idx] if marker_list is not None else 'o'
             ax.scatter(x[valid], means[valid],
                        color=color, s=12, zorder=4,
+                       marker=marker,
                        label=labels[setting_idx])
             ax.errorbar(x[valid], means[valid], yerr=[lo_err, hi_err],
                         fmt='none', ecolor=color, alpha=0.2,
@@ -3784,7 +3872,7 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
                               color_list, fontsize=7, legendfontsize=7,
                               n_bootstrap_draws=5000, figname_individual=None,
                               series3_name=None, series3_data=None,
-                              sort_by_series3=False):
+                              sort_by_series3=False, marker_list=None):
     """
     Lollipop plot comparing a per-seed quantity (series1) against fixed references (series2,
     and optionally series3) across target sequences.
@@ -3907,7 +3995,9 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
         if np.any(valid1):
             lo1 = s1_means[valid1] - s1_ci_lo[valid1]
             hi1 = s1_ci_hi[valid1] - s1_means[valid1]
+            marker = marker_list[setting_idx] if marker_list is not None else 'o'
             ax.scatter(x[valid1], s1_means[valid1], color=color, s=20, zorder=4,
+                       marker=marker,
                        label=labels[setting_idx])
             ax.errorbar(x[valid1], s1_means[valid1], yerr=[lo1, hi1],
                         fmt='none', ecolor=color, alpha=0.2,
@@ -3989,6 +4079,7 @@ def plot_two_series_lollipop_over_time(
     n_bootstrap_draws=5000,
     series3_name=None, series3_data=None,
     sort_by_series3=False,
+    marker_list=None,
 ):
     """
     Over-time version of plot_two_series_lollipop with alpha progression.
@@ -4121,8 +4212,10 @@ def plot_two_series_lollipop_over_time(
                 hi1 = s1_ci_hi[valid1] - s1_means[valid1]
                 # Only add label for the last timestep (full opacity)
                 label = labels[setting_idx] if time_i == n_times - 1 else None
+                marker = marker_list[setting_idx] if marker_list is not None else 'o'
                 ax.scatter(x[valid1], s1_means[valid1], color=color, s=20,
-                           alpha=alphas[time_i], zorder=4, label=label)
+                           alpha=alphas[time_i], zorder=4, label=label,
+                           marker=marker)
                 ax.errorbar(x[valid1], s1_means[valid1], yerr=[lo1, hi1],
                             fmt='none', ecolor=color, alpha=alphas[time_i] * 0.5,
                             capsize=3, linewidth=1, zorder=3)
@@ -4260,6 +4353,7 @@ def plot_top_q_samples_ranked_lollipop(
     n_bootstrap_draws=5000,
     n_ranks=10,
     log_phi_label=None,
+    marker_list=None,
 ):
     """
     Lollipop chart of top-n q-drawn samples ranked by log_q, showing log_q, log_p, and log_phi.
@@ -4354,12 +4448,14 @@ def plot_top_q_samples_ranked_lollipop(
                         fmt='none', ecolor=color, alpha=0.2,
                         capsize=2, linewidth=0.8, zorder=2)
 
-        # log q: filled circle with CI
+        # log q: filled setting-specific marker with CI
         valid_q = ~np.isnan(q_means)
         if valid_q.any():
             q_lo = q_means[valid_q] - q_ci_lo[valid_q]
             q_hi = q_ci_hi[valid_q] - q_means[valid_q]
-            ax.scatter(x_pos[valid_q], q_means[valid_q], color=color, s=20, zorder=4)
+            q_marker = marker_list[setting_idx] if marker_list is not None else 'o'
+            ax.scatter(x_pos[valid_q], q_means[valid_q], color=color, s=20, zorder=4,
+                       marker=q_marker)
             ax.errorbar(x_pos[valid_q], q_means[valid_q],
                         yerr=[q_lo, q_hi],
                         fmt='none', ecolor=color, alpha=0.2,
@@ -4367,8 +4463,9 @@ def plot_top_q_samples_ranked_lollipop(
 
     # Legend: per-setting colored lines + marker-type key
     legend_handles = []
-    legend_handles.append(Line2D([], [], marker='o', color='black', markersize=5,
-                                 linestyle='None', label=r'$\log q$'))
+    if marker_list is None:
+        legend_handles.append(Line2D([], [], marker='o', color='black', markersize=5,
+                                     linestyle='None', label=r'$\log q$'))
     legend_handles.append(Line2D([], [], marker='s', color='black', markersize=4,
                                  markerfacecolor='none', markeredgewidth=1.2,
                                  linestyle='None', label=r'$\log p$'))
@@ -4378,8 +4475,13 @@ def plot_top_q_samples_ranked_lollipop(
     for setting_idx in range(n_settings):
         if not rank_data[setting_idx]:
             continue
-        legend_handles.append(Line2D([], [], color=color_list[setting_idx], linewidth=2,
-                                     label=labels[setting_idx]))
+        if marker_list is not None:
+            legend_handles.append(Line2D([], [], color=color_list[setting_idx], linewidth=2,
+                                         marker=marker_list[setting_idx], markersize=5,
+                                         label=labels[setting_idx]))
+        else:
+            legend_handles.append(Line2D([], [], color=color_list[setting_idx], linewidth=2,
+                                         label=labels[setting_idx]))
 
     # Vertical dividers between prompts
     for boundary_x in prompt_boundaries:
