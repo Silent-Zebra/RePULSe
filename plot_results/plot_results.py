@@ -5895,43 +5895,22 @@ final_labels = True
 
 load_prefixes_to_use = [
 # # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/probinflen1remodevpos | grep analy | grep al3e-05 | grep b10.0 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.0001_tb5_s2", 1, 10),
-make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.0003_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.001_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.003_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.01_tb5_s2", 1, 10),
 make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s0.3_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
+
 make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_s1.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_tb5_s2", 1, 10),
 
-# # for x in $(ls /h/319/stephenzhao/OpenRLHF/info/probinflen1remodevposb10 | grep analy | grep al3e-05 | grep b10.0 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_entb0.0003_tb5_s1",1,10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb3e-05_tb5_s1",1,10),
+make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_entb0.0003_tb5_s2", 1, 10),
 
-# TODO: get more seeds for entb above and plot those results, see if any different/better.
-# Below results have already been gotten
-
-# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/probinflen1remodevposb10 | grep analy | grep -v cf3 | grep -v lag100 | grep -v lag30 | grep b10.0 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
 make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_mixqi_first_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_mixqi_lag10_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_mixqi_lag200_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf0.3_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_mixqi_first_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_mixqi_lag10_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_mixqi_lag200_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_mixqi_lag50_tb5_s2", 1, 10),
 
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al0.0001_bl0.0_ppq_cf1.0_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf0.1_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf0.3to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
 make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf1.0to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb5_s2", 1, 10),
 
-# make_list("analytic_kls_toxicity_rlhf_di_remodev3lav2_thmaisa_l1_kl0.0_b10.0_hlnt_a0.0_ppq_ctl_ep1_e1_he20_fs100_scc_al3e-05_bl0.0_ppq_cf3.0to0.0linear_cd64_cfr0.001_cfsn_af_fo_tb5_s1",1,10),
+
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/probinflen1remodevposb10 | grep analy | grep -v cf3 | grep -v lag100 | grep -v lag30 | grep b10.0 | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
 
 ]
 threshold = -5
-figname_modifier = "probinflen1_remodevthis_b10_04-23_v4"
+figname_modifier = "probinflen1_remodevthis_b10_04-23_final"
 target_samples_path = None
 individual_prompt_plots = False
 random_f_q_ylim_low = None
@@ -6013,19 +5992,19 @@ final_labels = True
 # # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
 # # make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
 #
-# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/repulselen100 | grep info_ | grep _s1 ); do echo make_list\(\"$x\", 1, 10\)\,; done
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.0003_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.001_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.003_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_s-0.5_b-5.0_sb-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
-# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_s-0.5_b-5.0_sb-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s1", 1, 10),
-#
+# # for x in $(ls /scratch/zhaostep/OpenRLHF/info/repulselen100 | grep info_ | grep _s2 ); do echo make_list\(\"$x\", 1, 10\)\,; done
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s2", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.0003_tb80_s2", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.001_tb80_s2", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_entb0.003_tb80_s2", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s2", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_cf1.0_cd64_cfr0.001_cfsn_cfpSm13In_af_fo_tb80_s2", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_b-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s2", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_s-0.5_b-5.0_sb-5.0_hlnt_a0.1_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s2", 1, 10),
+# make_list("info_eval_rlhf_Ll3.1BIn_SkReV2Ll3.1B_20misi1_l100_kl2.0_s-0.5_b-5.0_sb-5.0_hlnt_a0.2_ppq_ctl_ep1_e1_he2_scc_al3e-07_bl3e-07_ppq_tb80_s2", 1, 10),
 # ]
 # threshold = -7
-# figname_modifier = "repulselen100_04-22_v2"
+# figname_modifier = "repulselen100_04-23"
 # target_samples_path = None
 # individual_prompt_plots = False
 # random_f_q_ylim_low = None
