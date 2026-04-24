@@ -34,6 +34,46 @@ MARKER_EXACT_COUNT = "*"
 SEED_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">", "p"]
 
 
+# Global final-plots flag. When enabled via set_final_plots(True):
+#   - figure heights shrink by 25% (applied via _scale_h inside every figsize= call)
+#   - token-name x-tick labels on top-token plots are hidden (via _final_plots_enabled)
+_FINAL_PLOTS = False
+
+
+def set_final_plots(enabled):
+    """Toggle the final-plots mode. When enabled, all figure heights created
+    via plt.subplots/plt.figure in plot_utils are scaled by 0.75, matplotlib's
+    default figsize height is likewise reduced so callers without an explicit
+    figsize also shrink, and per-token x-tick labels on top-token plots are
+    suppressed for a cleaner final look."""
+    global _FINAL_PLOTS
+    _FINAL_PLOTS = bool(enabled)
+    # Scale matplotlib's default so plt.subplots() calls without explicit
+    # figsize also pick up the reduced height.
+    default_w, default_h = 6.4, 4.8  # matplotlib defaults
+    height_factor = 0.75 if _FINAL_PLOTS else 1.0
+    plt.rcParams['figure.figsize'] = [default_w, default_h * height_factor]
+
+
+def _scale_h(h):
+    """Scale a figure height by the current final-plots factor (0.75 when enabled)."""
+    return h * (0.75 if _FINAL_PLOTS else 1.0)
+
+
+def _final_plots_enabled():
+    """Return True if final-plots mode is active."""
+    return _FINAL_PLOTS
+
+
+def _maybe_hide_token_labels(tick_labels):
+    """Return the passed x-tick labels unchanged, or a list of empty strings
+    when final-plots mode is on (so tick marks remain but token names are
+    suppressed for a less cluttered final-version x-axis)."""
+    if _FINAL_PLOTS:
+        return ['' for _ in tick_labels]
+    return tick_labels
+
+
 def _token_label(token_id, tokenizer=None):
     """Format a token ID as a display label for plot axes."""
     if tokenizer is None:
@@ -533,7 +573,7 @@ def generate_method_linestyles_from_prefixes(load_prefixes_to_use):
     return linestyle_list
 
 
-def _label_parts_for_mod(mod, prefix, props, final_labels=False):
+def _label_parts_for_mod(mod, prefix, props, final_plots=False):
     """Return the label fragments contributed by a single modification.
 
     Combined-setting runs concatenate the fragments from every detected modification
@@ -541,7 +581,7 @@ def _label_parts_for_mod(mod, prefix, props, final_labels=False):
     are shared across all modifications (LR (q), batch_size, base LR, beta annealing)
     are emitted once by the caller rather than per modification, to avoid duplication.
 
-    When ``final_labels`` is True, mixture collapses to the bare "Mixture" tag
+    When ``final_plots`` is True, mixture collapses to the bare "Mixture" tag
     (variant/other-model details dropped) for a more compact legend.
     """
     if mod == "cfn":
@@ -550,7 +590,8 @@ def _label_parts_for_mod(mod, prefix, props, final_labels=False):
         # Extract bonus_alpha from _cf pattern. With annealing: _cf{start}to{end}{schedule}
         cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
         if cf_anneal_match:
-            parts.append(r"$\alpha$: " + cf_anneal_match.group(1) + r"$\to$" + cf_anneal_match.group(2) + f" ({cf_anneal_match.group(3)})")
+            schedule_suffix = "" if final_plots else f" ({cf_anneal_match.group(3)})"
+            parts.append(r"$\alpha$: " + cf_anneal_match.group(1) + r"$\to$" + cf_anneal_match.group(2) + schedule_suffix)
         else:
             cf_match = re.search(r'_cf([\d.]+)', prefix)
             if cf_match:
@@ -615,7 +656,8 @@ def _label_parts_for_mod(mod, prefix, props, final_labels=False):
         # With annealing: _c{start}to{end}{schedule} (e.g., _c10to0linear)
         c_anneal_match = re.search(r'_c([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
         if c_anneal_match:
-            parts.append(f"alpha={c_anneal_match.group(1)}->{c_anneal_match.group(2)} ({c_anneal_match.group(3)})")
+            schedule_suffix = "" if final_plots else f" ({c_anneal_match.group(3)})"
+            parts.append(f"alpha={c_anneal_match.group(1)}->{c_anneal_match.group(2)}{schedule_suffix}")
         else:
             count_match = re.search(r'_count([\d.]+)', prefix) or re.search(r'_c([\d.]+)', prefix)
             if count_match:
@@ -623,7 +665,7 @@ def _label_parts_for_mod(mod, prefix, props, final_labels=False):
         return parts
 
     elif mod == "mixture":
-        if final_labels:
+        if final_plots:
             return ["Mixture"]
 
         mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
@@ -647,7 +689,8 @@ def _label_parts_for_mod(mod, prefix, props, final_labels=False):
         # With annealing: _entb{start}to{end}{schedule} (e.g., _entb0.1to0linear)
         entb_anneal_match = re.search(r'_entb([\d.e-]+)to([\d.e-]+)(linear|log)', prefix)
         if entb_anneal_match:
-            parts.append(r"$\alpha$: " + entb_anneal_match.group(1) + r"$\to$" + entb_anneal_match.group(2) + f" ({entb_anneal_match.group(3)})")
+            schedule_suffix = "" if final_plots else f" ({entb_anneal_match.group(3)})"
+            parts.append(r"$\alpha$: " + entb_anneal_match.group(1) + r"$\to$" + entb_anneal_match.group(2) + schedule_suffix)
         else:
             entb_match = re.search(r'_entb([\d.e-]+)', prefix)
             if entb_match:
@@ -657,7 +700,7 @@ def _label_parts_for_mod(mod, prefix, props, final_labels=False):
     return []
 
 
-def generate_labels_from_prefixes(load_prefixes_to_use, final_labels=False):
+def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
     """
     Generate labels from prefix lists based on the naming logic.
 
@@ -669,7 +712,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_labels=False):
     at the end so they don't duplicate across modifications. Beta annealing is
     emitted *before* the LR fragments in both modes.
 
-    When ``final_labels`` is True, produce a compact label suitable for final
+    When ``final_plots`` is True, produce a compact label suitable for final
     figures: the "No Bonus" tag and batch-size fragment are dropped, "LR (q)"
     shortens to "LR", annealed-beta gets a leading "Tempered " marker, and the
     mixture fragment collapses to "Mixture".
@@ -678,7 +721,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_labels=False):
 
     Args:
         load_prefixes_to_use: List of lists of prefixes (each inner list contains prefixes for one series)
-        final_labels: If True, use the compact label format described above.
+        final_plots: If True, use the compact label format described above.
             Defaults to False (existing behavior preserved, except for the
             beta-annealing ordering change noted above).
 
@@ -697,12 +740,12 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_labels=False):
         non_beta_mods = [m for m in props["modifications"] if m != "beta_annealed"]
         label_parts = []
         if not non_beta_mods:
-            if not final_labels:
+            if not final_plots:
                 label_parts.append("No Bonus")
         else:
             for mod in non_beta_mods:
                 label_parts.extend(
-                    _label_parts_for_mod(mod, prefix, props, final_labels=final_labels)
+                    _label_parts_for_mod(mod, prefix, props, final_plots=final_plots)
                 )
 
         # Shared tail — appended once regardless of modification count.
@@ -712,26 +755,27 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_labels=False):
             beta_match = re.search(r'_s(-?[\d.]+)_b(-?[\d.]+)', prefix)
             if beta_match:
                 beta_label = r"$\beta$: " + beta_match.group(1) + r"$\to$" + beta_match.group(2)
-                if final_labels:
+                if final_plots:
                     beta_label = "Tempered " + beta_label
                 label_parts.append(beta_label)
 
-        al_match = re.search(r'_al([\d.e-]+)', prefix)
-        if al_match:
-            lr_suffix = " LR" if final_labels else " LR (q)"
-            label_parts.append(f"{al_match.group(1)}{lr_suffix}")
+        # LR fragments are suppressed entirely in final_plots mode so the legend
+        # stays compact (just the method + key hyperparameters like alpha/beta).
+        if not final_plots:
+            al_match = re.search(r'_al([\d.e-]+)', prefix)
+            if al_match:
+                label_parts.append(f"{al_match.group(1)} LR (q)")
 
-        if not final_labels:
             tbs_match = re.search(r'_tbs(\d+)', prefix) or re.search(r'_tb(\d+)', prefix)
             if tbs_match:
                 label_parts.append(f"batch={tbs_match.group(1)}")
 
-        # Append base actor LR if non-zero (encoded as _bl followed by value)
-        bl_match = re.search(r'_bl([\d.e-]+)', prefix)
-        if bl_match:
-            bl_val = float(bl_match.group(1))
-            if bl_val != 0.0:
-                label_parts.append(f"{bl_match.group(1)} LR (p)")
+            # Append base actor LR if non-zero (encoded as _bl followed by value)
+            bl_match = re.search(r'_bl([\d.e-]+)', prefix)
+            if bl_match:
+                bl_val = float(bl_match.group(1))
+                if bl_val != 0.0:
+                    label_parts.append(f"{bl_match.group(1)} LR (p)")
 
         # When a separate reweighting beta (_sb<value>) is present, distinguish the two betas
         # with subscripts: β_q for target_dist_beta (used to train q) and β_p for the separate
@@ -1228,7 +1272,7 @@ def plot_top_tokens_bar_chart(
     n_tokens = len(top_n_tokens)
     has_base_data = len(base_by_setting) > 0
 
-    plt.figure(figsize=(max(8, n_tokens * 0.9), 5))
+    plt.figure(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
 
     # Number of bar groups: one per setting + optionally one for base
     n_groups = n_settings + (1 if has_base_data else 0)
@@ -1314,7 +1358,7 @@ def plot_top_tokens_bar_chart(
     plt.ylabel('Log Probability Difference (model - target)', fontsize=fontsize)
     time_label = " (final step)" if final_only else " (avg over time)"
     plt.title(f'Top {n_top_tokens} Target Tokens: Log Prob Difference (model - target){time_label}', fontsize=fontsize+1)
-    plt.xticks(x_positions, [_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize-1)
+    plt.xticks(x_positions, _maybe_hide_token_labels([_token_label(token_id, tokenizer) for token_id in top_n_tokens]), fontsize=fontsize-1)
     plt.legend(fontsize=legendfontsize)
     plt.grid(axis='y', alpha=0.3, linestyle='--')
     plt.axhline(y=0, color='gray', linestyle='--', linewidth=0.5)
@@ -1391,7 +1435,7 @@ def plot_top_tokens_lollipop(
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
 
     # Horizontal spacing: settings are offset within each token position
     dot_spacing = 0.12
@@ -1461,9 +1505,9 @@ def plot_top_tokens_lollipop(
     ax.set_xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     time_label = " (final step)" if final_only else " (avg over time)"
-    ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Prob (target vs q vs base){time_label}', fontsize=fontsize + 1)
+    ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Probability of q{time_label}', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.set_xticklabels(_maybe_hide_token_labels([_token_label(token_id, tokenizer) for token_id in top_n_tokens]), fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1476,7 +1520,7 @@ def plot_top_tokens_lollipop(
 
     # --- Individual-seed plot (reuses precomputed data) ---
     if figname_individual is not None:
-        fig_ind, ax_ind = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+        fig_ind, ax_ind = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
 
         _draw_target_dashes(ax_ind, x_positions, target_means, dash_half_width)
 
@@ -1501,7 +1545,7 @@ def plot_top_tokens_lollipop(
         ax_ind.set_ylabel('Log Probability', fontsize=fontsize)
         ax_ind.set_title(f'Top {n_top_tokens} Target Tokens: Log Prob (individual seeds, final step)', fontsize=fontsize + 1)
         ax_ind.set_xticks(x_positions)
-        ax_ind.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
+        ax_ind.set_xticklabels(_maybe_hide_token_labels([_token_label(token_id, tokenizer) for token_id in top_n_tokens]), fontsize=fontsize - 1)
         ax_ind.tick_params(axis='y', labelsize=fontsize)
         ax_ind.legend(fontsize=legendfontsize)
         ax_ind.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1618,7 +1662,7 @@ def plot_top_tokens_lollipop_over_time(
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
 
     # Horizontal spacing: settings offset within each token position
     dot_spacing = 0.12
@@ -1706,7 +1750,7 @@ def plot_top_tokens_lollipop_over_time(
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     ax.set_title(f'Top {n_top_tokens} Target Tokens: Log q Over Time', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.set_xticklabels(_maybe_hide_token_labels([_token_label(token_id, tokenizer) for token_id in top_n_tokens]), fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1807,7 +1851,7 @@ def plot_sample_counts_over_time(
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -1870,7 +1914,7 @@ def plot_sample_counts_over_time(
     ax.set_ylabel('Cumulative Sample Count', fontsize=fontsize)
     ax.set_title(f'Top {n_top_tokens} Target Tokens: Cumulative q Sample Counts Over Time', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.set_xticklabels(_maybe_hide_token_labels([_token_label(token_id, tokenizer) for token_id in top_n_tokens]), fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -1913,7 +1957,7 @@ def plot_sample_counts_final_individual(
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -1962,7 +2006,7 @@ def plot_sample_counts_final_individual(
     ax.set_ylabel('Cumulative Sample Count', fontsize=fontsize)
     ax.set_title(f'Top {n_top_tokens} Target Tokens: Final Cumulative q Sample Counts (individual seeds)', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([_token_label(token_id, tokenizer) for token_id in top_n_tokens], fontsize=fontsize - 1)
+    ax.set_xticklabels(_maybe_hide_token_labels([_token_label(token_id, tokenizer) for token_id in top_n_tokens]), fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
@@ -2388,7 +2432,7 @@ def plot_target_token_counts_over_time(
     frontier_indices = unique_frontier_indices
     n_times = len(frontier_indices)
 
-    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -2461,7 +2505,7 @@ def plot_target_token_counts_over_time(
     ax.set_title(f'Target Token Visitation: Cumulative q Sample Counts Over Time ({n_tokens} tokens)',
                  fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([_token_label(int(tid), tokenizer) for tid in target_token_ids],
+    ax.set_xticklabels(_maybe_hide_token_labels([_token_label(int(tid), tokenizer) for tid in target_token_ids]),
                        fontsize=max(3, fontsize - 2), rotation=45, ha='right')
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
@@ -2501,7 +2545,7 @@ def plot_target_token_counts_final_individual(
 
     n_settings = len(labels)
 
-    fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.9), 5))
+    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -2538,7 +2582,7 @@ def plot_target_token_counts_final_individual(
     ax.set_title(f'Target Token Visitation: Final Cumulative q Sample Counts (individual seeds, {n_tokens} tokens)',
                  fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels([_token_label(int(tid), tokenizer) for tid in target_token_ids],
+    ax.set_xticklabels(_maybe_hide_token_labels([_token_label(int(tid), tokenizer) for tid in target_token_ids]),
                        fontsize=max(3, fontsize - 2), rotation=45, ha='right')
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
@@ -2669,7 +2713,7 @@ def _plot_visitation_2d(
         avg_counts = np.mean(seed_counts, axis=0)
 
         # --- Build the figure ---
-        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+        fig, ax = plt.subplots(1, 1, figsize=(10, _scale_h(8)))
 
         # 1. Target distribution density as yellow dots with alpha proportional to probability
         # Build a full-vocab log prob array; tokens not in target_by_setting get -inf
@@ -2942,7 +2986,7 @@ def plot_visitation_heatmaps(
 
         # --- Incremental (new visitations) PDF ---
         n_diff_panels = len(diff_grids)
-        fig_diff, axes_diff = plt.subplots(1, n_diff_panels, figsize=(3.5 * n_diff_panels, 3.5))
+        fig_diff, axes_diff = plt.subplots(1, n_diff_panels, figsize=(3.5 * n_diff_panels, _scale_h(3.5)))
         if n_diff_panels == 1:
             axes_diff = [axes_diff]
 
@@ -2977,7 +3021,7 @@ def plot_visitation_heatmaps(
         print(f"Incremental visitation heatmap saved to {diff_figname}")
 
         # --- Cumulative PDF ---
-        fig_cum, ax_cum = plt.subplots(figsize=(4, 4))
+        fig_cum, ax_cum = plt.subplots(figsize=(4, _scale_h(4)))
 
         cum_max = np.max(cumulative) if np.max(cumulative) > 0 else 1
         padded_cum = np.concatenate([cumulative, np.full(n_pad, np.nan)]) if n_pad > 0 else cumulative.copy()
@@ -3011,7 +3055,7 @@ def _format_intersection_lollipop_axes(ax, x_positions, grouped, top_tokens_per_
         tick_colors.append(color_list[owner_setting])
 
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(tick_labels, fontsize=max(fontsize - 2, 4), rotation=90)
+    ax.set_xticklabels(_maybe_hide_token_labels(tick_labels), fontsize=max(fontsize - 2, 4), rotation=90)
     for tick_label, color in zip(ax.get_xticklabels(), tick_colors):
         tick_label.set_color(color)
 
@@ -3095,7 +3139,7 @@ def plot_top_q_intersection_lollipop(
     setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
 
     # --- Aggregate (bootstrap CI) plot ---
-    fig, ax = plt.subplots(figsize=(max(8, n_positions * 0.45), 5))
+    fig, ax = plt.subplots(figsize=(max(8, n_positions * 0.45), _scale_h(5)))
 
     _draw_target_dashes(ax, x_positions, target_means, dash_half_width, linewidth=1.5)
 
@@ -3152,7 +3196,7 @@ def plot_top_q_intersection_lollipop(
 
     # --- Individual-seed plot (reuses precomputed data) ---
     if figname_individual is not None:
-        fig_ind, ax_ind = plt.subplots(figsize=(max(8, n_positions * 0.45), 5))
+        fig_ind, ax_ind = plt.subplots(figsize=(max(8, n_positions * 0.45), _scale_h(5)))
 
         _draw_target_dashes(ax_ind, x_positions, target_means, dash_half_width, linewidth=1.5)
 
@@ -3652,7 +3696,7 @@ def plot_sis_weight_histogram_over_time(
                         ci_hi[setting_idx, bin_idx, time_i] = _bootstrap_mean_ci(vals, n_bootstrap_draws)
 
     # Plot
-    fig, ax = plt.subplots(figsize=(max(8, n_bins * 1.2), 5))
+    fig, ax = plt.subplots(figsize=(max(8, n_bins * 1.2), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -3872,7 +3916,8 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
                               color_list, fontsize=7, legendfontsize=7,
                               n_bootstrap_draws=5000, figname_individual=None,
                               series3_name=None, series3_data=None,
-                              sort_by_series3=False, marker_list=None):
+                              sort_by_series3=False, marker_list=None,
+                              n_top_tokens=None):
     """
     Lollipop plot comparing a per-seed quantity (series1) against fixed references (series2,
     and optionally series3) across target sequences.
@@ -3927,15 +3972,27 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
             all_sort_padded.append(_pad_to_length(a, n_samples))
     sort_order = np.argsort(np.nanmean(np.stack(all_sort_padded), axis=0))[::-1]
 
+    # In final-plots mode, restrict the x-axis to the top n_top_tokens entries
+    # (by the sort series). Leaves the individual-seed plot untouched.
+    _truncate_main = _final_plots_enabled() and n_top_tokens is not None and n_top_tokens < n_samples
+    if _truncate_main:
+        sort_order_main = sort_order[:n_top_tokens]
+        n_samples_main = n_top_tokens
+    else:
+        sort_order_main = sort_order
+        n_samples_main = n_samples
+
     # Compute series2 reference values: mean across all settings/seeds (fixed quantity)
     all_s2_padded = []
     for _, arrs in valid_s2_settings:
         for a in arrs:
             all_s2_padded.append(_pad_to_length(a, n_samples))
-    s2_ref = np.nanmean(np.stack(all_s2_padded), axis=0)[sort_order]
+    s2_ref_full = np.nanmean(np.stack(all_s2_padded), axis=0)
+    s2_ref = s2_ref_full[sort_order_main]
 
     # Compute series3 reference values if provided
     s3_ref = None
+    s3_ref_full = None
     if per_seed_s3 is not None:
         valid_s3_settings = [(i, arrs) for i, arrs in enumerate(per_seed_s3) if arrs is not None]
         if valid_s3_settings:
@@ -3943,24 +4000,25 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
             for _, arrs in valid_s3_settings:
                 for a in arrs:
                     all_s3_padded.append(_pad_to_length(a, n_samples))
-            s3_ref = np.nanmean(np.stack(all_s3_padded), axis=0)[sort_order]
+            s3_ref_full = np.nanmean(np.stack(all_s3_padded), axis=0)
+            s3_ref = s3_ref_full[sort_order_main]
 
-    x_positions = np.arange(n_samples)
+    x_positions = np.arange(n_samples_main)
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
     setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
     dash_half_width = (total_width / 2 + dot_spacing * 0.6) if n_settings > 1 else 0.15
 
-    def _compute_sorted_ci(seed_arrays):
-        """Bootstrap mean + CI per sample position, sorted by sort_order."""
+    def _compute_sorted_ci(seed_arrays, so, n):
+        """Bootstrap mean + CI per sample position, sorted by so (length n)."""
         if seed_arrays is None:
-            return (np.full(n_samples, np.nan), np.full(n_samples, np.nan),
-                    np.full(n_samples, np.nan))
-        padded = np.stack([_pad_to_length(a, n_samples)[sort_order] for a in seed_arrays])
-        means = np.full(n_samples, np.nan)
-        ci_lo = np.full(n_samples, np.nan)
-        ci_hi = np.full(n_samples, np.nan)
-        for j in range(n_samples):
+            return (np.full(n, np.nan), np.full(n, np.nan),
+                    np.full(n, np.nan))
+        padded = np.stack([_pad_to_length(a, n_samples)[so] for a in seed_arrays])
+        means = np.full(n, np.nan)
+        ci_lo = np.full(n, np.nan)
+        ci_hi = np.full(n, np.nan)
+        for j in range(n):
             col = padded[:, j]
             valid_col = col[~np.isnan(col)]
             if len(valid_col) > 0:
@@ -3968,7 +4026,12 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
         return means, ci_lo, ci_hi
 
     # --- Main plot (bootstrap CI) ---
-    fig, ax = plt.subplots()
+    # In final-plots mode, size the main figure to match the KL frontier plot
+    # (which uses matplotlib's default figsize, scaled by _scale_h when final_plots is on).
+    if _final_plots_enabled():
+        fig, ax = plt.subplots(figsize=plt.rcParams['figure.figsize'])
+    else:
+        fig, ax = plt.subplots()
 
     if s3_ref is not None:
         # When both references present: series3 = black solid (primary), series2 = gray dashed
@@ -3989,7 +4052,7 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
         color = color_list[setting_idx]
         x = x_positions + setting_offsets[setting_idx]
 
-        s1_means, s1_ci_lo, s1_ci_hi = _compute_sorted_ci(s1_seeds)
+        s1_means, s1_ci_lo, s1_ci_hi = _compute_sorted_ci(s1_seeds, sort_order_main, n_samples_main)
 
         valid1 = ~np.isnan(s1_means)
         if np.any(valid1):
@@ -4005,13 +4068,23 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
 
     all_ref_names = [series2_name] + ([series3_name] if series3_name else [])
     title_refs = ', '.join(all_ref_names)
-    ax.set_xlabel(f'Target Sequence Index (sorted by descending {sort_series_name})',
-                  fontsize=fontsize)
-    ax.set_ylabel('Log probability', fontsize=fontsize)
-    ax.set_title(f'{series1_name} vs {title_refs} at Final Timestep (per target sequence)',
-                 fontsize=fontsize + 1)
+    if _final_plots_enabled():
+        ax.set_xlabel('Target Sequence', fontsize=fontsize)
+        ax.set_ylabel('Log Probability', fontsize=fontsize)
+        ax.set_title('Exact Target Sequences: Log Probability of q (final step)',
+                     fontsize=fontsize + 1)
+    else:
+        ax.set_xlabel(f'Target Sequence Index (sorted by descending {sort_series_name})',
+                      fontsize=fontsize)
+        ax.set_ylabel('Log probability', fontsize=fontsize)
+        ax.set_title(f'{series1_name} vs {title_refs} at Final Timestep (per target sequence)',
+                     fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(np.arange(1, n_samples + 1), fontsize=max(4, fontsize - 2))
+    if _final_plots_enabled():
+        # Hide the per-sequence numbers; the "Target Sequence" xlabel suffices.
+        ax.set_xticklabels(['' for _ in x_positions])
+    else:
+        ax.set_xticklabels(np.arange(1, n_samples_main + 1), fontsize=max(4, fontsize - 2))
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.legend(fontsize=legendfontsize)
     ax.grid(alpha=0.3, linestyle='--', axis='y')
@@ -4025,13 +4098,18 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
     if figname_individual is not None:
         fig_ind, ax_ind = plt.subplots()
 
-        if s3_ref is not None:
-            _draw_target_dashes(ax_ind, x_positions, s3_ref, dash_half_width, linewidth=2,
+        # Use the full (untruncated) sort order for the individual-seed plot.
+        x_positions_ind = np.arange(n_samples)
+        s2_ref_ind = s2_ref_full[sort_order]
+        s3_ref_ind = s3_ref_full[sort_order] if s3_ref_full is not None else None
+
+        if s3_ref_ind is not None:
+            _draw_target_dashes(ax_ind, x_positions_ind, s3_ref_ind, dash_half_width, linewidth=2,
                                 label_text=series3_name)
-            _draw_target_dashes(ax_ind, x_positions, s2_ref, dash_half_width, linewidth=2,
+            _draw_target_dashes(ax_ind, x_positions_ind, s2_ref_ind, dash_half_width, linewidth=2,
                                 label_text=series2_name, color='dimgray', linestyle='--')
         else:
-            _draw_target_dashes(ax_ind, x_positions, s2_ref, dash_half_width, linewidth=2,
+            _draw_target_dashes(ax_ind, x_positions_ind, s2_ref_ind, dash_half_width, linewidth=2,
                                 label_text=series2_name)
 
         # Series1: per-seed scatter with different markers
@@ -4047,7 +4125,7 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
                 valid = ~np.isnan(sorted_arr)
                 if not np.any(valid):
                     continue
-                x = x_positions[valid] + setting_offsets[setting_idx]
+                x = x_positions_ind[valid] + setting_offsets[setting_idx]
                 label = labels[setting_idx] if not label_added else None
                 ax_ind.scatter(x, sorted_arr[valid],
                                color=color, s=20, alpha=0.7,
@@ -4059,7 +4137,7 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
         ax_ind.set_ylabel('Log probability', fontsize=fontsize)
         ax_ind.set_title(f'{series1_name} vs {title_refs} at Final Timestep (individual seeds)',
                          fontsize=fontsize + 1)
-        ax_ind.set_xticks(x_positions)
+        ax_ind.set_xticks(x_positions_ind)
         ax_ind.set_xticklabels(np.arange(1, n_samples + 1), fontsize=max(4, fontsize - 2))
         ax_ind.tick_params(axis='y', labelsize=fontsize)
         ax_ind.legend(fontsize=legendfontsize)
@@ -4299,7 +4377,8 @@ def _collect_f_q_sample_rank_data(n_settings, log_q_data, log_p_data, log_phi_da
                 if q_arr is None or len(q_arr) == 0:
                     continue
 
-                k = min(n_ranks, len(q_arr))
+                # n_ranks=None means no cap: take all samples.
+                k = len(q_arr) if n_ranks is None else min(n_ranks, len(q_arr))
                 top_idx = np.argsort(q_arr)[::-1][:k]
 
                 q_all.append(q_arr[top_idx])
@@ -4336,7 +4415,7 @@ def _collect_f_q_sample_rank_data(n_settings, log_q_data, log_p_data, log_phi_da
                             if q_arr is not None and len(q_arr) > 0:
                                 if prompt_idx > 0:
                                     prompt_boundaries.append(pos)
-                                k = min(n_ranks, len(q_arr))
+                                k = len(q_arr) if n_ranks is None else min(n_ranks, len(q_arr))
                                 pos += k
                         break
                 if prompt_boundaries:

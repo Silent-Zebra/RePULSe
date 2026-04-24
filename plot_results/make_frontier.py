@@ -261,6 +261,7 @@ def make_frontier_exact_kl_bootstrap(
     alpha_list=None,
     size_list=None,
     connect_groups=None,
+    title=None,
 ):
     """
     Plot KL divergence on two axes (KL(sigma_p || q) vs KL(q || sigma_p)),
@@ -275,6 +276,8 @@ def make_frontier_exact_kl_bootstrap(
     plt.clf()
     plt.xlabel(xlabel, fontsize=fontsize)
     plt.ylabel(ylabel, fontsize=fontsize)
+    if title is not None:
+        plt.title(title, fontsize=fontsize + 1)
 
     all_x = []
     all_y = []
