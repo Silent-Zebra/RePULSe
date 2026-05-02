@@ -98,7 +98,7 @@ PARAMS=$(echo "$COMMAND" | awk -v pretrain_logic="$PRETRAIN_LOGIC" '
             parameterization = abbrev
         }
         if($i == "--adam_betas") adam_beta2 = "_adambeta2_"$(i+2)
-        if($i == "--rm_type") rm_type = $(i+1)
+        if($i == "--rm_type") rm_type = substr($(i+1), 1, 4)
         if($i == "--duplicate_rollout_batch_by") dup_rollout = "_"$(i+1)
         if($i == "--pretrain") {
             if(pretrain_logic == "simple") {
