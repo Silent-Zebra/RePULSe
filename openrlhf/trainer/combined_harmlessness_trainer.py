@@ -718,6 +718,19 @@ class CombinedHarmlessnessTrainer(ABC):
             print("ENTROPY_BONUS SCHEDULE:")
             print(entropy_bonus_schedule)
 
+        threshold_schedule = None
+        if getattr(args, 'start_threshold', None) is not None:
+            threshold_sched_type = getattr(args, 'threshold_schedule', 'linear')
+            if threshold_sched_type == "log":
+                raise NotImplementedError(
+                    "log schedule for --threshold_schedule is not yet implemented. Use 'linear' for now."
+                )
+            threshold_schedule = make_annealing_schedule(
+                args.start_threshold, args.threshold, total_update_steps,
+                schedule_type=threshold_sched_type)
+            print("THRESHOLD SCHEDULE:")
+            print(threshold_schedule)
+
         # Extract prompt_text for new_custom_single_prompt case
         prompt_text = None
         if args.new_custom_single_prompt:
@@ -827,6 +840,16 @@ class CombinedHarmlessnessTrainer(ABC):
                     )
                     args.actor_loss_entropy_bonus = entropy_bonus_schedule[self.total_steps]
                     print(f"Using new actor_loss_entropy_bonus: {args.actor_loss_entropy_bonus}")
+
+                if getattr(args, 'start_threshold', None) is not None:
+                    assert self.total_steps < len(threshold_schedule), (
+                        f"Schedule index out of bounds: total_steps={self.total_steps} >= "
+                        f"len(threshold_schedule)={len(threshold_schedule)}. "
+                        f"total_update_steps computation may not match actual iteration count."
+                    )
+                    new_threshold = threshold_schedule[self.total_steps]
+                    self.sampling_experience_maker_neg.threshold = new_threshold
+                    print(f"Using new threshold: {new_threshold}")
 
                 if args.new_custom_single_prompt:
                     rand_prompts = [prompt_text]

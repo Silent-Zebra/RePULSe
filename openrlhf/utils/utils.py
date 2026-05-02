@@ -313,7 +313,12 @@ def get_info_name_str(args):
 
     rm_type_str = args.rm_type
     if args.rm_type == "indicator_below_threshold":
-        rm_type_str = f"it{args.threshold}"
+        start_threshold = getattr(args, 'start_threshold', None)
+        if start_threshold is not None:
+            sched_type = getattr(args, 'threshold_schedule', 'linear')
+            rm_type_str = f"it{start_threshold}to{args.threshold}{sched_type}"
+        else:
+            rm_type_str = f"it{args.threshold}"
     if args.use_base_as_proposal:
         rm_type_str += "_bp"
 

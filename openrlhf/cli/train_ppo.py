@@ -4111,6 +4111,13 @@ def _run_per_fit_step_heldout_and_f_q(
         _saved_beta = harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta
         harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta = args.target_dist_beta
 
+    # Same idea for annealed threshold: eval (f_q, g_q, IWAE, ...) must always use the
+    # final args.threshold so that log_phi matches the target samples / final distribution.
+    _saved_threshold = None
+    if getattr(args, 'start_threshold', None) is not None:
+        _saved_threshold = harmlessness_trainer.sampling_experience_maker_neg.threshold
+        harmlessness_trainer.sampling_experience_maker_neg.threshold = args.threshold
+
     if getattr(args, "f_q_g_q_eval", False):
         # Training set: Set A + Set B
         result_fixed = _run_f_q_g_q_eval_set(
@@ -4183,6 +4190,10 @@ def _run_per_fit_step_heldout_and_f_q(
     # Restore annealed beta after f_q/g_q evaluation
     if _saved_beta is not None:
         harmlessness_trainer.sampling_experience_maker_neg.target_dist_beta = _saved_beta
+
+    # Restore annealed threshold after f_q/g_q evaluation
+    if _saved_threshold is not None:
+        harmlessness_trainer.sampling_experience_maker_neg.threshold = _saved_threshold
 
 
 def do_evaluate_on_neg_data(actor, args, strip_question_chat_template_fn, tokenizer, info_name_str, strategy):
@@ -4748,6 +4759,13 @@ if __name__ == "__main__":
     parser.add_argument("--anneal_target_dist_beta", action="store_true", help="if set, anneal target_dist_beta")
     parser.add_argument("--start_target_dist_beta", type=float, default=None, help="Only used for annealing. Start at this beta value and anneal to final target_dist_beta value")
     parser.add_argument("--start_alpha", type=float, default=None, help="Only used for annealing alpha. Start at this alpha value and anneal to final alpha value")
+    parser.add_argument("--start_threshold", type=float, default=None,
+        help="If set, anneal the indicator threshold from this value to --threshold over training. "
+             "Eval (f_q, g_q, IWAE, etc.) always uses --threshold; only training uses the schedule. "
+             "Sampling experience maker only (mirrors target_dist_beta annealing).")
+    parser.add_argument("--threshold_schedule", type=str, default="linear", choices=["linear", "log"],
+        help="Schedule type for threshold annealing. 'linear' handles negative/positive transitions gracefully via np.linspace. "
+             "'log' is not yet implemented (raises NotImplementedError).")
 
     parser.add_argument("--separate_reweighting_beta", type=float, default=None, help="if set, use this instead of the target_dist_beta for reweighting samples for sigma only. Still use the target_dist_beta for training the proposal q")
     parser.add_argument("--uniform_reweight", action="store_true", help="if set, use uniform weights for reweighting. Basically skips the reweighting operation.")
@@ -5115,6 +5133,13 @@ if __name__ == "__main__":
 
     if args.anneal_target_dist_beta:
         assert args.start_target_dist_beta is not None
+
+    if args.start_threshold is not None:
+        assert args.threshold is not None, "--threshold must be set when using --start_threshold"
+        if args.threshold_schedule == "log":
+            raise NotImplementedError(
+                "log schedule for --threshold_schedule is not yet implemented. Use 'linear' for now."
+            )
 
     if args.reward_clamp is not None and args.reward_cap is not None:
         raise ValueError("Only one of --reward_clamp and --reward_cap may be set, not both.")
