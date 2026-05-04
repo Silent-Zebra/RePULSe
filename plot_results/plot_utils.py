@@ -35,29 +35,65 @@ SEED_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">", "p"]
 
 
 # Global final-plots flag. When enabled via set_final_plots(True):
+#   - figure widths shrink to 2/3 (applied via _scale_w inside every figsize= call)
+#     so 3 plots fit per row instead of 2
 #   - figure heights shrink by 25% (applied via _scale_h inside every figsize= call)
 #   - token-name x-tick labels on top-token plots are hidden (via _final_plots_enabled)
 _FINAL_PLOTS = False
+_FINAL_WIDTH_FACTOR = 2.0 / 3.0
+_FINAL_HEIGHT_FACTOR = 0.75
 
 
 def set_final_plots(enabled):
-    """Toggle the final-plots mode. When enabled, all figure heights created
-    via plt.subplots/plt.figure in plot_utils are scaled by 0.75, matplotlib's
-    default figsize height is likewise reduced so callers without an explicit
-    figsize also shrink, and per-token x-tick labels on top-token plots are
-    suppressed for a cleaner final look."""
+    """Toggle the final-plots mode. When enabled, all figure widths and heights
+    created via plt.subplots/plt.figure in plot_utils are scaled (2/3 width,
+    0.75 height); matplotlib's default figsize is likewise reduced so callers
+    without an explicit figsize also shrink; and per-token x-tick labels on
+    top-token plots are suppressed for a cleaner final look."""
     global _FINAL_PLOTS
     _FINAL_PLOTS = bool(enabled)
     # Scale matplotlib's default so plt.subplots() calls without explicit
-    # figsize also pick up the reduced height.
+    # figsize also pick up the reduced size.
     default_w, default_h = 6.4, 4.8  # matplotlib defaults
-    height_factor = 0.75 if _FINAL_PLOTS else 1.0
-    plt.rcParams['figure.figsize'] = [default_w, default_h * height_factor]
+    width_factor = _FINAL_WIDTH_FACTOR if _FINAL_PLOTS else 1.0
+    height_factor = _FINAL_HEIGHT_FACTOR if _FINAL_PLOTS else 1.0
+    plt.rcParams['figure.figsize'] = [default_w * width_factor, default_h * height_factor]
+
+
+def _scale_w(w):
+    """Scale a figure width by the current final-plots factor (2/3 when enabled)."""
+    return w * (_FINAL_WIDTH_FACTOR if _FINAL_PLOTS else 1.0)
 
 
 def _scale_h(h):
     """Scale a figure height by the current final-plots factor (0.75 when enabled)."""
-    return h * (0.75 if _FINAL_PLOTS else 1.0)
+    return h * (_FINAL_HEIGHT_FACTOR if _FINAL_PLOTS else 1.0)
+
+
+def _compute_frontier_indices(max_T, n_frontiers):
+    """Compute evenly-spaced timestep indices for frontier plots, including
+    both the first (index 0) and last (max_T - 1) timestep when n_frontiers >= 2.
+
+    With n_frontiers=4 and max_T=21 the result is [0, 7, 13, 20] — i.e.
+    start, 1/3, 2/3, end.
+
+    For n_frontiers <= 1 the result is just the final timestep (or empty when
+    n_frontiers == 0 or max_T == 0).  Duplicates from rounding are removed
+    while preserving order, so the result may have fewer than n_frontiers
+    entries when max_T is small.
+    """
+    if max_T <= 0 or n_frontiers <= 0:
+        return []
+    if n_frontiers == 1:
+        return [max_T - 1]
+    raw = [round((max_T - 1) * i / (n_frontiers - 1)) for i in range(n_frontiers)]
+    seen = set()
+    out = []
+    for idx in raw:
+        if idx not in seen:
+            seen.add(idx)
+            out.append(idx)
+    return out
 
 
 def _final_plots_enabled():
@@ -149,6 +185,8 @@ def _parse_experiment_properties(prefix):
         entropy_annealed: bool (populated whenever entropy is present)
         beta_annealed: bool
         beta_anneal_start: float or None
+        threshold_annealed: bool
+        threshold_anneal_start: float or None
     """
     # Loss type
     if "_ctln_" in prefix:
@@ -230,9 +268,19 @@ def _parse_experiment_properties(prefix):
         beta_annealed = True
         beta_anneal_start = float(beta_anneal_match.group(1))
 
+    # Threshold annealing: _it<start>to<end><schedule> pattern (start_threshold -> threshold).
+    # Visually treated as another flavor of "tempering" alongside beta annealing
+    # (shares Greens colormap and hexagon marker).
+    threshold_annealed = False
+    threshold_anneal_start = None
+    threshold_anneal_match = re.search(r'_it(-?[\d.]+)to(-?[\d.]+)(linear|log)', prefix)
+    if threshold_anneal_match:
+        threshold_annealed = True
+        threshold_anneal_start = float(threshold_anneal_match.group(1))
+
     # Ordered list of modifications. Priority (matches the legacy first-match chain):
-    # cfn > exact_count > mixture > entropy > beta_annealed. The first non-beta entry
-    # is what the legacy bonus_type field tracks.
+    # cfn > exact_count > mixture > entropy > beta_annealed > threshold_annealed.
+    # The first non-tempering entry is what the legacy bonus_type field tracks.
     modifications = []
     if has_cfn:
         modifications.append("cfn")
@@ -244,18 +292,23 @@ def _parse_experiment_properties(prefix):
         modifications.append("entropy")
     if beta_annealed:
         modifications.append("beta_annealed")
+    if threshold_annealed:
+        modifications.append("threshold_annealed")
 
-    non_beta_mods = [m for m in modifications if m != "beta_annealed"]
-    bonus_type = non_beta_mods[0] if non_beta_mods else "none"
+    # Tempering-style mods (beta/threshold annealing) are filtered out of bonus_type
+    # because they're not exploration/regularization "bonuses" — they're curriculum
+    # schedules handled separately in the label tail and visual styling.
+    non_tempered_mods = [m for m in modifications if m not in ("beta_annealed", "threshold_annealed")]
+    bonus_type = non_tempered_mods[0] if non_tempered_mods else "none"
 
     # Sanity: legacy bonus_type must agree with the ordered modifications list, or
     # the refactor has drifted.
-    if non_beta_mods:
-        assert bonus_type == non_beta_mods[0], \
+    if non_tempered_mods:
+        assert bonus_type == non_tempered_mods[0], \
             f"bonus_type ({bonus_type}) inconsistent with modifications ({modifications})"
     else:
         assert bonus_type == "none", \
-            f"bonus_type ({bonus_type}) should be 'none' when no non-beta modifications (modifications={modifications})"
+            f"bonus_type ({bonus_type}) should be 'none' when no non-tempered modifications (modifications={modifications})"
 
     # Learning rate (sampling actor LR)
     al_match = re.search(r'_al([\d.e-]+)', prefix)
@@ -275,6 +328,8 @@ def _parse_experiment_properties(prefix):
         "entropy_annealed": entropy_annealed,
         "beta_annealed": beta_annealed,
         "beta_anneal_start": beta_anneal_start,
+        "threshold_annealed": threshold_annealed,
+        "threshold_anneal_start": threshold_anneal_start,
     }
 
 
@@ -365,6 +420,24 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             for i, s in enumerate(unique_beta_starts)
         }
 
+    # 4a4. Threshold annealing: shares the Greens colormap and shade range with
+    # beta annealing so both read as a single "tempering" visual category.
+    # Shade is encoded by the start_threshold value rank (independent of beta).
+    THRESHOLD_ANNEAL_CMAP = BETA_ANNEAL_CMAP
+    THRESHOLD_ANNEAL_SHADE_LO, THRESHOLD_ANNEAL_SHADE_HI = BETA_ANNEAL_SHADE_LO, BETA_ANNEAL_SHADE_HI
+    unique_threshold_starts = sorted(set(
+        p["threshold_anneal_start"] for p in props_list
+        if p["threshold_annealed"] and p["threshold_anneal_start"] is not None
+    ))
+    if len(unique_threshold_starts) <= 1:
+        threshold_start_shade = {s: (THRESHOLD_ANNEAL_SHADE_LO + THRESHOLD_ANNEAL_SHADE_HI) / 2
+                                 for s in unique_threshold_starts}
+    else:
+        threshold_start_shade = {
+            s: THRESHOLD_ANNEAL_SHADE_LO + (THRESHOLD_ANNEAL_SHADE_HI - THRESHOLD_ANNEAL_SHADE_LO) * i / (len(unique_threshold_starts) - 1)
+            for i, s in enumerate(unique_threshold_starts)
+        }
+
     # 4b. Mixture lag_steps -> color: assign a fixed shade per (variant, lag_steps) key spread
     #     across 0.25-0.9 so different lag values are clearly distinguishable.
     #     qi variants use a single orange-red colormap; other variants use a purple-pink colormap.
@@ -416,6 +489,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         for mod in props["modifications"]:
             if mod == "beta_annealed":
                 parts.append(("beta_annealed", props["beta_anneal_start"]))
+            elif mod == "threshold_annealed":
+                parts.append(("threshold_annealed", props["threshold_anneal_start"]))
             elif mod == "cfn":
                 parts.append(("cfn", props["cfn_alpha"], props["cfn_annealed"]))
             elif mod == "entropy":
@@ -443,6 +518,10 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             shade = beta_start_shade.get(
                 props["beta_anneal_start"], (BETA_ANNEAL_SHADE_LO + BETA_ANNEAL_SHADE_HI) / 2)
             return BETA_ANNEAL_CMAP(shade)
+        elif mod == "threshold_annealed":
+            shade = threshold_start_shade.get(
+                props["threshold_anneal_start"], (THRESHOLD_ANNEAL_SHADE_LO + THRESHOLD_ANNEAL_SHADE_HI) / 2)
+            return THRESHOLD_ANNEAL_CMAP(shade)
         elif mod == "mixture":
             mix_key = (props["mixture_variant"], props["mixture_lag_steps"])
             base_shade = mixture_shade_map.get(mix_key, 0.6)
@@ -482,8 +561,14 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             color_list.append((float(blended[0]), float(blended[1]), float(blended[2]), 1.0))
         else:
             # Baseline (no modifications): Greys with LR-based shade.
-            lo, hi = shade_range_default
-            shade = lo + t * (hi - lo)
+            # In final-plots mode, hardcode a single fixed gray shade so the
+            # CTL baseline reads as the same color across figures regardless
+            # of which other LRs happen to appear in the experiment set.
+            if _final_plots_enabled():
+                shade = (shade_range_default[0] + shade_range_default[1]) / 2
+            else:
+                lo, hi = shade_range_default
+                shade = lo + t * (hi - lo)
             color_list.append(cm.Greys(shade))
 
         # Marker: beta_annealed -> hexagon; exact_count -> star; annealed entropy -> pentagon;
@@ -492,7 +577,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         # Non-annealed CFN and mixture get their own markers so they don't collide with
         # the generic loss_type marker ("o" for CTL), which would otherwise make base
         # CTL indistinguishable from CTL+CFN and CTL+mixture in the frontier plots.
-        if props["beta_annealed"]:
+        if props["beta_annealed"] or props["threshold_annealed"]:
+            # Threshold annealing shares the "tempering" hexagon marker with beta annealing.
             if props["loss_type"] == "RLOO":
                 marker_list.append(MARKER_BETA_ANNEALED_REINF)
             else:
@@ -510,7 +596,14 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             else:
                 marker_list.append(MARKER_ENTROPY)
         elif props["cfn_annealed"]:
-            if props["loss_type"] == "RLOO":
+            # In final-plots mode, collapse annealed and non-annealed CFN onto
+            # the same marker so CFN reads as a single category in the legend.
+            if _final_plots_enabled():
+                if props["loss_type"] == "RLOO":
+                    marker_list.append(MARKER_CFN_REINF)
+                else:
+                    marker_list.append(MARKER_CFN)
+            elif props["loss_type"] == "RLOO":
                 marker_list.append(MARKER_CFN_ANNEALED_REINF)
             else:
                 marker_list.append(MARKER_CFN_ANNEALED)
@@ -734,23 +827,24 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
         props = _parse_experiment_properties(prefix)
         loss_type_str = props["loss_type"]  # "CTL", "CTLN", "RLOO", or None
 
-        # Per-modification fragments. Beta annealing is still handled once in
-        # the shared tail (just before the LR fragments) so it doesn't duplicate
-        # across multiple modifications.
-        non_beta_mods = [m for m in props["modifications"] if m != "beta_annealed"]
+        # Per-modification fragments. Tempering schedules (beta / threshold annealing)
+        # are still handled once in the shared tail (just before the LR fragments) so
+        # they don't duplicate across multiple modifications.
+        non_tempered_mods = [m for m in props["modifications"]
+                             if m not in ("beta_annealed", "threshold_annealed")]
         label_parts = []
-        if not non_beta_mods:
+        if not non_tempered_mods:
             if not final_plots:
                 label_parts.append("No Bonus")
         else:
-            for mod in non_beta_mods:
+            for mod in non_tempered_mods:
                 label_parts.extend(
                     _label_parts_for_mod(mod, prefix, props, final_plots=final_plots)
                 )
 
         # Shared tail — appended once regardless of modification count.
-        # Beta annealing is emitted before the LR fragments so the tempered
-        # schedule reads as a property of the run rather than a trailing note.
+        # Tempering (beta / threshold) annealing is emitted before the LR fragments so
+        # the schedule reads as a property of the run rather than a trailing note.
         if props["beta_annealed"]:
             beta_match = re.search(r'_s(-?[\d.]+)_b(-?[\d.]+)', prefix)
             if beta_match:
@@ -758,6 +852,14 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
                 if final_plots:
                     beta_label = "Tempered " + beta_label
                 label_parts.append(beta_label)
+        if props["threshold_annealed"]:
+            thr_match = re.search(r'_it(-?[\d.]+)to(-?[\d.]+)(linear|log)', prefix)
+            if thr_match:
+                schedule_suffix = "" if final_plots else f" ({thr_match.group(3)})"
+                thr_label = r"$\eta$: " + thr_match.group(1) + r"$\to$" + thr_match.group(2) + schedule_suffix
+                if final_plots:
+                    thr_label = "Tempered " + thr_label
+                label_parts.append(thr_label)
 
         # LR fragments are suppressed entirely in final_plots mode so the legend
         # stays compact (just the method + key hyperparameters like alpha/beta).
@@ -802,7 +904,11 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
             rt_beta = rt_match.group(2)
             label_parts.insert(0, f"REINFORCE (reward transform, alpha={rt_alpha}, beta={rt_beta})")
         elif loss_type_str is not None:
-            label_parts.insert(0, loss_type_str)
+            # In final_plots mode the "CTL" tag is treated as the default and
+            # dropped from the legend (CTLN/RLOO are kept since they differ
+            # from the default).
+            if not (final_plots and loss_type_str == "CTL"):
+                label_parts.insert(0, loss_type_str)
 
         # Check for mixeval prefix
         if prefix.startswith("f_q_g_q_iwae_bounds_mixeval"):
@@ -816,7 +922,18 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
             if beta_match:
                 label_parts.append(r"$\beta$=" + beta_match.group(1))
 
-        labels.append(", ".join(label_parts))
+        # In final_plots mode, fall back to "Baseline" when nothing else
+        # identifies the run (e.g. no-bonus + CTL, where both the "No Bonus"
+        # tag and the "CTL" loss-type tag have been stripped).
+        if final_plots and not label_parts:
+            label_parts.append("Baseline")
+
+        # Strip a redundant ".0" from any number in the label so e.g.
+        # "20.0->50.0" reads as "20->50".  The negative lookahead avoids
+        # touching values like "0.001" or "10.05" where digits follow the
+        # fractional part.
+        label = re.sub(r'(-?\d+)\.0(?![0-9])', r'\1', ", ".join(label_parts))
+        labels.append(label)
 
     return labels
 
@@ -859,17 +976,21 @@ def mean_of_per_prompt_bounds(per_prompt_list):
 def compute_global_logZ_from_iwae_bounds(loaded_data):
     """
     Compute global log Z from IWAE bounds across all experiments and seeds.
-    
+
     Args:
         loaded_data: List of experiments, where each experiment is a list of seeds.
-                     Each seed contains a tuple (f_q_estimates_list, g_q_estimates_list, 
+                     Each seed contains a tuple (f_q_estimates_list, g_q_estimates_list,
                      iwae_lbs_list, iwae_ubs_list)
-    
+
     Returns:
         float: Median global log Z value across all seed and experiment estimates
     """
     all_logZ_estimates = []
-    
+    # Track the (max_lb, min_ub) pair underlying each midpoint estimate, so we can
+    # report the bounds that go into the median log Z midpoint.
+    all_max_lbs = []
+    all_min_ubs = []
+
     for exp_data in loaded_data:
         # Per-seed log Z
         for f_q_estimates_list, g_q_estimates_list, iwae_lbs_list, iwae_ubs_list in exp_data:
@@ -881,8 +1002,12 @@ def compute_global_logZ_from_iwae_bounds(loaded_data):
                 continue
             lb_per_t = [to_scalar(x) for x in valid_lbs]
             ub_per_t = [to_scalar(x) for x in valid_ubs]
-            logZ_seed = (max(lb_per_t) + min(ub_per_t)) / 2.0
+            max_lb_seed = max(lb_per_t)
+            min_ub_seed = min(ub_per_t)
+            logZ_seed = (max_lb_seed + min_ub_seed) / 2.0
             all_logZ_estimates.append(logZ_seed)
+            all_max_lbs.append(max_lb_seed)
+            all_min_ubs.append(min_ub_seed)
 
         # Per-experiment log Z (average lb/ub per timestep across seeds, then midpoint)
         if len(exp_data) == 0:
@@ -901,12 +1026,53 @@ def compute_global_logZ_from_iwae_bounds(loaded_data):
         lb_per_t = [np.mean(vals) for vals in lb_per_t_raw if len(vals) > 0]
         ub_per_t = [np.mean(vals) for vals in ub_per_t_raw if len(vals) > 0]
         if lb_per_t and ub_per_t:
-            all_logZ_estimates.append((max(lb_per_t) + min(ub_per_t)) / 2.0)
-    
+            max_lb_exp = max(lb_per_t)
+            min_ub_exp = min(ub_per_t)
+            all_logZ_estimates.append((max_lb_exp + min_ub_exp) / 2.0)
+            all_max_lbs.append(max_lb_exp)
+            all_min_ubs.append(min_ub_exp)
+
     if not all_logZ_estimates:
         raise ValueError("No log Z estimates found in loaded data")
-    
+
     global_logZ = float(np.median(all_logZ_estimates))
+
+    # Report the bounds used in the midpoint computation. The function returns the
+    # median over multiple per-seed/per-experiment midpoints, so we report:
+    #   - the LB/UB pair underlying the median estimate (or the two flanking ones,
+    #     averaged, if there is an even number of estimates), and
+    #   - the pooled tightest sandwich (max LB, min UB) across all estimates.
+    estimates_arr = np.asarray(all_logZ_estimates, dtype=float)
+    max_lbs_arr = np.asarray(all_max_lbs, dtype=float)
+    min_ubs_arr = np.asarray(all_min_ubs, dtype=float)
+    sort_idx = np.argsort(estimates_arr)
+    n = len(estimates_arr)
+    if n % 2 == 1:
+        median_idx = sort_idx[n // 2]
+        median_lb = float(max_lbs_arr[median_idx])
+        median_ub = float(min_ubs_arr[median_idx])
+    else:
+        i_lo = sort_idx[n // 2 - 1]
+        i_hi = sort_idx[n // 2]
+        median_lb = float((max_lbs_arr[i_lo] + max_lbs_arr[i_hi]) / 2.0)
+        median_ub = float((min_ubs_arr[i_lo] + min_ubs_arr[i_hi]) / 2.0)
+
+    pooled_max_lb = float(np.max(max_lbs_arr))
+    pooled_min_ub = float(np.min(min_ubs_arr))
+    pooled_midpoint = (pooled_max_lb + pooled_min_ub) / 2.0
+
+    print(
+        f"  log Z midpoint estimate = {global_logZ:.4f} "
+        f"(median over {n} per-seed/per-experiment midpoints); "
+        f"bounds at the median: LB = {median_lb:.4f}, UB = {median_ub:.4f}, "
+        f"midpoint = {(median_lb + median_ub) / 2.0:.4f}"
+    )
+    print(
+        f"  log Z pooled sandwich across all estimates: max LB = {pooled_max_lb:.4f}, "
+        f"min UB = {pooled_min_ub:.4f}, midpoint = {pooled_midpoint:.4f}, "
+        f"gap (UB-LB) = {pooled_min_ub - pooled_max_lb:.4f}"
+    )
+
     return global_logZ
 
 
@@ -1272,7 +1438,7 @@ def plot_top_tokens_bar_chart(
     n_tokens = len(top_n_tokens)
     has_base_data = len(base_by_setting) > 0
 
-    plt.figure(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
+    plt.figure(figsize=(_scale_w(max(6, n_tokens * 0.675)), _scale_h(5)))
 
     # Number of bar groups: one per setting + optionally one for base
     n_groups = n_settings + (1 if has_base_data else 0)
@@ -1435,7 +1601,10 @@ def plot_top_tokens_lollipop(
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
+    # In final_plots mode, halve the width again on top of _scale_w's 2/3 to
+    # test a more compact lollipop layout (sampling_top_<N>_tokens_lollipop_final).
+    _extra_w_factor = 0.5 if _final_plots_enabled() else 1.0
+    fig, ax = plt.subplots(figsize=(_scale_w(max(6, n_tokens * 0.675)) * _extra_w_factor, _scale_h(5)))
 
     # Horizontal spacing: settings are offset within each token position
     dot_spacing = 0.12
@@ -1461,7 +1630,7 @@ def plot_top_tokens_lollipop(
     dash_half_width = (total_width / 2 + dot_spacing * 0.6) if n_settings > 1 else 0.15
     _draw_target_dashes(ax, x_positions, target_means, dash_half_width)
 
-    # Draw base model markers (if available): dashed horizontal line per token
+    # Draw base model markers (if available): dotted horizontal line per token
     if has_base_data:
         base_label_added = False
         for token_idx in range(n_tokens):
@@ -1471,7 +1640,7 @@ def plot_top_tokens_lollipop(
             ax.plot(
                 [x_positions[token_idx] - dash_half_width, x_positions[token_idx] + dash_half_width],
                 [base_means[token_idx], base_means[token_idx]],
-                color='gray', linewidth=2, linestyle='--', solid_capstyle='butt', label=label, zorder=3,
+                color='gray', linewidth=2, linestyle=':', solid_capstyle='butt', label=label, zorder=3,
             )
             base_label_added = True
 
@@ -1505,11 +1674,24 @@ def plot_top_tokens_lollipop(
     ax.set_xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
     time_label = " (final step)" if final_only else " (avg over time)"
-    ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Probability of q{time_label}', fontsize=fontsize + 1)
+    if _final_plots_enabled():
+        ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Prob of q{time_label}', fontsize=fontsize + 1)
+    else:
+        ax.set_title(f'Top {n_top_tokens} Target Tokens: Log Probability of q{time_label}', fontsize=fontsize + 1)
     ax.set_xticks(x_positions)
     ax.set_xticklabels(_maybe_hide_token_labels([_token_label(token_id, tokenizer) for token_id in top_n_tokens]), fontsize=fontsize - 1)
     ax.tick_params(axis='y', labelsize=fontsize)
-    ax.legend(fontsize=legendfontsize)
+    if _final_plots_enabled():
+        # In final_plots mode, restrict the legend to just the σ (target) and
+        # p (base) reference lines — the per-setting q markers are identifiable
+        # via color/marker shape and clutter the legend at this width.
+        handles, lgd_labels = ax.get_legend_handles_labels()
+        keep = {r"$\sigma$ (target)", r"$p$ (base)"}
+        filtered = [(h, l) for h, l in zip(handles, lgd_labels) if l in keep]
+        if filtered:
+            ax.legend(*zip(*filtered), fontsize=legendfontsize)
+    else:
+        ax.legend(fontsize=legendfontsize)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
     plt.tight_layout()
 
@@ -1520,7 +1702,7 @@ def plot_top_tokens_lollipop(
 
     # --- Individual-seed plot (reuses precomputed data) ---
     if figname_individual is not None:
-        fig_ind, ax_ind = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
+        fig_ind, ax_ind = plt.subplots(figsize=(_scale_w(max(6, n_tokens * 0.675)), _scale_h(5)))
 
         _draw_target_dashes(ax_ind, x_positions, target_means, dash_half_width)
 
@@ -1649,20 +1831,13 @@ def plot_top_tokens_lollipop_over_time(
         return
 
     # Compute evenly-spaced timestep indices (same logic as _generate_kl_frontier_plots)
-    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
-    seen = set()
-    unique_frontier_indices = []
-    for idx in frontier_indices:
-        if idx not in seen:
-            seen.add(idx)
-            unique_frontier_indices.append(idx)
-    frontier_indices = unique_frontier_indices
+    frontier_indices = _compute_frontier_indices(max_T, n_frontiers)
     n_times = len(frontier_indices)
 
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
+    fig, ax = plt.subplots(figsize=(_scale_w(max(6, n_tokens * 0.675)), _scale_h(5)))
 
     # Horizontal spacing: settings offset within each token position
     dot_spacing = 0.12
@@ -1838,20 +2013,13 @@ def plot_sample_counts_over_time(
         return
 
     # Compute evenly-spaced timestep indices
-    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
-    seen = set()
-    unique_frontier_indices = []
-    for idx in frontier_indices:
-        if idx not in seen:
-            seen.add(idx)
-            unique_frontier_indices.append(idx)
-    frontier_indices = unique_frontier_indices
+    frontier_indices = _compute_frontier_indices(max_T, n_frontiers)
     n_times = len(frontier_indices)
 
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
+    fig, ax = plt.subplots(figsize=(_scale_w(max(6, n_tokens * 0.675)), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -1957,7 +2125,7 @@ def plot_sample_counts_final_individual(
     n_settings = len(labels)
     n_tokens = len(top_n_tokens)
 
-    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
+    fig, ax = plt.subplots(figsize=(_scale_w(max(6, n_tokens * 0.675)), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -2230,7 +2398,11 @@ def plot_vocab_coverage_curve(
 
     ax.set_xlabel('Evaluation Step', fontsize=fontsize)
     ax.set_ylabel('Fraction of Vocab Tokens Discovered', fontsize=fontsize)
-    ax.set_title(f'Vocab Coverage: Fraction of All Tokens Sampled by q (n_vocab={n_vocab})', fontsize=fontsize + 1)
+    ax.set_title(
+        'Fraction of Vocab Tokens Sampled by q' if _final_plots_enabled()
+        else 'Vocab Coverage: Fraction of All Tokens Sampled by q',
+        fontsize=fontsize + 1,
+    )
     # Dynamic y-axis: scale to data range with a small margin
     y_lo, y_hi = ax.get_ylim()
     margin = (y_hi - y_lo) * 0.05 if y_hi > y_lo else 0.05
@@ -2365,7 +2537,11 @@ def plot_vocab_coverage_from_history(
 
     ax.set_xlabel('Fit Step', fontsize=fontsize)
     ax.set_ylabel('Fraction of Vocab Tokens Discovered', fontsize=fontsize)
-    ax.set_title(f'Vocab Coverage: Fraction of All Tokens Sampled by q (n_vocab={n_vocab})', fontsize=fontsize + 1)
+    ax.set_title(
+        'Fraction of Vocab Tokens Sampled by q' if _final_plots_enabled()
+        else 'Vocab Coverage: Fraction of All Tokens Sampled by q',
+        fontsize=fontsize + 1,
+    )
     y_lo, y_hi = ax.get_ylim()
     margin = (y_hi - y_lo) * 0.05 if y_hi > y_lo else 0.05
     ax.set_ylim(max(0, y_lo - margin), y_hi + margin)
@@ -2422,17 +2598,10 @@ def plot_target_token_counts_over_time(
         return
 
     # Evenly-spaced timestep indices
-    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
-    seen = set()
-    unique_frontier_indices = []
-    for idx in frontier_indices:
-        if idx not in seen:
-            seen.add(idx)
-            unique_frontier_indices.append(idx)
-    frontier_indices = unique_frontier_indices
+    frontier_indices = _compute_frontier_indices(max_T, n_frontiers)
     n_times = len(frontier_indices)
 
-    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
+    fig, ax = plt.subplots(figsize=(_scale_w(max(6, n_tokens * 0.675)), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -2545,7 +2714,7 @@ def plot_target_token_counts_final_individual(
 
     n_settings = len(labels)
 
-    fig, ax = plt.subplots(figsize=(max(6, n_tokens * 0.675), _scale_h(5)))
+    fig, ax = plt.subplots(figsize=(_scale_w(max(6, n_tokens * 0.675)), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -2713,7 +2882,7 @@ def _plot_visitation_2d(
         avg_counts = np.mean(seed_counts, axis=0)
 
         # --- Build the figure ---
-        fig, ax = plt.subplots(1, 1, figsize=(10, _scale_h(8)))
+        fig, ax = plt.subplots(1, 1, figsize=(_scale_w(10), _scale_h(8)))
 
         # 1. Target distribution density as yellow dots with alpha proportional to probability
         # Build a full-vocab log prob array; tokens not in target_by_setting get -inf
@@ -2892,14 +3061,7 @@ def plot_visitation_heatmaps(
         return
 
     # Compute evenly-spaced frontier timestep indices
-    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
-    seen = set()
-    unique_frontier_indices = []
-    for idx in frontier_indices:
-        if idx not in seen:
-            seen.add(idx)
-            unique_frontier_indices.append(idx)
-    frontier_indices = unique_frontier_indices
+    frontier_indices = _compute_frontier_indices(max_T, n_frontiers)
     n_times = len(frontier_indices)
 
     # Grid dimensions: reshape n_vocab into roughly square grid
@@ -2986,7 +3148,7 @@ def plot_visitation_heatmaps(
 
         # --- Incremental (new visitations) PDF ---
         n_diff_panels = len(diff_grids)
-        fig_diff, axes_diff = plt.subplots(1, n_diff_panels, figsize=(3.5 * n_diff_panels, _scale_h(3.5)))
+        fig_diff, axes_diff = plt.subplots(1, n_diff_panels, figsize=(_scale_w(3.5 * n_diff_panels), _scale_h(3.5)))
         if n_diff_panels == 1:
             axes_diff = [axes_diff]
 
@@ -3021,7 +3183,7 @@ def plot_visitation_heatmaps(
         print(f"Incremental visitation heatmap saved to {diff_figname}")
 
         # --- Cumulative PDF ---
-        fig_cum, ax_cum = plt.subplots(figsize=(4, _scale_h(4)))
+        fig_cum, ax_cum = plt.subplots(figsize=(_scale_w(4), _scale_h(4)))
 
         cum_max = np.max(cumulative) if np.max(cumulative) > 0 else 1
         padded_cum = np.concatenate([cumulative, np.full(n_pad, np.nan)]) if n_pad > 0 else cumulative.copy()
@@ -3139,7 +3301,7 @@ def plot_top_q_intersection_lollipop(
     setting_offsets = np.linspace(-total_width / 2, total_width / 2, n_settings) if n_settings > 1 else np.array([0.0])
 
     # --- Aggregate (bootstrap CI) plot ---
-    fig, ax = plt.subplots(figsize=(max(8, n_positions * 0.45), _scale_h(5)))
+    fig, ax = plt.subplots(figsize=(_scale_w(max(8, n_positions * 0.45)), _scale_h(5)))
 
     _draw_target_dashes(ax, x_positions, target_means, dash_half_width, linewidth=1.5)
 
@@ -3196,7 +3358,7 @@ def plot_top_q_intersection_lollipop(
 
     # --- Individual-seed plot (reuses precomputed data) ---
     if figname_individual is not None:
-        fig_ind, ax_ind = plt.subplots(figsize=(max(8, n_positions * 0.45), _scale_h(5)))
+        fig_ind, ax_ind = plt.subplots(figsize=(_scale_w(max(8, n_positions * 0.45)), _scale_h(5)))
 
         _draw_target_dashes(ax_ind, x_positions, target_means, dash_half_width, linewidth=1.5)
 
@@ -3655,14 +3817,7 @@ def plot_sis_weight_histogram_over_time(
     bin_edges = np.linspace(bin_lo, 1.0, n_bins + 1)
 
     # Compute evenly-spaced timestep indices
-    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
-    seen = set()
-    unique_frontier_indices = []
-    for idx in frontier_indices:
-        if idx not in seen:
-            seen.add(idx)
-            unique_frontier_indices.append(idx)
-    frontier_indices = unique_frontier_indices
+    frontier_indices = _compute_frontier_indices(max_T, n_frontiers)
     n_times = len(frontier_indices)
 
     # Alpha progression: light (early) to dark (late)
@@ -3696,7 +3851,7 @@ def plot_sis_weight_histogram_over_time(
                         ci_hi[setting_idx, bin_idx, time_i] = _bootstrap_mean_ci(vals, n_bootstrap_draws)
 
     # Plot
-    fig, ax = plt.subplots(figsize=(max(8, n_bins * 1.2), _scale_h(5)))
+    fig, ax = plt.subplots(figsize=(_scale_w(max(8, n_bins * 1.2)), _scale_h(5)))
 
     dot_spacing = 0.12
     total_width = dot_spacing * (n_settings - 1)
@@ -4034,11 +4189,11 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
         fig, ax = plt.subplots()
 
     if s3_ref is not None:
-        # When both references present: series3 = black solid (primary), series2 = gray dashed
+        # When both references present: series3 = black solid (primary), series2 = gray dotted
         _draw_target_dashes(ax, x_positions, s3_ref, dash_half_width, linewidth=2,
                             label_text=series3_name)
         _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
-                            label_text=series2_name, color='dimgray', linestyle='--')
+                            label_text=series2_name, color='dimgray', linestyle=':')
     else:
         # Single reference: series2 = black solid
         _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
@@ -4071,7 +4226,7 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
     if _final_plots_enabled():
         ax.set_xlabel('Target Sequence', fontsize=fontsize)
         ax.set_ylabel('Log Probability', fontsize=fontsize)
-        ax.set_title('Exact Target Sequences: Log Probability of q (final step)',
+        ax.set_title(r'Exact $\sigma$ Sequences: Log Prob of q (final step)',
                      fontsize=fontsize + 1)
     else:
         ax.set_xlabel(f'Target Sequence Index (sorted by descending {sort_series_name})',
@@ -4183,14 +4338,7 @@ def plot_two_series_lollipop_over_time(
         return
 
     # Compute evenly-spaced frontier indices (deduplicated)
-    frontier_indices = [round((max_T - 1) * i / n_frontiers) for i in range(1, n_frontiers + 1)]
-    seen = set()
-    unique_frontier_indices = []
-    for idx in frontier_indices:
-        if idx not in seen:
-            seen.add(idx)
-            unique_frontier_indices.append(idx)
-    frontier_indices = unique_frontier_indices
+    frontier_indices = _compute_frontier_indices(max_T, n_frontiers)
     n_times = len(frontier_indices)
     alphas = np.linspace(0.25, 1.0, n_times)
 
@@ -4585,42 +4733,42 @@ def plot_top_q_samples_ranked_lollipop(
     print(f"Top-q samples ranked lollipop saved to {figname}")
 
 
-def compute_iwae_vs_n_curves(f_qs_by_prompt, g_qs_by_prompt, n_values, n_bootstrap=None, rng_seed=42):
-    """Compute IWAE lower and upper bounds as a function of N *total* samples, averaged over prompts.
+def compute_iwae_vs_k_curves(f_qs_by_prompt, g_qs_by_prompt, k_values, n_bootstrap=None, rng_seed=42):
+    """Compute IWAE lower and upper bounds as a function of K *total* samples, averaged over prompts.
 
-    N is the total sample count for both bounds:
-      LB(N): uses N proposal samples from q.
-        LB(N) = log(1/N * sum_{i=1}^{N} w_i)   where w_i = p0(x)*phi(x)/q(x)
-      UB(N): uses 1 exact target sample + (N-1) proposal samples from q.
-        UB(N) = log(1/N * (w_target + sum_{i=1}^{N-1} w_i))
+    K is the total sample count for both bounds:
+      LB(K): uses K proposal samples from q.
+        LB(K) = log(1/K * sum_{i=1}^{K} w_i)   where w_i = p0(x)*phi(x)/q(x)
+      UB(K): uses 1 exact target sample + (K-1) proposal samples from q.
+        UB(K) = log(1/K * (w_target + sum_{i=1}^{K-1} w_i))
 
-    Both are on the same x-axis in terms of total samples used, so at N=4 the UB uses
+    Both are on the same x-axis in terms of total samples used, so at K=4 the UB uses
     1 exact target + 3 proposal samples, and the LB uses 4 proposal samples.
 
-    For LB: M independent draws each pick N proposal samples (without replacement) from the saved
+    For LB: M independent draws each pick K proposal samples (without replacement) from the saved
     pool and compute IWAE LB; results are averaged. M = number of available target samples.
 
     For UB: iterates over every target sample exactly once. For each target sample m, one
-    independent draw of (N-1) proposal samples is made; the M resulting UB values are averaged.
+    independent draw of (K-1) proposal samples is made; the M resulting UB values are averaged.
     This gives every target sample equal weight with no random target selection.
 
     Results are averaged across all valid prompts.
 
     Args:
-        f_qs_by_prompt: list of numpy arrays of shape (N_max,), one per prompt.  Each entry is a
+        f_qs_by_prompt: list of numpy arrays of shape (K_max,), one per prompt.  Each entry is a
             vector of log-importance-weights log(p0(x)*phi(x)/q(x)) for samples from q.
         g_qs_by_prompt: list of numpy arrays of shape (M,), one per prompt.  M target samples'
             log-weights; all M are used (each bootstrap draw picks one at random for the UB).
-        n_values: list of int total sample counts to evaluate (must all be >= 1).
-        n_bootstrap: number of independent draws used to estimate E[LB(N)] and E[UB(N)] at each N.
-            Each draw uses exactly N samples (x-axis value). Defaults to None, which sets it to
+        k_values: list of int total sample counts to evaluate (must all be >= 1).
+        n_bootstrap: number of independent draws used to estimate E[LB(K)] and E[UB(K)] at each K.
+            Each draw uses exactly K samples (x-axis value). Defaults to None, which sets it to
             the number of available target samples M (so every target sample is represented in the
-            UB estimate). For N=1 UB, averages directly over all M target samples exactly.
+            UB estimate). For K=1 UB, averages directly over all M target samples exactly.
         rng_seed: base integer seed; each prompt uses rng_seed + prompt_index for independence.
 
     Returns:
-        lb_curve: numpy array of shape (len(n_values),), mean LB across valid prompts.
-        ub_curve: numpy array of shape (len(n_values),), mean UB across valid prompts.
+        lb_curve: numpy array of shape (len(k_values),), mean LB across valid prompts.
+        ub_curve: numpy array of shape (len(k_values),), mean UB across valid prompts.
         Both are None if no valid prompts are available.
     """
     from scipy.special import logsumexp
@@ -4633,51 +4781,51 @@ def compute_iwae_vs_n_curves(f_qs_by_prompt, g_qs_by_prompt, n_values, n_bootstr
             continue
         f_qs = np.asarray(f_qs, dtype=float)
         g_qs = np.asarray(g_qs, dtype=float)
-        N_max = len(f_qs)
+        K_max = len(f_qs)
         M = len(g_qs)   # number of available target samples
         n_boot = M if n_bootstrap is None else n_bootstrap
         rng = np.random.default_rng(rng_seed + p_idx)
 
-        lb_at_n = []
-        ub_at_n = []
-        for N in n_values:
-            # ---- LB: N proposal samples ----
-            if N >= N_max:
-                lb_val = float(logsumexp(f_qs) - np.log(N_max))
+        lb_at_k = []
+        ub_at_k = []
+        for K in k_values:
+            # ---- LB: K proposal samples ----
+            if K >= K_max:
+                lb_val = float(logsumexp(f_qs) - np.log(K_max))
             else:
                 lb_boot = []
                 for _ in range(n_boot):
-                    idx = rng.choice(N_max, size=N, replace=False)
-                    lb_boot.append(float(logsumexp(f_qs[idx]) - np.log(N)))
+                    idx = rng.choice(K_max, size=K, replace=False)
+                    lb_boot.append(float(logsumexp(f_qs[idx]) - np.log(K)))
                 lb_val = float(np.mean(lb_boot))
 
-            # ---- UB: 1 exact target sample (drawn from all M) + (N-1) proposal samples ----
-            n_prop_ub = N - 1
-            if n_prop_ub <= 0:
-                # N=1: UB = each target sample's log-weight averaged over all M.
+            # ---- UB: 1 exact target sample (drawn from all M) + (K-1) proposal samples ----
+            k_prop_ub = K - 1
+            if k_prop_ub <= 0:
+                # K=1: UB = each target sample's log-weight averaged over all M.
                 # No proposals needed; exact mean over all available target samples.
                 ub_val = float(np.mean(g_qs))
-            elif n_prop_ub >= N_max:
-                # All N_max proposals available; still average over all M target samples.
+            elif k_prop_ub >= K_max:
+                # All K_max proposals available; still average over all M target samples.
                 ub_boot = []
                 for m in range(M):
                     all_w = np.concatenate([[g_qs[m]], f_qs])
-                    ub_boot.append(float(logsumexp(all_w) - np.log(N_max + 1)))
+                    ub_boot.append(float(logsumexp(all_w) - np.log(K_max + 1)))
                 ub_val = float(np.mean(ub_boot))
             else:
-                # One draw of (N-1) proposal samples per target sample; average over all M.
+                # One draw of (K-1) proposal samples per target sample; average over all M.
                 ub_boot = []
                 for m in range(M):
-                    idx = rng.choice(N_max, size=n_prop_ub, replace=False)
+                    idx = rng.choice(K_max, size=k_prop_ub, replace=False)
                     all_w = np.concatenate([[g_qs[m]], f_qs[idx]])
-                    ub_boot.append(float(logsumexp(all_w) - np.log(N)))
+                    ub_boot.append(float(logsumexp(all_w) - np.log(K)))
                 ub_val = float(np.mean(ub_boot))
 
-            lb_at_n.append(lb_val)
-            ub_at_n.append(ub_val)
+            lb_at_k.append(lb_val)
+            ub_at_k.append(ub_val)
 
-        lb_curves_per_prompt.append(np.array(lb_at_n))
-        ub_curves_per_prompt.append(np.array(ub_at_n))
+        lb_curves_per_prompt.append(np.array(lb_at_k))
+        ub_curves_per_prompt.append(np.array(ub_at_k))
 
     if not lb_curves_per_prompt:
         return None, None
