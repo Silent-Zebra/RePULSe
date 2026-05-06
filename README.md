@@ -1,8 +1,8 @@
 # RePULSe 
 
-This is the codebase for "Reducing the Probability of Undesirable Outputs in Language Models Using Probabilistic Inference", appearing at NeurIPS 2025.
+This is the codebase for "Improving Coverage in Probabilistic Inference for Language Models".
 
-ArXiv link to paper: https://arxiv.org/abs/2510.21184
+Paper link: TBD
 
 # Setup Notes:
 
@@ -70,19 +70,19 @@ pip install -e .
 
 # Commands Used in Experiments
 
-## Toy Experiment (Sec 4.2)
+## Toy Experiments
 
 Below I provide the deepspeed training commands, although these were auto-generated using my scripts. To use the sbatch-generating scripts, use commands like:
 `
-bash mk_sb_file_seed1_dcs_simple.sh $x
+bash mk_sb_file.sh --cluster default $x
 `
-where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace paths --save_path, --ckpt_path, --save_info_path, with your folder paths.
+where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace the arguments for --save_path, --ckpt_path, --save_info_path, --load_target_samples_name, --heldout_target_samples_name, with your folder paths and file names.
 
 You may then use 
 `
-bash mk_sb_files_seeds_2_to_x.sh 5 $x
+bash mk_sb_files_seeds_2_to_x.sh 10 $x
 `
-where $x should be the generated sbatch file, to generate sbatch files for seeds 2 to 5 for the same setting.
+where $x should be the generated sbatch file, to generate sbatch files for seeds 2 to 10 for the same setting.
 
 ### Example commands with 0 KL penalty (main paper figure)
 
