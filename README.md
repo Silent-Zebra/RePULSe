@@ -95,10 +95,26 @@ For tempering, add:
 ```--anneal_target_dist_beta --start_target_dist_beta 1```
 
 For CFN, add:
-```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 1 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0```
+```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 0 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0 --start_bonus_alpha 1 --bonus_alpha_schedule linear```
+
+### Setting 2
+
+Baseline command:
+```
+deepspeed --master_port 35121 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/exploretoyrlhfmulti03v5 --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/exploretoyrlhfmulti03v5 --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 5 --train_batch_size 5 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 5 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 1 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 20 --fit_steps 50 --save_info_path /h/319/stephenzhao/OpenRLHF/info/exploretoyrlhfmulti03v5 --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 3e-5 --critic_learning_rate 0 --base_actor_learning_rate 0 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 0 --init_kl_coef 0 --analytic_calc --new_custom_single_prompt --target_dist_beta -1 --analytic_batch_size 1024 --custom_prompt "2 + 2 =" 
+```
+
+For tempering, add:
+```--anneal_target_dist_beta --start_target_dist_beta -0.3```
+
+For CFN, add:
+```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 3 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0```
+
 
 
 Don't forget to discuss the exact sample collection code.
+
+Discuss the process of collecting the results also
 
 Then discuss plotting code below
 
