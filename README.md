@@ -78,6 +78,8 @@ bash mk_sb_file.sh --cluster default $x
 `
 where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace the arguments for --save_path, --ckpt_path, --save_info_path, --load_target_samples_name, --heldout_target_samples_name, with your folder paths and file names. Of course, you'd need to change the setup in mk_sb_file.sh in order to fit the specifics of your cluster.
 
+Note: for Setting 4, use a multi-node configuration, such as `bash mk_sb_file.sh --cluster multinode $x`
+
 You may then use 
 `
 bash mk_sb_files_seeds_2_to_x.sh 10 $x
