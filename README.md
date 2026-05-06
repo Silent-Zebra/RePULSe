@@ -189,8 +189,27 @@ For tempering, add:
 For CFN, add:
 ```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 10 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0 --coin_flip_pretrain HuggingFaceTB/SmolLM-135M-Instruct```
 
+### Setting 6
 
-Don't forget to discuss the exact sample collection code.
+First, collect exact target samples:
+```
+deepspeed --master_port 30111 --module openrlhf.cli.train_ppo --pretrain roneneldan/TinyStories-33M --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/tinystoriesbounds --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/tinystoriesbounds --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 5 --train_batch_size 5 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 5 --max_epochs 1 --prompt_max_len 200 --generate_max_len 10 --zero_stage 2 --prompt_data Silent-Zebra/10k_mixed_singleturn_2_1 --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 100 --fit_steps 50 --save_info_path /h/319/stephenzhao/OpenRLHF/info/tinystoriesbounds --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type indicator_below_threshold --threshold -5 --target_dist_beta 1 --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 0 --critic_learning_rate 0 --base_actor_learning_rate 0 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 0 --init_kl_coef 0 --new_custom_single_prompt --custom_prompt "Once upon a time, there was a" --rejection_sample_true_target_only --true_target_sample_amount 20 --batch_size_rejection_sample 500 --rm_max_len 300
+```
+
+Then run the following (changing file paths to match the output above as needed):
+
+Baseline command:
+```
+deepspeed --master_port 34861 --module openrlhf.cli.train_ppo --pretrain roneneldan/TinyStories-33M --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/tinystoriesbounds2 --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/tinystoriesbounds2 --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 5 --train_batch_size 5 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 5 --max_epochs 1 --prompt_max_len 200 --generate_max_len 10 --zero_stage 2 --prompt_data Silent-Zebra/10k_mixed_singleturn_2_1 --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 100 --fit_steps 50 --save_info_path /h/319/stephenzhao/OpenRLHF/info/tinystoriesbounds2 --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type indicator_below_threshold --threshold -5 --target_dist_beta 1 --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 3e-6 --critic_learning_rate 0 --base_actor_learning_rate 0 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 0 --init_kl_coef 0 --new_custom_single_prompt --custom_prompt "Once upon a time, there was a" --rm_max_len 300 --f_q_g_q_eval --n_samples_for_f_q_g_q 512 --load_target_samples_name /h/319/stephenzhao/OpenRLHF/checkpoint/tinystoriesbounds/target_samples_Ti33_To_indicator_below_threshold_l10_b1.0_thr-5.0_O_tsa20.pt --analytic_batch_size 512
+```
+
+For tempering, add:
+```--start_threshold 5```
+
+For CFN, add:
+```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 3 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0```
+
+
 
 Discuss the process of collecting the results also
 
