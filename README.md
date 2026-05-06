@@ -139,6 +139,14 @@ For tempering, add:
 For CFN, add:
 ```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 0 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0 --start_bonus_alpha 0.3 --bonus_alpha_schedule linear```
 
+For the combination of the above, directly add both of the above.
+
+For entropy, add:
+```--actor_loss_entropy_bonus 0.0003```
+
+For mixture, add:
+```--mixture_proposal --mixture_optimization q_independent --mixture_other_model lag --mixture_lag_steps 10```
+
 ### Setting 4
 
 First, collect exact target samples. For the train set:
@@ -189,6 +197,10 @@ For tempering, add:
 For CFN, add:
 ```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 10 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0 --coin_flip_pretrain HuggingFaceTB/SmolLM-135M-Instruct```
 
+For the combination of the above, directly add both of the above.
+
+For DPG, replace `--actor_loss_type ctl` with `--actor_loss_type ctl_nosecondterm` (and use `--start_threshold 0` instead).
+
 ### Setting 6
 
 First, collect exact target samples:
@@ -209,6 +221,11 @@ For tempering, add:
 For CFN, add:
 ```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 3 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0```
 
+For entropy, add:
+```--actor_loss_entropy_bonus 0.003```
+
+For mixture, add:
+```--mixture_proposal --mixture_optimization q_independent --mixture_other_model lag --mixture_lag_steps 10```
 
 ## Plotting Results
 
