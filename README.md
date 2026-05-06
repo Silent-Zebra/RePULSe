@@ -110,7 +110,27 @@ For tempering, add:
 For CFN, add:
 ```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 3 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0```
 
+## Larger Scale Experiments
 
+### Setting 3
+
+First, collect exact target samples:
+```
+deepspeed --master_port 30611 --module openrlhf.cli.train_ppo --pretrain HuggingFaceTB/SmolLM-135M-Instruct --apply_chat_template --reward_pretrain OpenAssistant/reward-model-deberta-v3-large-v2 --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/itremodevmultitestposfixedeval --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/itremodevmultitestposfixedeval --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 250 --train_batch_size 250 --micro_rollout_batch_size 50 --rollout_batch_size 50 --duplicate_rollout_batch_by 5 --max_epochs 1 --prompt_max_len 100 --generate_max_len 20 --zero_stage 2 --prompt_data Silent-Zebra/10k_mixed_singleturn_2_2 --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 2 --fit_steps 1 --save_info_path /h/319/stephenzhao/OpenRLHF/info/itremodevmultitestposfixedeval --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 0 --critic_learning_rate 0 --base_actor_learning_rate 0 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 0 --init_kl_coef 0 --target_dist_beta 20 --reward_cap 5 --rejection_sample_true_target_only --true_target_sample_amount 20 --n_samples_for_f_q 5 --batch_size_rejection_sample 500 --max_gen_per_prompt_rejection 20000 --max_gen_per_prompt_rejection_first_pass 2000 --rm_max_len 200
+```
+
+Then run the following (changing file paths to match the output above as needed):
+
+Baseline command:
+```
+deepspeed --master_port 37971 --module openrlhf.cli.train_ppo --pretrain HuggingFaceTB/SmolLM-135M-Instruct --apply_chat_template --reward_pretrain OpenAssistant/reward-model-deberta-v3-large-v2 --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/itremodevmultitestposfixedeval0504 --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/itremodevmultitestposfixedeval0504 --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 250 --train_batch_size 250 --micro_rollout_batch_size 50 --rollout_batch_size 50 --duplicate_rollout_batch_by 5 --max_epochs 1 --prompt_max_len 100 --generate_max_len 20 --zero_stage 2 --prompt_data Silent-Zebra/20k_mixed_singleturn_1 --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 2 --fit_steps 1 --save_info_path /h/319/stephenzhao/OpenRLHF/info/itremodevmultitestposfixedeval0504 --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl_nosecondterm --actor_learning_rate 3e-5 --critic_learning_rate 0 --base_actor_learning_rate 0 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 0 --init_kl_coef 0 --target_dist_beta 20 --reward_cap 5 --f_q_g_q_eval --n_samples_for_f_q_g_q 10 --n_prompts_f_q_g_q 50 --load_target_samples_name /h/319/stephenzhao/OpenRLHF/checkpoint/itremodevmultitestpos/target_samples_Sm13In_remodev3lav2_rlhf_l20_b20.0_rcap5.0_20misi1_tsa20.pt --f_q_g_q_eval_interval 2000 --rm_max_len 200 --n_eval_prompts_for_f_q 50 --heldout_prompt_data Silent-Zebra/10k_mixed_singleturn_2_1 --heldout_target_samples_name /h/319/stephenzhao/OpenRLHF/checkpoint/itremodevmultitestposfixedeval/target_samples_Sm13In_remodev3lav2_rlhf_l20_b20.0_rcap5.0_10misi21_tsa20.pt --heldout_input_key prompt
+```
+
+For tempering, add:
+``` --anneal_target_dist_beta --start_target_dist_beta 10```
+
+For CFN, add:
+```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 0 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0 --start_bonus_alpha 0.3 --bonus_alpha_schedule linear```
 
 Don't forget to discuss the exact sample collection code.
 
