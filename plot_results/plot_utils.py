@@ -5,6 +5,8 @@ import numpy as np
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+from matplotlib.markers import MarkerStyle
+from matplotlib.transforms import Affine2D
 
 
 # Marker constants for bonus types (legacy, kept for backward compatibility)
@@ -14,14 +16,22 @@ MARKER_CFN_REINF = "1"  # tri_down (unfilled) — used for REINF + CFN (non-anne
 MARKER_MIXTURE = "^"  # triangle up — used for CTL + mixture (non-annealed)
 MARKER_MIXTURE_REINF = "v"  # triangle down — used for REINF + mixture (non-annealed)
 MARKER_EXACT_COUNT = "D"
-MARKER_ENTROPY = "d"  # diamond (thin) — used for CTL + entropy
-MARKER_ENTROPY_REINF = "H"  # hexagon — used for REINF + entropy
+MARKER_ENTROPY = "h"  # hexagon — used for CTL + entropy (swapped with tempering)
+MARKER_ENTROPY_REINF = "<"  # left-pointing triangle — used for REINF + entropy (swapped with tempering)
 MARKER_ENTROPY_ANNEALED = "p"  # pentagon — used for CTL + annealed entropy
 MARKER_ENTROPY_ANNEALED_REINF = "8"  # octagon — used for REINF + annealed entropy
-MARKER_CFN_ANNEALED = "X"  # filled X — used for CTL + annealed CFN (changed from "^" which now denotes mixture)
-MARKER_CFN_ANNEALED_REINF = ">"  # right triangle — used for REINF + annealed CFN (changed from "v" which now denotes REINF+mixture)
-MARKER_BETA_ANNEALED = "h"  # hexagon2 — used for CTL + annealed beta
-MARKER_BETA_ANNEALED_REINF = "<"  # left-pointing triangle — used for REINF + annealed beta
+MARKER_CFN_ANNEALED = "X"  # filled X — DEPRECATED: annealed CFN now collapses onto MARKER_CFN ("P") in all modes
+MARKER_CFN_ANNEALED_REINF = ">"  # right triangle — DEPRECATED: annealed CFN now collapses onto MARKER_CFN_REINF ("1") in all modes
+MARKER_BETA_ANNEALED = "d"  # diamond (thin) — used for CTL + tempering (annealed beta / threshold)
+MARKER_BETA_ANNEALED_REINF = "H"  # filled hexagon — used for REINF + tempering
+MARKER_CFN_TEMPERING = "s"  # filled square — used for CTL + CFN + tempering combination
+MARKER_CFN_TEMPERING_REINF = "s"  # filled square — used for REINF + CFN + tempering combination
+MARKER_CFN_CTLN = "X"  # filled X (heavy/bold x) — used for CTLN + CFN
+# Thin diamond ("d") rotated 90° — wider-than-tall variant — used for CTLN + tempering.
+# Matplotlib has no built-in single-character marker for this orientation, so we
+# construct one via MarkerStyle + Affine2D rotation. ax.plot and ax.scatter both
+# accept MarkerStyle instances directly.
+MARKER_CTLN_TEMPERING = MarkerStyle("d", transform=Affine2D().rotate_deg(90))
 
 # Marker constants for loss types (used by semantic styling)
 MARKER_CTL = "o"
@@ -34,40 +44,75 @@ MARKER_EXACT_COUNT = "*"
 SEED_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">", "p"]
 
 
-# Global final-plots flag. When enabled via set_final_plots(True):
-#   - figure widths shrink to 2/3 (applied via _scale_w inside every figsize= call)
-#     so 3 plots fit per row instead of 2
-#   - figure heights shrink by 25% (applied via _scale_h inside every figsize= call)
-#   - token-name x-tick labels on top-token plots are hidden (via _final_plots_enabled)
-_FINAL_PLOTS = False
+# Global final-plots mode. One of:
+#   ""               : default verbose layout/labels (legacy False behavior)
+#   "final_main"     : compact layout for main-text figures (legacy True behavior).
+#                      Figure widths shrink to 2/3 (applied via _scale_w inside
+#                      every figsize= call) so 3 plots fit per row instead of 2,
+#                      heights shrink by 25% (via _scale_h), token-name x-tick
+#                      labels on top-token plots are hidden (via _final_plots_enabled),
+#                      and legend labels are stripped to method+key hyperparameters.
+#   "final_appendix" : verbose layout (same as "" for figure scaling), but with
+#                      legend tweaks: CTLN -> DPG, and LR / batch-size fragments
+#                      are dropped from labels.
+_FINAL_PLOTS_MODE = ""
+_VALID_FINAL_PLOTS_MODES = ("", "final_main", "final_appendix")
 _FINAL_WIDTH_FACTOR = 2.0 / 3.0
 _FINAL_HEIGHT_FACTOR = 0.75
 
 
-def set_final_plots(enabled):
-    """Toggle the final-plots mode. When enabled, all figure widths and heights
-    created via plt.subplots/plt.figure in plot_utils are scaled (2/3 width,
-    0.75 height); matplotlib's default figsize is likewise reduced so callers
-    without an explicit figsize also shrink; and per-token x-tick labels on
-    top-token plots are suppressed for a cleaner final look."""
-    global _FINAL_PLOTS
-    _FINAL_PLOTS = bool(enabled)
+def _final_plots_flags(final_plots):
+    """Normalize a final_plots input and return (mode_string, is_compact, is_appendix).
+
+    Accepts the canonical string forms ("", "final_main", "final_appendix"), None
+    (treated as ""), or a bool for backward compatibility (True -> "final_main",
+    False -> ""). Single source of truth for the string-vs-bool conversion, so
+    every public entry point can call this and reason about the resolved flags.
+    """
+    if isinstance(final_plots, bool):
+        final_plots = "final_main" if final_plots else ""
+    if final_plots is None:
+        final_plots = ""
+    if final_plots not in _VALID_FINAL_PLOTS_MODES:
+        raise ValueError(
+            f"Unknown final_plots mode: {final_plots!r}. "
+            f"Must be one of {_VALID_FINAL_PLOTS_MODES} or bool."
+        )
+    return final_plots, final_plots == "final_main", final_plots == "final_appendix"
+
+
+def set_final_plots(mode):
+    """Configure the final-plots mode globally.
+
+    Accepts "", "final_main", "final_appendix" (or bool for backward compat:
+    True -> "final_main", False -> ""). When the resolved mode is "final_main",
+    figure widths/heights created via plt.subplots/plt.figure in plot_utils are
+    scaled (2/3 width, 0.75 height), matplotlib's default figsize is likewise
+    reduced so callers without an explicit figsize also shrink, and per-token
+    x-tick labels on top-token plots are suppressed.
+
+    "final_appendix" leaves the figure scaling at its default (legacy False
+    behavior); only the label-generation logic differs (see generate_labels_from_prefixes).
+    """
+    global _FINAL_PLOTS_MODE
+    mode, is_compact, _is_appendix = _final_plots_flags(mode)
+    _FINAL_PLOTS_MODE = mode
     # Scale matplotlib's default so plt.subplots() calls without explicit
-    # figsize also pick up the reduced size.
+    # figsize also pick up the reduced size — only in compact ("final_main") mode.
     default_w, default_h = 6.4, 4.8  # matplotlib defaults
-    width_factor = _FINAL_WIDTH_FACTOR if _FINAL_PLOTS else 1.0
-    height_factor = _FINAL_HEIGHT_FACTOR if _FINAL_PLOTS else 1.0
+    width_factor = _FINAL_WIDTH_FACTOR if is_compact else 1.0
+    height_factor = _FINAL_HEIGHT_FACTOR if is_compact else 1.0
     plt.rcParams['figure.figsize'] = [default_w * width_factor, default_h * height_factor]
 
 
 def _scale_w(w):
-    """Scale a figure width by the current final-plots factor (2/3 when enabled)."""
-    return w * (_FINAL_WIDTH_FACTOR if _FINAL_PLOTS else 1.0)
+    """Scale a figure width by the current final-plots factor (2/3 in compact mode)."""
+    return w * (_FINAL_WIDTH_FACTOR if _final_plots_enabled() else 1.0)
 
 
 def _scale_h(h):
-    """Scale a figure height by the current final-plots factor (0.75 when enabled)."""
-    return h * (_FINAL_HEIGHT_FACTOR if _FINAL_PLOTS else 1.0)
+    """Scale a figure height by the current final-plots factor (0.75 in compact mode)."""
+    return h * (_FINAL_HEIGHT_FACTOR if _final_plots_enabled() else 1.0)
 
 
 def _compute_frontier_indices(max_T, n_frontiers):
@@ -97,15 +142,25 @@ def _compute_frontier_indices(max_T, n_frontiers):
 
 
 def _final_plots_enabled():
-    """Return True if final-plots mode is active."""
-    return _FINAL_PLOTS
+    """Return True iff the compact final-plots layout ("final_main") is active.
+
+    The "final_appendix" mode keeps the verbose layout (and only tweaks legend
+    labels), so it intentionally does *not* trigger the figure scaling / token
+    label hiding driven by this helper.
+    """
+    return _FINAL_PLOTS_MODE == "final_main"
+
+
+def _final_plots_mode():
+    """Return the current final-plots mode string ("", "final_main", "final_appendix")."""
+    return _FINAL_PLOTS_MODE
 
 
 def _maybe_hide_token_labels(tick_labels):
     """Return the passed x-tick labels unchanged, or a list of empty strings
-    when final-plots mode is on (so tick marks remain but token names are
-    suppressed for a less cluttered final-version x-axis)."""
-    if _FINAL_PLOTS:
+    when compact final-plots mode is on (so tick marks remain but token names
+    are suppressed for a less cluttered final-version x-axis)."""
+    if _final_plots_enabled():
         return ['' for _ in tick_labels]
     return tick_labels
 
@@ -153,6 +208,67 @@ def do_load_prefixes(results_list, load_prefixes_to_use, load_dir="./info", map_
             except Exception as e:
                 print(f"Warning: Failed to load {load_prefix}")
                 print(e)
+
+
+def save_seed_counts_to_file(load_prefixes_to_use, results_list, output_path,
+                             labels=None, final_plots=""):
+    """Write a per-method seed count summary file.
+
+    For each method (each entry in load_prefixes_to_use), record:
+      - method label (auto-generated from prefixes if labels not provided)
+      - number of requested seeds (len of inner prefix list)
+      - number of seeds successfully loaded (len of corresponding results_list entry)
+      - number of missing seeds (requested - loaded)
+
+    File format inferred from output_path extension:
+      .json -> JSON, .csv -> CSV, anything else -> human-readable text.
+    """
+    import csv
+    import json
+    import os
+
+    if labels is None or len(labels) != len(load_prefixes_to_use):
+        labels = generate_labels_from_prefixes(load_prefixes_to_use, final_plots=final_plots)
+
+    rows = []
+    for i, prefix_list in enumerate(load_prefixes_to_use):
+        n_req = len(prefix_list)
+        n_loaded = len(results_list[i]) if i < len(results_list) else 0
+        rows.append({
+            "method": labels[i] if i < len(labels) else f"method_{i}",
+            "requested_seeds": int(n_req),
+            "loaded_seeds": int(n_loaded),
+            "missing_seeds": int(n_req - n_loaded),
+        })
+
+    parent_dir = os.path.dirname(output_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
+    ext = output_path.lower().rsplit(".", 1)[-1] if "." in output_path else ""
+
+    if ext == "json":
+        with open(output_path, "w") as f:
+            json.dump(rows, f, indent=2)
+    elif ext == "csv":
+        with open(output_path, "w", newline="") as f:
+            writer = csv.DictWriter(
+                f, fieldnames=["method", "requested_seeds", "loaded_seeds", "missing_seeds"]
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+    else:
+        with open(output_path, "w") as f:
+            method_w = max((len(r["method"]) for r in rows), default=10)
+            method_w = min(method_w, 80)
+            f.write(f"{'method':<{method_w}}  {'requested':>10}  {'loaded':>10}  {'missing':>10}\n")
+            f.write("-" * (method_w + 36) + "\n")
+            for row in rows:
+                method = row["method"][:method_w]
+                f.write(f"{method:<{method_w}}  {row['requested_seeds']:>10}  "
+                        f"{row['loaded_seeds']:>10}  {row['missing_seeds']:>10}\n")
+
+    print(f"Seed counts saved to: {output_path}")
 
 
 def _parse_experiment_properties(prefix):
@@ -341,8 +457,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         - Color hue: per-modification colormap
             - No bonus (baselines): Greys
             - CFN: Blues colormap, shade encodes alpha value (lighter=smaller, darker=larger)
-            - Entropy bonus: Reds colormap, shade encodes alpha value
-            - Beta-annealed: Greens colormap, shade encodes start-beta value
+            - Entropy bonus: Greens colormap, shade encodes alpha value
+            - Tempering (beta- or threshold-annealed): Reds colormap, shade encodes start value
             - Mixture (q_independent): Purples; other mixture variants: RdPu
             - Exact count: cm.YlGnBu, shade encodes LR rank
         - Combined-setting runs: the final color is the RGBA average of every
@@ -368,12 +484,34 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         first_prefix = prefix_list[0] if prefix_list else ""
         props_list.append(_parse_experiment_properties(first_prefix))
 
-    # 2. Collect unique LRs (excluding None), sorted ascending
+    # 2. Collect unique LRs (excluding None), sorted ascending.
+    #    The LR rank drives the within-color shade `t` in default and final_main
+    #    modes. In final_appendix mode, `t` is essentially unused — the per-mod
+    #    branches below override the shade based on loss type instead (CTL anchors
+    #    at the default per-mod shade; CTLN/DPG renders a lighter version of it).
+    is_appendix_mode = _final_plots_mode() == "final_appendix"
     unique_lrs = sorted(set(p["learning_rate"] for p in props_list if p["learning_rate"] is not None))
     if len(unique_lrs) <= 1:
         lr_position = {lr: 0.5 for lr in unique_lrs}
     else:
         lr_position = {lr: i / (len(unique_lrs) - 1) for i, lr in enumerate(unique_lrs)}
+
+    # Lightening fraction applied to CTLN/DPG shades in appendix mode, expressed as
+    # a fraction of each modification's shade range (so the visual gap stays
+    # proportional whether the colormap range is large like CFN's 0.30->0.90
+    # or small like mixture's narrow shade window).
+    APPENDIX_CTLN_LIGHTEN_FRAC = 0.4
+
+    def _appendix_lighten(base_shade, lo, hi, loss_type):
+        """Return base_shade for CTL (or any non-CTLN run); for CTLN, return a
+        shade lightened by APPENDIX_CTLN_LIGHTEN_FRAC of (hi - lo), clipped to lo.
+
+        Outside appendix mode, returns base_shade unchanged (shape-preserving
+        no-op — callers can wrap any computed shade without checking the mode).
+        """
+        if not is_appendix_mode or loss_type != "CTLN":
+            return base_shade
+        return max(lo, base_shade - APPENDIX_CTLN_LIGHTEN_FRAC * (hi - lo))
 
     # 3. Linestyle options for cycling within same-hue groups
     linestyle_options = ["solid", "dashed", "dotted", "dashdot", (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))]
@@ -390,12 +528,12 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         cfn_alpha_shade = {a: CFN_SHADE_LO + (CFN_SHADE_HI - CFN_SHADE_LO) * i / (len(unique_alphas) - 1)
                            for i, a in enumerate(unique_alphas)}
 
-    # 4a2. Entropy alpha -> shade within a single colormap (Reds).
+    # 4a2. Entropy alpha -> shade within a single colormap (Greens).
     #      Mirrors the CFN scheme: shade encodes alpha rank (lighter = smaller alpha,
-    #      darker = larger alpha). Keeping entropy on a single hue (red) makes it
+    #      darker = larger alpha). Keeping entropy on a single hue (green) makes it
     #      visually identifiable as a single "category" across runs, cleanly distinct
-    #      from CFN (blue), mixture qi (purple), beta-annealed (green) and base (grey).
-    ENTROPY_CMAP = cm.Reds
+    #      from CFN (blue), mixture qi (purple), tempering (red) and base (grey).
+    ENTROPY_CMAP = cm.Greens
     ENTROPY_SHADE_LO, ENTROPY_SHADE_HI = 0.30, 0.90
     unique_entropy_alphas = sorted(set(p["entropy_alpha"] for p in props_list if p["entropy_alpha"] is not None))
     if len(unique_entropy_alphas) <= 1:
@@ -406,8 +544,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             for i, a in enumerate(unique_entropy_alphas)
         }
 
-    # 4a3. Beta annealing: Greens colormap, shade encodes start beta value.
-    BETA_ANNEAL_CMAP = cm.Greens
+    # 4a3. Beta annealing: Reds colormap, shade encodes start beta value.
+    BETA_ANNEAL_CMAP = cm.Reds
     BETA_ANNEAL_SHADE_LO, BETA_ANNEAL_SHADE_HI = 0.30, 0.90
     unique_beta_starts = sorted(set(
         p["beta_anneal_start"] for p in props_list if p["beta_annealed"] and p["beta_anneal_start"] is not None
@@ -420,7 +558,7 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             for i, s in enumerate(unique_beta_starts)
         }
 
-    # 4a4. Threshold annealing: shares the Greens colormap and shade range with
+    # 4a4. Threshold annealing: shares the Reds colormap and shade range with
     # beta annealing so both read as a single "tempering" visual category.
     # Shade is encoded by the start_threshold value rank (independent of beta).
     THRESHOLD_ANNEAL_CMAP = BETA_ANNEAL_CMAP
@@ -506,36 +644,51 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     # Per-modification color lookup. Each modification contributes one RGBA tuple;
     # the experiment's final color is the RGBA average across every detected mod.
     # Single-mod runs are unchanged (mean of a length-1 list is the value itself).
+    # The default shade comes from the modification's primary parameter (CFN alpha,
+    # beta start, etc.); in appendix mode that shade is then lightened for CTLN/DPG
+    # via _appendix_lighten so CTL anchors at the default and DPG reads as a
+    # lighter same-hue companion.
     def _color_for_mod(mod, props, t):
+        loss_type = props["loss_type"]
         if mod == "cfn":
-            shade = cfn_alpha_shade.get(props["cfn_alpha"], (CFN_SHADE_LO + CFN_SHADE_HI) / 2)
-            return CFN_CMAP(shade)
+            base = cfn_alpha_shade.get(props["cfn_alpha"], (CFN_SHADE_LO + CFN_SHADE_HI) / 2)
+            return CFN_CMAP(_appendix_lighten(base, CFN_SHADE_LO, CFN_SHADE_HI, loss_type))
         elif mod == "entropy":
-            shade = entropy_alpha_shade.get(
+            base = entropy_alpha_shade.get(
                 props["entropy_alpha"], (ENTROPY_SHADE_LO + ENTROPY_SHADE_HI) / 2)
-            return ENTROPY_CMAP(shade)
+            return ENTROPY_CMAP(_appendix_lighten(base, ENTROPY_SHADE_LO, ENTROPY_SHADE_HI, loss_type))
         elif mod == "beta_annealed":
-            shade = beta_start_shade.get(
+            base = beta_start_shade.get(
                 props["beta_anneal_start"], (BETA_ANNEAL_SHADE_LO + BETA_ANNEAL_SHADE_HI) / 2)
-            return BETA_ANNEAL_CMAP(shade)
+            return BETA_ANNEAL_CMAP(_appendix_lighten(base, BETA_ANNEAL_SHADE_LO, BETA_ANNEAL_SHADE_HI, loss_type))
         elif mod == "threshold_annealed":
-            shade = threshold_start_shade.get(
+            base = threshold_start_shade.get(
                 props["threshold_anneal_start"], (THRESHOLD_ANNEAL_SHADE_LO + THRESHOLD_ANNEAL_SHADE_HI) / 2)
-            return THRESHOLD_ANNEAL_CMAP(shade)
+            return THRESHOLD_ANNEAL_CMAP(_appendix_lighten(base, THRESHOLD_ANNEAL_SHADE_LO, THRESHOLD_ANNEAL_SHADE_HI, loss_type))
         elif mod == "mixture":
             mix_key = (props["mixture_variant"], props["mixture_lag_steps"])
             base_shade = mixture_shade_map.get(mix_key, 0.6)
-            # Window = 35% of the gap between adjacent mixture keys, so LR ticks never
-            # overlap with neighbouring mixture key colours.
+            # Window = 35% of the gap between adjacent mixture keys, so within-key
+            # shade ticks never overlap with neighbouring mixture key colours.
             mix_spacing = (MIXTURE_SHADE_HI - MIXTURE_SHADE_LO) / max(n_mix - 1, 1)
-            lr_half_window = mix_spacing * 0.35
-            # t in [0,1] -> adjustment in [-lr_half_window, +lr_half_window]
-            shade = np.clip(base_shade + lr_half_window * (2 * t - 1), 0.10, 0.95)
+            shade_half_window = mix_spacing * 0.35
+            if is_appendix_mode:
+                # Anchor CTL at base_shade; lighten for CTLN within the window.
+                shade = _appendix_lighten(
+                    base_shade, base_shade - shade_half_window, base_shade + shade_half_window, loss_type)
+            else:
+                # t in [0,1] -> adjustment in [-shade_half_window, +shade_half_window]
+                shade = base_shade + shade_half_window * (2 * t - 1)
+            shade = float(np.clip(shade, 0.10, 0.95))
             cmap = mixture_cmap_map.get(mix_key, cm.cool)
             return cmap(shade)
         elif mod == "exact_count":
             lo, hi = shade_range_default
-            shade = lo + t * (hi - lo)
+            if is_appendix_mode:
+                # Anchor CTL at midpoint; lighten CTLN within range.
+                shade = _appendix_lighten((lo + hi) / 2, lo, hi, loss_type)
+            else:
+                shade = lo + t * (hi - lo)
             return cm.YlGnBu(shade)
         else:
             return cm.Greys(0.5)
@@ -546,7 +699,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     linestyle_list = []
 
     for props in props_list:
-        # LR rank position for within-type shade adjustment
+        # LR rank position for within-type shade adjustment (default + final_main).
+        # Unused in final_appendix — _color_for_mod overrides shade based on loss_type.
         if props["learning_rate"] is not None and props["learning_rate"] in lr_position:
             t = lr_position[props["learning_rate"]]
         else:
@@ -561,26 +715,39 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             color_list.append((float(blended[0]), float(blended[1]), float(blended[2]), 1.0))
         else:
             # Baseline (no modifications): Greys with LR-based shade.
-            # In final-plots mode, hardcode a single fixed gray shade so the
-            # CTL baseline reads as the same color across figures regardless
+            # In compact (final_main) mode, hardcode a single fixed gray shade so
+            # the CTL baseline reads as the same color across figures regardless
             # of which other LRs happen to appear in the experiment set.
+            # In appendix mode, anchor CTL at the midpoint shade and lighten CTLN.
+            lo, hi = shade_range_default
             if _final_plots_enabled():
-                shade = (shade_range_default[0] + shade_range_default[1]) / 2
+                shade = (lo + hi) / 2
+            elif is_appendix_mode:
+                shade = _appendix_lighten((lo + hi) / 2, lo, hi, props["loss_type"])
             else:
-                lo, hi = shade_range_default
                 shade = lo + t * (hi - lo)
             color_list.append(cm.Greys(shade))
 
-        # Marker: beta_annealed -> hexagon; exact_count -> star; annealed entropy -> pentagon;
+        # Marker: CFN + tempering -> square (takes priority over tempering-only);
+        # beta_annealed -> hexagon; exact_count -> star; annealed entropy -> pentagon;
         # entropy -> diamond; annealed CFN -> filled X; non-annealed CFN -> filled plus;
         # mixture -> triangle; otherwise by loss type.
         # Non-annealed CFN and mixture get their own markers so they don't collide with
         # the generic loss_type marker ("o" for CTL), which would otherwise make base
         # CTL indistinguishable from CTL+CFN and CTL+mixture in the frontier plots.
-        if props["beta_annealed"] or props["threshold_annealed"]:
+        if (props["beta_annealed"] or props["threshold_annealed"]) and "cfn" in props["modifications"]:
+            # CFN combined with tempering — square marker, takes priority over plain
+            # tempering and plain CFN branches below.
+            if props["loss_type"] == "RLOO":
+                marker_list.append(MARKER_CFN_TEMPERING_REINF)
+            else:
+                marker_list.append(MARKER_CFN_TEMPERING)
+        elif props["beta_annealed"] or props["threshold_annealed"]:
             # Threshold annealing shares the "tempering" hexagon marker with beta annealing.
             if props["loss_type"] == "RLOO":
                 marker_list.append(MARKER_BETA_ANNEALED_REINF)
+            elif props["loss_type"] == "CTLN":
+                marker_list.append(MARKER_CTLN_TEMPERING)
             else:
                 marker_list.append(MARKER_BETA_ANNEALED)
         elif props["bonus_type"] == "exact_count":
@@ -595,21 +762,14 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
                 marker_list.append(MARKER_ENTROPY_REINF)
             else:
                 marker_list.append(MARKER_ENTROPY)
-        elif props["cfn_annealed"]:
-            # In final-plots mode, collapse annealed and non-annealed CFN onto
-            # the same marker so CFN reads as a single category in the legend.
-            if _final_plots_enabled():
-                if props["loss_type"] == "RLOO":
-                    marker_list.append(MARKER_CFN_REINF)
-                else:
-                    marker_list.append(MARKER_CFN)
-            elif props["loss_type"] == "RLOO":
-                marker_list.append(MARKER_CFN_ANNEALED_REINF)
-            else:
-                marker_list.append(MARKER_CFN_ANNEALED)
-        elif props["bonus_type"] == "cfn":
+        elif props["cfn_annealed"] or props["bonus_type"] == "cfn":
+            # Collapse annealed and non-annealed CFN onto the same marker so
+            # CFN reads as a single category in the legend (previously this
+            # collapse only happened in _final_plots_enabled() mode).
             if props["loss_type"] == "RLOO":
                 marker_list.append(MARKER_CFN_REINF)
+            elif props["loss_type"] == "CTLN":
+                marker_list.append(MARKER_CFN_CTLN)
             else:
                 marker_list.append(MARKER_CFN)
         elif props["bonus_type"] == "mixture":
@@ -666,7 +826,7 @@ def generate_method_linestyles_from_prefixes(load_prefixes_to_use):
     return linestyle_list
 
 
-def _label_parts_for_mod(mod, prefix, props, final_plots=False):
+def _label_parts_for_mod(mod, prefix, props, final_plots=""):
     """Return the label fragments contributed by a single modification.
 
     Combined-setting runs concatenate the fragments from every detected modification
@@ -674,16 +834,22 @@ def _label_parts_for_mod(mod, prefix, props, final_plots=False):
     are shared across all modifications (LR (q), batch_size, base LR, beta annealing)
     are emitted once by the caller rather than per modification, to avoid duplication.
 
-    When ``final_plots`` is True, mixture collapses to the bare "Mixture" tag
-    (variant/other-model details dropped) for a more compact legend.
+    When ``final_plots`` is "final_main", mixture collapses to the bare "Mixture"
+    tag (variant/other-model details dropped) for a more compact legend, and
+    annealing schedule names are dropped from alpha labels. "final_appendix"
+    follows the verbose layout but also drops the schedule suffix (the tweaks are
+    otherwise applied at the outer label level).
     """
+    _, is_compact, is_appendix = _final_plots_flags(final_plots)
+    # Schedule suffix (e.g. " (linear)") is dropped in any final-plots mode.
+    drop_schedule_suffix = is_compact or is_appendix
     if mod == "cfn":
         parts = ["CFN"]
 
         # Extract bonus_alpha from _cf pattern. With annealing: _cf{start}to{end}{schedule}
         cf_anneal_match = re.search(r'_cf([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
         if cf_anneal_match:
-            schedule_suffix = "" if final_plots else f" ({cf_anneal_match.group(3)})"
+            schedule_suffix = "" if drop_schedule_suffix else f" ({cf_anneal_match.group(3)})"
             parts.append(r"$\alpha$: " + cf_anneal_match.group(1) + r"$\to$" + cf_anneal_match.group(2) + schedule_suffix)
         else:
             cf_match = re.search(r'_cf([\d.]+)', prefix)
@@ -749,7 +915,7 @@ def _label_parts_for_mod(mod, prefix, props, final_plots=False):
         # With annealing: _c{start}to{end}{schedule} (e.g., _c10to0linear)
         c_anneal_match = re.search(r'_c([\d.]+(?:e[+-]?\d+)?)to([\d.]+(?:e[+-]?\d+)?)(linear|log)', prefix)
         if c_anneal_match:
-            schedule_suffix = "" if final_plots else f" ({c_anneal_match.group(3)})"
+            schedule_suffix = "" if drop_schedule_suffix else f" ({c_anneal_match.group(3)})"
             parts.append(f"alpha={c_anneal_match.group(1)}->{c_anneal_match.group(2)}{schedule_suffix}")
         else:
             count_match = re.search(r'_count([\d.]+)', prefix) or re.search(r'_c([\d.]+)', prefix)
@@ -758,7 +924,9 @@ def _label_parts_for_mod(mod, prefix, props, final_plots=False):
         return parts
 
     elif mod == "mixture":
-        if final_plots:
+        # In any final-plots mode collapse mixture to the bare "Mixture" tag,
+        # dropping the "(q_independent, lag=30)"-style variant/lag detail.
+        if is_compact or is_appendix:
             return ["Mixture"]
 
         mix_variant_map = {"mx": "mixture", "qi": "q_independent", "qh": "q_half"}
@@ -782,7 +950,7 @@ def _label_parts_for_mod(mod, prefix, props, final_plots=False):
         # With annealing: _entb{start}to{end}{schedule} (e.g., _entb0.1to0linear)
         entb_anneal_match = re.search(r'_entb([\d.e-]+)to([\d.e-]+)(linear|log)', prefix)
         if entb_anneal_match:
-            schedule_suffix = "" if final_plots else f" ({entb_anneal_match.group(3)})"
+            schedule_suffix = "" if drop_schedule_suffix else f" ({entb_anneal_match.group(3)})"
             parts.append(r"$\alpha$: " + entb_anneal_match.group(1) + r"$\to$" + entb_anneal_match.group(2) + schedule_suffix)
         else:
             entb_match = re.search(r'_entb([\d.e-]+)', prefix)
@@ -793,7 +961,7 @@ def _label_parts_for_mod(mod, prefix, props, final_plots=False):
     return []
 
 
-def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
+def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=""):
     """
     Generate labels from prefix lists based on the naming logic.
 
@@ -805,22 +973,33 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
     at the end so they don't duplicate across modifications. Beta annealing is
     emitted *before* the LR fragments in both modes.
 
-    When ``final_plots`` is True, produce a compact label suitable for final
-    figures: the "No Bonus" tag and batch-size fragment are dropped, "LR (q)"
-    shortens to "LR", annealed-beta gets a leading "Tempered " marker, and the
-    mixture fragment collapses to "Mixture".
+    When ``final_plots`` is "final_main", produce a compact label suitable for
+    main-text figures: the "No Bonus" tag and LR/batch fragments are dropped,
+    annealed-beta gets a leading "Tempered " marker, the mixture fragment
+    collapses to "Mixture", "CTL" is dropped (treated as the default loss type),
+    and a "Baseline" fallback covers the all-defaults case.
+
+    When ``final_plots`` is "final_appendix", labels follow the verbose default
+    layout, but with three appendix-specific tweaks: the LR / batch-size fragments
+    are dropped, and "CTLN" is renamed to "DPG".
 
     Supports both old and new abbreviated naming conventions.
 
     Args:
         load_prefixes_to_use: List of lists of prefixes (each inner list contains prefixes for one series)
-        final_plots: If True, use the compact label format described above.
-            Defaults to False (existing behavior preserved, except for the
-            beta-annealing ordering change noted above).
+        final_plots: One of "", "final_main", "final_appendix" (or bool: True ->
+            "final_main", False -> ""). Defaults to "" (verbose; legacy False
+            behavior preserved, except for the beta-annealing ordering change
+            noted above).
 
     Returns:
         List of label strings, one for each prefix list
     """
+    final_plots, is_compact, is_appendix = _final_plots_flags(final_plots)
+    # LR / batch-size fragments are suppressed in both compact (final_main) and
+    # appendix modes — the appendix mode keeps verbose layout but explicitly drops
+    # these per-method hyperparameter readouts from the legend.
+    suppress_lr_batch = is_compact or is_appendix
     labels = []
     for a in load_prefixes_to_use:
         prefix = a[0]
@@ -834,7 +1013,9 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
                              if m not in ("beta_annealed", "threshold_annealed")]
         label_parts = []
         if not non_tempered_mods:
-            if not final_plots:
+            # "No Bonus" is dropped in any final-plots mode — final_main treats it
+            # as the default and final_appendix wants minimal legend clutter.
+            if not (is_compact or is_appendix):
                 label_parts.append("No Bonus")
         else:
             for mod in non_tempered_mods:
@@ -849,21 +1030,23 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
             beta_match = re.search(r'_s(-?[\d.]+)_b(-?[\d.]+)', prefix)
             if beta_match:
                 beta_label = r"$\beta$: " + beta_match.group(1) + r"$\to$" + beta_match.group(2)
-                if final_plots:
+                if is_compact:
                     beta_label = "Tempered " + beta_label
                 label_parts.append(beta_label)
         if props["threshold_annealed"]:
             thr_match = re.search(r'_it(-?[\d.]+)to(-?[\d.]+)(linear|log)', prefix)
             if thr_match:
-                schedule_suffix = "" if final_plots else f" ({thr_match.group(3)})"
+                # Schedule suffix dropped in any final-plots mode (matches the
+                # CFN/entropy/exact_count handling in _label_parts_for_mod).
+                schedule_suffix = "" if (is_compact or is_appendix) else f" ({thr_match.group(3)})"
                 thr_label = r"$\eta$: " + thr_match.group(1) + r"$\to$" + thr_match.group(2) + schedule_suffix
-                if final_plots:
+                if is_compact:
                     thr_label = "Tempered " + thr_label
                 label_parts.append(thr_label)
 
-        # LR fragments are suppressed entirely in final_plots mode so the legend
-        # stays compact (just the method + key hyperparameters like alpha/beta).
-        if not final_plots:
+        # LR / batch-size fragments are suppressed in both compact and appendix modes
+        # so the legend stays focused on method + key hyperparameters.
+        if not suppress_lr_batch:
             al_match = re.search(r'_al([\d.e-]+)', prefix)
             if al_match:
                 label_parts.append(f"{al_match.group(1)} LR (q)")
@@ -904,11 +1087,14 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
             rt_beta = rt_match.group(2)
             label_parts.insert(0, f"REINFORCE (reward transform, alpha={rt_alpha}, beta={rt_beta})")
         elif loss_type_str is not None:
-            # In final_plots mode the "CTL" tag is treated as the default and
-            # dropped from the legend (CTLN/RLOO are kept since they differ
-            # from the default).
-            if not (final_plots and loss_type_str == "CTL"):
-                label_parts.insert(0, loss_type_str)
+            # In compact (final_main) mode the "CTL" tag is treated as the default
+            # and dropped from the legend (CTLN/RLOO are kept since they differ
+            # from the default). In appendix mode CTLN is renamed to DPG.
+            if not (is_compact and loss_type_str == "CTL"):
+                display_name = loss_type_str
+                if is_appendix and loss_type_str == "CTLN":
+                    display_name = "DPG"
+                label_parts.insert(0, display_name)
 
         # Check for mixeval prefix
         if prefix.startswith("f_q_g_q_iwae_bounds_mixeval"):
@@ -922,10 +1108,10 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=False):
             if beta_match:
                 label_parts.append(r"$\beta$=" + beta_match.group(1))
 
-        # In final_plots mode, fall back to "Baseline" when nothing else
+        # In compact (final_main) mode, fall back to "Baseline" when nothing else
         # identifies the run (e.g. no-bonus + CTL, where both the "No Bonus"
         # tag and the "CTL" loss-type tag have been stripped).
-        if final_plots and not label_parts:
+        if is_compact and not label_parts:
             label_parts.append("Baseline")
 
         # Strip a redundant ".0" from any number in the label so e.g.
@@ -1273,13 +1459,14 @@ def _compute_target_means_for_tokens(token_ids, target_by_setting):
 
 
 def _draw_target_dashes(ax, x_positions, target_means, dash_half_width, linewidth=2, label_text=None,
-                        color='black', linestyle='-'):
+                        color='black', linestyle='-', zorder=3):
     """Draw horizontal dashes for a reference series at each position.
 
     Args:
         label_text: Legend label for the dashes. Defaults to "$\\sigma$ (target)" if None.
         color: Line color (default 'black').
         linestyle: Line style (default '-' solid).
+        zorder: Drawing order; pass higher value to render the dashes on top of other markers.
     """
     if label_text is None:
         label_text = r"$\sigma$ (target)"
@@ -1292,7 +1479,7 @@ def _draw_target_dashes(ax, x_positions, target_means, dash_half_width, linewidt
             [x_positions[pos_idx] - dash_half_width, x_positions[pos_idx] + dash_half_width],
             [target_means[pos_idx], target_means[pos_idx]],
             color=color, linewidth=linewidth, linestyle=linestyle, solid_capstyle='butt',
-            label=label, zorder=3,
+            label=label, zorder=zorder,
         )
         target_label_added = True
 
@@ -1630,20 +1817,6 @@ def plot_top_tokens_lollipop(
     dash_half_width = (total_width / 2 + dot_spacing * 0.6) if n_settings > 1 else 0.15
     _draw_target_dashes(ax, x_positions, target_means, dash_half_width)
 
-    # Draw base model markers (if available): dotted horizontal line per token
-    if has_base_data:
-        base_label_added = False
-        for token_idx in range(n_tokens):
-            if np.isnan(base_means[token_idx]):
-                continue
-            label = r"$p$ (base)" if not base_label_added else None
-            ax.plot(
-                [x_positions[token_idx] - dash_half_width, x_positions[token_idx] + dash_half_width],
-                [base_means[token_idx], base_means[token_idx]],
-                color='gray', linewidth=2, linestyle=':', solid_capstyle='butt', label=label, zorder=3,
-            )
-            base_label_added = True
-
     # Draw q dots + connecting lines for each setting
     for setting_idx in range(n_settings):
         q_means = np.full(n_tokens, np.nan)
@@ -1670,6 +1843,21 @@ def plot_top_tokens_lollipop(
                 fmt=marker, color=color_list[setting_idx], markersize=5,
                 capsize=3, linewidth=1, label=labels[setting_idx], zorder=4,
             )
+
+    # Draw base model markers (if available): solid gold horizontal line per token.
+    # Drawn last with high zorder so it sits on top of the q markers and stays visible.
+    if has_base_data:
+        base_label_added = False
+        for token_idx in range(n_tokens):
+            if np.isnan(base_means[token_idx]):
+                continue
+            label = r"$p$ (base)" if not base_label_added else None
+            ax.plot(
+                [x_positions[token_idx] - dash_half_width, x_positions[token_idx] + dash_half_width],
+                [base_means[token_idx], base_means[token_idx]],
+                color='gold', linewidth=2, linestyle='-', solid_capstyle='butt', label=label, zorder=10,
+            )
+            base_label_added = True
 
     ax.set_xlabel('Token' if tokenizer is not None else 'Token ID', fontsize=fontsize)
     ax.set_ylabel('Log Probability', fontsize=fontsize)
@@ -4189,11 +4377,10 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
         fig, ax = plt.subplots()
 
     if s3_ref is not None:
-        # When both references present: series3 = black solid (primary), series2 = gray dotted
+        # When both references present: series3 (e.g. sigma) = black solid (primary).
+        # series2 (e.g. base p) is drawn LATER, after the q dots, as a solid gold line on top.
         _draw_target_dashes(ax, x_positions, s3_ref, dash_half_width, linewidth=2,
                             label_text=series3_name)
-        _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
-                            label_text=series2_name, color='dimgray', linestyle=':')
     else:
         # Single reference: series2 = black solid
         _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
@@ -4220,6 +4407,11 @@ def plot_two_series_lollipop(figname, labels, series1_name, series2_name,
             ax.errorbar(x[valid1], s1_means[valid1], yerr=[lo1, hi1],
                         fmt='none', ecolor=color, alpha=0.2,
                         capsize=3, linewidth=1, zorder=3)
+
+    # Draw series2 (base p) last so it sits on top of the q dots and stays visible.
+    if s3_ref is not None:
+        _draw_target_dashes(ax, x_positions, s2_ref, dash_half_width, linewidth=2,
+                            label_text=series2_name, color='gold', linestyle='-', zorder=10)
 
     all_ref_names = [series2_name] + ([series3_name] if series3_name else [])
     title_refs = ', '.join(all_ref_names)
