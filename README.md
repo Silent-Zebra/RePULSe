@@ -210,25 +210,13 @@ For CFN, add:
 ```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 3 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0```
 
 
-
-Discuss the process of collecting the results also
-
-Then discuss plotting code below
-
-
 ## Plotting Results
 
-To generate the plots of training over time (Sec 4.2), use: 
+First, collect the results from the training runs above, from whichever `--save_info_path` you used. You may need to modify file paths in `plot_results.py` as well, to work with where your results are stored. All the plots in the paper are run with the same command:
 ```
 python plot_results/plot_results.py
 ```
-The main thing to change in the plot_results.py file is "figname_modifier", to choose what plot to build. Of course, if you rerun my commands with different settings and want to plot those, you'd have to modify the "labels" and "load_prefixes_to_use".
-
-To generate the frontiers (Sec 4.3), use:
-```
-python plot_results/make_frontier.py
-```
-Again, "figname_modifier" is the main thing to change; use "cvar" in the modifier if you want CVaR on the y-axis instead, use "gcg" if you want to plot the GCG attack success rate. If you use your own runs, you need to modify "labels", "load_prefixes_to_use", and "gcg_prefixes" for GCG attacks. 
+This generates all the paper's plots and more. You can change configurations directly in the `plot_results.py` file, where `load_prefixes_to_use` and `figname_modifier` are the most important things to change, to differentiate between different training runs. Results will be saved to a folder based on `figname_modifier`.
 
 
 # NOTE: This is built on top of the [RePULSe repo](https://github.com/Silent-Zebra/RePULSe), which itself is a fork of the [OpenRLHF repo](https://github.com/OpenRLHF/OpenRLHF).
