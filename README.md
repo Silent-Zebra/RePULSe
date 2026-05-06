@@ -1,4 +1,4 @@
-# RePULSe 
+# Improving Coverage in Probabilistic Inference for Language Models
 
 This is the codebase for "Improving Coverage in Probabilistic Inference for Language Models".
 
@@ -76,7 +76,7 @@ Below I provide the deepspeed training commands, although these were auto-genera
 `
 bash mk_sb_file.sh --cluster default $x
 `
-where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace the arguments for --save_path, --ckpt_path, --save_info_path, --load_target_samples_name, --heldout_target_samples_name, with your folder paths and file names.
+where $x should be replaced with a full deepspeed command excluding "deepspeed --master_port xxxxx". Replace the arguments for --save_path, --ckpt_path, --save_info_path, --load_target_samples_name, --heldout_target_samples_name, with your folder paths and file names. Of course, you'd need to change the setup in mk_sb_file.sh in order to fit the specifics of your cluster.
 
 You may then use 
 `
@@ -84,13 +84,21 @@ bash mk_sb_files_seeds_2_to_x.sh 10 $x
 `
 where $x should be the generated sbatch file, to generate sbatch files for seeds 2 to 10 for the same setting.
 
-### Example commands with 0 KL penalty (main paper figure)
+### Setting 1
 
-#### PPO
+Baseline command:
+```
+deepspeed --master_port 36931 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain OpenAssistant/reward-model-deberta-v3-large-v2 --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/probinflen1remodevpos --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/probinflen1remodevpos --save_steps -1 --save_steps_harmless -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 5 --train_batch_size 5 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 5 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 1 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 1 --do_harmlessness_training --harmlessness_training_num_episodes 20 --fit_steps 100 --save_info_path /h/319/stephenzhao/OpenRLHF/info/probinflen1remodevpos --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --seed 1 --parameterization policy_psi_q_p_s_t --actor_loss_type ctl --actor_learning_rate 3e-5 --critic_learning_rate 0 --base_actor_learning_rate 0 --harmlessness_training_loss_type neg_training --reinforce_baseline_type expectation --alpha 0 --init_kl_coef 0 --analytic_calc --new_custom_single_prompt --target_dist_beta 10 --analytic_batch_size 1024 --custom_prompt "This man is a"
+```
 
-```
-deepspeed --master_port 39225 --module openrlhf.cli.train_ppo --pretrain distilgpt2 --reward_pretrain nicholasKluge/ToxicityModel --save_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --ckpt_path /h/319/stephenzhao/OpenRLHF/checkpoint/toyrlhfmulti --save_steps -1 --max_ckpt_num 1 --logging_steps 1 --eval_steps -1 --micro_train_batch_size 500 --train_batch_size 500 --micro_rollout_batch_size 1 --rollout_batch_size 1 --duplicate_rollout_batch_by 500 --max_epochs 1 --prompt_max_len 1024 --generate_max_len 2 --zero_stage 2 --prompt_data Silent-Zebra/this_man_is_a --input_key prompt --max_samples 100000 --gradient_checkpointing --num_episodes 10 --fit_steps 50 --init_kl_coef 0 --save_info_path /h/319/stephenzhao/OpenRLHF/info/toyrlhfmulti --lr_scheduler constant --adam_betas 0.9 0.999 --n_samples_per_prompt 1 --rm_type rlhf --test_info_every 100 --no_test_info --seed 1 --parameterization policy --actor_loss_type ppo --actor_learning_rate 1e-4 --critic_learning_rate 3e-5 --analytic_bad_word_calc --new_custom_single_prompt
-```
+For tempering, add:
+```--anneal_target_dist_beta --start_target_dist_beta 1```
+
+For CFN, add:
+```--exploration_bonus_sampling_actor coin_flip --bonus_alpha 1 --coin_flip_dim 64 --coin_flip_lr 1e-3 --coin_flip_update_steps 1 --coin_flip_architecture separate_nn --coin_flip_first_online --coin_flip_warmup_steps 0```
+
+
+
 
 #### REINFORCE
 
