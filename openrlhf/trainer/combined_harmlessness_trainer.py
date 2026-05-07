@@ -2130,10 +2130,15 @@ class CombinedHarmlessnessTrainer(ABC):
         # changes Adam's optimizer dynamics (effective step size, second-moment estimates).
         # We apply this BEFORE the entropy bonus so that the user-supplied entropy bonus coefficient
         # has its intended absolute effect rather than being implicitly rescaled by 1/|beta|.
+        # Use the live beta from sampling_experience_maker_neg (which the annealing schedule
+        # mutates per-step) rather than args.target_dist_beta (the static final-beta value).
+        # Without annealing the two are identical, so previous behavior is preserved.
         if getattr(self.args, 'divide_actor_loss_by_abs_beta', False):
-            assert self.args.target_dist_beta is not None and self.args.target_dist_beta != 0, (
-                "--divide_actor_loss_by_abs_beta requires a nonzero --target_dist_beta")
-            sampling_actor_loss = sampling_actor_loss / abs(self.args.target_dist_beta)
+            live_beta = self.sampling_experience_maker_neg.target_dist_beta
+            assert live_beta is not None and live_beta != 0, (
+                "--divide_actor_loss_by_abs_beta requires a nonzero target_dist_beta "
+                f"(live value: {live_beta})")
+            sampling_actor_loss = sampling_actor_loss / abs(live_beta)
 
         # Apply entropy bonus if configured: loss -= coef * mean_per_token_entropy
         if want_entropy:
