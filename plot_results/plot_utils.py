@@ -20,8 +20,8 @@ MARKER_ENTROPY = "h"  # hexagon — used for CTL + entropy (swapped with temperi
 MARKER_ENTROPY_REINF = "<"  # left-pointing triangle — used for REINF + entropy (swapped with tempering)
 MARKER_ENTROPY_ANNEALED = "p"  # pentagon — used for CTL + annealed entropy
 MARKER_ENTROPY_ANNEALED_REINF = "8"  # octagon — used for REINF + annealed entropy
-MARKER_CFN_ANNEALED = "X"  # filled X — DEPRECATED: annealed CFN now collapses onto MARKER_CFN ("P") in all modes
-MARKER_CFN_ANNEALED_REINF = ">"  # right triangle — DEPRECATED: annealed CFN now collapses onto MARKER_CFN_REINF ("1") in all modes
+MARKER_CFN_ANNEALED = "X"  # filled X — DEPRECATED: annealed CFN collapses onto MARKER_CFN ("P") for CTL
+MARKER_CFN_ANNEALED_REINF = ">"  # right triangle — used for REINF/RLOO + CFN (annealed)
 MARKER_BETA_ANNEALED = "d"  # diamond (thin) — used for CTL + tempering (annealed beta / threshold)
 MARKER_BETA_ANNEALED_REINF = "H"  # filled hexagon — used for REINF + tempering
 MARKER_CFN_TEMPERING = "s"  # filled square — used for CTL + CFN + tempering combination
@@ -763,11 +763,15 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             else:
                 marker_list.append(MARKER_ENTROPY)
         elif props["cfn_annealed"] or props["bonus_type"] == "cfn":
-            # Collapse annealed and non-annealed CFN onto the same marker so
-            # CFN reads as a single category in the legend (previously this
-            # collapse only happened in _final_plots_enabled() mode).
+            # For CTL/CTLN, annealed and non-annealed CFN share a marker so CFN
+            # reads as a single category in the legend.  For RLOO, annealed CFN
+            # gets its own marker (MARKER_CFN_ANNEALED_REINF) to distinguish
+            # from non-annealed RLOO+CFN on the frontier plots.
             if props["loss_type"] == "RLOO":
-                marker_list.append(MARKER_CFN_REINF)
+                if props["cfn_annealed"]:
+                    marker_list.append(MARKER_CFN_ANNEALED_REINF)
+                else:
+                    marker_list.append(MARKER_CFN_REINF)
             elif props["loss_type"] == "CTLN":
                 marker_list.append(MARKER_CFN_CTLN)
             else:
