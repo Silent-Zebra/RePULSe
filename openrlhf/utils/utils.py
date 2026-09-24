@@ -442,6 +442,7 @@ def get_info_name_str(args):
         "ppo": "ppo",
         "ctl": "ctl",
         "ctl_nosecondterm": "ctln",
+        "ctl_uniformneg": "ctlu",
         "sixo": "sixo",
         "sixo_approxneg": "sixoa",
         "dpg": "dpg",

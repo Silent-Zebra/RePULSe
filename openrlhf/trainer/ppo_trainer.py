@@ -172,6 +172,8 @@ class BasePPOTrainer(ABC):
             self.actor_loss_fn = CTLLoss()
         elif self.actor_loss_type == "ctl_nosecondterm":
             self.actor_loss_fn = CTLLoss(no_second_term=True)
+        elif self.actor_loss_type == "ctl_uniformneg":
+            self.actor_loss_fn = CTLLoss(uniform_neg_weights=True)
         elif self.actor_loss_type == "sixo":
             self.actor_loss_fn = SIXOLoss()
         elif self.actor_loss_type == "sixo_approxneg":
@@ -813,7 +815,7 @@ class BasePPOTrainer(ABC):
                 action_mask=experience.action_mask,
             )
 
-        elif self.actor_loss_type in ["ctl", "ctl_nosecondterm"]:
+        elif self.actor_loss_type in ["ctl", "ctl_nosecondterm", "ctl_uniformneg"]:
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
 

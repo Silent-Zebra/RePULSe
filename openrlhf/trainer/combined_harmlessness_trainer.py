@@ -251,6 +251,8 @@ class CombinedHarmlessnessTrainer(ABC):
             self.sampling_actor_loss_fn = CTLLoss()
         elif self.sampling_actor_loss_type == "ctl_nosecondterm":
             self.sampling_actor_loss_fn = CTLLoss(no_second_term=True)
+        elif self.sampling_actor_loss_type == "ctl_uniformneg":
+            self.sampling_actor_loss_fn = CTLLoss(uniform_neg_weights=True)
         elif self.sampling_actor_loss_type == "dpg":
             self.sampling_actor_loss_fn = DPGLoss()
         elif self.sampling_actor_loss_type == "reinforce":
@@ -1880,7 +1882,7 @@ class CombinedHarmlessnessTrainer(ABC):
                 action_mask=exper_action_mask,
             )
 
-        elif self.sampling_actor_loss_type in ["ctl", "ctl_nosecondterm"]:
+        elif self.sampling_actor_loss_type in ["ctl", "ctl_nosecondterm", "ctl_uniformneg"]:
             # Right now by using experience_maker sequences, this is essentially just twisted proposal samples
             # And we do CTL by reweighting those according to the twist values and tilde sigma values.
 

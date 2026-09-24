@@ -268,9 +268,17 @@ class CTLLoss(nn.Module):
     CTL Twist learning loss
     """
 
-    def __init__(self, no_second_term=False) -> None:
+    def __init__(self, no_second_term=False, uniform_neg_weights=False) -> None:
         super().__init__()
+        assert not (no_second_term and uniform_neg_weights)
         self.no_second_term = no_second_term
+        # If True, use uniform (1/n) weights on the proposal samples for the negative term instead of
+        # SNIS weights p(s_1:t) psi_t(s_1:t) / q(s_1:t). Only valid for policy_psi_q_p_s_t / policy_psi_q_p_s_1_to_t,
+        # where the negative term is E[grad log q(s_t | s_0:t-1)] (or grad log q(s_1:t)), which has expectation 0
+        # under q samples, so uniform weights are still an unbiased estimate. Unlike the SNIS weights (which for
+        # policy_psi_q_p_s_t reduce to p(s_1:t-1) / q(s_1:t-1)), the positive and negative weights then cancel
+        # exactly on every batch when q = sigma.
+        self.uniform_neg_weights = uniform_neg_weights
 
     def forward(
         self,
@@ -311,6 +319,9 @@ class CTLLoss(nn.Module):
 
         if reduce_mean_per_prompt:
             if mixture_seq_log_probs is not None:
+                if self.uniform_neg_weights:
+                    # Samples come from q_mix, not q, so uniform weights no longer give a zero-mean negative term
+                    raise NotImplementedError("uniform_neg_weights is not supported with the mixture proposal")
                 # --- Mixture proposal path (bypass vmap; compute directly on (P, n) tensors) ---
 
                 # Positive term: SIS weights are p(s)*phi(s) / q_mix(s)
@@ -375,7 +386,11 @@ class CTLLoss(nn.Module):
             if self.no_second_term:
                 loss = - positive_samples_term
             else:
-                normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=1)
+                if self.uniform_neg_weights:
+                    normalized_w_t_approx_pi_samples = torch.full_like(
+                        log_w_t_approx_pi_samples, 1.0 / log_w_t_approx_pi_samples.shape[1])
+                else:
+                    normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=1)
                 negative_samples_term = normalized_w_t_approx_pi_samples * values
                 loss = -(positive_samples_term - negative_samples_term)
 
@@ -399,7 +414,11 @@ class CTLLoss(nn.Module):
         # print(positive_samples_term_new.shape)
         # EXPECTED: above has shape (batch_size, seq_len) - then can do masked mean on this
 
-        normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=0) # do softmax along the batch dimension
+        if self.uniform_neg_weights:
+            normalized_w_t_approx_pi_samples = torch.full_like(
+                log_w_t_approx_pi_samples, 1.0 / log_w_t_approx_pi_samples.shape[0])
+        else:
+            normalized_w_t_approx_pi_samples = F.softmax(log_w_t_approx_pi_samples, dim=0) # do softmax along the batch dimension
         # print(normalized_w_t_approx_pi_samples.shape)
         # EXPECTED: above has shape (batch_size, seq_len)
 

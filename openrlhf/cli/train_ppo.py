@@ -4849,7 +4849,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--actor_loss_type", type=str, default="ppo",
         choices=[
-            "ppo", "ctl", "ctl_nosecondterm", "sixo", "sixo_approxneg", "dpg", "reinforce"
+            "ppo", "ctl", "ctl_nosecondterm", "ctl_uniformneg", "sixo", "sixo_approxneg", "dpg", "reinforce"
         ]
     )
 
@@ -5030,6 +5030,11 @@ if __name__ == "__main__":
 
     if args.actor_loss_type == "ctl_nosecondterm":
         assert args.parameterization in ["policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]
+
+    if args.actor_loss_type == "ctl_uniformneg":
+        # Uniform negative weights are only unbiased when log_psi = log q - log p (negative term has expectation 0 under q)
+        assert args.parameterization in ["policy_psi_q_p_s_t", "policy_psi_q_p_s_1_to_t"]
+        assert not args.mixture_proposal, "ctl_uniformneg is not supported with the mixture proposal"
 
     if "indicator" in args.rm_type:
         assert args.target_dist_beta == 1 # otherwise multiply by beta screws things up
