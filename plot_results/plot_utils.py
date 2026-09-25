@@ -158,9 +158,10 @@ def _final_plots_mode():
 
 def _maybe_hide_token_labels(tick_labels):
     """Return the passed x-tick labels unchanged, or a list of empty strings
-    when compact final-plots mode is on (so tick marks remain but token names
-    are suppressed for a less cluttered final-version x-axis)."""
-    if _final_plots_enabled():
+    when either final-plots mode (final_main or final_appendix) is on (so tick
+    marks remain but token names are suppressed for a less cluttered
+    final-version x-axis)."""
+    if _final_plots_mode() in ("final_main", "final_appendix"):
         return ['' for _ in tick_labels]
     return tick_labels
 
@@ -501,17 +502,31 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     # proportional whether the colormap range is large like CFN's 0.30->0.90
     # or small like mixture's narrow shade window).
     APPENDIX_CTLN_LIGHTEN_FRAC = 0.4
+    # Darkening fraction applied to RLOO shades in appendix mode, expressed as a
+    # fraction of the remaining range above `hi` (toward the colormap's dark end),
+    # so RLOO reads as a darker companion of the same hue as CTL (e.g. dark blue
+    # vs blue, near-black vs gray).
+    APPENDIX_RLOO_DARKEN_FRAC = 0.55
 
-    def _appendix_lighten(base_shade, lo, hi, loss_type):
-        """Return base_shade for CTL (or any non-CTLN run); for CTLN, return a
-        shade lightened by APPENDIX_CTLN_LIGHTEN_FRAC of (hi - lo), clipped to lo.
+    def _appendix_loss_shade(base_shade, lo, hi, loss_type):
+        """In appendix mode, the within-hue shade encodes ONLY the loss type
+        (CTL vs CTLN vs RLOO), not LR or bonus-alpha rank:
+          - CTL  -> the shade-range midpoint (the "current" CTL color),
+          - CTLN -> lightened toward `lo` by APPENDIX_CTLN_LIGHTEN_FRAC of (hi-lo),
+          - RLOO -> darkened past `hi` toward the colormap's dark end.
+        This drops the old LR/alpha-driven shade so a hue varies only by CTL vs RLOO.
 
-        Outside appendix mode, returns base_shade unchanged (shape-preserving
-        no-op — callers can wrap any computed shade without checking the mode).
+        Outside appendix mode this is a no-op returning base_shade unchanged, so
+        callers can wrap any computed shade without checking the mode.
         """
-        if not is_appendix_mode or loss_type != "CTLN":
+        if not is_appendix_mode:
             return base_shade
-        return max(lo, base_shade - APPENDIX_CTLN_LIGHTEN_FRAC * (hi - lo))
+        mid = (lo + hi) / 2.0
+        if loss_type == "CTLN":
+            return max(lo, mid - APPENDIX_CTLN_LIGHTEN_FRAC * (hi - lo))
+        if loss_type == "RLOO":
+            return min(1.0, hi + APPENDIX_RLOO_DARKEN_FRAC * (1.0 - hi))
+        return mid  # CTL (and any other loss) anchors at the midpoint
 
     # 3. Linestyle options for cycling within same-hue groups
     linestyle_options = ["solid", "dashed", "dotted", "dashdot", (5, (10, 3)), (0, (3, 5, 1, 5)), (0, (1, 1))]
@@ -644,27 +659,28 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     # Per-modification color lookup. Each modification contributes one RGBA tuple;
     # the experiment's final color is the RGBA average across every detected mod.
     # Single-mod runs are unchanged (mean of a length-1 list is the value itself).
-    # The default shade comes from the modification's primary parameter (CFN alpha,
-    # beta start, etc.); in appendix mode that shade is then lightened for CTLN/DPG
-    # via _appendix_lighten so CTL anchors at the default and DPG reads as a
-    # lighter same-hue companion.
+    # Outside appendix mode the shade comes from the modification's primary
+    # parameter (CFN alpha, beta start, etc.). In appendix mode that parameter is
+    # ignored: _appendix_loss_shade returns a shade driven ONLY by loss type — CTL
+    # at the shade-range midpoint, CTLN lighter, RLOO darker — so a hue varies only
+    # by CTL vs RLOO (e.g. blue vs dark blue) rather than by LR/alpha.
     def _color_for_mod(mod, props, t):
         loss_type = props["loss_type"]
         if mod == "cfn":
             base = cfn_alpha_shade.get(props["cfn_alpha"], (CFN_SHADE_LO + CFN_SHADE_HI) / 2)
-            return CFN_CMAP(_appendix_lighten(base, CFN_SHADE_LO, CFN_SHADE_HI, loss_type))
+            return CFN_CMAP(_appendix_loss_shade(base, CFN_SHADE_LO, CFN_SHADE_HI, loss_type))
         elif mod == "entropy":
             base = entropy_alpha_shade.get(
                 props["entropy_alpha"], (ENTROPY_SHADE_LO + ENTROPY_SHADE_HI) / 2)
-            return ENTROPY_CMAP(_appendix_lighten(base, ENTROPY_SHADE_LO, ENTROPY_SHADE_HI, loss_type))
+            return ENTROPY_CMAP(_appendix_loss_shade(base, ENTROPY_SHADE_LO, ENTROPY_SHADE_HI, loss_type))
         elif mod == "beta_annealed":
             base = beta_start_shade.get(
                 props["beta_anneal_start"], (BETA_ANNEAL_SHADE_LO + BETA_ANNEAL_SHADE_HI) / 2)
-            return BETA_ANNEAL_CMAP(_appendix_lighten(base, BETA_ANNEAL_SHADE_LO, BETA_ANNEAL_SHADE_HI, loss_type))
+            return BETA_ANNEAL_CMAP(_appendix_loss_shade(base, BETA_ANNEAL_SHADE_LO, BETA_ANNEAL_SHADE_HI, loss_type))
         elif mod == "threshold_annealed":
             base = threshold_start_shade.get(
                 props["threshold_anneal_start"], (THRESHOLD_ANNEAL_SHADE_LO + THRESHOLD_ANNEAL_SHADE_HI) / 2)
-            return THRESHOLD_ANNEAL_CMAP(_appendix_lighten(base, THRESHOLD_ANNEAL_SHADE_LO, THRESHOLD_ANNEAL_SHADE_HI, loss_type))
+            return THRESHOLD_ANNEAL_CMAP(_appendix_loss_shade(base, THRESHOLD_ANNEAL_SHADE_LO, THRESHOLD_ANNEAL_SHADE_HI, loss_type))
         elif mod == "mixture":
             mix_key = (props["mixture_variant"], props["mixture_lag_steps"])
             base_shade = mixture_shade_map.get(mix_key, 0.6)
@@ -673,8 +689,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             mix_spacing = (MIXTURE_SHADE_HI - MIXTURE_SHADE_LO) / max(n_mix - 1, 1)
             shade_half_window = mix_spacing * 0.35
             if is_appendix_mode:
-                # Anchor CTL at base_shade; lighten for CTLN within the window.
-                shade = _appendix_lighten(
+                # Loss-only shade: CTL at base_shade, CTLN lighter, RLOO darker.
+                shade = _appendix_loss_shade(
                     base_shade, base_shade - shade_half_window, base_shade + shade_half_window, loss_type)
             else:
                 # t in [0,1] -> adjustment in [-shade_half_window, +shade_half_window]
@@ -685,8 +701,8 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
         elif mod == "exact_count":
             lo, hi = shade_range_default
             if is_appendix_mode:
-                # Anchor CTL at midpoint; lighten CTLN within range.
-                shade = _appendix_lighten((lo + hi) / 2, lo, hi, loss_type)
+                # Loss-only shade: CTL at midpoint, CTLN lighter, RLOO darker.
+                shade = _appendix_loss_shade((lo + hi) / 2, lo, hi, loss_type)
             else:
                 shade = lo + t * (hi - lo)
             return cm.YlGnBu(shade)
@@ -718,12 +734,13 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             # In compact (final_main) mode, hardcode a single fixed gray shade so
             # the CTL baseline reads as the same color across figures regardless
             # of which other LRs happen to appear in the experiment set.
-            # In appendix mode, anchor CTL at the midpoint shade and lighten CTLN.
+            # In appendix mode, the gray shade encodes loss only: CTL at the
+            # midpoint (gray), CTLN lighter, RLOO darkened toward black.
             lo, hi = shade_range_default
             if _final_plots_enabled():
                 shade = (lo + hi) / 2
             elif is_appendix_mode:
-                shade = _appendix_lighten((lo + hi) / 2, lo, hi, props["loss_type"])
+                shade = _appendix_loss_shade((lo + hi) / 2, lo, hi, props["loss_type"])
             else:
                 shade = lo + t * (hi - lo)
             color_list.append(cm.Greys(shade))
@@ -766,9 +783,12 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
             # For CTL/CTLN, annealed and non-annealed CFN share a marker so CFN
             # reads as a single category in the legend.  For RLOO, annealed CFN
             # gets its own marker (MARKER_CFN_ANNEALED_REINF) to distinguish
-            # from non-annealed RLOO+CFN on the frontier plots.
+            # from non-annealed RLOO+CFN on the frontier plots — except in appendix
+            # mode, where RLOO+CFN always uses the right-pointing triangle
+            # (MARKER_CFN_ANNEALED_REINF) so CFN reads as a single RLOO category
+            # regardless of annealing.
             if props["loss_type"] == "RLOO":
-                if props["cfn_annealed"]:
+                if is_appendix_mode or props["cfn_annealed"]:
                     marker_list.append(MARKER_CFN_ANNEALED_REINF)
                 else:
                     marker_list.append(MARKER_CFN_REINF)
@@ -806,24 +826,34 @@ def generate_method_linestyles_from_prefixes(load_prefixes_to_use):
     The method key is the sorted tuple of detected modifications (plus a flag for
     CFN annealing so "CFN" and "annealed CFN" get different styles).
 
+    In final_appendix mode the loss type is added to the key so CTL and RLOO of
+    the same method get distinct line patterns. Combined with the loss-encoded
+    colors from generate_visual_style_from_prefixes (CTL vs darker RLOO), each of
+    the CTL/RLOO x {exploration, tempering, baseline} lines is then distinct in
+    both color and pattern.
+
     Returns:
         linestyle_list: list parallel to load_prefixes_to_use with a matplotlib
         linestyle per experiment.
     """
     linestyle_options = ["solid", "dashed", "dotted", "dashdot", (5, (10, 3)),
                          (0, (3, 5, 1, 5)), (0, (1, 1)), (0, (5, 1)), (0, (1, 3))]
+    appendix_mode = _final_plots_mode() == "final_appendix"
     method_to_ls = {}
     linestyle_list = []
     for prefix_list in load_prefixes_to_use:
         first_prefix = prefix_list[0] if prefix_list else ""
         props = _parse_experiment_properties(first_prefix)
         # Method key: sorted modifications, plus annealing flags that should get
-        # their own linestyle (annealed CFN vs. non-annealed CFN).
+        # their own linestyle (annealed CFN vs. non-annealed CFN). In appendix mode
+        # the loss type is appended so CTL and RLOO of the same method differ.
         key = (
             tuple(sorted(props["modifications"])),
             props.get("cfn_annealed", False),
             props.get("entropy_annealed", False),
         )
+        if appendix_mode:
+            key = key + (props["loss_type"],)
         if key not in method_to_ls:
             method_to_ls[key] = linestyle_options[len(method_to_ls) % len(linestyle_options)]
         linestyle_list.append(method_to_ls[key])
