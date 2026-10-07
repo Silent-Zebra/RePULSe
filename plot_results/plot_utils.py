@@ -36,6 +36,7 @@ MARKER_CTLN_TEMPERING = MarkerStyle("d", transform=Affine2D().rotate_deg(90))
 # Marker constants for loss types (used by semantic styling)
 MARKER_CTL = "o"
 MARKER_CTLN = "x"
+MARKER_CTLU = "2"  # tri_up (unfilled) — used for CTL with uniform negative weights (ctl_uniformneg)
 MARKER_REINF = "s"  # square
 MARKER_LOSS_UNKNOWN = "D"
 MARKER_EXACT_COUNT = "*"
@@ -281,7 +282,7 @@ def _parse_experiment_properties(prefix):
     uses this to blend colors from all detected modifications.
 
     Returns a dict with:
-        loss_type: "CTL", "CTLN", "RLOO", or None
+        loss_type: "CTL", "CTLN", "CTLU", "RLOO", or None
         modifications: ordered list of detected modifications. Detection priority
             (preserved from the legacy first-match chain): cfn, exact_count, mixture,
             entropy, beta_annealed.
@@ -308,6 +309,8 @@ def _parse_experiment_properties(prefix):
     # Loss type
     if "_ctln_" in prefix:
         loss_type = "CTLN"
+    elif "_ctlu_" in prefix:
+        loss_type = "CTLU"
     elif "_ctl_" in prefix:
         loss_type = "CTL"
     elif "_reinf_" in prefix:
@@ -629,6 +632,7 @@ def generate_visual_style_from_prefixes(load_prefixes_to_use):
     loss_marker = {
         "CTL": MARKER_CTL,
         "CTLN": MARKER_CTLN,
+        "CTLU": MARKER_CTLU,
         "RLOO": MARKER_REINF,
         None: MARKER_LOSS_UNKNOWN,
     }
@@ -1038,7 +1042,7 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=""):
     for a in load_prefixes_to_use:
         prefix = a[0]
         props = _parse_experiment_properties(prefix)
-        loss_type_str = props["loss_type"]  # "CTL", "CTLN", "RLOO", or None
+        loss_type_str = props["loss_type"]  # "CTL", "CTLN", "CTLU", "RLOO", or None
 
         # Per-modification fragments. Tempering schedules (beta / threshold annealing)
         # are still handled once in the shared tail (just before the LR fragments) so
@@ -1122,12 +1126,15 @@ def generate_labels_from_prefixes(load_prefixes_to_use, final_plots=""):
             label_parts.insert(0, f"REINFORCE (reward transform, alpha={rt_alpha}, beta={rt_beta})")
         elif loss_type_str is not None:
             # In compact (final_main) mode the "CTL" tag is treated as the default
-            # and dropped from the legend (CTLN/RLOO are kept since they differ
+            # and dropped from the legend (CTLN/CTLU/RLOO are kept since they differ
             # from the default). In appendix mode CTLN is renamed to DPG.
+            # CTLU (CTL with uniform negative weights) is shown as "CTL(U)" in all modes.
             if not (is_compact and loss_type_str == "CTL"):
                 display_name = loss_type_str
                 if is_appendix and loss_type_str == "CTLN":
                     display_name = "DPG"
+                elif loss_type_str == "CTLU":
+                    display_name = "CTL(U)"
                 label_parts.insert(0, display_name)
 
         # Check for mixeval prefix
