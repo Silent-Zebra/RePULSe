@@ -1,6 +1,6 @@
-# Improving Coverage in Probabilistic Inference for Language Models
+# Mode Collapse and Hard-to-Find Modes in Probabilistic Inference and RL for Language Models
 
-This is the codebase for "Improving Coverage in Probabilistic Inference for Language Models".
+This is the codebase for "Mode Collapse and Hard-to-Find Modes in Probabilistic Inference and RL for Language Models".
 
 Paper link: TBD
 
@@ -265,8 +265,6 @@ The package is organized as:
 - `paper_figs/style.py`, `paper_figs/plots.py`: figure style and plotting functions; `paper_figs/stats.py`: bootstrap CIs (seeded, so outputs are deterministic) and significance tests.
 
 To add a run, add a `Run` to the relevant setting in `experiments.py` and rebuild that setting's cache (`python -m paper_figs build <setting>`). To add a figure, add a `Figure` to `figures.py`. Note that adding runs with `in_logz_pool=True` changes the log Z estimate for that setting, which shifts the KL values of all its runs by a constant.
-
-The older `plot_results/plot_results.py` script (configured by editing `load_prefixes_to_use` and `figname_modifier` in the file and run with `python plot_results/plot_results.py`) is kept for exploratory plots.
 
 
 # NOTE: This is built on top of the [RePULSe repo](https://github.com/Silent-Zebra/RePULSe), which itself is a fork of the [OpenRLHF repo](https://github.com/OpenRLHF/OpenRLHF).
