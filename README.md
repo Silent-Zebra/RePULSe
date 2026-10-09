@@ -8,7 +8,7 @@ Paper link: TBD
 
 Will vary depending on your setup/cluster. When running commands, can avoid using the --adam_offload flag, if you run into issues with building DeepSpeedCPUAdam.
 
-## Example commands for Vector cluster
+## Example commands for cluster A
 
 On cluster: first consider deleting cache if the below commands don't work: ```rm -rf ~/.cache```
 
@@ -29,7 +29,7 @@ python
 from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
 ```
 
-## Example commands for Compute Canada cluster:
+## Example commands for cluster B
 
 ```
 rm -rf ~/.cache
@@ -56,7 +56,7 @@ pip install -r requirements.txt --no-index
 pip install flash-attn --no-build-isolation
 ```
 
-## Example commands for DCS cluster (using conda):
+## Example commands for cluster C (using conda)
 
 ```
 source /pkgs/anaconda310/etc/profile.d/conda.sh
