@@ -151,3 +151,11 @@ core
 */checkpoint/*
 
 outputs/*
+
+
+# paper_figs per-setting data cache (rebuild with: python -m paper_figs build)
+paper_figs/cache/
+paper_figs/out/
+
+# local-only files (e.g. archived one-off regression checks for paper_figs)
+local_archive/
